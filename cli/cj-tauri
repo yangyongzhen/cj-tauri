@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# cj-tauri CLI：仓颉版 Tauri 脚手架（对标 create-tauri-app / tauri-cli）
+# 用法：
+#   cj-tauri create <name>         创建新项目（含前端模板 + capability + 构建脚本）
+#   cj-tauri dev                   开发运行（当前项目）
+#   cj-tauri build                 构建产物
+#   cj-tauri run                   运行已构建产物
+#
+# 环境：需要 CANGJIE_HOME 或 PATH 中有 cjc/cjpm；依赖 WebKitGTK 4.1。
+
+set -euo pipefail
+
+# ===== 路径解析 =====
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRAMEWORK_ROOT="$(dirname "$SCRIPT_DIR")"
+NATIVE_DIR="$FRAMEWORK_ROOT/native"
+CJ_ENV="$FRAMEWORK_ROOT/cj-env.sh"
+
+# 加载仓颉环境
+if [ -f "$CJ_ENV" ]; then
+  # shellcheck disable=SC1091
+  source "$CJ_ENV"
+fi
+
+# stdx 路径（动态库优先，静态库兜底）
+STDX_DIR="$(find "$HOME/.cangjie/stdx" -maxdepth 3 -type d -path "*/dynamic/stdx" 2>/dev/null | head -1)"
+if [ -z "$STDX_DIR" ]; then
+  STDX_DIR="$(find "$HOME/.cangjie/stdx" -maxdepth 3 -type d -path "*/static/stdx" 2>/dev/null | head -1)"
+fi
+
+usage() {
+  cat <<'EOF'
+cj-tauri — 仓颉版 Tauri CLI
+
+用法:
+  cj-tauri create <name>    创建新项目
+  cj-tauri dev              开发运行（当前项目）
+  cj-tauri build            构建当前项目
+  cj-tauri run              运行已构建产物
+  cj-tauri help             显示帮助
+
+环境要求:
+  - 仓颉 SDK（cjc/cjpm）在 PATH 或 CANGJIE_HOME
+  - libwebkit2gtk-4.1-dev（Linux）
+EOF
+}
+
+need_cjpm() {
+  if ! command -v cjpm >/dev/null 2>&1; then
+    echo "错误: 找不到 cjpm，请先 source cj-env.sh 或设置 PATH" >&2
+    exit 1
+  fi
+}
+
+ld_path() {
+  local ld="$NATIVE_DIR"
+  if [ -n "$STDX_DIR" ]; then
+    ld="$ld:$STDX_DIR"
+  fi
+  if [ -n "${LD_LIBRARY_PATH:-}" ]; then
+    ld="$ld:$LD_LIBRARY_PATH"
+  fi
+  echo "$ld"
+}
+
+# ===== create =====
+cmd_create() {
+  local name="${1:-}"
+  if [ -z "$name" ]; then
+    echo "用法: cj-tauri create <name>" >&2
+    exit 1
+  fi
+  # 仓颉包名须小驼峰（cjpm 限制）
+  local pkg
+  pkg="$(echo "$name" | sed -E 's/[-_]([a-z])/\1/g; s/^(.)/\U\1/; s/^(.)/\L\1/')"
+  pkg="$(echo "$pkg" | sed -E 's/^(.)/\L\1/')"
+
+  if [ -d "$name" ]; then
+    echo "错误: 目录 $name 已存在" >&2
+    exit 1
+  fi
+  mkdir -p "$name/src" "$name/capabilities" "$name/ui"
+
+  # cjpm.toml
+  cat > "$name/cjpm.toml" <<EOF
+[package]
+  cjc-version = "1.0.5"
+  name = "$pkg"
+  description = "cj-tauri 应用"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = "-L$NATIVE_DIR -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+  package-configuration = {}
+
+[dependencies]
+  cjTauri = { path = "$FRAMEWORK_ROOT" }
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["$STDX_DIR"]
+EOF
+
+  # capabilities/default.json
+  cat > "$name/capabilities/default.json" <<'EOF'
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["greet", "system:version", "system:ping", "system:echo"],
+  "events": []
+}
+EOF
+
+  # src/main.cj
+  cat > "$name/src/main.cj" <<EOF
+package $pkg
+
+import cjTauri.*
+import stdx.encoding.json.*
+import std.fs.File
+
+public class GreetCommand <: CommandHandler {
+    public init() {}
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        var name = "world"
+        if (let Some(n) <- args.get("name")) {
+            match (n.kind()) {
+                case JsonKind.JsString => name = n.asString().getValue()
+                case _ => ()
+            }
+        }
+        return JsonString("Hello, \${name}!")
+    }
+}
+
+main(): Int64 {
+    let app = TauriApp()
+        .register("greet", GreetCommand())
+
+    let capJson = JsonValue.fromStr(String.fromUtf8(File.readFrom("capabilities/default.json")))
+    app.addCapabilityJson(capJson)
+
+    let html = String.fromUtf8(File.readFrom("ui/index.html"))
+    app.run(html)
+    return 0
+}
+EOF
+
+  # ui/index.html
+  cat > "$name/ui/index.html" <<'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>cj-tauri app</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee;
+         display: flex; flex-direction: column; align-items: center; padding-top: 60px; }
+  h1 { color: #7ce7ff; }
+  .card { background: #16213e; border-radius: 12px; padding: 24px 32px; width: 420px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  input, button { font-size: 15px; padding: 8px 12px; border-radius: 8px; border: none; }
+  input { flex: 1; margin-right: 8px; background: #0f3460; color: #eee; }
+  button { background: #e94560; color: #fff; cursor: pointer; }
+  .row { display: flex; margin: 12px 0; }
+  #result { margin-top: 16px; min-height: 24px; font-size: 16px; }
+</style>
+</head>
+<body>
+  <h1>cj-tauri</h1>
+  <div class="card">
+    <p>你的第一个仓颉版 Tauri 应用</p>
+    <div class="row">
+      <input id="name" placeholder="输入名字" value="world">
+      <button id="btn">greet</button>
+    </div>
+    <div id="result">等待 invoke…</div>
+  </div>
+  <script>
+    function waitBridge(cb) {
+      if (window.__CJ_TAURI__) { cb(window.__CJ_TAURI__); }
+      else { setTimeout(function () { waitBridge(cb); }, 100); }
+    }
+    waitBridge(function (tauri) {
+      document.getElementById('btn').onclick = function () {
+        var name = document.getElementById('name').value || 'world';
+        tauri.invoke('greet', { name: name })
+          .then(function (data) {
+            document.getElementById('result').textContent = 'invoke OK: ' + data;
+          })
+          .catch(function (err) {
+            document.getElementById('result').textContent = 'invoke FAIL: ' + err.message;
+          });
+      };
+    });
+  </script>
+</body>
+</html>
+EOF
+
+  echo "已创建项目 $name/"
+  echo "  下一步: cd $name && cj-tauri dev"
+}
+
+# ===== dev / build / run =====
+cmd_dev() {
+  need_cjpm
+  echo "== 构建 =="
+  cjpm build
+  echo "== 运行（${DISPLAY:-无 DISPLAY，需 X server}）=="
+  export LD_LIBRARY_PATH="$(ld_path)"
+  exec ./target/release/bin/main
+}
+
+cmd_build() {
+  need_cjpm
+  cjpm build
+  echo "构建完成: target/release/bin/main"
+}
+
+cmd_run() {
+  export LD_LIBRARY_PATH="$(ld_path)"
+  exec ./target/release/bin/main
+}
+
+# ===== 入口 =====
+case "${1:-}" in
+  create) cmd_create "${2:-}" ;;
+  dev) cmd_dev ;;
+  build) cmd_build ;;
+  run) cmd_run ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac

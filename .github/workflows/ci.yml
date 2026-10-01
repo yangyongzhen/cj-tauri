@@ -1,0 +1,21 @@
+# GitHub Actions：静态门禁（与 .atomgit/workflows/ci.yml 同一份检查）
+#
+# 与 AtomGit 侧一致：不装仓颉 SDK，只跑不需要 SDK 的静态检查。
+# 完整门禁（cjpm build + 单元测试）需要 SDK 镜像，见 AGENTS.md §7 的待办。
+name: static checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Static checks
+        run: bash scripts/check-static.sh

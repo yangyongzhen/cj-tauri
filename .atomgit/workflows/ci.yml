@@ -1,0 +1,26 @@
+# AtomGit 流水线：静态门禁
+#
+# 为什么只跑静态检查、不跑 cjpm build / cjpm test：
+#   本平台没有预装仓颉 SDK 与 stdx（且需要 WebView2 SDK 才能构建 C 桥），
+#   而静态检查（版本一致性、文档围栏、模板占位符、脚本编码、构建产物）不需要 SDK 就能跑，
+#   能在 PR 阶段拦住最常见的一类问题。带 SDK 的完整构建门禁见 AGENTS.md §7 的待办。
+#
+# 坑：runs-on 的标签随平台可用镜像而变。此处用 ubuntu-latest；
+#     若 AtomGit 上只有别的镜像（如 euleros-2.10.1），改这一行即可。
+name: static checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码（含完整历史，供 git ls-files 检查）
+        uses: actions/checkout@v4
+
+      - name: 静态门禁
+        run: bash scripts/check-static.sh

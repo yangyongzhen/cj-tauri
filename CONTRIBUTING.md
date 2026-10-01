@@ -67,6 +67,17 @@ bash scripts/test.sh --filter invoke    # 参数透传给 cjpm test
 Windows 上如果测试二进制报 `0xC0000135`，是桥的 DLL 不在 `PATH` 里——`scripts/test.sh` 已经处理，
 手写命令时记得把 `native/` 与 `native/webview2/` 加进去。
 
+### 提交前自检
+
+```bash
+bash scripts/check-static.sh    # 不需要 SDK：版本一致 / 文档围栏 / 模板占位符 / 脚本编码 / 构建产物
+bash scripts/test.sh            # 需要 SDK：框架单元测试
+```
+
+两条流水线（`.atomgit/workflows/ci.yml` 与 `.github/workflows/ci.yml`）在 push 与 PR 时跑的就是
+`check-static.sh`——它是**不需要仓颉 SDK** 的那一半门禁，所以能在任何 runner 上跑。
+需要 SDK 的 `cjpm build` 与单元测试暂时还没进 CI（缺预装仓颉的镜像），本地提交前务必自己跑一遍。
+
 ### 版本与自检
 
 ```bash
@@ -96,7 +107,8 @@ docs: document the capability loader
 ## 提交 PR
 
 1. Fork 本仓库并创建功能分支
-2. 本地跑通 `cjpm build`（必要时含 CLI / 示例）、`bash scripts/test.sh` 与 `bash scripts/check-version.sh`
+2. 本地跑通 `cjpm build`（必要时含 CLI / 示例）、`bash scripts/test.sh`、`bash scripts/check-static.sh`
+   与 `bash scripts/check-version.sh`
 3. 在 `CHANGELOG.md` 的 `[Unreleased]` 段登记行为变更，并同步受影响的 `README.md` / `docs/使用文档.md`
 4. 推送并创建 Pull Request，写清变更动机、验证方式，以及**哪些平台/场景未验证**
 5. 本仓双托管：`origin` 挂了 AtomGit 与 GitHub 两条 pushurl，一次 `git push origin main` 同步两仓。

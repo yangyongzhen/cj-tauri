@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './App.css';   // 与 app-vue 模板等价的样式（React 没有 SFC，样式走独立的 css）
 
 // 桥（window.__CJ_TAURI__）由宿主注入，注入时机随平台/页面来源而异：Linux 宿主注入在文档开始，
 // 但发行态单文件里的内联 <script type="module"> 解析完就执行，谁先谁后与加载方式有关。

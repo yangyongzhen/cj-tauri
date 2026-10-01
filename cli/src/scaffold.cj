@@ -232,7 +232,7 @@ func cmdCreate(nameArg: String, tpl: String): Int64 {
     if (exists(joinPath(joinPath(targetDir, "ui"), "package.json"))) {
         println("")
         println("提示: 该模板前端用 Vite；首次 cj-tauri dev 会自动 npm install 并起 dev server")
-        println("      （页面走 CJ_TAURI_DEV_URL，改了 .vue 不重启应用就能看到效果）。")
+        println("      （页面走 CJ_TAURI_DEV_URL，改 ui/src 下的前端源码不重启应用就能看到效果）。")
     }
     return 0
 }

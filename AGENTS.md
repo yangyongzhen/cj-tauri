@@ -1,14 +1,17 @@
 # cj-tauri 项目开发规范（AGENTS.md）
 
 > 本文件是本项目的**开发契约**：人类开发者与 AI 助手共同遵守，由 agent 自动加载注入。
-> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.3.0**（2026-10-01），与 `CHANGELOG.md` 同步维护。
+> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.4.0**（2026-10-01），与 `CHANGELOG.md` 同步维护。
+> 当前进度、未完成项与本机环境坑见 `docs/进度记录.md`（交接用）。
 
 ## 0. 项目定位
 
 用华为仓颉语言实现的类 Tauri 2 混合开发框架：**仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS）**。
 
 三件套对标关系：WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
-配套仓颉原生脚手架 CLI 与工程模板 `cli/templates/app/`。
+配套仓颉原生脚手架 CLI 与工程模板：`cli/templates/app/`（内联 HTML 的零 Node 样板，`create` 缺省用它）、
+`cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者带 `ui/` 前端工程，
+`cj-tauri dev` 会接管它们的 Vite dev server（`CJ_TAURI_DEV_URL`）。
 平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、鸿蒙 ArkWeb 为架构预留位。
 
 ## 1. 交付门禁
@@ -95,7 +98,7 @@
 
 ## 6. 版本与发版
 
-- 语义化版本。0.x 阶段：新增能力进中间位（0.2.0 → 0.3.0），修复进末位（0.3.0 → 0.3.1）。当前 **0.3.0**。
+- 语义化版本。0.x 阶段：新增能力进中间位（0.3.0 → 0.4.0），修复进末位（0.4.0 → 0.4.1）。当前 **0.4.0**。
 - 必须同步的四个位置（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
   1. `cjpm.toml` 的 `version`（框架包）
   2. `cli/cjpm.toml` 的 `version` 与 `cli/src/project.cj` 的 `cliVersion()`（`--version` / `info` 打印它）

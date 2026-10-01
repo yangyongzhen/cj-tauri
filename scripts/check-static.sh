@@ -27,7 +27,7 @@ bad() { printf '  FAIL  %s\n' "$1"; fails=$((fails + 1)); }
 # ---------------------------------------------------------------- 1. 版本号
 section "版本号一致"
 if bash scripts/check-version.sh; then
-    ok "四个位置与 CHANGELOG 一致"
+    ok "五个位置与 CHANGELOG 一致"
 else
     bad "版本号不一致（明细见上）"
 fi

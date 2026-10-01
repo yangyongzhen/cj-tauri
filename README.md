@@ -131,6 +131,29 @@ cj-tauri/
 - Windows：mingw gcc + WebView2 Runtime（Win11 自带）+ WebView2 SDK（仅编译桥时需要）；
   Linux：`libwebkit2gtk-4.1-dev`、`libgtk-3-dev`。
 
+### 用 npm 安装（跨平台，推荐）
+
+```bash
+npx cj-tauri create myapp          # 免安装，直接跑
+cd myapp
+npx cj-tauri dev
+
+npm i -g cj-tauri                  # 或全局安装，之后直接 cj-tauri <子命令>
+```
+
+npm 包把「平台差异 + 仓颉环境自检 + CLI 本体的获取」收进一个入口：Windows / Linux / Git Bash 同一条命令，
+不再分 `.bat` 与 `.sh`。CLI 本体优先用包内预编译二进制（`prebuilt/<平台-架构>/`），没有就用本机 `cjpm` 构建一次，
+缓存到 `~/.cache/cj-tauri/<版本>/`（Windows 为 `%LOCALAPPDATA%\cj-tauri`），不往安装目录写产物；
+找不到仓颉 SDK 时直接给出安装说明与 `CANGJIE_HOME` 示例（退出码 1），而不是 `cjpm: command not found`。
+仓库内的 `cli/cj-tauri.sh` / `cli/cj-tauri.bat` 仍然可用（开发 / CI 用）。
+
+打包与发布（发布需 npm 账号 2FA）：
+
+```bash
+bash scripts/npm-pack.sh            # 只打包 → dist-npm/cj-tauri-<版本>.tgz
+bash scripts/npm-pack.sh --publish  # 打包并发布到 npm
+```
+
 ### Windows 上跑起来（本机验证组合）
 
 cjc 1.2.0 + WebView2 Runtime 122.0.2365.106 + WebView2 SDK 1.0.2365.46：
@@ -332,6 +355,16 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、
 > Linux 端用 GTK 的 `gtk_window_set_icon_from_file`，两端均已实机验证（见上两节末行）。
+
+npm 包（2026-10-02，Node v22.22.0 / npm 10.9.4；`bash scripts/npm-pack.sh` → `npm i ./dist-npm/cj-tauri-0.4.0.tgz`）：
+
+| 验证项 | 结果 |
+|---|---|
+| 打包 | ✅ `cj-tauri-0.4.0.tgz` 1.2 MB / 55 文件（框架源码 + CLI 源码与模板 + `prebuilt/linux-x64/cj-tauri`）；`node_modules` / `dist` / `target` 未进包 |
+| 预编译分支 | ✅ `cj-tauri info` 用包内 `prebuilt/linux-x64/cj-tauri`，框架根解析为安装目录，stdx / SDK / cjpm / 运行时全部就位 |
+| 源码构建回落 | ✅ 删掉 `prebuilt/` 并清缓存后：`正在构建 CLI 本体（cjpm build）` → 缓存到 `~/.cache/cj-tauri/0.4.0/linux-x64/`；再次运行命中缓存不再构建 |
+| `create` 链路 | ✅ 生成的 `myapp/cjpm.toml` 框架依赖指向安装目录；在生成的工程里 `cj-tauri info` 正常 |
+| 缺 SDK 提示 | ✅ SDK 目录里没有 `cjpm` 时给出安装说明 + `CANGJIE_HOME` 示例，退出码 1；`--version` 不依赖 SDK，返回 `cj-tauri 0.4.0` |
 
 ## 仓库与推送
 

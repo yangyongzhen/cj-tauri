@@ -7,6 +7,7 @@
 #   2. cli/cjpm.toml          CLI 包 version
 #   3. cli/src/project.cj     cliVersion() 的返回值（--version / info 打印它）
 #   4. src/version.cj         CJ_TAURI_VERSION（system:version 命令返回它）
+#   5. npm/package.json       npm 包 version（npx cj-tauri --version 在无 SDK 时用它）
 #
 # 不参与校验：examples/hello/cjpm.toml 与模板生成工程的 version —— 那是各应用自己的版本。
 #
@@ -21,6 +22,7 @@ ver_of_toml() { grep -m1 -oE '^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]
 ver_of_changelog() { grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 ver_of_cli_cj() { sed -n '/func cliVersion/,/^}/p' "$1" | grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 ver_of_version_cj() { grep -m1 -oE 'CJ_TAURI_VERSION[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+ver_of_json() { grep -m1 -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 
 EXPECT="$(ver_of_changelog CHANGELOG.md)"
 if [ -z "$EXPECT" ]; then
@@ -45,6 +47,7 @@ check "cjpm.toml"           "$(ver_of_toml cjpm.toml)"
 check "cli/cjpm.toml"       "$(ver_of_toml cli/cjpm.toml)"
 check "cli/src/project.cj"  "$(ver_of_cli_cj cli/src/project.cj)"
 check "src/version.cj"      "$(ver_of_version_cj src/version.cj)"
+check "npm/package.json"    "$(ver_of_json npm/package.json)"
 
 if [ "$rc" -eq 0 ]; then
     echo "[OK] 版本号一致"

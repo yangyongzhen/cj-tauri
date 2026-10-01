@@ -1,0 +1,42 @@
+{
+  "name": "cj-tauri",
+  "version": "0.4.0",
+  "description": "仓颉版 Tauri：用仓颉写桌面应用后端的类 Tauri 框架脚手架 CLI（WebView 宿主 + IPC 双向桥 + 能力安全模型，Windows / Linux）",
+  "keywords": [
+    "cangjie",
+    "仓颉",
+    "tauri",
+    "webview",
+    "desktop",
+    "cli",
+    "scaffold"
+  ],
+  "license": "MIT",
+  "bin": {
+    "cj-tauri": "bin/cj-tauri.js"
+  },
+  "files": [
+    "bin/",
+    "prebuilt/",
+    "src/",
+    "native/",
+    "cli/",
+    "cjpm.toml",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://atomgit.com/qq8864/cj-tauri.git"
+  },
+  "homepage": "https://atomgit.com/qq8864/cj-tauri#readme",
+  "bugs": {
+    "url": "https://atomgit.com/qq8864/cj-tauri/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

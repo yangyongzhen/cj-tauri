@@ -64,6 +64,8 @@ bash scripts/test.sh --filter invoke    # 参数透传给 cjpm test
 ```
 
 测试不创建窗口，纯逻辑，可在无 GUI 的环境跑。改动涉及 IPC 分发、能力校验、版本常量时，请先让它们全绿。
+用例写在 `src/tests/`（子包 `package cjTauri.tests`），`src/` 根只放框架源码：`cjpm` 只收集包内源目录里的
+测试文件，把用例放到仓库根的 `tests/` 会被静默跳过（0 个用例）；子包能访问父包符号，新增用例直接加文件即可。
 Windows 上如果测试二进制报 `0xC0000135`，是桥的 DLL 不在 `PATH` 里——`scripts/test.sh` 已经处理，
 手写命令时记得把 `native/` 与 `native/webview2/` 加进去。
 

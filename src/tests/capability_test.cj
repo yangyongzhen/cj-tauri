@@ -1,5 +1,6 @@
-package cjTauri
+package cjTauri.tests
 
+import cjTauri.*
 import std.collection.*
 import stdx.encoding.json.*
 import std.unittest.*

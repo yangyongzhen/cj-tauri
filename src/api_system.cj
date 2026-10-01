@@ -22,9 +22,9 @@ public class SystemCommands <: CommandHandler {
     private func version(): JsonValue {
         var obj = JsonObject()
         obj.put("name", JsonString("cj-tauri"))
-        obj.put("version", JsonString("0.1.0"))
+        obj.put("version", JsonString(CJ_TAURI_VERSION))
         obj.put("cangjie", JsonString("1.0.5"))
-        obj.put("platform", JsonString("linux"))
+        obj.put("platform", JsonString(currentPlatform()))
         return obj
     }
 

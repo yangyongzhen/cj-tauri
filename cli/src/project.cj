@@ -8,8 +8,9 @@ import std.process.*
 import std.fs.*
 import std.collection.*
 
+/** CLI 版本：须与 cli/cjpm.toml 的 version、CHANGELOG 顶部版本一致（scripts/check-version.sh 校验） */
 func cliVersion(): String {
-    return "0.1.0"
+    return "0.3.0"
 }
 
 /** 一次命令所需的路径上下文 */

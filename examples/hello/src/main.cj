@@ -154,6 +154,11 @@ main(): Int64 {
       tauri.invoke('system:ping')
         .then(function (d) { report('system:ping OK: ' + d); checkFinish(); })
         .catch(function (e) { report('system:ping FAIL: ' + e.message); checkFinish(); });
+      // 内置命令 system:version：返回 {name, version, cangjie, platform}
+      // （platform 必须是当前宿主平台，不是写死的 linux）
+      tauri.invoke('system:version')
+        .then(function (d) { report('system:version OK: ' + JSON.stringify(d)); checkFinish(); })
+        .catch(function (e) { report('system:version FAIL: ' + e.message); checkFinish(); });
       tauri.invoke('system:rm')
         .then(function (d) { report('DENY-FAIL system:rm => ' + JSON.stringify(d)); checkFinish(); })
         .catch(function (e) { report('DENY-OK system:rm: ' + e.message); checkFinish(); });

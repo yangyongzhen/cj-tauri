@@ -27,7 +27,12 @@ static cj_on_destroy_fn g_on_destroy = NULL;
 static GtkWidget *g_window = NULL;
 static GtkWidget *g_view = NULL;
 static char *g_pending_html = NULL;
+/* 页面来源二选一：cj_bridge_load_url 设 URL，cj_bridge_start 设 HTML；两者都设时 URL 优先 */
+static char *g_pending_url = NULL;
 static pthread_mutex_t g_js_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* 前端 __CJ_TAURI__.reload() 的控制消息：宿主级操作，不经过 IPC hub（与 BRIDGE_JS 里的字面量保持一致） */
+#define CJT_RELOAD_MSG "__cj_tauri_reload__"
 
 /* JS 投递队列（FIFO）：每条 JS 独立执行，防止覆盖 */
 typedef struct js_node {
@@ -83,6 +88,44 @@ static gboolean open_devtools_idle(gpointer d) {
 
 void cj_bridge_open_devtools(void) {
     g_idle_add(open_devtools_idle, NULL);
+}
+
+/* 运行期切页面 / 重载：投递到 GTK 线程（仓颉线程禁止直接调 webkit） */
+static gboolean load_url_idle(gpointer d) {
+    char *url = (char *)d;
+    if (g_view && url) {
+        webkit_web_view_load_uri(WEBKIT_WEB_VIEW(g_view), url);
+    }
+    free(url);
+    return FALSE;
+}
+
+static gboolean reload_idle(gpointer d) {
+    if (g_view) {
+        webkit_web_view_reload(WEBKIT_WEB_VIEW(g_view));
+    }
+    return FALSE;
+}
+
+/* 按 URL 加载页面（http(s):// 或 file://）：
+ *   - cj_bridge_start 之前调用：只记下 URL，宿主就绪时加载（与 HTML 二选一，URL 优先）；
+ *   - 启动之后调用：投递到 GTK 线程重新导航（运行期切页面）。
+ * 空 URL 忽略。 */
+void cj_bridge_load_url(const char *url) {
+    if (!url || !url[0]) {
+        return;
+    }
+    free(g_pending_url);
+    g_pending_url = strdup(url);
+    fprintf(stderr, "[cj-bridge] load url: %s\n", url);
+    if (g_view) {
+        g_idle_add(load_url_idle, strdup(url));
+    }
+}
+
+/* 重新加载当前页面：投递到 GTK 线程执行 */
+void cj_bridge_reload(void) {
+    g_idle_add(reload_idle, NULL);
 }
 
 /* 窗口配置（标题 / 尺寸）：必须在 cj_bridge_start 之前调用 */
@@ -160,6 +203,13 @@ static void on_script_message(WebKitUserContentManager *mgr,
                               WebKitJavascriptResult *result, gpointer ud) {
     JSCValue *v = webkit_javascript_result_get_js_value(result);
     char *s = jsc_value_to_string(v);
+    /* 前端 __CJ_TAURI__.reload()：宿主控制消息，不进 IPC hub */
+    if (s && strcmp(s, CJT_RELOAD_MSG) == 0) {
+        fprintf(stderr, "[cj-bridge] frontend requested reload\n");
+        g_idle_add(reload_idle, NULL);
+        g_free(s);
+        return;
+    }
     if (g_on_message) {
         g_on_message(s);
     }
@@ -201,6 +251,10 @@ static const char *BRIDGE_JS =
     "    },"
     "    emit: function (event, payload) {"
     "      post({ type: 'emit', event: event, payload: payload || {} });"
+    "    },"
+    "    reload: function () {"
+    "      /* 与 CJT_RELOAD_MSG 保持一致：宿主拦截后不会进 IPC hub */"
+    "      window.webkit.messageHandlers.cjtauri.postMessage('__cj_tauri_reload__');"
     "    },"
     "    _dispatch: function (msg) {"
     "      if (!msg) return;"
@@ -262,7 +316,10 @@ static void *gtk_thread_main(void *arg) {
     gtk_widget_show_all(g_window);
     g_ready = 1;
 
-    if (g_pending_html) {
+    /* 页面来源：URL 优先（cj_bridge_load_url），否则内联 HTML（cj_bridge_start） */
+    if (g_pending_url) {
+        webkit_web_view_load_uri(WEBKIT_WEB_VIEW(g_view), g_pending_url);
+    } else if (g_pending_html) {
         webkit_web_view_load_html(WEBKIT_WEB_VIEW(g_view), g_pending_html, NULL);
     }
 
@@ -281,7 +338,8 @@ static void *gtk_thread_main(void *arg) {
 }
 
 void cj_bridge_start(const char *html) {
-    if (html) {
+    if (html && html[0]) { /* 空串表示「页面由 cj_bridge_load_url 指定」 */
+        free(g_pending_html);
         g_pending_html = strdup(html);
     }
     pthread_t t;

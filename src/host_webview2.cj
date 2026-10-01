@@ -15,6 +15,14 @@ foreign func cj_bridge_start(html: CString): Unit
 
 @When[os == "Windows"]
 @C
+foreign func cj_bridge_load_url(url: CString): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_reload(): Unit
+
+@When[os == "Windows"]
+@C
 foreign func cj_bridge_set_window(title: CString, width: Int32, height: Int32): Unit
 
 @When[os == "Windows"]
@@ -77,7 +85,10 @@ public class WebView2Host <: WebViewHost {
         }
     }
 
-    public func start(html: String): Unit {
+    /**
+     * 启动前的共同装配：回调槽位、窗口配置、图标
+     */
+    private func prepareHost(): Unit {
         HostGlobals.onMessage = this.onMessage
         HostGlobals.onDestroy = this.onDestroy
         var devTools: Int32 = 0
@@ -91,7 +102,28 @@ public class WebView2Host <: WebViewHost {
             cj_bridge_set_devtools(devTools)
             // 窗口图标：空串表示系统默认图标
             cj_bridge_set_icon(LibC.mallocCString(this.config.iconPath))
+        }
+    }
+
+    public func start(html: String): Unit {
+        this.prepareHost()
+        unsafe {
             cj_bridge_start(LibC.mallocCString(html))
+        }
+    }
+
+    public func startUrl(url: String): Unit {
+        this.prepareHost()
+        unsafe {
+            cj_bridge_load_url(LibC.mallocCString(url))
+            // 空串表示「页面由 cj_bridge_load_url 指定」（同一次启动里 URL 优先）
+            cj_bridge_start(LibC.mallocCString(""))
+        }
+    }
+
+    public func reload(): Unit {
+        unsafe {
+            cj_bridge_reload()
         }
     }
 

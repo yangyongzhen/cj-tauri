@@ -16,6 +16,21 @@ public interface WebViewHost {
     public func start(html: String): Unit
 
     /**
+     * 按 URL 启动宿主（http(s):// 或 file://）
+     *
+     * 与 start(html) 二选一：同一次启动里两者都设时 URL 优先。
+     * URL 页面有真实来源，相对路径资源、动态 import、前端路由才成立（file:// 下禁止 fetch/XHR）。
+     */
+    public func startUrl(url: String): Unit
+
+    /**
+     * 重新加载当前页面（整页 reload，对标浏览器刷新）
+     *
+     * 页面尚未加载时为空操作；开发者工具里的刷新按钮等价于此。
+     */
+    public func reload(): Unit
+
+    /**
      * 应用窗口配置（标题 / 尺寸）；必须在 start() 之前调用，宿主据此创建窗口
      */
     public func setWindowConfig(config: WindowConfig): Unit

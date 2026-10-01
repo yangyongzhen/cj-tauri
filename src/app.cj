@@ -1,5 +1,6 @@
 package cjTauri
 
+import std.env.*
 import stdx.encoding.json.*
 
 /**
@@ -77,9 +78,54 @@ public class TauriApp {
     }
 
     /**
+     * 读取 CLI 注入的前端 dev server 地址（CJ_TAURI_DEV_URL）
+     *
+     * 模板可以直接用：
+     *   if (let Some(url) <- TauriApp.devUrl()) { app.runUrl(url) }
+     *   else { app.run(html) }
+     */
+    public static func devUrl(): Option<String> {
+        if (let Some(v) <- getVariable("CJ_TAURI_DEV_URL")) {
+            if (v.size > 0) {
+                return Some(v)
+            }
+        }
+        return None
+    }
+
+    /**
      * 启动应用：装配 IPC → 启动 WebView 宿主 → 阻塞运行
      */
     public func run(html: String): Unit {
+        this.prepare()
+        this.host.start(html)
+        this.waitForExit()
+    }
+
+    /**
+     * 按 URL 启动应用（http(s):// 或 file://）
+     *
+     * 与 run(html) 平行：同一段装配，只是页面来源换成 URL。有了真实来源，
+     * 相对路径资源、动态 import、前端路由才成立（file:// 页面禁止 fetch/XHR）。
+     * 开发时可配合 TauriApp.devUrl() 指向前端 dev server（Vite 的 HMR 就这样接进来）。
+     */
+    public func runUrl(url: String): Unit {
+        this.prepare()
+        this.host.startUrl(url)
+        this.waitForExit()
+    }
+
+    /**
+     * 重新加载当前页面（整页 reload，等价于浏览器刷新）
+     */
+    public func reload(): Unit {
+        this.host.reload()
+    }
+
+    /**
+     * 启动前的装配：内置命令、capability、宿主回调与 sink
+     */
+    private func prepare(): Unit {
         if (this.started) {
             throw CommandException("app already started")
         }
@@ -110,9 +156,12 @@ public class TauriApp {
         }
 
         this.host.setWindowConfig(this.config)
-        this.host.start(html)
+    }
 
-        // 阻塞等待：宿主事件循环退出（窗口关闭 / quit）后返回
+    /**
+     * 阻塞等待：宿主事件循环退出（窗口关闭 / quit）后返回
+     */
+    private func waitForExit(): Unit {
         var spins: Int64 = 0
         while (!this.host.shouldQuit() && spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
             sleep(Duration.millisecond * 10)

@@ -41,6 +41,8 @@ static ICoreWebView2Controller *g_controller = NULL;
 static ICoreWebView2Environment *g_environment = NULL;
 static ICoreWebView2 *g_webview = NULL;
 static char *g_pending_html = NULL;
+/* 页面来源二选一：cj_bridge_load_url 设 URL，cj_bridge_start 设 HTML；两者都设时 URL 优先 */
+static char *g_pending_url = NULL;
 static volatile LONG g_ready = 0;
 static volatile LONG g_should_quit = 0;
 
@@ -65,6 +67,11 @@ static int g_js_lock_init = 0;
 #define WM_CJT_FLUSH (WM_APP + 1)
 #define WM_CJT_QUIT (WM_APP + 2)
 #define WM_CJT_DEVTOOLS (WM_APP + 3)
+#define WM_CJT_LOAD_URL (WM_APP + 4)
+#define WM_CJT_RELOAD (WM_APP + 5)
+
+/* 前端 __CJ_TAURI__.reload() 的控制消息：宿主级操作，不经过 IPC hub（与 BRIDGE_JS 里的字面量保持一致） */
+#define CJT_RELOAD_MSG "__cj_tauri_reload__"
 
 /* ===== UTF-8 <-> UTF-16 ===== */
 
@@ -116,6 +123,10 @@ static const wchar_t *BRIDGE_JS =
     L"    },"
     L"    emit: function (event, payload) {"
     L"      post({ type: 'emit', event: event, payload: payload || {} });"
+    L"    },"
+    L"    reload: function () {"
+    L"      /* 与 CJT_RELOAD_MSG 保持一致：宿主拦截后不会进 IPC hub */"
+    L"      window.chrome.webview.postMessage('__cj_tauri_reload__');"
     L"    },"
     L"    _dispatch: function (msg) {"
     L"      if (!msg) return;"
@@ -260,16 +271,24 @@ static HRESULT STDMETHODCALLTYPE ctrl_Invoke(
     g_webview->lpVtbl->add_NavigationCompleted(g_webview, &g_nav_handler, NULL);
 
     InterlockedExchange(&g_ready, 1);
-    fprintf(stderr, "[cj-bridge] controller ready, loading HTML\n");
+    fprintf(stderr, "[cj-bridge] controller ready, loading page\n");
 
-    if (g_pending_html) {
+    /* 页面来源：URL 优先（cj_bridge_load_url），否则内联 HTML（cj_bridge_start） */
+    if (g_pending_url) {
+        wchar_t *w = utf8_to_wide(g_pending_url);
+        if (w) {
+            log_hr("Navigate", g_webview->lpVtbl->Navigate(g_webview, w));
+            free(w);
+        }
+        fprintf(stderr, "[cj-bridge] url navigation requested: %s\n", g_pending_url);
+    } else if (g_pending_html) {
         wchar_t *w = utf8_to_wide(g_pending_html);
         if (w) {
             log_hr("NavigateToString", g_webview->lpVtbl->NavigateToString(g_webview, w));
             free(w);
         }
+        fprintf(stderr, "[cj-bridge] html navigation requested\n");
     }
-    fprintf(stderr, "[cj-bridge] html navigation requested\n");
     /* 宿主就绪前可能已有排队脚本（如启动即推送的事件） */
     flush_js();
     return S_OK;
@@ -303,6 +322,13 @@ static HRESULT STDMETHODCALLTYPE msg_Invoke(
         char *utf8 = wide_to_utf8(payload);
         CoTaskMemFree(payload);
         if (utf8) {
+            /* 前端 __CJ_TAURI__.reload()：宿主控制消息，不进 IPC hub */
+            if (strcmp(utf8, CJT_RELOAD_MSG) == 0) {
+                fprintf(stderr, "[cj-bridge] frontend requested reload\n");
+                if (g_hwnd) PostMessageW(g_hwnd, WM_CJT_RELOAD, 0, 0);
+                free(utf8);
+                return S_OK;
+            }
             fprintf(stderr, "[cj-bridge] js -> native (%d bytes)\n", (int)strlen(utf8));
             if (g_on_message) g_on_message(utf8); /* 回调仓颉（IPC hub） */
             free(utf8);
@@ -370,6 +396,20 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_webview->lpVtbl->OpenDevToolsWindow(g_webview);
         }
         return 0;
+    case WM_CJT_RELOAD:
+        if (g_webview) {
+            log_hr("Reload", g_webview->lpVtbl->Reload(g_webview));
+        }
+        return 0;
+    case WM_CJT_LOAD_URL: {
+        /* lParam 是跨线程传过来的宽字符串，由宿主线程负责释放 */
+        wchar_t *w = (wchar_t *)lp;
+        if (g_webview && w) {
+            log_hr("Navigate", g_webview->lpVtbl->Navigate(g_webview, w));
+        }
+        free(w);
+        return 0;
+    }
     case WM_DESTROY:
         InterlockedExchange(&g_should_quit, 1);
         if (g_on_destroy) g_on_destroy();
@@ -577,10 +617,41 @@ CJ_BRIDGE_API void cj_bridge_open_devtools(void) {
     PostMessageW(g_hwnd, WM_CJT_DEVTOOLS, 0, 0);
 }
 
+/* 按 URL 加载页面（http(s):// 或 file://）：
+ *   - cj_bridge_start 之前调用：只记下 URL，宿主就绪时用 Navigate 加载（与 HTML 二选一，URL 优先）；
+ *   - 启动之后调用：投递到宿主线程重新导航（运行期切页面）。
+ * 空 URL 忽略。 */
+CJ_BRIDGE_API void cj_bridge_load_url(const char *url) {
+    if (!url || !url[0]) {
+        return;
+    }
+    if (g_hwnd) {
+        wchar_t *w = utf8_to_wide(url);
+        if (!w) return;
+        free(g_pending_url);
+        g_pending_url = _strdup(url);
+        fprintf(stderr, "[cj-bridge] load url (runtime): %s\n", url);
+        PostMessageW(g_hwnd, WM_CJT_LOAD_URL, 0, (LPARAM)w);
+        return;
+    }
+    free(g_pending_url);
+    g_pending_url = _strdup(url);
+    fprintf(stderr, "[cj-bridge] load url: %s\n", url);
+}
+
+/* 重新加载当前页面：投递到宿主线程执行（WebView2 要求在其 UI 线程上调用） */
+CJ_BRIDGE_API void cj_bridge_reload(void) {
+    if (!g_hwnd) {
+        fprintf(stderr, "[cj-bridge] reload ignored: window not ready\n");
+        return;
+    }
+    PostMessageW(g_hwnd, WM_CJT_RELOAD, 0, 0);
+}
+
 CJ_BRIDGE_API void cj_bridge_start(const char *html) {
     HANDLE t;
     DWORD tid = 0;
-    if (html) {
+    if (html && html[0]) { /* 空串表示「页面由 cj_bridge_load_url 指定」 */
         free(g_pending_html);
         g_pending_html = _strdup(html);
     }

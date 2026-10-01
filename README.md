@@ -6,7 +6,13 @@
 > **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
 >
-> 仓库：<https://atomgit.com/qq8864/cj-tauri>（`git clone https://atomgit.com/qq8864/cj-tauri.git`）
+> 仓库（双托管，一次 `git push` 同步推送两个远端）：
+> **AtomGit** <https://atomgit.com/qq8864/cj-tauri> ｜ **GitHub** <https://github.com/yangyongzhen/cj-tauri>
+>
+> ```bash
+> git clone https://atomgit.com/qq8864/cj-tauri.git          # AtomGit（国内直连推荐）
+> git clone git@github.com:yangyongzhen/cj-tauri.git         # GitHub（需已配置 SSH 密钥）
+> ```
 
 ## 运行效果
 
@@ -245,3 +251,25 @@ Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2
 | `cj-tauri create` 生成工程 | ✅ 6 个文件，`cjpm.toml` 路径转义、mingw 链接段、stdx 段均正确 |
 | 新工程 `cj-tauri build` | ✅ `target/release/bin/main.exe` |
 | 新工程 `cj-tauri run` | ✅ 窗口显示，JS→原生双向通信（62/48 字节消息，`ExecuteScript hr=0x0`） |
+
+## 仓库与推送
+
+同一份代码双托管，**一次 `git push` 同时推送两个远端**——`origin` 挂了两条 pushurl，fetch 仍只走 AtomGit：
+
+| 远端 | 地址 | 说明 |
+|---|---|---|
+| AtomGit | `https://atomgit.com/qq8864/cj-tauri.git` | 主仓，`origin` 的 fetch 源 |
+| GitHub | `git@github.com:yangyongzhen/cj-tauri.git` | 同步备份，走 SSH |
+
+```bash
+git remote -v                 # origin 会列出两条 push 地址
+git push                      # 一次推送 → AtomGit + GitHub 各推一次
+git push github main          # 只想推 GitHub 时用命名远端
+git ls-remote origin main     # 核对两个仓的 commit SHA 是否一致
+git ls-remote github main
+```
+
+> **本机 GitHub 推送用的是专用密钥**：`~/.ssh/id_ed25519_yangyongzhen`，经 `~/.ssh/config` 的
+> `Host github-yangyongzhen` 别名（`IdentityFile` + `IdentitiesOnly yes`）与其它账号的 `id_rsa` 隔离，
+> 因此本仓 remote 写成 `git@github-yangyongzhen:yangyongzhen/cj-tauri.git`。换机器克隆时用常规
+> `git@github.com:yangyongzhen/cj-tauri.git`，把该机公钥加到 GitHub 账号即可。

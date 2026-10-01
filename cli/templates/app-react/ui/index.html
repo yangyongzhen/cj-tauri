@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{PROJECT_NAME}}</title>
+  <style>
+    /* 整页基础样式：组件样式在 App.css，这里只给页面底色，
+       调色板与零 Node 模板、examples/hello 一致（#16161d 深色底）。 */
+    :root { color-scheme: dark; }
+    body { margin: 0; padding: 24px; min-height: 100vh; background: #16161d; color: #e6e6e6;
+           font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  </style>
 </head>
 <body>
   <div id="root"></div>

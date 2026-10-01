@@ -297,7 +297,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | 远端 | 地址 | 说明 |
 |---|---|---|
 | AtomGit | `https://atomgit.com/qq8864/cj-tauri.git` | 主仓，`origin` 的 fetch 源 |
-| GitHub | `git@github.com:yangyongzhen/cj-tauri.git` | 同步备份，走 SSH |
+| GitHub | `https://github.com/yangyongzhen/cj-tauri.git` | 同步备份，走 HTTPS（内网/受限网络可在本地配置 URL 改写走代理） |
 
 ```bash
 git remote -v                 # origin 会列出两条 push 地址

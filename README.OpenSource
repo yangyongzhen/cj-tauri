@@ -1,0 +1,47 @@
+[
+    {
+        "Name": "Tauri",
+        "License": "MIT OR Apache-2.0",
+        "License File": "-",
+        "Version Number": "2.x",
+        "Owner": "Tauri Programme within The Commons Conservancy",
+        "Upstream URL": "https://github.com/tauri-apps/tauri",
+        "Description": "Reference architecture and front-end API shape that this framework mirrors (invoke / listen / emit, capability allow-lists, and the host / IPC / capability three-layer split). cj-tauri is an independent Cangjie implementation and includes no Tauri source code; the license texts live in the upstream repository."
+    },
+    {
+        "Name": "Cangjie SDK and stdx",
+        "License": "Apache-2.0 with Runtime Library Exception",
+        "License File": "-",
+        "Version Number": "1.2.0 (stdx 1.2.0.1)",
+        "Owner": "Huawei Technologies Co., Ltd.",
+        "Upstream URL": "https://cangjie-lang.cn/",
+        "Description": "Language toolchain (cjc / cjpm) and standard extension library required to build and run this framework. Not redistributed here: the SDK install directory ships its own LICENSE and third_party/ notices (LLVM, MinGW). Declared minimum compiler requirement is cjc-version = 1.0.5 in cjpm.toml."
+    },
+    {
+        "Name": "Microsoft Edge WebView2",
+        "License": "Microsoft Software License Terms",
+        "License File": "-",
+        "Version Number": "Runtime 122.0.2365.106 / SDK 1.0.2365.46",
+        "Owner": "Microsoft Corporation",
+        "Upstream URL": "https://developer.microsoft.com/microsoft-edge/webview2/",
+        "Description": "WebView runtime used by the Windows host backend (src/host_webview2.cj + native/bridge_win.c). The SDK is not redistributed here: native/build_win.bat copies headers and WebView2Loader.dll from the local SDK directory into native/webview2/, which is covered by the *.dll rule in .gitignore."
+    },
+    {
+        "Name": "WebKitGTK",
+        "License": "LGPL-2.1-or-later",
+        "License File": "-",
+        "Version Number": "Provided by the Linux distribution",
+        "Owner": "WebKitGTK project and contributors",
+        "Upstream URL": "https://webkitgtk.org/",
+        "Description": "WebView implementation used by the Linux host backend (native/bridge_linux.c via WebKit2GTK 3.0). Dynamically linked from the system and not redistributed here."
+    },
+    {
+        "Name": "GTK 3",
+        "License": "LGPL-2.1-or-later",
+        "License File": "-",
+        "Version Number": "Provided by the Linux distribution",
+        "Owner": "The GNOME Project",
+        "Upstream URL": "https://www.gtk.org/",
+        "Description": "Window and main-loop toolkit called directly by the Linux bridge (gtk_init / gtk_window_new / gtk_main). Dynamically linked from the system and not redistributed here."
+    }
+]

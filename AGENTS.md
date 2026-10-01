@@ -98,6 +98,9 @@
 - **双仓双推**：`origin` 已挂两条 pushurl（AtomGit + GitHub），一次 `git push origin main` 同步两个托管；
   单推某仓用 `git push github main`。**不要只推一个仓**。tag 同理（`git push origin main --tags`）。
 - 文档与代码注释里引用托管地址一律用 **AtomGit**（`atomgit.com`），不要写其他托管站点。
+  唯一例外是功能必需的两处：`.github/workflows/` 下的 GitHub Actions workflow（npm trusted publishing 只支持
+  GitHub / GitLab / CircleCI 三家）；`npm/package.json` 的 `repository.url`（必须精确等于 GitHub 仓库名，
+  否则 npm 以 `E422` 拒绝发布）。
 - 不提交：`target/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
@@ -118,6 +121,16 @@
 - **不随项目版本走**：`examples/hello/cjpm.toml`、`cli/templates/app/cjpm.toml` —— 那是各应用自己的版本。
 - 发版步骤：CHANGELOG 的 `[Unreleased]` 改名成 `[x.y.z] - 日期` → 同步上面 1–3 → `check-version.sh` 全 `ok`
   → 提交 → 打 tag `vX.Y.Z` → `git push origin main --tags` 双推。
+- **npm 发布**：首版必须手工发（trusted publishing 的配置入口在 npm 的包设置页，包得先存在），绑定好之后
+  推 `v*` tag 由 `.github/workflows/npm-publish.yml` 自动发布：
+  1. 手工发首版：`npm login --registry=https://registry.npmjs.org/` 后 `bash scripts/npm-pack.sh --publish`
+     （需要账号 2FA；脚本固定官方 registry 并先做登录预检——本机 npm 常配成镜像，直接 `npm publish` 会发错地方）；
+  2. npmjs.com → 包 → Settings → **Trusted publishing** → 添加 GitHub Actions，三个字段逐字一致（大小写敏感，
+     且保存时不校验）：user/repo `yangyongzhen/cj-tauri`、workflow 文件名 `npm-publish.yml`，并**勾上
+     Allow npm publish**（2026-09-03 之后新建的配置默认只允许 `npm stage publish`，不勾则 CI 发布会 `E_STAGE_REQUIRED`）；
+  3. 同一页把 Publishing access 改成「Require two-factor authentication and disallow tokens」，此后只有 OIDC 能发；
+  4. 推 tag 即自动发布（OIDC 换短期凭据，**不需要任何 token**，自动附 provenance）。注意 CI 里没有仓颉 SDK，
+     **CI 打的包不含预编译 CLI**，用户首次运行在本机源码构建；要带 `prebuilt/` 就用本机 `npm-pack.sh` 发。
 
 ## 7. 交付检查清单
 

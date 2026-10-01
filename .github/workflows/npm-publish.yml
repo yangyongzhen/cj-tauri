@@ -1,0 +1,66 @@
+# GitHub Actions：用 npm trusted publishing（OIDC）发布 npm 包，全程不需要任何 token。
+#
+# 为什么必须挂在 GitHub：npm 的 trusted publishing 只支持 GitHub Actions / GitLab CI / CircleCI
+# 三家（自建 runner 不支持），且要求公开仓库才附带 provenance。本仓库在 GitHub 有镜像（见 AGENTS.md §5），
+# 所以这里出现 GitHub 地址属于功能必需——「文档与注释只引 AtomGit」的例外范围仅限本目录。
+#
+# 一次性前置（都在 npmjs.com 上手工做，配好之前本 workflow 必定失败）：
+#   1. 包得先存在：trusted publishing 的配置入口在「包设置页」，所以首版必须手工 `npm publish` 一次；
+#   2. 包设置 → Trusted publishing → 添加 GitHub Actions，三个字段逐字一致（大小写敏感，且 npm 保存时不校验）：
+#        Organization or user: yangyongzhen
+#        Repository:           cj-tauri
+#        Workflow filename:    npm-publish.yml
+#   3. 同一表单勾上 **Allow npm publish**。2026-09-03 之后新建的配置默认只允许 `npm stage publish`，
+#      不勾这条，下面的 `npm publish` 会被拒（E_STAGE_REQUIRED）。
+#
+# 触发方式：推 tag（`git push origin main --tags`），tag 名 vX.Y.Z 必须与包版本一致，下面有校验。
+# 注意：CI 里没有仓颉 SDK，打出来的包**不含预编译 CLI**，用户首次运行会在本机源码构建（既定回落路径）；
+# 本机 `bash scripts/npm-pack.sh` 打出的包才会带 prebuilt/。
+name: publish to npm
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  id-token: write   # OIDC 换取短期发布凭据，缺它必定 ENEEDAUTH
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest   # 只支持 GitHub 托管 runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'   # trusted publishing 要求 Node >= 22.14.0
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: 版本一致性（五处 + CHANGELOG）
+        run: bash scripts/check-version.sh
+
+      - name: tag 必须等于包版本
+        run: |
+          PKG="$(node -p "require('./npm/package.json').version")"
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$PKG" != "$TAG" ]; then
+            echo "tag $GITHUB_REF_NAME 与 npm/package.json 版本 $PKG 不一致" >&2
+            exit 1
+          fi
+          echo "版本 $PKG 与 tag 一致"
+
+      - name: 静态门禁
+        run: bash scripts/check-static.sh
+
+      - name: 打包
+        run: bash scripts/npm-pack.sh
+
+      - name: 发布
+        # 不打 --provenance：trusted publishing 会自动附带 provenance（公开仓库 + 公开包）
+        run: npm publish dist-npm/cj-tauri-*.tgz --access public --registry=https://registry.npmjs.org/
+
+      - name: 核对
+        run: npm view cj-tauri version --registry=https://registry.npmjs.org/

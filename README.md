@@ -73,6 +73,7 @@ cj-tauri/
 │   └── webview2/          # 与本机 Runtime 同代的 WebView2Loader.dll（构建时同步，不入库）
 ├── examples/hello/        # 示例应用（greet + tick 事件 + 越权演示）
 ├── examples/todo_check/   # 教程实战示例（待办清单，前端页面由 `extract.js` 从教程文档抽取）
+├── examples/vue_todo/     # todo_check 的 Vue 3 版（同一套命令与事件，前端是 Vite 工程）
 ├── cli/                   # 脚手架 CLI（仓颉实现，跨平台）
 │   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
 │   ├── cj-tauri.bat       # Windows 启动器
@@ -205,6 +206,11 @@ const tauri = window.__CJ_TAURI__;
 tauri.invoke('greet', { name: '仓颉' }).then(d => console.log(d));  // JS → 仓颉
 tauri.listen('tick', p => console.log(p));                          // 仓颉 → JS 事件
 ```
+
+> 桥由宿主注入（Linux `DOCUMENT_START`｜Windows document-created，都在页面脚本之前），但**注入时机属于实现细节**：
+> 发行态单文件里的内联 `<script type="module">` 与新宿主实现谁先谁后，不该由应用来赌。
+> 稳妥做法是初始化时**等桥出现**再 `invoke` / `listen`（`app-vue` / `app-react` 模板的 `waitForBridge` 即范例），
+> 不要在模块作用域直接读 `window.__CJ_TAURI__`。
 
 ## 能力安全模型
 

@@ -30,8 +30,8 @@
 
 - README 增「示例一览」章节：三个示例（`examples/hello` / `todo_check` / `vue_todo`）与三个工程模板
   （`cli/templates/app` / `app-vue` / `app-react`）的说明表，各配**发行态实机截图**
-  （`docs/example-hello.png`、`docs/example-todo-check.png`、`docs/example-vue-todo.png`、
-  `docs/template-app-vue.png`、`docs/template-app-react.png`，Linux / WebKitGTK，2026-10-02）；
+  （`docs/images/example-hello.png`、`docs/images/example-todo-check.png`、`docs/images/example-vue-todo.png`、
+  `docs/images/template-app-vue.png`、`docs/images/template-app-react.png`，Linux / WebKitGTK，2026-10-02）；
   并修正首页两处陈旧信息：版本号 `0.3.0` → `0.4.0`、`cli/templates/` 目录说明补全三个模板。
 
 ### Fixed

@@ -24,7 +24,7 @@
 
 ## 运行效果
 
-![cj-tauri hello 示例运行效果](docs/cj_tauri.png)
+![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
 
 *示例应用：深色主题卡片 UI，输入名字点 greet 触发 invoke，底部实时显示仓颉后端推送的 tick 事件。*
 
@@ -43,13 +43,13 @@
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
-![hello 示例运行截图：深色卡片 UI，greet 结果与 tick 事件](docs/example-hello.png)
+![hello 示例运行截图：深色卡片 UI，greet 结果与 tick 事件](docs/images/example-hello.png)
 
 `todo_check`（教程示例）与 `vue_todo`（Vue 3 工程版）——同一套待办命令，前者零 Node、后者用 Vite 工程：
 
-![todo_check 示例运行截图：待办清单，两条待办与计数](docs/example-todo-check.png)
+![todo_check 示例运行截图：待办清单，两条待办与计数](docs/images/example-todo-check.png)
 
-![vue_todo 示例运行截图：两条待办、事件计数与后端版本](docs/example-vue-todo.png)
+![vue_todo 示例运行截图：两条待办、事件计数与后端版本](docs/images/example-vue-todo.png)
 
 ### 前端工程模板
 
@@ -63,7 +63,7 @@
 
 | Vue 3 模板 | React 18 模板 |
 |---|---|
-| ![Vue 3 模板示例页面](docs/template-app-vue.png) | ![React 18 模板示例页面](docs/template-app-react.png) |
+| ![Vue 3 模板示例页面](docs/images/template-app-vue.png) | ![React 18 模板示例页面](docs/images/template-app-react.png) |
 
 ## 架构（对标 Tauri 三件套）
 
@@ -116,7 +116,7 @@ cj-tauri/
 │   ├── cj-tauri.bat       # Windows 启动器
 │   ├── src/               # CLI 源码：resolve / scaffold / project / main
 │   └── templates/         # 工程模板（占位符渲染，按宿主平台注入依赖与链接段）：app（零 Node）/ app-vue / app-react
-└── docs/                  # 使用文档 + 前端入门教程 + 技术方案 + 踩坑记录
+└── docs/                  # 使用文档 + 前端入门教程 + 技术方案 + 踩坑记录（截图统一放 docs/images/）
 ```
 
 > `cli/cj-tauri` 是早期 bash 版 CLI，功能已被 `cli/src` 的仓颉实现完全覆盖，保留仅作参考。

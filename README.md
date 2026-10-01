@@ -72,6 +72,7 @@ cj-tauri/
 │   ├── test_host_win.c    # Windows 桥隔离测试宿主
 │   └── webview2/          # 与本机 Runtime 同代的 WebView2Loader.dll（构建时同步，不入库）
 ├── examples/hello/        # 示例应用（greet + tick 事件 + 越权演示）
+├── examples/todo_check/   # 教程实战示例（待办清单，前端页面由 `extract.js` 从教程文档抽取）
 ├── cli/                   # 脚手架 CLI（仓颉实现，跨平台）
 │   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
 │   ├── cj-tauri.bat       # Windows 启动器

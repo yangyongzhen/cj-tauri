@@ -11,7 +11,7 @@
 > **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
 > ——同主题文档：[docs/仓颉版Tauri-介绍与使用指南.md](docs/仓颉版Tauri-介绍与使用指南.md)（指南体）、`docs/仓颉版Tauri-博客稿.md`（博客体）。
 >
-> 当前版本 **0.3.0**：变更记录见 [CHANGELOG.md](CHANGELOG.md)，开发规范见 [AGENTS.md](AGENTS.md)，
+> 当前版本 **0.4.0**：变更记录见 [CHANGELOG.md](CHANGELOG.md)，开发规范见 [AGENTS.md](AGENTS.md)，
 > 贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，依赖与许可信息见 [README.OpenSource](README.OpenSource)。
 >
 > 仓库（双托管，一次 `git push` 同步推送两个远端）：
@@ -27,6 +27,43 @@
 ![cj-tauri hello 示例运行效果](docs/cj_tauri.png)
 
 *示例应用：深色主题卡片 UI，输入名字点 greet 触发 invoke，底部实时显示仓颉后端推送的 tick 事件。*
+
+## 示例一览
+
+仓内 `examples/` 有三个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
+下面截图均为**发行态实机截图**（Linux / WebKitGTK，2026-10-02）。
+
+### 示例应用
+
+| 示例 | 说明 | 怎么跑 |
+|---|---|---|
+| [`examples/hello`](examples/hello) | 最小示例：`greet` 命令（`invoke`）+ `tick` 事件（仓颉 → JS）+ 越权调用被拒。页面 HTML 内联在 `src/main.cj`，**零 Node**。 | `cd examples/hello && cjpm build`，再按上方「运行仓内示例」启动；Windows 可直接 `run_win.bat` |
+| [`examples/todo_check`](examples/todo_check) | 《[前端入门教程](docs/前端入门教程.md)》的实战示例：待办清单（添加 / 删除 / 计数）。页面由 `extract.js` 从教程文档抽取，文档与代码同源。 | 同上；Windows 直接双击 `run.bat` |
+| [`examples/vue_todo`](examples/vue_todo) | 上面待办的 Vue 3 版：同一套 `todo:add` / `todo:remove` / `todo:list` 命令与 `todo:changed` 事件，前端换成独立的 Vite + Vue 3 工程（`ui/`）。 | 在 `examples/vue_todo` 下用仓库根的 `cli/cj-tauri.sh` 跑 `dev`（接管 Vite dev server，退出自动收掉）或 `build`（`vite-plugin-singlefile` 打成单个 `ui/dist/index.html`） |
+
+`hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
+
+![hello 示例运行截图：深色卡片 UI，greet 结果与 tick 事件](docs/example-hello.png)
+
+`todo_check`（教程示例）与 `vue_todo`（Vue 3 工程版）——同一套待办命令，前者零 Node、后者用 Vite 工程：
+
+![todo_check 示例运行截图：待办清单，两条待办与计数](docs/example-todo-check.png)
+
+![vue_todo 示例运行截图：两条待办、事件计数与后端版本](docs/example-vue-todo.png)
+
+### 前端工程模板
+
+| 模板 | 说明 |
+|---|---|
+| [`cli/templates/app`](cli/templates/app) | 缺省模板：HTML/CSS/JS 内联，零 Node，`cj-tauri create` 默认用它 |
+| [`cli/templates/app-vue`](cli/templates/app-vue) | Vue 3 + Vite：`cj-tauri create myapp --template vue` |
+| [`cli/templates/app-react`](cli/templates/app-react) | React 18 + Vite：`cj-tauri create myapp --template react` |
+
+两个 UI 模板的示例页面（版面逐像素一致：深色底、内容整列居中、卡片式；`greet` 走 `invoke`，`timer` 演示后端事件回投）：
+
+| Vue 3 模板 | React 18 模板 |
+|---|---|
+| ![Vue 3 模板示例页面](docs/template-app-vue.png) | ![React 18 模板示例页面](docs/template-app-react.png) |
 
 ## 架构（对标 Tauri 三件套）
 
@@ -78,7 +115,7 @@ cj-tauri/
 │   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
 │   ├── cj-tauri.bat       # Windows 启动器
 │   ├── src/               # CLI 源码：resolve / scaffold / project / main
-│   └── templates/app/     # 工程模板（占位符渲染，按宿主平台注入依赖与链接段）
+│   └── templates/         # 工程模板（占位符渲染，按宿主平台注入依赖与链接段）：app（零 Node）/ app-vue / app-react
 └── docs/                  # 使用文档 + 前端入门教程 + 技术方案 + 踩坑记录
 ```
 

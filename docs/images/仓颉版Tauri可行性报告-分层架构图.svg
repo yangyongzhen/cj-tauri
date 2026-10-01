@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="827" height="1169" viewBox="0 0 827 1169">
+<rect x="0" y="0" width="827" height="1169" fill="#F8FAFC"/>
+<rect x="90.0" y="80.0" width="640.0" height="115.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="410.0" y="111.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">前端应用层（Web 技术）</text>
+<rect x="90.0" y="215.0" width="640.0" height="135.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="410.0" y="246.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">IPC 与能力安全层</text>
+<rect x="90.0" y="370.0" width="640.0" height="135.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="410.0" y="401.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">仓颉后端层（核心逻辑）</text>
+<rect x="90.0" y="525.0" width="640.0" height="185.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="410.0" y="556.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">平台适配层（仓颉版 WRY / TAO）</text>
+<rect x="90.0" y="730.0" width="640.0" height="115.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="410.0" y="761.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">操作系统层</text>
+<rect x="163.0" y="128.0" width="500.0" height="45.0" rx="8" fill="#D1D5DB"/>
+<rect x="163.0" y="263.0" width="235.0" height="60.0" rx="8" fill="#D1D5DB"/>
+<rect x="418.0" y="263.0" width="235.0" height="60.0" rx="8" fill="#D1D5DB"/>
+<rect x="163.0" y="418.0" width="235.0" height="60.0" rx="8" fill="#D1D5DB"/>
+<rect x="418.0" y="418.0" width="235.0" height="60.0" rx="8" fill="#D1D5DB"/>
+<rect x="163.0" y="573.0" width="500.0" height="50.0" rx="8" fill="#D1D5DB"/>
+<rect x="163.0" y="643.0" width="500.0" height="50.0" rx="8" fill="#D1D5DB"/>
+<rect x="163.0" y="778.0" width="500.0" height="45.0" rx="8" fill="#D1D5DB"/>
+<rect x="93.0" y="873.0" width="640.0" height="50.0" rx="8" fill="#D1D5DB"/>
+<rect x="160.0" y="125.0" width="500.0" height="45.0" rx="8" fill="#0891B2"/>
+<rect x="160.0" y="260.0" width="235.0" height="60.0" rx="8" fill="#7C3AED"/>
+<rect x="415.0" y="260.0" width="235.0" height="60.0" rx="8" fill="#7C3AED"/>
+<rect x="160.0" y="415.0" width="235.0" height="60.0" rx="8" fill="#E99151"/>
+<rect x="415.0" y="415.0" width="235.0" height="60.0" rx="8" fill="#E99151"/>
+<rect x="160.0" y="570.0" width="500.0" height="50.0" rx="8" fill="#005D7B"/>
+<rect x="160.0" y="640.0" width="500.0" height="50.0" rx="8" fill="#005D7B"/>
+<rect x="160.0" y="775.0" width="500.0" height="45.0" rx="8" fill="#64748B"/>
+<rect x="90.0" y="870.0" width="640.0" height="50.0" rx="8" fill="#94A3B8"/>
+<path d="M 410.0,195.0 L 410.0,215.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="410.0,195.0 415.5,204.0 404.5,204.0" fill="#94A3B8"/>
+<polygon points="410.0,215.0 404.5,206.0 415.5,206.0" fill="#94A3B8"/>
+<path d="M 410.0,350.0 L 410.0,370.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="410.0,350.0 415.5,359.0 404.5,359.0" fill="#94A3B8"/>
+<polygon points="410.0,370.0 404.5,361.0 415.5,361.0" fill="#94A3B8"/>
+<path d="M 410.0,505.0 L 410.0,525.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="410.0,505.0 415.5,514.0 404.5,514.0" fill="#94A3B8"/>
+<polygon points="410.0,525.0 404.5,516.0 415.5,516.0" fill="#94A3B8"/>
+<path d="M 410.0,710.0 L 410.0,730.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="410.0,710.0 415.5,719.0 404.5,719.0" fill="#94A3B8"/>
+<polygon points="410.0,730.0 404.5,721.0 415.5,721.0" fill="#94A3B8"/>
+<text x="410.0" y="152.8" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">Web App（HTML / CSS / JS + React、Vue 等任意前端框架）</text>
+<text x="277.5" y="285.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">invoke / emit 双向桥</text>
+<text x="277.5" y="305.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">JS 调仓颉命令、仓颉推事件</text>
+<text x="532.5" y="285.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">能力权限校验</text>
+<text x="532.5" y="305.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">capability 最小权限白名单</text>
+<text x="277.5" y="440.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">命令注册与事件推送</text>
+<text x="277.5" y="460.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">@Command / 事件订阅</text>
+<text x="532.5" y="440.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">业务逻辑与系统能力</text>
+<text x="532.5" y="460.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">文件 / 网络 / 设备能力</text>
+<text x="410.0" y="590.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">WebView 宿主抽象</text>
+<text x="410.0" y="610.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">鸿蒙 ArkWeb / Linux webkitgtk / Windows WebView2</text>
+<text x="410.0" y="660.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">窗口与生命周期抽象</text>
+<text x="410.0" y="680.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">Ability 宿主 / 桌面窗口 / 托盘</text>
+<text x="410.0" y="802.8" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">HarmonyOS（前期优先）/ Linux / Windows / macOS</text>
+<text x="410.0" y="900.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">说明：前端页面由系统 WebView 渲染，应用不捆绑浏览器内核——体积小、启动快、权限可控</text>
+
+<text x="415.0" y="47.0" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="20" font-weight="700" fill="#2D3748">仓颉版 Tauri 框架分层架构图</text>
+</svg>

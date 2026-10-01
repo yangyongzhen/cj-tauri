@@ -20,13 +20,13 @@
 
 ### 图 1 仓颉版 Tauri 框架分层架构图
 
-![仓颉版 Tauri 框架分层架构图](仓颉版Tauri可行性报告-分层架构图.png)
+![仓颉版 Tauri 框架分层架构图](images/仓颉版Tauri可行性报告-分层架构图.png)
 
 ### 图 2 Tauri 三件套 → 仓颉版 Tauri 对照
 
-![Tauri 三件套对照图](仓颉版Tauri可行性报告-tauri对照图.png)
+![Tauri 三件套对照图](images/仓颉版Tauri可行性报告-tauri对照图.png)
 
-> 图片源文件为 `仓颉版Tauri可行性报告.drawio`（可拖入 draw.io / diagrams.net 继续编辑）；PNG 与 SVG 版本同目录存放。
+> 图片源文件为 `images/仓颉版Tauri可行性报告.drawio`（可拖入 draw.io / diagrams.net 继续编辑）；PNG 与 SVG 版本同目录存放。
 
 ---
 

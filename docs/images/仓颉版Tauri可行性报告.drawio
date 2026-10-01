@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2026-08-21T00:00:00.000Z" agent="drawio-chart" version="24.0.0">
+  <diagram name="layered-architecture" id="page-1-layered">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0" background="#F8FAFC">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="la-title" value="仓颉版 Tauri 框架分层架构图" style="text;html=0;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=20;fontStyle=1;fontColor=#2D3748;" vertex="1" parent="1">
+          <mxGeometry x="190" y="20" width="450" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-layer1" value="前端应用层（Web 技术）" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="80" width="640" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-web" value="Web App（HTML / CSS / JS + React、Vue 等任意前端框架）" style="rounded=1;whiteSpace=wrap;fillColor=#0891B2;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer1">
+          <mxGeometry x="160" y="125" width="500" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-layer2" value="IPC 与能力安全层" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="215" width="640" height="135" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-ipc-bridge" value="invoke / emit 双向桥&#xa;JS 调仓颉命令、仓颉推事件" style="rounded=1;whiteSpace=wrap;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer2">
+          <mxGeometry x="160" y="260" width="235" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-capability" value="能力权限校验&#xa;capability 最小权限白名单" style="rounded=1;whiteSpace=wrap;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer2">
+          <mxGeometry x="415" y="260" width="235" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-layer3" value="仓颉后端层（核心逻辑）" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="370" width="640" height="135" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-cmd" value="命令注册与事件推送&#xa;@Command / 事件订阅" style="rounded=1;whiteSpace=wrap;fillColor=#E99151;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer3">
+          <mxGeometry x="160" y="415" width="235" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-biz" value="业务逻辑与系统能力&#xa;文件 / 网络 / 设备能力" style="rounded=1;whiteSpace=wrap;fillColor=#E99151;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer3">
+          <mxGeometry x="415" y="415" width="235" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-layer4" value="平台适配层（仓颉版 WRY / TAO）" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="525" width="640" height="185" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-adapter" value="WebView 宿主抽象&#xa;鸿蒙 ArkWeb / Linux webkitgtk / Windows WebView2" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer4">
+          <mxGeometry x="160" y="570" width="500" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-window" value="窗口与生命周期抽象&#xa;Ability 宿主 / 桌面窗口 / 托盘" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer4">
+          <mxGeometry x="160" y="640" width="500" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-layer5" value="操作系统层" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="730" width="640" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-os" value="HarmonyOS（前期优先）/ Linux / Windows / macOS" style="rounded=1;whiteSpace=wrap;fillColor=#64748B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="la-layer5">
+          <mxGeometry x="160" y="775" width="500" height="45" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-note" value="说明：前端页面由系统 WebView 渲染，应用不捆绑浏览器内核——体积小、启动快、权限可控" style="rounded=1;whiteSpace=wrap;fillColor=#94A3B8;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="90" y="870" width="640" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;startArrow=classic;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="la-layer1" target="la-layer2" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;startArrow=classic;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="la-layer2" target="la-layer3" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;startArrow=classic;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="la-layer3" target="la-layer4" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="la-e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;startArrow=classic;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="la-layer4" target="la-layer5" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram name="tauri-comparison" id="page-2-comparison">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0" background="#F8FAFC">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="tc-title" value="Tauri 三件套 → 仓颉版 Tauri 对照" style="text;html=0;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=20;fontStyle=1;fontColor=#2D3748;" vertex="1" parent="1">
+          <mxGeometry x="190" y="20" width="450" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-left" value="Tauri（Rust + 系统 WebView）" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="90" width="320" height="410" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-wry" value="WRY + TAO&#xa;窗口创建 + WebView 渲染" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-left">
+          <mxGeometry x="120" y="150" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-ipc" value="IPC 消息桥&#xa;invoke / event / listen" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-left">
+          <mxGeometry x="120" y="270" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-cap" value="能力安全模型&#xa;capability 最小权限" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-left">
+          <mxGeometry x="120" y="390" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-right" value="仓颉版 Tauri（Cangjie + ArkWeb / 系统 WebView）" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontStyle=1;verticalAlign=top;spacingTop=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="420" y="90" width="320" height="410" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-arkweb" value="鸿蒙：ArkWeb + ArkUI 宿主&#xa;（arkweb_cangjie_wrapper）&#xa;桌面：系统 WebView 绑定（webview-sdk）" style="rounded=1;whiteSpace=wrap;fillColor=#E99151;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-right">
+          <mxGeometry x="450" y="150" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-bridge" value="invoke / emit 双向桥&#xa;JS 调仓颉命令、仓颉推事件" style="rounded=1;whiteSpace=wrap;fillColor=#E99151;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-right">
+          <mxGeometry x="450" y="270" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-perm" value="权限清单 + 校验层&#xa;URL / 接口能力白名单" style="rounded=1;whiteSpace=wrap;fillColor=#E99151;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="tc-right">
+          <mxGeometry x="450" y="390" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-e1" value="鸿蒙已验证&#xa;桌面待抽象" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="tc-wry" target="tc-arkweb" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-e2" value="已有雏形" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="tc-ipc" target="tc-bridge" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-e3" value="框架核心工作" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;endArrow=classic;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" source="tc-cap" target="tc-perm" parent="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-note" value="对照结论：鸿蒙单端要件已齐备，缺的是按 Tauri 架构组织起来；桌面端有社区雏形，需补窗口抽象与打包工程。" style="rounded=1;whiteSpace=wrap;fillColor=#94A3B8;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="150" y="540" width="530" height="70" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

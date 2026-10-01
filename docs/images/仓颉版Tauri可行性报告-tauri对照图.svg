@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="827" height="1169" viewBox="0 0 827 1169">
+<rect x="0" y="0" width="827" height="1169" fill="#F8FAFC"/>
+<rect x="90.0" y="90.0" width="320.0" height="410.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="250.0" y="121.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">Tauri（Rust + 系统 WebView）</text>
+<rect x="420.0" y="90.0" width="320.0" height="410.0" rx="8" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="8,4"/>
+<text x="580.0" y="111.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">仓颉版 Tauri（Cangjie + ArkWeb / 系</text>
+<text x="580.0" y="131.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="700" fill="#2D3748">统 WebView）</text>
+<rect x="123.0" y="153.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="123.0" y="273.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="123.0" y="393.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="453.0" y="153.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="453.0" y="273.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="453.0" y="393.0" width="260.0" height="80.0" rx="8" fill="#D1D5DB"/>
+<rect x="153.0" y="543.0" width="530.0" height="70.0" rx="8" fill="#D1D5DB"/>
+<rect x="120.0" y="150.0" width="260.0" height="80.0" rx="8" fill="#005D7B"/>
+<rect x="120.0" y="270.0" width="260.0" height="80.0" rx="8" fill="#005D7B"/>
+<rect x="120.0" y="390.0" width="260.0" height="80.0" rx="8" fill="#005D7B"/>
+<rect x="450.0" y="150.0" width="260.0" height="80.0" rx="8" fill="#E99151"/>
+<rect x="450.0" y="270.0" width="260.0" height="80.0" rx="8" fill="#E99151"/>
+<rect x="450.0" y="390.0" width="260.0" height="80.0" rx="8" fill="#E99151"/>
+<rect x="150.0" y="540.0" width="530.0" height="70.0" rx="8" fill="#94A3B8"/>
+<path d="M 380.0,190.0 L 450.0,190.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="450.0,190.0 441.0,195.5 441.0,184.5" fill="#94A3B8"/>
+<path d="M 380.0,310.0 L 450.0,310.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="450.0,310.0 441.0,315.5 441.0,304.5" fill="#94A3B8"/>
+<path d="M 380.0,430.0 L 450.0,430.0" fill="none" stroke="#94A3B8" stroke-width="2"/>
+<polygon points="450.0,430.0 441.0,435.5 441.0,424.5" fill="#94A3B8"/>
+<text x="250.0" y="185.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">WRY + TAO</text>
+<text x="250.0" y="205.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">窗口创建 + WebView 渲染</text>
+<text x="250.0" y="305.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">IPC 消息桥</text>
+<text x="250.0" y="325.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">invoke / event / listen</text>
+<text x="250.0" y="425.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">能力安全模型</text>
+<text x="250.0" y="445.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">capability 最小权限</text>
+<text x="580.0" y="164.9" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">鸿蒙：ArkWeb + ArkUI 宿主</text>
+<text x="580.0" y="185.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">（arkweb_cangjie_wrapper）</text>
+<text x="580.0" y="205.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">桌面：系统 WebView 绑定（webvie</text>
+<text x="580.0" y="225.6" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">w-sdk）</text>
+<text x="580.0" y="305.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">invoke / emit 双向桥</text>
+<text x="580.0" y="325.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">JS 调仓颉命令、仓颉推事件</text>
+<text x="580.0" y="425.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">权限清单 + 校验层</text>
+<text x="580.0" y="445.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">URL / 接口能力白名单</text>
+<text x="415.0" y="570.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">对照结论：鸿蒙单端要件已齐备，缺的是按 Tauri 架构组织起来；桌面端有</text>
+<text x="415.0" y="590.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#FFFFFF">社区雏形，需补窗口抽象与打包工程。</text>
+<rect x="371.5" y="172.8" width="87.0" height="40.5" fill="#F8FAFC"/>
+<text x="415.0" y="185.1" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#64748B">鸿蒙已验证</text>
+<text x="415.0" y="205.4" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#64748B">桌面待抽象</text>
+<rect x="379.0" y="302.9" width="72.0" height="20.2" fill="#F8FAFC"/>
+<text x="415.0" y="315.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#64748B">已有雏形</text>
+<rect x="364.0" y="422.9" width="102.0" height="20.2" fill="#F8FAFC"/>
+<text x="415.0" y="435.2" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="15" font-weight="400" fill="#64748B">框架核心工作</text>
+<text x="415.0" y="47.0" text-anchor="middle" font-family="Droid Sans Fallback, sans-serif" font-size="20" font-weight="700" fill="#2D3748">Tauri 三件套 → 仓颉版 Tauri 对照</text>
+</svg>

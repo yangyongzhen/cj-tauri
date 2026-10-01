@@ -22,6 +22,10 @@ foreign func cj_bridge_set_devtools(enabled: Int32): Unit
 
 @When[os == "Linux"]
 @C
+foreign func cj_bridge_set_icon(path: CString): Unit
+
+@When[os == "Linux"]
+@C
 foreign func cj_bridge_open_devtools(): Unit
 
 @When[os == "Linux"]
@@ -84,6 +88,8 @@ public class WebKitHost <: WebViewHost {
             cj_bridge_set_window(LibC.mallocCString(this.config.title),
                                  Int32(this.config.width), Int32(this.config.height))
             cj_bridge_set_devtools(devTools)
+            // 窗口图标：空串表示系统默认图标
+            cj_bridge_set_icon(LibC.mallocCString(this.config.iconPath))
             cj_bridge_start(LibC.mallocCString(html))
         }
     }

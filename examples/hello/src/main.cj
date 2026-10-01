@@ -72,8 +72,13 @@ main(): Int64 {
     eprintln("[hello] main start")
     // 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
     // 能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
+    // 窗口图标随工程走：examples/hello/icon.ico（由 scripts/make-demo-icon.js 生成），
+    // 路径按运行目录（本示例根）解析 —— 与 capabilities/、ui/ 的约定一致。
+    var winCfg = WindowConfig("cj-tauri hello", 1000, 700)
+    winCfg.iconPath = "icon.ico"
+
     let app = TauriApp()
-        .window(WindowConfig("cj-tauri hello", 1000, 700))
+        .window(winCfg)
         .register("greet", GreetCommand())
         .register("timer", TimerCommand())
         .register("report", ReportCommand())

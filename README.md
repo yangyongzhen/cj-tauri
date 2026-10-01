@@ -58,7 +58,7 @@ cj-tauri/
 │   ├── ipc_hub.cj         # 命令注册/分发/校验中心
 │   ├── capability.cj      # 能力安全模型
 │   ├── capability_loader.cj # capabilities/ 目录自动扫描加载
-│   ├── window.cj          # 窗口配置模型（标题/尺寸/devtools）
+│   ├── window.cj          # 窗口配置模型（标题/尺寸/devtools/图标）
 │   ├── api_system.cj      # 内置系统命令
 │   ├── host.cj            # WebViewHost 抽象接口
 │   ├── host_webkit.cj     # Linux WebKit 宿主（FFI + C 桥）
@@ -187,7 +187,7 @@ public class GreetCommand <: CommandHandler {
 main(): Int64 {
     // 2. 装配：窗口配置 + 注册命令（对标 tauri::Builder 与 tauri.conf.json 的 app.windows）
     let app = TauriApp()
-        .window(WindowConfig("hello", 1000, 700))   // 标题 / 宽 / 高；cfg.devTools = false 可禁用开发者工具
+        .window(WindowConfig("hello", 1000, 700))   // 标题 / 宽 / 高；cfg.devTools = false、cfg.iconPath = "icon.ico"
         .register("greet", GreetCommand())
     // 3. 启动（阻塞）：能力清单由 run() 自动扫描 capabilities/ 目录
     //    （也可显式 app.loadCapabilities(dir) 或 app.addCapabilityJson(json)，见「能力安全模型」）
@@ -236,9 +236,12 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 使用文档：`docs/使用文档.md`
 - ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
   [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
-- 🔜 P1：capability 文件自动加载、窗口配置化、devtools 开关
+- ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
+- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，23 个用例）与 `scripts/check-static.sh`
+  （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
 - 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView
-- 🔜 P3：前端框架模板（React/Vue）、插件体系
+- 🔜 P3：热重载与前端框架模板（React/Vue，需先给宿主加 `loadUrl`）、插件体系
+  （设计草案见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)）
 
 ## 验证结果
 
@@ -263,6 +266,11 @@ Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2
 | `cj-tauri create` 生成工程 | ✅ 6 个文件，`cjpm.toml` 路径转义、mingw 链接段、stdx 段均正确 |
 | 新工程 `cj-tauri build` | ✅ `target/release/bin/main.exe` |
 | 新工程 `cj-tauri run` | ✅ 窗口显示，JS→原生双向通信（62/48 字节消息，`ExecuteScript hr=0x0`） |
+| 窗口图标 `cfg.iconPath = "icon.ico"` | ✅ 桥日志 `set icon: path=icon.ico` → `window icon: path=icon.ico loaded (big=0x… small=0x…)`，标题栏 / 任务栏 / Alt-Tab 生效 |
+| 单元测试 `bash scripts/test.sh` | ✅ 23/23 通过（IPC 分发、能力校验、版本常量） |
+
+> 窗口图标是 2026-10-02 补的：Windows 端已实机验证（上表末两行）；Linux 端填了 GTK 的
+> `gtk_window_set_icon_from_file`，但本机没有 GTK/WebKit 工具链，**尚未验证**。
 
 ## 仓库与推送
 

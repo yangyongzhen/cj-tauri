@@ -48,6 +48,8 @@ static volatile LONG g_should_quit = 0;
 static wchar_t *g_win_title_w = NULL;
 static int g_win_w = 900;
 static int g_win_h = 640;
+/* 窗口图标（.ico 路径，cj_bridge_set_icon 注入；NULL = 用系统默认图标） */
+static wchar_t *g_win_icon_w = NULL;
 static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） */
 
 /* JS 投递队列（FIFO）：每条 JS 独立执行，防止覆盖 */
@@ -412,6 +414,8 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     pfn_create_env create_env = NULL;
     WNDCLASSEXW wc;
     MSG msg;
+    HICON icon_big = NULL;   /* 窗口图标（g_win_icon_w 非空时才加载） */
+    HICON icon_small = NULL;
 
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     fprintf(stderr, "[cj-bridge] host thread started\n");
@@ -445,12 +449,36 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     }
     fprintf(stderr, "[cj-bridge] WebView2Loader loaded\n");
 
+    /* 窗口图标：在 RegisterClassExW 之前加载并挂到窗口类上，
+       这样任务栏与 Alt-Tab 也用同一个图标；失败只是回到系统默认图标，不阻断启动。 */
+    if (g_win_icon_w) {
+        char *p8 = wide_to_utf8(g_win_icon_w);
+        icon_big = (HICON)LoadImageW(NULL, g_win_icon_w, IMAGE_ICON,
+                                     GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON),
+                                     LR_LOADFROMFILE);
+        icon_small = (HICON)LoadImageW(NULL, g_win_icon_w, IMAGE_ICON,
+                                       GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
+                                       LR_LOADFROMFILE);
+        /* GetLastError 只在失败时才有意义：成功时它是上一次调用的残留值（常见 6 = 无效句柄） */
+        if (icon_big && icon_small) {
+            fprintf(stderr, "[cj-bridge] window icon: path=%s loaded (big=%p small=%p)\n",
+                    p8 ? p8 : "(null)", (void *)icon_big, (void *)icon_small);
+        } else {
+            fprintf(stderr, "[cj-bridge] window icon FAILED: path=%s hIcon=%p/%p err=%lu\n",
+                    p8 ? p8 : "(null)", (void *)icon_big, (void *)icon_small,
+                    (unsigned long)GetLastError());
+        }
+        free(p8);
+    }
+
     ZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = wnd_proc;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.lpszClassName = WINDOW_CLASS;
+    wc.hIcon = icon_big;    /* 可空：空则用系统默认 */
+    wc.hIconSm = icon_small;
     RegisterClassExW(&wc);
 
     g_hwnd = CreateWindowExW(0, WINDOW_CLASS,
@@ -460,6 +488,13 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     if (!g_hwnd) {
         fprintf(stderr, "[cj-bridge] CreateWindowExW failed: %lu\n", GetLastError());
         goto done;
+    }
+    /* 类图标只管新窗口的默认值；对已存在的窗口再显式设一次，标题栏立刻生效 */
+    if (icon_big) {
+        SendMessageW(g_hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon_big);
+    }
+    if (icon_small) {
+        SendMessageW(g_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon_small);
     }
     /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理） */
     fprintf(stderr, "[cj-bridge] window created, requesting WebView2 environment\n");
@@ -513,6 +548,18 @@ CJ_BRIDGE_API void cj_bridge_set_window(const char *title, int width, int height
     }
     if (width > 0) g_win_w = width;
     if (height > 0) g_win_h = height;
+}
+
+/* 窗口图标（.ico 路径）：必须在 cj_bridge_start 之前调用；空路径 = 用系统默认图标 */
+CJ_BRIDGE_API void cj_bridge_set_icon(const char *path) {
+    fprintf(stderr, "[cj-bridge] set icon: path=%s\n", (path && path[0]) ? path : "(default)");
+    if (g_win_icon_w) {
+        free(g_win_icon_w);
+        g_win_icon_w = NULL;
+    }
+    if (path && path[0]) {
+        g_win_icon_w = utf8_to_wide(path);
+    }
 }
 
 /* 开发者工具开关：enabled=0 表示禁止打开（须在 cj_bridge_start 之前调用） */

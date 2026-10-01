@@ -43,6 +43,8 @@ static volatile int g_should_quit = 0;
 static char *g_win_title = NULL;
 static int g_win_w = 900;
 static int g_win_h = 640;
+/* 窗口图标路径（cj_bridge_set_icon 注入；NULL = 系统默认图标） */
+static char *g_win_icon = NULL;
 static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） */
 
 /* ===== 仓颉 → C 桥 ===== */
@@ -50,6 +52,16 @@ static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） 
 void cj_bridge_init(cj_on_message_fn m, cj_on_destroy_fn d) {
     g_on_message = m;
     g_on_destroy = d;
+}
+
+/* 窗口图标（png/ico 路径）：必须在 cj_bridge_start 之前调用；空路径 = 系统默认图标 */
+void cj_bridge_set_icon(const char *path) {
+    fprintf(stderr, "[cj-bridge] set icon: path=%s\n", (path && path[0]) ? path : "(default)");
+    free(g_win_icon);
+    g_win_icon = NULL;
+    if (path && path[0]) {
+        g_win_icon = strdup(path);
+    }
 }
 
 /* 开发者工具开关：enabled=0 表示禁止打开（须在 cj_bridge_start 之前调用） */
@@ -216,6 +228,15 @@ static void *gtk_thread_main(void *arg) {
     g_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(g_window), g_win_title ? g_win_title : "cj-tauri");
     gtk_window_set_default_size(GTK_WINDOW(g_window), g_win_w, g_win_h);
+    /* 窗口图标：失败只意味着用系统默认图标，不阻断启动（GTK 的 err 要自己释放） */
+    if (g_win_icon) {
+        GError *icon_err = NULL;
+        gboolean icon_ok = gtk_window_set_icon_from_file(GTK_WINDOW(g_window), g_win_icon, &icon_err);
+        fprintf(stderr, "[cj-bridge] window icon: path=%s ok=%d%s%s\n",
+                g_win_icon, icon_ok ? 1 : 0,
+                icon_err ? " err=" : "", icon_err ? icon_err->message : "");
+        if (icon_err) g_error_free(icon_err);
+    }
     g_signal_connect(g_window, "destroy", G_CALLBACK(on_destroy), NULL);
 
     WebKitUserContentManager *mgr = webkit_user_content_manager_new();

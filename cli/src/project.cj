@@ -10,7 +10,7 @@ import std.collection.*
 
 /** CLI 版本：须与 cli/cjpm.toml 的 version、CHANGELOG 顶部版本一致（scripts/check-version.sh 校验） */
 func cliVersion(): String {
-    return "0.3.0"
+    return "0.4.0"
 }
 
 /** 一次命令所需的路径上下文 */
@@ -203,8 +203,183 @@ func loadContext(): Option<AppContext> {
     return Some(AppContext(proj, fw, stdx, cjpm))
 }
 
-/** 构建：桥 + cjpm build */
-func buildProject(c: AppContext): Bool {
+/** 前端工程（Vite）：项目里有 ui/package.json 才启用；没有就整段跳过，行为与 0.3.x 一致 */
+class WebUi {
+    let dir: String
+    let devUrl: String
+    let logFile: String
+    let port: UInt16
+
+    init(dir: String) {
+        this.dir = dir
+        this.devUrl = "http://127.0.0.1:5173/"
+        this.logFile = joinPath(dir, devLogName())
+        this.port = 5173
+    }
+}
+
+func detectWebUi(projectRoot: String): Option<WebUi> {
+    let dir = joinPath(projectRoot, "ui")
+    if (exists(joinPath(dir, "package.json"))) {
+        return Some(WebUi(dir))
+    }
+    return None
+}
+
+/**
+ * dev server 的日志文件名：必须是**相对名**。
+ * launch 会给整条命令行加引号，日志路径若再自己带引号，cmd.exe 会拿到嵌套引号并直接报
+ * 「文件名、目录名或卷标语法不正确」。相对名 + 工作目录 = ui/ 即可，命令保持单层引号。
+ */
+func devLogName(): String {
+    return "dev-server.log"
+}
+
+/** 拼一条 npm 命令行；给了日志文件名就重定向过去 */
+func npmLine(parts: Array<String>, logName: String): String {
+    var line = "npm"
+    for (p in parts) {
+        line = line + " " + p
+    }
+    if (logName.size > 0) {
+        line = line + " > " + logName + " 2>&1"
+    }
+    return line
+}
+
+/** 阻塞跑一条 shell 命令行：npm 在两个平台上都是脚本，必须经 shell（cmd.exe /c 或 bash -lc） */
+func runShellLine(line: String, dir: String): Int64 {
+    if (hostIsWindows()) {
+        return execute("cmd.exe", ["/c", line], workingDirectory: Path(dir))
+    }
+    return execute("bash", ["-lc", line], workingDirectory: Path(dir))
+}
+
+/** 后台跑一条 shell 命令行，返回子进程（收尾时连同子进程一起收掉） */
+func launchShellLine(line: String, dir: String): SubProcess {
+    if (hostIsWindows()) {
+        return launch("cmd.exe", ["/c", line], workingDirectory: Path(dir))
+    }
+    return launch("bash", ["-lc", line], workingDirectory: Path(dir))
+}
+
+/** 前端依赖：没有 node_modules 就先 npm install */
+func ensureUiDeps(ui: WebUi): Bool {
+    if (exists(joinPath(ui.dir, "node_modules"))) {
+        return true
+    }
+    if (runShellLine("npm -v", ui.dir) != 0) {
+        eprintln("[cj-tauri] 错误: ui/package.json 存在，但找不到 npm（需要 Node.js）")
+        eprintln("          装好 Node.js 再试，或删掉 ui/package.json 走内联 HTML 模式")
+        return false
+    }
+    println("[cj-tauri] 安装前端依赖: npm install（首次会慢一些）")
+    let code = runShellLine(npmLine(["install"], ""), ui.dir)
+    if (code != 0) {
+        eprintln("[cj-tauri] 错误: npm install 失败（exit=${code}）")
+        return false
+    }
+    return true
+}
+
+/** 前端发布构建：Vite + singlefile → ui/dist/index.html（后端 run(html) 读的就是它） */
+func buildUiBundle(ui: WebUi): Bool {
+    println("[cj-tauri] 前端构建: npm run build（产物 ui/dist/index.html）")
+    let code = runShellLine(npmLine(["run", "build"], ""), ui.dir)
+    if (code != 0) {
+        eprintln("[cj-tauri] 错误: npm run build 失败（exit=${code}）")
+        return false
+    }
+    if (!exists(joinPath(joinPath(ui.dir, "dist"), "index.html"))) {
+        eprintln("[cj-tauri] 错误: npm run build 跑完仍没有 ui/dist/index.html")
+        eprintln("          检查 ui/vite.config.js 里是否装上了 vite-plugin-singlefile")
+        return false
+    }
+    return true
+}
+
+/**
+ * dev server 是否就绪：看 Vite 自己打在日志里的启动行（`Local: http://127.0.0.1:5173/`）。
+ * 不用 TCP 探活是为了少一个平台差异点；探不到也不硬失败——调用方超时后会告警并继续。
+ */
+func devServerReady(ui: WebUi): Bool {
+    if (!exists(ui.logFile)) {
+        return false
+    }
+    let txt = readText(ui.logFile)
+    return txt.contains("Local:") && txt.contains("${ui.port}")
+}
+
+/** 等 dev server 就绪：200ms 一步，最多 timeoutSec 秒 */
+func waitDevServer(ui: WebUi, timeoutSec: Int64): Bool {
+    var steps: Int64 = 0
+    let limit = timeoutSec * 5
+    while (steps < limit) {
+        if (devServerReady(ui)) {
+            return true
+        }
+        sleep(Duration.millisecond * 200)
+        steps += 1
+    }
+    return false
+}
+
+/** 收掉 dev server：Windows 上 npm→node 是一棵进程树，必须 taskkill /T；其他平台 terminate 直接子进程 */
+func stopDevServer(p: SubProcess): Unit {
+    if (hostIsWindows()) {
+        let code = execute("taskkill", ["/F", "/T", "/PID", "${p.pid}"])
+        if (code == 0) {
+            println("[cj-tauri] dev server 已收掉（pid=${p.pid}）")
+        } else {
+            eprintln("[cj-tauri] 告警: 收 dev server 失败（pid=${p.pid}），可手动结束")
+        }
+        return
+    }
+    p.terminate()
+    println("[cj-tauri] dev server 已收掉（pid=${p.pid}）")
+}
+
+/** dev 模式：起前端 dev server → 注入 CJ_TAURI_DEV_URL → 启动应用 → 退出后收掉 dev server */
+func runWithDevServer(c: AppContext, ui: WebUi): Int64 {
+    println("[cj-tauri] 启动前端 dev server: ${ui.dir}（npm run dev，日志 ${ui.logFile}）")
+    let devCmd = npmLine(["run", "dev"], devLogName())
+    var dev: Option<SubProcess> = None
+    try {
+        dev = Some(launchShellLine(devCmd, ui.dir))
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] 错误: 起 dev server 失败: ${e.message}")
+        eprintln("          命令: ${devCmd}（工作目录 ${ui.dir}）")
+        return 1
+    }
+    // 阈值给得宽松：本机实测 npm 把 Vite 拉起来能花到 85 秒（node/npm 冷启动偏慢），
+    // 90 秒会贴着超时线走，宁可多等也不要误报「没就绪」。
+    if (waitDevServer(ui, 180)) {
+        println("[cj-tauri] dev server 就绪: ${ui.devUrl}")
+    } else {
+        eprintln("[cj-tauri] 告警: 180 秒内没在日志里看到就绪行，仍按 ${ui.devUrl} 启动")
+        eprintln("          日志: ${ui.logFile}")
+    }
+    setVariable("CJ_TAURI_DEV_URL", ui.devUrl)
+    println("[cj-tauri] 注入 CJ_TAURI_DEV_URL=${ui.devUrl}")
+    let code = runProject(c)
+    if (let Some(p) <- dev) {
+        stopDevServer(p)
+    }
+    return code
+}
+
+/** 构建：桥 + cjpm build；withUi=true 时先打前端发布包（有 ui/package.json 才会触发） */
+func buildProject(c: AppContext, withUi: Bool): Bool {
+    if (withUi) {
+        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+            if (!ensureUiDeps(ui)) {
+                return false
+            }
+            if (!buildUiBundle(ui)) {
+                return false
+            }
+        }
+    }
     prepareEnv(c.frameworkRoot, c.stdx)
     if (!ensureBridge(c.frameworkRoot)) {
         return false
@@ -246,7 +421,7 @@ func runProject(c: AppContext): Int64 {
 
 func cmdBuild(): Int64 {
     if (let Some(c) <- loadContext()) {
-        if (buildProject(c)) {
+        if (buildProject(c, true)) {
             return 0
         }
         return 1
@@ -256,8 +431,19 @@ func cmdBuild(): Int64 {
 
 func cmdDev(): Int64 {
     if (let Some(c) <- loadContext()) {
-        if (!buildProject(c)) {
+        // 有 ui/package.json 才走 Node 路径：dev 模式页面来自 dev server，不必先打发布包
+        var withUi = true
+        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+            if (!ensureUiDeps(ui)) {
+                return 1
+            }
+            withUi = false
+        }
+        if (!buildProject(c, withUi)) {
             return 1
+        }
+        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+            return runWithDevServer(c, ui)
         }
         return runProject(c)
     }

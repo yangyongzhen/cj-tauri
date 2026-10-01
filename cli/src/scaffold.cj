@@ -118,7 +118,54 @@ func copyTree(src: String, dst: String, v: TemplateVars): Int64 {
     return count
 }
 
-func cmdCreate(nameArg: String): Int64 {
+/** 模板别名 → 仓库里的模板目录名（缺省 app，0.3.x 的老用法不受影响） */
+func templateDirName(tpl: String): Option<String> {
+    match (tpl) {
+        case "app" => Some("app")          // 内联 HTML 单文件，零 Node 依赖
+        case "vanilla" => Some("app")
+        case "vue" => Some("app-vue")      // Vue 3 + Vite：dev 走 HMR，发布产单文件
+        case "react" => Some("app-react")  // React 18 + Vite
+        case _ => None
+    }
+}
+
+/** 解析模板目录：先查别名表，查不到就把参数当模板目录名直接用（方便自己往仓库里加模板） */
+func resolveTemplateDir(fwRoot: String, tpl: String): Option<String> {
+    let base = joinPath(joinPath(fwRoot, "cli"), "templates")
+    var name = tpl
+    if (let Some(n) <- templateDirName(tpl)) {
+        name = n
+    }
+    let dir = joinPath(base, name)
+    if (exists(dir)) {
+        return Some(dir)
+    }
+    return None
+}
+
+/** 列出仓库里实际存在的模板目录（拼错误提示用） */
+func availableTemplates(fwRoot: String): String {
+    let base = joinPath(joinPath(fwRoot, "cli"), "templates")
+    var out = ""
+    if (exists(base)) {
+        for (info in listDir(base)) {
+            if (!info.isDirectory()) {
+                continue
+            }
+            let nm = baseName(info.path.toString())
+            if (nm.size == 0) {
+                continue
+            }
+            if (out.size > 0) {
+                out = out + " / "
+            }
+            out = out + nm
+        }
+    }
+    return out
+}
+
+func cmdCreate(nameArg: String, tpl: String): Int64 {
     let targetDir = stripTrailingSep(nameArg)
     if (targetDir.size == 0) {
         eprintln("用法: cj-tauri create <项目名>")
@@ -153,9 +200,13 @@ func cmdCreate(nameArg: String): Int64 {
         eprintln("          请设置环境变量 CANGJIE_STDX 指向 stdx 动态库目录（含 stdx.encoding.json）")
         return 1
     }
-    let tplDir = joinPath(joinPath(joinPath(fwRoot, "cli"), "templates"), "app")
-    if (!exists(tplDir)) {
-        eprintln("[cj-tauri] 错误: 缺少脚手架模板目录: ${tplDir}")
+    var tplDir = ""
+    if (let Some(d) <- resolveTemplateDir(fwRoot, tpl)) {
+        tplDir = d
+    } else {
+        eprintln("[cj-tauri] 错误: 未知模板 '${tpl}'")
+        eprintln("          可用模板: ${availableTemplates(fwRoot)}")
+        eprintln("          别名: app（内联单文件，缺省）/ vue / react")
         return 1
     }
     warnIfSpacey("框架", fwRoot)
@@ -167,6 +218,7 @@ func cmdCreate(nameArg: String): Int64 {
     println("[cj-tauri] 已创建项目 ${targetDir}/（${count} 个文件）")
     println("")
     println("  项目名   : ${projectName}")
+    println("  模板     : ${baseName(tplDir)}")
     println("  仓颉包名 : ${pkg}")
     println("  框架依赖 : ${fwRoot}")
     println("  stdx     : ${stdx}")
@@ -177,5 +229,10 @@ func cmdCreate(nameArg: String): Int64 {
     println("  cj-tauri build        # 仅构建")
     println("")
     println("提示: cjpm.toml 里的路径是本机绝对路径；换机器需重新执行 create 或手改这两处。")
+    if (exists(joinPath(joinPath(targetDir, "ui"), "package.json"))) {
+        println("")
+        println("提示: 该模板前端用 Vite；首次 cj-tauri dev 会自动 npm install 并起 dev server")
+        println("      （页面走 CJ_TAURI_DEV_URL，改了 .vue 不重启应用就能看到效果）。")
+    }
     return 0
 }

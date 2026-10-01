@@ -7,7 +7,9 @@ func usage(): Unit {
     println("cj-tauri ${cliVersion()} — 仓颉版 Tauri CLI（脚手架 + 构建 + 运行）")
     println("")
     println("用法:")
-    println("  cj-tauri create <项目名>   创建新项目（src/ + ui/ + capabilities/ + cjpm.toml）")
+    println("  cj-tauri create <项目名> [--template <t>]")
+    println("                             创建新项目（src/ + ui/ + capabilities/ + cjpm.toml）")
+    println("                             模板: app（内联单文件，缺省）/ vue / react")
     println("  cj-tauri dev               构建 C 桥 + cjpm build + 启动应用")
     println("  cj-tauri build             构建 C 桥 + cjpm build")
     println("  cj-tauri run               运行已构建产物")
@@ -38,11 +40,30 @@ main(args: Array<String>): Int64 {
         return 0
     }
     if (sub == "create") {
-        if (args.size < 2) {
-            eprintln("用法: cj-tauri create <项目名>")
+        var name = ""
+        var tpl = "app"
+        var i = 1
+        while (i < args.size) {
+            let a = args[i]
+            if (a == "--template" || a == "-t") {
+                if (i + 1 >= args.size) {
+                    eprintln("用法: cj-tauri create <项目名> [--template app|vue|react]")
+                    return 1
+                }
+                tpl = args[i + 1]
+                i = i + 2
+                continue
+            }
+            if (name.size == 0) {
+                name = a
+            }
+            i = i + 1
+        }
+        if (name.size == 0) {
+            eprintln("用法: cj-tauri create <项目名> [--template app|vue|react]")
             return 1
         }
-        return cmdCreate(args[1])
+        return cmdCreate(name, tpl)
     }
     if (sub == "dev") {
         return cmdDev()

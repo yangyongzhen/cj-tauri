@@ -1,0 +1,79 @@
+package {{PACKAGE_NAME}}
+
+import cjTauri.*
+import stdx.encoding.json.*
+import std.fs.*
+
+/**
+ * greet 命令（对标 tauri command）
+ * 前端：tauri.invoke("greet", { name: "..." })
+ */
+public class GreetCommand <: CommandHandler {
+    public init() {}
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        var name = "world"
+        if (let Some(n) <- args.get("name")) {
+            match (n.kind()) {
+                case JsonKind.JsString => name = n.asString().getValue()
+                case _ => ()
+            }
+        }
+        return JsonString("Hello, ${name}! 来自仓颉后端")
+    }
+}
+
+/**
+ * 定时器命令：启动后台线程，每秒向后端推一个 tick 事件（验证 仓颉 → JS 通道）
+ * 前端：tauri.listen("tick", cb) + tauri.invoke("timer")
+ */
+public class TimerCommand <: CommandHandler {
+    private var counter: Int64 = 0
+    private var started: Bool = false
+
+    public init() {}
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        if (!this.started) {
+            this.started = true
+            spawn {
+                while (true) {
+                    sleep(Duration.second)
+                    this.counter += 1
+                    var payload = JsonObject()
+                    payload.put("n", JsonInt(this.counter))
+                    ipc.emit("tick", payload)
+                }
+            }
+        }
+        return JsonString("timer started")
+    }
+}
+
+main(): Int64 {
+    // 1) 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
+    //    能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
+    let app = TauriApp()
+        .window(WindowConfig("{{PROJECT_NAME}}", 1000, 700))
+        .register("greet", GreetCommand())
+        .register("timer", TimerCommand())
+
+    // 2) 页面来源二选一，对应本模板的两种跑法：
+    //    dev  : cj-tauri dev 起了 Vite dev server 并注入 CJ_TAURI_DEV_URL
+    //           → 页面来自真实 URL，改 .vue 保存即热更新，应用不用重启
+    //    发布 : 读 Vite 打出来的单文件 ui/dist/index.html（js/css 已内联，无外部依赖）
+    if (let Some(url) <- TauriApp.devUrl()) {
+        eprintln("[app] dev 模式，页面来自 ${url}")
+        app.runUrl(url)
+    } else {
+        let dist = "ui/dist/index.html"
+        if (!exists(dist)) {
+            eprintln("[app] 找不到 ${dist}")
+            eprintln("      开发: 在项目根跑 cj-tauri dev（会自动 npm install + 起 dev server）")
+            eprintln("      发布: cd ui && npm run build")
+            return 1
+        }
+        app.run(String.fromUtf8(File.readFrom(dist)))
+    }
+    return 0
+}

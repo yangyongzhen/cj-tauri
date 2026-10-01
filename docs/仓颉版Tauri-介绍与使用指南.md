@@ -34,14 +34,17 @@
 | 鸿蒙 WebView | 无官方支持 | **预留 ArkWeb 后端位**（条件编译） |
 | 构建工具 | `cargo` / `tauri` CLI | `cjpm` / `cj-tauri` CLI（仓颉原生实现） |
 
-### 1.2 项目现状
+### 1.2 项目现状（当前版本 0.3.0）
 
 | 能力 | 状态 |
 |---|---|
 | Linux 桌面（WebKitGTK） | ✅ MVP 已跑通 |
 | Windows 桌面（WebView2） | ✅ 已跑通（本机验证：cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2365.46） |
+| 窗口配置化 | ✅ `WindowConfig(title, width, height)`，另有 `devTools` 字段可关掉开发者工具；不配置时沿用默认（`cj-tauri` / 900×640） |
+| capability 自动加载 | ✅ `run()` 时自动扫描 `capabilities/` 下的全部 json，显式挂载优先 |
+| 内置命令 | ✅ `system:version` / `system:ping` / `system:echo` / `system:devtools` |
 | 脚手架 CLI `cj-tauri` | ✅ `create` / `dev` / `build` / `run` / `info`，Windows + Linux 双平台启动器 |
-| 使用文档 | ✅ [使用文档.md](使用文档.md) |
+| 文档与规范 | ✅ [使用文档.md](使用文档.md)、[AGENTS.md](../AGENTS.md)（开发契约）、[CHANGELOG.md](../CHANGELOG.md)（版本与变更） |
 | 鸿蒙 ArkWeb 后端 | 🔜 路线中（需 DevEco + 真机） |
 | 前端框架模板、插件体系 | 🔜 路线中 |
 
@@ -67,7 +70,7 @@
    ▼
  你注册的命令 CommandHandler.handle(cmd, args, ipc)
    ▼
- 内置命令 api_system.cj：system:version / system:ping / system:echo
+ 内置命令 api_system.cj：system:version / system:ping / system:echo / system:devtools
 ```
 
 具体到一次 `invoke("greet", {name:"仓颉"})` 的时序：
@@ -275,24 +278,24 @@ public class GreetCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    // 1) 载入能力清单（默认最小权限）
-    let capJson = JsonValue.fromStr(String.fromUtf8(File.readFrom("capabilities/default.json")))
-
-    // 2) 装配应用（对标 tauri::Builder）：注册命令 + 挂载能力
+    // 1) 装配应用（对标 tauri::Builder）：配置窗口 + 注册命令
+    //    能力清单不需要手写读文件：run() 会自动扫描工作目录下的 capabilities/ 全部 json
     let app = TauriApp()
+        .window(WindowConfig("我的应用", 1000, 700))   // 标题 / 宽 / 高；不调用则用默认 cj-tauri 900×640
         .register("greet", GreetCommand())
         .register("timer", TimerCommand())
-        .addCapabilityJson(capJson)
 
-    // 3) 载入前端页面并启动（阻塞至窗口关闭）
+    // 2) 载入前端页面并启动（阻塞至窗口关闭）
     let html = String.fromUtf8(File.readFrom("ui/index.html"))
     app.run(html)
     return 0
 }
 ```
 
-注意两点：**页面是后端读文件后交给宿主的**（所以换页面 = 改 `ui/index.html`，或把构建产物拷进去）；
-**应用以项目根目录为工作目录**，`capabilities/` 与 `ui/` 都按相对路径读取。
+注意三点：**页面是后端读文件后交给宿主的**（所以换页面 = 改 `ui/index.html`，或把构建产物拷进去）；
+**应用以项目根目录为工作目录**，`capabilities/` 与 `ui/` 都按相对路径读取；
+**能力清单默认自动加载**——只想挂载指定清单时用 `addCapabilityJson(...)` / `loadCapabilities(dir)` 显式挂载，
+一旦显式挂载就不再自动扫描（更适合多套权限分发的场景）。
 
 ### 6.2 加一个自己的命令：改三处
 
@@ -319,10 +322,10 @@ public class ShoutCommand <: CommandHandler {
 
 ```cangjie
 let app = TauriApp()
+    .window(WindowConfig("我的应用", 1000, 700))
     .register("greet", GreetCommand())
     .register("timer", TimerCommand())
     .register("shout", ShoutCommand())      // ← 新增
-    .addCapabilityJson(capJson)
 ```
 
 **第三步**，写进能力清单 `capabilities/default.json`（漏了这步，前端会收到 `command not allowed: shout`）：
@@ -331,7 +334,7 @@ let app = TauriApp()
 {
   "identifier": "default",
   "windows": ["main"],
-  "commands": ["greet", "timer", "shout", "system:version", "system:ping", "system:echo"],
+  "commands": ["greet", "timer", "shout", "system:version", "system:ping", "system:echo", "system:devtools"],
   "events": ["tick"]
 }
 ```
@@ -372,11 +375,12 @@ tauri.invoke('timer');                                                  // 触�
 | `listen(event, cb)` | 后端 → 前端 | 订阅事件，回调收到后端 `ipc.emit` 的 payload |
 | `emit(event, payload)` | 前端 → 后端 | 前端侧的事件投递，与 `listen` 同一套事件模型 |
 
-涉及系统能力的命令（`system:version` / `system:ping` / `system:echo`）也**同样要在能力清单里声明**才能用。
+涉及系统能力的命令（`system:version` / `system:ping` / `system:echo` / `system:devtools`）也**同样要在能力清单里声明**才能用。
 
 ### 6.5 能力清单：默认最小权限
 
-- 应用在 `capabilities/` 下声明命令与事件白名单；
+- 应用在 `capabilities/` 下声明命令与事件白名单；**启动时自动加载该目录下的全部 json**（目录缺失或为空时按最小权限启动，任何命令都会被拒绝）；
+- 想只挂载指定清单时用 `loadCapabilities(dir)` / `addCapabilityJson(json)` 显式挂载：**显式挂载优先，且不再自动扫描**；
 - **未声明的命令一律拒绝**，返回 `command not allowed: xxx`，不会进入业务代码；
 - 未声明的事件不会投递到页面；
 - 校验层独立于 WebView 后端，Windows / Linux（以及将来的鸿蒙 ArkWeb）**共用同一套**。
@@ -485,6 +489,16 @@ Linux 是 `LD_LIBRARY_PATH`，Windows 是 `PATH`。
 | 新工程 `cj-tauri build` | ✅ 产出 `target/release/bin/main.exe` |
 | 新工程 `cj-tauri run` | ✅ 窗口显示，JS ↔ 原生双向通信（62 / 48 字节，`ExecuteScript hr=0x0`） |
 
+**Windows / WebView2（2026-10-01，0.3.0：窗口配置化 + 能力自动加载 + devtools 开关）**
+
+| 验证项 | 结果 |
+|---|---|
+| 能力清单自动加载 | ✅ 框架 stderr：`[cj-tauri] 已自动加载 capabilities/：1 个清单` |
+| 窗口配置生效 | ✅ 桥 stderr：`[cj-bridge] set window: title=cj-tauri hello size=1000x700`，OS 枚举到该标题的窗口 |
+| 开发者工具开关 | ✅ 前端 `invoke('system:devtools')` 成功，OS 枚举到独立的 `[DevTools - about:blank]` 窗口 |
+| `system:version` 平台字段 | ✅ `{"name":"cj-tauri","version":"0.3.0","cangjie":"1.0.5","platform":"windows"}`（此前写死 `linux`） |
+| 能力管控未回退 | ✅ `greet` 正常 / `system:rm` 被拒 / 未注册命令被拒；示例自检 `[verify] ALL DONE`，FAIL=0，无 panic |
+
 ## 11. 仓库与推送（双托管）
 
 同一份代码托管在两个地方，**一次 `git push` 会同时推送到两个远端**（`origin` 上挂了两条 pushurl，
@@ -523,13 +537,14 @@ git ls-remote github main
 ## 13. 结语与下一步
 
 现在的 cj-tauri 已经是一个**能用的最小框架**：双平台 WebView 宿主、双向 IPC、能力安全模型、
-仓颉原生脚手架 CLI，外加一套把环境坑写清楚的文档。你可以用它直接开一个仓颉桌面应用，
-后端逻辑用仓颉写、界面用熟悉的 Web 技术写，改动只在 `ui/index.html` 与 `src/main.cj` 两个文件附近。
+窗口与开发者工具可配置、能力清单自动加载，仓颉原生脚手架 CLI，外加一套把环境坑写清楚的文档。
+你可以用它直接开一个仓颉桌面应用，后端逻辑用仓颉写、界面用熟悉的 Web 技术写，
+改动只在 `ui/index.html` 与 `src/main.cj` 两个文件附近。
 
 后续路线：
 
-- **P1**：capability 文件自动加载、窗口配置化（尺寸/标题/图标）、devtools 开关；
-- **P2**：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView；
+- **P1（0.3.0 已完成）**：capability 文件自动加载、窗口配置化（标题/尺寸）、devtools 开关；
+- **P2**：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、窗口图标、macOS WebView；
 - **P3**：前端框架模板（React/Vue）、插件体系。
 
 想参与或反馈，直接在仓库提 issue / PR 即可——两个远端都在，代码同步推送。

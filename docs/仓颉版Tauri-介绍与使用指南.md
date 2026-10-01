@@ -519,10 +519,6 @@ git ls-remote origin main     # 核对两个仓的 commit SHA 是否一致
 git ls-remote github main
 ```
 
-> 维护者本机的 GitHub 推送使用专用密钥 `~/.ssh/id_ed25519_yangyongzhen`，经 `~/.ssh/config` 的
-> `Host github-yangyongzhen` 别名（`IdentityFile` + `IdentitiesOnly yes`）与其它账号的 `id_rsa` 隔离。
-> 你在自己机器上克隆时用常规的 `git@github.com:yangyongzhen/cj-tauri.git`，把本机公钥加到 GitHub 账号即可。
-
 ## 12. 该从哪读起
 
 | 文档 | 适合什么时候读 |

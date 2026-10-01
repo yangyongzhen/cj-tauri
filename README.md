@@ -278,7 +278,6 @@ git ls-remote origin main     # 核对两个仓的 commit SHA 是否一致
 git ls-remote github main
 ```
 
-> **本机 GitHub 推送用的是专用密钥**：`~/.ssh/id_ed25519_yangyongzhen`，经 `~/.ssh/config` 的
-> `Host github-yangyongzhen` 别名（`IdentityFile` + `IdentitiesOnly yes`）与其它账号的 `id_rsa` 隔离，
-> 因此本仓 remote 写成 `git@github-yangyongzhen:yangyongzhen/cj-tauri.git`。换机器克隆时用常规
-> `git@github.com:yangyongzhen/cj-tauri.git`，把该机公钥加到 GitHub 账号即可。
+## License
+
+本项目以 [MIT](LICENSE) 协议开源 © 2026 yangyongzhen

@@ -5,6 +5,8 @@
 
 > **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
+>
+> 仓库：<https://atomgit.com/qq8864/cj-tauri>（`git clone https://atomgit.com/qq8864/cj-tauri.git`）
 
 ## 运行效果
 
@@ -22,7 +24,7 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（对标 tauri I
         ▼
 能力安全模型（src/capability.cj）← 命令/事件白名单，默认最小权限（对标 capability）
         ▼
-内置命令（src/api_system.cj）：system:version / ping / echo
+内置命令（src/api_system.cj）：system:version / system:ping / system:echo
         ▼
 WebView 宿主（src/host.cj 抽象 + 各平台实现）
    ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
@@ -33,8 +35,9 @@ WebView 宿主（src/host.cj 抽象 + 各平台实现）
 ## 目录结构
 
 ```
-tauri_cj/
-├── cj-env.sh              # 仓颉 SDK 环境变量
+cj-tauri/
+├── cj-env.sh              # 仓颉 SDK 环境变量（Linux 用）
+├── run_win.bat            # Windows 一键运行仓内示例（配好运行时/stdx/桥 DLL 的 PATH）
 ├── cjpm.toml              # 框架库（cjTauri，静态库）
 ├── src/                   # 框架核心（纯仓颉）
 │   ├── ipc_message.cj     # IPC 协议模型（invoke/resolve/event）
@@ -45,10 +48,13 @@ tauri_cj/
 │   ├── host_webkit.cj     # Linux WebKit 宿主（FFI + C 桥）
 │   ├── host_webview2.cj   # Windows WebView2 宿主（FFI + C 桥）
 │   └── app.cj             # TauriApp 装配（对标 tauri::Builder）
-├── native/bridge_linux.c  # Linux C 桥（GTK/WebKit 原生线程宿主）
-├── native/bridge_win.c    # Windows C 桥（Win32 窗口 + WebView2）
-├── native/build_win.bat   # Windows C 桥构建脚本（含 WebView2 SDK/loader 同步）
-├── native/build_linux.sh  # Linux C 桥构建脚本
+├── native/
+│   ├── bridge_linux.c     # Linux C 桥（GTK/WebKit 原生线程宿主）
+│   ├── bridge_win.c       # Windows C 桥（Win32 窗口 + WebView2）
+│   ├── build_win.bat      # Windows 桥构建（含 WebView2 SDK / x64 loader 同步）
+│   ├── build_linux.sh     # Linux 桥构建
+│   ├── test_host_win.c    # Windows 桥隔离测试宿主
+│   └── webview2/          # 与本机 Runtime 同代的 WebView2Loader.dll（构建时同步，不入库）
 ├── examples/hello/        # 示例应用（greet + tick 事件 + 越权演示）
 ├── cli/                   # 脚手架 CLI（仓颉实现，跨平台）
 │   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
@@ -57,6 +63,8 @@ tauri_cj/
 │   └── templates/app/     # 工程模板（占位符渲染，按宿主平台注入依赖与链接段）
 └── docs/                  # 使用文档 + 技术方案 + 踩坑记录
 ```
+
+> `cli/cj-tauri` 是早期 bash 版 CLI，功能已被 `cli/src` 的仓颉实现完全覆盖，保留仅作参考。
 
 ## 快速开始
 
@@ -67,6 +75,26 @@ tauri_cj/
   或只设 `CANGJIE_HOME` 交给 `cli/cj-tauri.sh` / `cli/cj-tauri.bat` 自动补齐；stdx 路径可用 `CANGJIE_STDX` 指定；
 - Windows：mingw gcc + WebView2 Runtime（Win11 自带）+ WebView2 SDK（仅编译桥时需要）；
   Linux：`libwebkit2gtk-4.1-dev`、`libgtk-3-dev`。
+
+### Windows 上跑起来（本机验证组合）
+
+cjc 1.2.0 + WebView2 Runtime 122.0.2365.106 + WebView2 SDK 1.0.2365.46：
+
+```bat
+REM 只需指两个目录：SDK 根目录与 stdx；其余 PATH 由启动器按 envsetup 布局补齐
+set "CANGJIE_HOME=D:\Program Files (x86)\Cangjie"
+set "CANGJIE_STDX=D:\cangjie-stdx\windows_x86_64_cjnative\dynamic\stdx"
+
+cd /d E:\path\to\cj-tauri
+cli\cj-tauri.bat info                 REM 先自检：框架/项目/stdx/SDK/cjpm/桥 是否都解析得到
+cli\cj-tauri.bat create D:\temp\myapp
+cd /d D:\temp\myapp
+E:\path\to\cj-tauri\cli\cj-tauri.bat dev
+```
+
+> 启动器内置两个默认值，不设也能跑本机验证组合：`CANGJIE_HOME` 默认
+> `D:\Program Files (x86)\Cangjie`；桥构建默认 WebView2 SDK `D:\webview2sdk\sdk-1.0.2365.46`
+> （改 `native\build_win.bat` 顶部即可换版本）。
 
 用脚手架建一个新应用（首次运行会自动构建 CLI 本体）：
 

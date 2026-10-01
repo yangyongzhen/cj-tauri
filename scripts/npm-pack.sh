@@ -28,6 +28,10 @@ for arg in "$@"; do
   esac
 done
 
+# 发布固定走官方 registry：本机 npm 常配成镜像（如 registry.npmmirror.com），而镜像不接收 publish，
+# 直接 `npm publish` 会报错或发到别处；要用私服/其他 registry 时用环境变量覆盖。
+NPM_PUBLISH_REGISTRY="${NPM_PUBLISH_REGISTRY:-https://registry.npmjs.org/}"
+
 toml_version() { grep -m1 -oE '^[[:space:]]*version[[:space:]]*=[[:space:]]*"[^"]+"' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 json_version() { grep -m1 -oE '"version"[[:space:]]*:[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' "$1" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 
@@ -104,11 +108,17 @@ if [ "$KEEP" -eq 0 ]; then
 fi
 
 if [ "$DO_PUBLISH" -eq 1 ]; then
-    echo "[npm-pack] 发布到 npm（下一步会要求 2FA 确认）..."
-    npm publish "$DIST/$OUT" --access public
-    echo "[npm-pack] 已发布。核对: npm view cj-tauri version"
+    # 登录预检：没登录就给出确切的登录命令，别让 npm 在 OTP 阶段报个不明所以的 ENEEDAUTH
+    if ! npm whoami --registry="$NPM_PUBLISH_REGISTRY" >/dev/null 2>&1; then
+        echo "[npm-pack] 还没登录 $NPM_PUBLISH_REGISTRY，先执行：" >&2
+        echo "           npm login --registry=$NPM_PUBLISH_REGISTRY" >&2
+        exit 1
+    fi
+    echo "[npm-pack] 发布到 $NPM_PUBLISH_REGISTRY（会要求 2FA 一次性验证码）..."
+    npm publish "$DIST/$OUT" --access public --registry="$NPM_PUBLISH_REGISTRY"
+    echo "[npm-pack] 已发布。核对: npm view cj-tauri version --registry=$NPM_PUBLISH_REGISTRY"
 else
     echo "[npm-pack] 未发布。要发布请执行："
-    echo "           npm publish dist-npm/$OUT --access public"
+    echo "           npm publish dist-npm/$OUT --access public --registry=$NPM_PUBLISH_REGISTRY"
     echo "           本地试装：npm i -g ./dist-npm/$OUT   （或 npm i ./dist-npm/$OUT 装进当前工程）"
 fi

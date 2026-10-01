@@ -21,7 +21,8 @@
   CLI 本体优先用包内预编译二进制（`prebuilt/<平台-架构>/`），缺失则把 `cli/` 拷到缓存目录用本机 `cjpm build`
   构建一次并复用（`~/.cache/cj-tauri/<版本>/`，Windows 为 `%LOCALAPPDATA%\cj-tauri`），不往安装目录写产物；
   找不到 SDK 时打印安装说明与 `CANGJIE_HOME` 示例并以退出码 1 结束，`--version` 不依赖 SDK。
-  打包脚本 `scripts/npm-pack.sh`（默认只打包，`--publish` 发布）；包内容 = 框架源码 + CLI 源码与三个模板 +
+  打包脚本 `scripts/npm-pack.sh`（默认只打包，`--publish` 发布；发布固定走官方 registry
+  `https://registry.npmjs.org/` 并先做登录预检，避免本机 npm 配着镜像时发错地方）；包内容 = 框架源码 + CLI 源码与三个模板 +
   本机 CLI 产物（1.2 MB tarball / 55 文件）。Linux 实测：预编译分支、源码构建回落与缓存命中、`create` 生成的工程
   再跑 `info`、缺 SDK 提示路径全部走通。
 - 示例工程入库：`examples/vue_todo/` —— `examples/todo_check` 的 **Vue 3 版**，命令与事件完全同名

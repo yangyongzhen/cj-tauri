@@ -1,8 +1,9 @@
 @echo off
 REM ============================================================
 REM Run the tutorial's todo-list app (examples/todo_check).
-REM Its sources are extracted from docs/前端入门教程.md by extract.js,
-REM so this doubles as an end-to-end check of the tutorial's code.
+REM Its sources are extracted by extract.js from the frontend tutorial doc
+REM (the Chinese-named markdown under docs/), so this doubles as an
+REM end-to-end check of the tutorial's code.
 REM
 REM Same env layout as the repo-root run_win.bat: Cangjie runtime +
 REM stdx + the C bridge + the WebView2 loader.

@@ -22,9 +22,27 @@ win_to_unix() {
 
 if [ -n "${CANGJIE_HOME:-}" ]; then
   CH="$(win_to_unix "${CANGJIE_HOME}")"
-  RT_DIR="$(find "$CH/runtime/lib" -maxdepth 1 -type d \( -name 'linux*' -o -name 'windows*' \) 2>/dev/null | head -1 || true)"
+  # 运行时目录必须按宿主平台挑：SDK 里 linux* 与 windows* 同时存在时，find 的返回顺序
+  # 不保证，挑到另一平台的目录会变成「找不到 libcangjie-runtime.so」。
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*) RT_GLOB='windows*' ;;
+    *)                    RT_GLOB='linux*' ;;
+  esac
+  RT_DIR="$(find "$CH/runtime/lib" -maxdepth 1 -type d -name "$RT_GLOB" 2>/dev/null | head -1 || true)"
   PATH="${RT_DIR:+$RT_DIR:}$CH/bin:$CH/tools/bin:$CH/tools/lib:$PATH:$HOME/.cjpm/bin"
   export PATH
+
+  # Linux/macOS 上动态库不走 PATH：CLI 本体链接 libcangjie-runtime.so，
+  # 少了这个只设 PATH 的写法会让 CLI 直接「loading shared libraries」失败。
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*) ;;
+    *)
+      if [ -n "${RT_DIR:-}" ]; then
+        LD_LIBRARY_PATH="$RT_DIR:$CH/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"
+        export LD_LIBRARY_PATH
+      fi
+      ;;
+  esac
 fi
 
 CLI_BIN="$SCRIPT_DIR/target/release/bin/main"

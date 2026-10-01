@@ -14,7 +14,7 @@
   cjTauri = { path = "../.." }
 
 [target.x86_64-unknown-linux-gnu]
-  link-option = "-L/root/test/cj/tauri_cj/native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+  link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
     path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]

@@ -260,7 +260,26 @@ func launchShellLine(line: String, dir: String): SubProcess {
     if (hostIsWindows()) {
         return launch("cmd.exe", ["/c", line], workingDirectory: Path(dir))
     }
+    // 刻意**不**用 setsid 另开会话：dev server 必须留在 CLI 的进程组里，
+    // 终端 Ctrl-C 才能一并收掉它（实测 setsid 后 Ctrl-C 只杀 CLI，dev server 漏跑）。
+    // npm → sh -c vite → node(vite) → esbuild 这条父子链改由 stopDevServer 递归收掉。
     return launch("bash", ["-lc", line], workingDirectory: Path(dir))
+}
+
+/**
+ * 按「先子后父」递归收掉一棵进程树（对 rootPid 自身也发信号）。
+ * npm → sh -c vite → node(vite) → esbuild 是一条父子链，只 terminate 直接子进程（bash）
+ * 会留下后代继续跑（实测残留 vite + esbuild），所以收尾必须递归。用 shell 递归实现，
+ * 省掉在仓颉侧解析 /proc 的复杂度。
+ */
+func killProcessTree(rootPid: Int64, sig: String): Unit {
+    let script = "t() { for c in $(pgrep -P \"$1\" 2>/dev/null); do t \"$c\"; done; kill -" +
+        sig + " \"$1\" 2>/dev/null; }; t ${rootPid}"
+    try {
+        execute("bash", ["-lc", script])
+    } catch (e: Exception) {
+        () // 进程已自己退掉等情况不值得让收尾流程失败
+    }
 }
 
 /** 前端依赖：没有 node_modules 就先 npm install */
@@ -324,7 +343,7 @@ func waitDevServer(ui: WebUi, timeoutSec: Int64): Bool {
     return false
 }
 
-/** 收掉 dev server：Windows 上 npm→node 是一棵进程树，必须 taskkill /T；其他平台 terminate 直接子进程 */
+/** 收掉 dev server 整棵进程树：Windows 用 taskkill /T；其他平台递归收掉父子链 */
 func stopDevServer(p: SubProcess): Unit {
     if (hostIsWindows()) {
         let code = execute("taskkill", ["/F", "/T", "/PID", "${p.pid}"])
@@ -335,8 +354,13 @@ func stopDevServer(p: SubProcess): Unit {
         }
         return
     }
-    p.terminate()
-    println("[cj-tauri] dev server 已收掉（pid=${p.pid}）")
+    // 先 TERM 让 Vite 自己退，再 KILL 兜底；两趟都按「先子后父」收整棵树，
+    // 免得只收掉直接子进程后，后代（vite / esbuild）继续占着 5173 端口。
+    killProcessTree(p.pid, "TERM")
+    sleep(Duration.millisecond * 500)
+    killProcessTree(p.pid, "KILL")
+    p.terminate() // 极端情况（pgrep 不可用）下至少收掉直接子进程
+    println("[cj-tauri] dev server 已收掉（pid=${p.pid} 及后代）")
 }
 
 /** dev 模式：起前端 dev server → 注入 CJ_TAURI_DEV_URL → 启动应用 → 退出后收掉 dev server */

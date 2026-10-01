@@ -75,6 +75,12 @@
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
+- Linux 上仓颉运行时的动态库**不查 PATH**：启动器只设 PATH 会让 CLI 以「找不到 libcangjie-runtime.so」
+  直接退出（Git Bash 下表现为退出码 127 且无输出），必须同时把 `runtime/lib/<platform>` 设进 `LD_LIBRARY_PATH`。
+- `cj-tauri dev` 的 dev server **不要用 `setsid` 另开会话**：那样它会脱离终端的进程组，
+  终端 Ctrl-C 只杀掉 CLI、dev server 漏跑（实测残留 vite + esbuild）。正确做法是让它留在 CLI 的
+  进程组里（Ctrl-C 能一并带走），收尾时按「先子后父」递归 kill 整棵树
+  （`npm → sh -c vite → node(vite) → esbuild`）。
 - Windows 宿主：COM 回调对象的 `AddRef` 必须返回 1 并显式 `AddRef`，否则出现 `hr=0x8007139F` 崩溃。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。

@@ -240,9 +240,10 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
 - ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，23 个用例）与 `scripts/check-static.sh`
   （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
+- ✅ P3：热重载与前端框架模板（宿主加 `runUrl` / `loadUrl` / `reload`；`cj-tauri dev` 接管 Vite dev server，
+  Vue 3 / React 18 模板，HMR 在窗口内生效）、`cj-tauri build` 打单文件前端产物
 - 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView
-- 🔜 P3：热重载与前端框架模板（React/Vue，需先给宿主加 `loadUrl`）、插件体系
-  （设计草案见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)）
+- 🔜 插件体系（设计草案见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)）
 
 ## 验证结果
 
@@ -270,8 +271,24 @@ Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2
 | 窗口图标 `cfg.iconPath = "icon.ico"` | ✅ 桥日志 `set icon: path=icon.ico` → `window icon: path=icon.ico loaded (big=0x… small=0x…)`，标题栏 / 任务栏 / Alt-Tab 生效 |
 | 单元测试 `bash scripts/test.sh` | ✅ 23/23 通过（IPC 分发、能力校验、版本常量） |
 
-> 窗口图标是 2026-10-02 补的：Windows 端已实机验证（上表末两行）；Linux 端填了 GTK 的
-> `gtk_window_set_icon_from_file`，但本机没有 GTK/WebKit 工具链，**尚未验证**。
+Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 stderr 日志）：
+
+| 验证项 | 结果 |
+|---|---|
+| 示例应用 `examples/hello`（本地单文件 HTML） | ✅ 窗口创建、`greet` / `system:ping` / `system:version` 正确、越权 `system:rm` 拒绝、`tick` 事件持续到达前端 |
+| `TauriApp.runUrl` 加载 URL 页面（M1） | ✅ `load url: http://127.0.0.1:8123/`，静态服务器侧收到 3 次 GET（首载 + 2 次重载） |
+| 后端 `TauriApp.reload()` | ✅ 重载后页面重新加载并再次 `js -> native`，重载后桥仍可用 |
+| 前端 `window.__CJ_TAURI__.reload()` | ✅ `frontend requested reload` → 页面第二次加载 |
+| 窗口图标 `cfg.iconPath`（GTK） | ✅ `window icon: path=icon.png ok=1` |
+| `cj-tauri dev` 接管 Vite dev server（Vue 模板） | ✅ `dev server 就绪` → 注入 `CJ_TAURI_DEV_URL` → 页面来自 5173；应用退出后 `dev server 已收掉（pid=… 及后代）`，vite / esbuild 无残留 |
+| HMR 在窗口内生效 | ✅ 改 `App.vue` 后页面标记 `v1-short` → `v2-much-longer-text`，启动计数仍为 1（无整页刷新） |
+| Ctrl-C 中止 `cj-tauri dev` | ✅ CLI 与 app 随 SIGINT 退出，dev server 因留在同一进程组被一并收掉，无残留 |
+| React 18 模板 `cj-tauri dev` | ✅ 页面探针 3 次上报 `href=http://127.0.0.1:5173/`；退出后相关进程 CLEAN |
+| `cj-tauri build`（Vue 模板） | ✅ `npm run build` + `vite-plugin-singlefile` → `ui/dist/` 只有 `index.html`（63.4 KB）→ `cjpm build success` |
+| 示例工程构建 | ✅ `examples/hello` 与 `examples/todo_check` 均 `cjpm build success` |
+
+> 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、
+> Linux 端用 GTK 的 `gtk_window_set_icon_from_file`，两端均已实机验证（见上两节末行）。
 
 ## 仓库与推送
 

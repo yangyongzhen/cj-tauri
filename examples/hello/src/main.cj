@@ -70,21 +70,13 @@ public class ReportCommand <: CommandHandler {
 
 main(): Int64 {
     eprintln("[hello] main start")
-    // 装配应用（对标 tauri::Builder）
+    // 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
+    // 能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
     let app = TauriApp()
+        .window(WindowConfig("cj-tauri hello", 1000, 700))
         .register("greet", GreetCommand())
         .register("timer", TimerCommand())
         .register("report", ReportCommand())
-
-    // 加载能力清单（对标 capabilities/*.json）
-    let capJson = JsonValue.fromStr("""
-    {
-        "identifier": "default",
-        "windows": ["main"],
-        "commands": ["greet", "timer", "system:version", "system:ping", "system:echo", "report"],
-        "events": ["tick"]
-    }""")
-    app.addCapabilityJson(capJson)
 
     // 前端 HTML（Tauri 式 hello-world UI）
     let html = """

@@ -14,6 +14,7 @@ public class SystemCommands <: CommandHandler {
             case "system:version" => this.version()
             case "system:ping" => this.ping(args)
             case "system:echo" => this.echo(args)
+            case "system:devtools" => this.devTools(ipc)
             case _ => throw CommandException("unknown system command: ${cmd}")
         }
     }
@@ -34,5 +35,11 @@ public class SystemCommands <: CommandHandler {
     private func echo(args: JsonObject): JsonValue {
         // 原样返回 args（作为 JsonValue 包装）
         return args
+    }
+
+    /** 打开开发者工具（需在 capability 中声明 system:devtools 才可调用） */
+    private func devTools(ipc: IpcContext): JsonValue {
+        ipc.openDevTools()
+        return JsonBool(true)
     }
 }

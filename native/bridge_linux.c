@@ -39,11 +39,53 @@ static js_node *g_js_tail = NULL;
 static int g_ready = 0;
 static volatile int g_should_quit = 0;
 
+/* 窗口配置：由仓颉侧在 cj_bridge_start 之前经 cj_bridge_set_window 注入 */
+static char *g_win_title = NULL;
+static int g_win_w = 900;
+static int g_win_h = 640;
+static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） */
+
 /* ===== 仓颉 → C 桥 ===== */
 
 void cj_bridge_init(cj_on_message_fn m, cj_on_destroy_fn d) {
     g_on_message = m;
     g_on_destroy = d;
+}
+
+/* 开发者工具开关：enabled=0 表示禁止打开（须在 cj_bridge_start 之前调用） */
+void cj_bridge_set_devtools(int enabled) {
+    g_devtools = enabled ? 1 : 0;
+    fprintf(stderr, "[cj-bridge] devtools %s\n", g_devtools ? "enabled" : "disabled");
+}
+
+/* 运行时打开开发者工具：投递到 GTK 线程执行（仓颉线程禁止直接调 webkit） */
+static gboolean open_devtools_idle(gpointer d) {
+    if (g_view) {
+        WebKitWebInspector *insp = webkit_web_view_get_inspector(WEBKIT_WEB_VIEW(g_view));
+        if (insp) {
+            webkit_web_inspector_show(insp);
+        }
+    }
+    return FALSE;
+}
+
+void cj_bridge_open_devtools(void) {
+    g_idle_add(open_devtools_idle, NULL);
+}
+
+/* 窗口配置（标题 / 尺寸）：必须在 cj_bridge_start 之前调用 */
+void cj_bridge_set_window(const char *title, int width, int height) {
+    fprintf(stderr, "[cj-bridge] set window: title=%s size=%dx%d\n",
+            title ? title : "(default)", width, height);
+    if (g_win_title) {
+        free(g_win_title);
+        g_win_title = NULL;
+    }
+    if (title) {
+        g_win_title = strdup(title);
+    }
+    if (width > 0) g_win_w = width;
+    if (height > 0) g_win_h = height;
 }
 
 /* 原生 → JS：把脚本投递到 GTK 线程执行（仓颉线程禁止直接调 webkit） */
@@ -172,7 +214,8 @@ static void *gtk_thread_main(void *arg) {
     gtk_init(NULL, NULL);
 
     g_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_default_size(GTK_WINDOW(g_window), 900, 640);
+    gtk_window_set_title(GTK_WINDOW(g_window), g_win_title ? g_win_title : "cj-tauri");
+    gtk_window_set_default_size(GTK_WINDOW(g_window), g_win_w, g_win_h);
     g_signal_connect(g_window, "destroy", G_CALLBACK(on_destroy), NULL);
 
     WebKitUserContentManager *mgr = webkit_user_content_manager_new();
@@ -187,6 +230,12 @@ static void *gtk_thread_main(void *arg) {
                      G_CALLBACK(on_script_message), NULL);
 
     g_view = webkit_web_view_new_with_user_content_manager(mgr);
+    {
+        /* 开发者工具开关：settings 交由视图持有（单实例、随窗口存续，不再额外 unref） */
+        WebKitSettings *settings = webkit_settings_new();
+        webkit_settings_set_enable_developer_extras(settings, g_devtools ? TRUE : FALSE);
+        webkit_web_view_set_settings(WEBKIT_WEB_VIEW(g_view), settings);
+    }
     g_signal_connect(g_view, "load-changed", G_CALLBACK(on_load_changed), NULL);
     gtk_container_add(GTK_CONTAINER(g_window), g_view);
     gtk_widget_show_all(g_window);

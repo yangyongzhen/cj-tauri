@@ -51,16 +51,14 @@ public class TimerCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    // 1) 载入能力清单（对标 capabilities/*.json，默认最小权限）
-    let capJson = JsonValue.fromStr(String.fromUtf8(File.readFrom("capabilities/default.json")))
-
-    // 2) 装配应用（对标 tauri::Builder）：注册命令 + 挂载能力
+    // 1) 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
+    //    能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
     let app = TauriApp()
+        .window(WindowConfig("cj-tauri 应用", 1000, 700))
         .register("greet", GreetCommand())
         .register("timer", TimerCommand())
-        .addCapabilityJson(capJson)
 
-    // 3) 载入前端页面并启动（阻塞至窗口关闭）
+    // 2) 载入前端页面并启动（阻塞至窗口关闭）
     let html = String.fromUtf8(File.readFrom("ui/index.html"))
     app.run(html)
     return 0

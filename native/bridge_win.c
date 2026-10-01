@@ -44,6 +44,12 @@ static char *g_pending_html = NULL;
 static volatile LONG g_ready = 0;
 static volatile LONG g_should_quit = 0;
 
+/* 窗口配置：由仓颉侧在 cj_bridge_start 之前经 cj_bridge_set_window 注入 */
+static wchar_t *g_win_title_w = NULL;
+static int g_win_w = 900;
+static int g_win_h = 640;
+static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） */
+
 /* JS 投递队列（FIFO）：每条 JS 独立执行，防止覆盖 */
 typedef struct js_node {
     wchar_t *js;
@@ -56,6 +62,7 @@ static int g_js_lock_init = 0;
 
 #define WM_CJT_FLUSH (WM_APP + 1)
 #define WM_CJT_QUIT (WM_APP + 2)
+#define WM_CJT_DEVTOOLS (WM_APP + 3)
 
 /* ===== UTF-8 <-> UTF-16 ===== */
 
@@ -240,7 +247,7 @@ static HRESULT STDMETHODCALLTYPE ctrl_Invoke(
             settings->lpVtbl->put_IsStatusBarEnabled(settings, FALSE);
             settings->lpVtbl->put_IsZoomControlEnabled(settings, FALSE);
             settings->lpVtbl->put_AreDefaultContextMenusEnabled(settings, TRUE);
-            settings->lpVtbl->put_AreDevToolsEnabled(settings, TRUE);
+            settings->lpVtbl->put_AreDevToolsEnabled(settings, g_devtools ? TRUE : FALSE);
             settings->lpVtbl->Release(settings);
         }
     }
@@ -356,6 +363,11 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CJT_QUIT:
         DestroyWindow(hwnd);
         return 0;
+    case WM_CJT_DEVTOOLS:
+        if (g_webview) {
+            g_webview->lpVtbl->OpenDevToolsWindow(g_webview);
+        }
+        return 0;
     case WM_DESTROY:
         InterlockedExchange(&g_should_quit, 1);
         if (g_on_destroy) g_on_destroy();
@@ -441,8 +453,9 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     wc.lpszClassName = WINDOW_CLASS;
     RegisterClassExW(&wc);
 
-    g_hwnd = CreateWindowExW(0, WINDOW_CLASS, L"cj-tauri", WS_OVERLAPPEDWINDOW,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 900, 640,
+    g_hwnd = CreateWindowExW(0, WINDOW_CLASS,
+                             g_win_title_w ? g_win_title_w : L"cj-tauri", WS_OVERLAPPEDWINDOW,
+                             CW_USEDEFAULT, CW_USEDEFAULT, g_win_w, g_win_h,
                              NULL, NULL, wc.hInstance, NULL);
     if (!g_hwnd) {
         fprintf(stderr, "[cj-bridge] CreateWindowExW failed: %lu\n", GetLastError());
@@ -485,6 +498,36 @@ CJ_BRIDGE_API void cj_bridge_init(cj_on_message_fn m, cj_on_destroy_fn d) {
         InitializeCriticalSection(&g_js_lock);
         g_js_lock_init = 1;
     }
+}
+
+/* 窗口配置（标题 / 尺寸）：必须在 cj_bridge_start 之前调用 */
+CJ_BRIDGE_API void cj_bridge_set_window(const char *title, int width, int height) {
+    fprintf(stderr, "[cj-bridge] set window: title=%s size=%dx%d\n",
+            title ? title : "(default)", width, height);
+    if (g_win_title_w) {
+        free(g_win_title_w);
+        g_win_title_w = NULL;
+    }
+    if (title) {
+        g_win_title_w = utf8_to_wide(title);
+    }
+    if (width > 0) g_win_w = width;
+    if (height > 0) g_win_h = height;
+}
+
+/* 开发者工具开关：enabled=0 表示禁止打开（须在 cj_bridge_start 之前调用） */
+CJ_BRIDGE_API void cj_bridge_set_devtools(int enabled) {
+    g_devtools = enabled ? 1 : 0;
+    fprintf(stderr, "[cj-bridge] devtools %s\n", g_devtools ? "enabled" : "disabled");
+}
+
+/* 运行时打开开发者工具：投递到宿主线程执行（WebView2 要求在其 UI 线程上调用） */
+CJ_BRIDGE_API void cj_bridge_open_devtools(void) {
+    if (!g_hwnd) {
+        fprintf(stderr, "[cj-bridge] open devtools ignored: window not ready\n");
+        return;
+    }
+    PostMessageW(g_hwnd, WM_CJT_DEVTOOLS, 0, 0);
 }
 
 CJ_BRIDGE_API void cj_bridge_start(const char *html) {

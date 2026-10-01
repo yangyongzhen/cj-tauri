@@ -6,6 +6,9 @@
 > **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
 >
+> **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
+> ——同主题文档：[docs/仓颉版Tauri-介绍与使用指南.md](docs/仓颉版Tauri-介绍与使用指南.md)（指南体）、`docs/仓颉版Tauri-博客稿.md`（博客体）。
+>
 > 仓库（双托管，一次 `git push` 同步推送两个远端）：
 > **AtomGit** <https://atomgit.com/qq8864/cj-tauri> ｜ **GitHub** <https://github.com/yangyongzhen/cj-tauri>
 >
@@ -30,7 +33,7 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（对标 tauri I
         ▼
 能力安全模型（src/capability.cj）← 命令/事件白名单，默认最小权限（对标 capability）
         ▼
-内置命令（src/api_system.cj）：system:version / system:ping / system:echo
+内置命令（src/api_system.cj）：system:version / system:ping / system:echo / system:devtools
         ▼
 WebView 宿主（src/host.cj 抽象 + 各平台实现）
    ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
@@ -49,6 +52,8 @@ cj-tauri/
 │   ├── ipc_message.cj     # IPC 协议模型（invoke/resolve/event）
 │   ├── ipc_hub.cj         # 命令注册/分发/校验中心
 │   ├── capability.cj      # 能力安全模型
+│   ├── capability_loader.cj # capabilities/ 目录自动扫描加载
+│   ├── window.cj          # 窗口配置模型（标题/尺寸/devtools）
 │   ├── api_system.cj      # 内置系统命令
 │   ├── host.cj            # WebViewHost 抽象接口
 │   ├── host_webkit.cj     # Linux WebKit 宿主（FFI + C 桥）
@@ -175,14 +180,12 @@ public class GreetCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    // 2. 装配 + 注册 + 能力清单（对标 capabilities/*.json）
+    // 2. 装配：窗口配置 + 注册命令（对标 tauri::Builder 与 tauri.conf.json 的 app.windows）
     let app = TauriApp()
+        .window(WindowConfig("hello", 1000, 700))   // 标题 / 宽 / 高；cfg.devTools = false 可禁用开发者工具
         .register("greet", GreetCommand())
-    app.addCapabilityJson(JsonValue.fromStr("""
-        {"identifier":"default","windows":["main"],
-         "commands":["greet","system:version"],
-         "events":[]}"""))
-    // 3. 启动（阻塞）
+    // 3. 启动（阻塞）：能力清单由 run() 自动扫描 capabilities/ 目录
+    //    （也可显式 app.loadCapabilities(dir) 或 app.addCapabilityJson(json)，见「能力安全模型」）
     app.run(html)
     return 0
 }
@@ -200,6 +203,8 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 ## 能力安全模型
 
 - 应用在 `capabilities/` 声明 `commands`/`events` 白名单；
+- `run()` 时若没有显式挂载任何清单，框架会**自动扫描 `capabilities/` 下的所有 `json` 文件**（对标 Tauri）；
+- 显式挂载优先：调用过 `loadCapabilities(dir)` 或 `addCapabilityJson(json)` 后就不再自动扫描；
 - **未声明命令一律拒绝**（默认最小权限），返回 `command not allowed: xxx`；
 - 未声明事件不投递到页面；
 - 校验层独立于宿主实现，鸿蒙 ArkWeb 后端复用同一套。
@@ -224,6 +229,8 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 脚手架 CLI（仓颉原生实现，`cli/`）：`create` / `dev` / `build` / `run` / `info`，Windows + Linux
   双平台启动器（`cli/cj-tauri.sh` / `cli/cj-tauri.bat`），首次运行自动构建 CLI 本体
 - ✅ 使用文档：`docs/使用文档.md`
+- ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
+  [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
 - 🔜 P1：capability 文件自动加载、窗口配置化、devtools 开关
 - 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView
 - 🔜 P3：前端框架模板（React/Vue）、插件体系

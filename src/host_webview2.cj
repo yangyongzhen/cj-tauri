@@ -15,6 +15,18 @@ foreign func cj_bridge_start(html: CString): Unit
 
 @When[os == "Windows"]
 @C
+foreign func cj_bridge_set_window(title: CString, width: Int32, height: Int32): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_devtools(enabled: Int32): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_open_devtools(): Unit
+
+@When[os == "Windows"]
+@C
 foreign func cj_bridge_run_js(js: CString): Unit
 
 @When[os == "Windows"]
@@ -38,6 +50,8 @@ public class WebView2Host <: WebViewHost {
     public var onMessage: (String) -> Unit = { _ => }
     // 销毁回调
     public var onDestroy: () -> Unit = { => }
+    // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
+    private var config: WindowConfig = WindowConfig()
 
     public init() {}
 
@@ -45,11 +59,32 @@ public class WebView2Host <: WebViewHost {
         this.onMessage = handler
     }
 
+    public func setWindowConfig(config: WindowConfig): Unit {
+        this.config = config
+    }
+
+    public func setDevTools(enabled: Bool): Unit {
+        this.config.devTools = enabled
+    }
+
+    public func openDevTools(): Unit {
+        unsafe {
+            cj_bridge_open_devtools()
+        }
+    }
+
     public func start(html: String): Unit {
         HostGlobals.onMessage = this.onMessage
         HostGlobals.onDestroy = this.onDestroy
+        var devTools: Int32 = 0
+        if (this.config.devTools) {
+            devTools = 1
+        }
         unsafe {
             cj_bridge_init(hostOnMessage, hostOnDestroy)
+            cj_bridge_set_window(LibC.mallocCString(this.config.title),
+                                 Int32(this.config.width), Int32(this.config.height))
+            cj_bridge_set_devtools(devTools)
             cj_bridge_start(LibC.mallocCString(html))
         }
     }

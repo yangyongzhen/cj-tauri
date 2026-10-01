@@ -32,6 +32,12 @@ if not exist "%SCRIPT_DIR%native\webview2\WebView2Loader.dll" (
 REM Cangjie runtime + stdx + the C bridge + the WebView2 loader
 set "PATH=%CANGJIE_HOME%\runtime\lib\windows_x86_64_cjnative;%CANGJIE_STDX%;%SCRIPT_DIR%native;%SCRIPT_DIR%native\webview2;%PATH%"
 
+REM The app reads capabilities\ and ui\ by relative path, so run it from the
+REM example root (same project-root convention as a Tauri app).
+REM NOTE: keep this file pure ASCII -- cmd.exe reads .bat in the OEM codepage
+REM       and non-ASCII bytes can break subsequent lines.
+cd /d "%SCRIPT_DIR%examples\hello"
+
 echo [run] %APP%
 "%APP%"
 endlocal

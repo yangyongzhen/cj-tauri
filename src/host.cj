@@ -16,6 +16,21 @@ public interface WebViewHost {
     public func start(html: String): Unit
 
     /**
+     * 应用窗口配置（标题 / 尺寸）；必须在 start() 之前调用，宿主据此创建窗口
+     */
+    public func setWindowConfig(config: WindowConfig): Unit
+
+    /**
+     * 是否允许打开开发者工具；必须在 start() 之前调用
+     */
+    public func setDevTools(enabled: Bool): Unit
+
+    /**
+     * 运行时打开开发者工具（WebView2 DevTools / WebKit Inspector）
+     */
+    public func openDevTools(): Unit
+
+    /**
      * 原生 → JS：在 WebView 中执行脚本
      */
     public func runJs(js: String): Unit

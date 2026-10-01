@@ -45,6 +45,13 @@ public class IpcContext {
     public func emit(event: String, payload: JsonValue): Unit {
         this.hub.emitToWindow(event, payload, this.window)
     }
+
+    /**
+     * 打开开发者工具（宿主实现），供内置 system:devtools 与应用自定义命令使用
+     */
+    public func openDevTools(): Unit {
+        this.hub.openDevTools()
+    }
 }
 
 /**
@@ -55,11 +62,20 @@ public class IpcHub {
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
     // 事件投递通道：由宿主层注入（把 JSON 字符串投递给前端 JS）
     public var jsSink: (String) -> Unit = { _ => }
+    // 开发者工具通道：由 TauriApp 注入宿主实现
+    public var devToolsSink: () -> Unit = { => }
 
     public init() {}
 
     public func setCapabilities(reg: CapabilityRegistry): Unit {
         this.capabilities = reg
+    }
+
+    /**
+     * 打开开发者工具（宿主注入的实现；未注入时空操作）
+     */
+    public func openDevTools(): Unit {
+        this.devToolsSink()
     }
 
     public func register(cmd: String, handler: CommandHandler): Unit {

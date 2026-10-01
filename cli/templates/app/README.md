@@ -8,7 +8,7 @@
 ```
 {{PROJECT_NAME}}/
 ├── cjpm.toml              # 应用构建配置（依赖 cj-tauri 框架）
-├── src/main.cj            # 仓颉入口：命令注册 + 能力挂载 + 启动
+├── src/main.cj            # 仓颉入口：窗口配置 + 命令注册 + 启动
 ├── ui/index.html          # 前端页面（任意 Web 技术栈）
 └── capabilities/default.json  # 能力白名单（命令 / 事件）
 ```
@@ -35,6 +35,16 @@ cjpm build
 #            target\release\bin\main.exe
 ```
 
+## 窗口配置
+
+```cangjie
+let app = TauriApp()
+    .window(WindowConfig("我的应用", 1200, 800))   // 标题 / 宽 / 高
+```
+
+默认标题 `cj-tauri 应用`、1000×700、允许开发者工具；
+`WindowConfig.devTools = false` 可禁用，前端 `invoke('system:devtools')` 可在运行时打开（需在能力清单里声明）。
+
 ## 加一个命令
 
 1. 在 `src/main.cj` 实现 `CommandHandler`：
@@ -49,7 +59,8 @@ public class PingCommand <: CommandHandler {
 ```
 
 2. 注册：`.register("ping", PingCommand())`
-3. 在 `capabilities/default.json` 的 `commands` 里声明 `"ping"`（**不声明会被拒绝**）
+3. 在 `capabilities/default.json` 的 `commands` 里声明 `"ping"`（**不声明会被拒绝**；
+   清单由框架在 `run()` 时自动扫描 `capabilities/` 目录，无需自己读文件）
 4. 前端调用：`window.__CJ_TAURI__.invoke('ping').then(...)`
 
 ## 后端推事件

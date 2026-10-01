@@ -56,6 +56,17 @@ cd my-app && ../cli/cj-tauri.bat run
 - 注释用中文、标识符用英文；`.bat` / `.ps1` 保持**纯 ASCII**（中文注释会吞掉后续行或让 PowerShell 解析崩溃）。
 - 条件编译的平台取值首字母大写：`@When[os == "Windows"]` / `"Linux"`。
 
+### 跑测试
+
+```bash
+bash scripts/test.sh                    # 框架单元测试（IPC 分发 / 能力校验 / 版本常量）
+bash scripts/test.sh --filter invoke    # 参数透传给 cjpm test
+```
+
+测试不创建窗口，纯逻辑，可在无 GUI 的环境跑。改动涉及 IPC 分发、能力校验、版本常量时，请先让它们全绿。
+Windows 上如果测试二进制报 `0xC0000135`，是桥的 DLL 不在 `PATH` 里——`scripts/test.sh` 已经处理，
+手写命令时记得把 `native/` 与 `native/webview2/` 加进去。
+
 ### 版本与自检
 
 ```bash
@@ -85,7 +96,7 @@ docs: document the capability loader
 ## 提交 PR
 
 1. Fork 本仓库并创建功能分支
-2. 本地跑通 `cjpm build`（必要时含 CLI / 示例）与 `bash scripts/check-version.sh`
+2. 本地跑通 `cjpm build`（必要时含 CLI / 示例）、`bash scripts/test.sh` 与 `bash scripts/check-version.sh`
 3. 在 `CHANGELOG.md` 的 `[Unreleased]` 段登记行为变更，并同步受影响的 `README.md` / `docs/使用文档.md`
 4. 推送并创建 Pull Request，写清变更动机、验证方式，以及**哪些平台/场景未验证**
 5. 本仓双托管：`origin` 挂了 AtomGit 与 GitHub 两条 pushurl，一次 `git push origin main` 同步两仓。

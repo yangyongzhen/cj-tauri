@@ -107,6 +107,7 @@
 ## 7. 交付检查清单
 
 - [ ] `cjpm build` 通过（涉及 CLI / 示例时各自再跑一次）
+- [ ] `bash scripts/test.sh` 全绿（改动涉及 IPC 分发 / 能力校验 / 版本常量时；纯文档改动可跳过）
 - [ ] 实机跑通：桥 stderr 无 `hr=` 非 0，无 `command not allowed` / `command not registered` 误报
 - [ ] 新命令/新 API 三处联动齐全（注册 + 能力清单 + 前端调用）
 - [ ] `CHANGELOG.md` 的 `[Unreleased]` 已写；`README.md` / `docs/使用文档.md` 已同步

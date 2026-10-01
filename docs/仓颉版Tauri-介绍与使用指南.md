@@ -166,7 +166,7 @@ set "CANGJIE_STDX=D:\cangjie-stdx\windows_x86_64_cjnative\dynamic\stdx"
 
 ```bash
 git clone https://atomgit.com/qq8864/cj-tauri.git      # AtomGit（国内直连推荐）
-git clone git@github.com:yangyongzhen/cj-tauri.git     # GitHub（需已配置 SSH 密钥）
+git clone https://github.com/yangyongzhen/cj-tauri.git # GitHub
 cd cj-tauri
 ```
 
@@ -507,11 +507,11 @@ fetch 仍只走 AtomGit）：
 | 远端 | 地址 | 说明 |
 |---|---|---|
 | AtomGit | <https://atomgit.com/qq8864/cj-tauri.git> | 主仓，`origin` 的 fetch 源 |
-| GitHub | <https://github.com/yangyongzhen/cj-tauri.git> | 同步备份，走 SSH |
+| GitHub | <https://github.com/yangyongzhen/cj-tauri.git> | 同步备份，走 HTTPS |
 
 ```bash
 git clone https://atomgit.com/qq8864/cj-tauri.git        # AtomGit（国内直连推荐）
-git clone git@github.com:yangyongzhen/cj-tauri.git       # GitHub（需已配置 SSH 密钥）
+git clone https://github.com/yangyongzhen/cj-tauri.git   # GitHub
 
 git remote -v                 # 会看到 origin 的两个 push 地址
 git push                      # 一次推送 → AtomGit + GitHub 各推一次

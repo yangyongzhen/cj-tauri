@@ -19,7 +19,7 @@
 >
 > ```bash
 > git clone https://atomgit.com/qq8864/cj-tauri.git          # AtomGit（国内直连推荐）
-> git clone git@github.com:yangyongzhen/cj-tauri.git         # GitHub（需已配置 SSH 密钥）
+> git clone https://github.com/yangyongzhen/cj-tauri.git     # GitHub
 > ```
 
 ## 运行效果

@@ -75,6 +75,10 @@
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
+- Linux 宿主：桥接脚本必须**在 document start 注入**（`WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`）——
+  用文档末尾注入会晚于发行态单文件里内联的 `<script type="module">`，前端读 `window.__CJ_TAURI__` 拿到
+  `undefined`（Windows 的 `AddScriptToExecuteOnDocumentCreated` 同样是「页面脚本执行前」，两平台已对齐）。
+  即便如此，应用前端也不要在模块作用域直接读桥：初始化时**等桥出现**（模板里的 `waitForBridge`）。
 - Linux 上仓颉运行时的动态库**不查 PATH**：启动器只设 PATH 会让 CLI 以「找不到 libcangjie-runtime.so」
   直接退出（Git Bash 下表现为退出码 127 且无输出），必须同时把 `runtime/lib/<platform>` 设进 `LD_LIBRARY_PATH`。
 - `cj-tauri dev` 的 dev server **不要用 `setsid` 另开会话**：那样它会脱离终端的进程组，

@@ -293,12 +293,16 @@ static void *gtk_thread_main(void *arg) {
     }
     g_signal_connect(g_window, "destroy", G_CALLBACK(on_destroy), NULL);
 
+    /* 注入时机与 Windows 侧对齐：那边是 AddScriptToExecuteOnDocumentCreated（页面脚本执行前）。
+       这里原先用 AT_DOCUMENT_END，会让发行态单文件里的内联 <script type="module"> 抢在注入之前执行
+       —— 前端在模块作用域 / onMounted 直接读 window.__CJ_TAURI__ 会拿到 undefined
+       （开发态从 URL 加载、模块要现下载，反而掩盖了这个竞态）。所以必须 document-start。 */
     WebKitUserContentManager *mgr = webkit_user_content_manager_new();
     webkit_user_content_manager_add_script(
         mgr,
         webkit_user_script_new(BRIDGE_JS,
                                WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
-                               WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
+                               WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
                                NULL, NULL));
     webkit_user_content_manager_register_script_message_handler(mgr, "cjtauri");
     g_signal_connect(mgr, "script-message-received::cjtauri",

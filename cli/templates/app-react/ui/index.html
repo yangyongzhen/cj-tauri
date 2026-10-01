@@ -5,11 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{PROJECT_NAME}}</title>
   <style>
-    /* 整页基础样式：组件样式在 App.css，这里只给页面底色，
+    /* 整页基础样式：组件样式在 App.css，这里给页面底色 + 让内容整列居中，
        调色板与零 Node 模板、examples/hello 一致（#16161d 深色底）。 */
     :root { color-scheme: dark; }
-    body { margin: 0; padding: 24px; min-height: 100vh; background: #16161d; color: #e6e6e6;
+    /* min-height（不是 height）+ 居中：内容比视口高时 body 跟着长，顶部不会被裁掉。 */
+    body { box-sizing: border-box; margin: 0; padding: 24px; min-height: 100vh;
+           display: flex; flex-direction: column; align-items: center; justify-content: center;
+           background: #16161d; color: #e6e6e6;
            font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    /* 标题 / 提示 / 卡片同一列居中：光靠 body 的 align-items 不够——挂载点只有一个子节点，
+       提示行（页面来源、桥状态）很长时会把整列撑宽，卡片反而贴在左边。 */
+    #root { width: 100%; display: flex; flex-direction: column; align-items: center; }
   </style>
 </head>
 <body>

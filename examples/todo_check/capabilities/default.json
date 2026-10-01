@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["todo:add", "todo:remove", "todo:list"],
+  "events": ["todo:changed"]
+}

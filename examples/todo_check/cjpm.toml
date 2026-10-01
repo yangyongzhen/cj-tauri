@@ -1,0 +1,20 @@
+[package]
+  cjc-version = "1.0.5"
+  name = "todo_check"
+  description = "《前端入门教程》§9 的待办清单示例：源码由 extract.js 从教程抽出并编译校验"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  cjTauri = { path = "../.." }
+
+[target.x86_64-w64-mingw32]
+  link-option = "-L../../native -lcjtbridge"
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]

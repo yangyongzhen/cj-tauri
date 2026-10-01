@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>待办清单</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, "Segoe UI", sans-serif; background: #16161d; color: #e6e6e6;
+         margin: 0; padding: 32px; display: flex; justify-content: center; }
+  .card { width: min(520px, 92vw); background: #1f2029; border: 1px solid #2e3140;
+          border-radius: 14px; padding: 24px 28px; }
+  h1 { margin: 0 0 18px; font-size: 20px; color: #7ce7ff; }
+  .row { display: flex; gap: 8px; }
+  input { flex: 1; font-size: 15px; padding: 9px 12px; border-radius: 9px;
+          border: 1px solid #2e3140; background: #141821; color: #e6e6e6; }
+  button { font-size: 15px; padding: 9px 14px; border: none; border-radius: 9px;
+           background: #e94560; color: #fff; cursor: pointer; }
+  ul { list-style: none; margin: 18px 0 0; padding: 0; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+       padding: 10px 12px; border-radius: 9px; background: #171a22; margin-bottom: 8px; }
+  li button { background: #2b3040; padding: 4px 10px; }
+  #count { margin: 14px 0 0; font-size: 13px; color: #9aa0b4; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>待办清单</h1>
+    <div class="row">
+      <input id="text" placeholder="要做什么？">
+      <button id="add">添加</button>
+    </div>
+    <ul id="list"></ul>
+    <p id="count"></p>
+  </div>
+
+  <script>
+    function withBridge(cb) {
+      if (window.__CJ_TAURI__) { cb(window.__CJ_TAURI__); return; }
+      setTimeout(function () { withBridge(cb); }, 50);
+    }
+
+    withBridge(function (tauri) {
+      var textEl = document.getElementById('text');
+      var listEl = document.getElementById('list');
+      var countEl = document.getElementById('count');
+
+      // 唯一的渲染入口：拿到一份完整数据就重画一次
+      function render(payload) {
+        listEl.innerHTML = '';
+        payload.items.forEach(function (text, i) {
+          var li = document.createElement('li');
+
+          var span = document.createElement('span');
+          span.textContent = text;                  // 用 textContent，不要拼 innerHTML
+
+          var del = document.createElement('button');
+          del.textContent = '删除';
+          del.onclick = function () {
+            tauri.invoke('todo:remove', { index: i })
+              .catch(function (err) { console.error(err.message); });
+          };
+
+          li.appendChild(span);
+          li.appendChild(del);
+          listEl.appendChild(li);
+        });
+        countEl.textContent = '共 ' + payload.count + ' 条';
+      }
+
+      // 后端每次改动都会推这个事件；前端只管重绘，不自己维护副本
+      tauri.listen('todo:changed', render);
+
+      document.getElementById('add').onclick = function () {
+        var text = textEl.value.trim();
+        if (!text) { return; }
+        tauri.invoke('todo:add', { text: text })
+          .then(function () { textEl.value = ''; })     // 只清输入框，刷新交给事件
+          .catch(function (err) { alert(err.message); });
+      };
+
+      // 首次进入拉一次全量
+      tauri.invoke('todo:list')
+        .then(render)
+        .catch(function (err) { countEl.textContent = '加载失败：' + err.message; });
+    });
+  </script>
+</body>
+</html>

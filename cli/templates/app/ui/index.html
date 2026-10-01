@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{{PROJECT_NAME}}</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #16161d;
+         color: #e6e6e6; margin: 0; min-height: 100vh;
+         display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .card { background: #1f2029; border: 1px solid #2e3140; border-radius: 14px;
+          padding: 28px 32px; width: min(460px, 86vw);
+          box-shadow: 0 12px 32px rgba(0,0,0,.45); }
+  h1 { margin: 0 0 4px; font-size: 22px; color: #7ce7ff; }
+  .sub { margin: 0 0 20px; font-size: 13px; color: #9aa0b4; }
+  .row { display: flex; gap: 8px; margin: 14px 0; }
+  input, button { font-size: 15px; padding: 9px 12px; border-radius: 9px; border: 1px solid transparent; }
+  input { flex: 1; background: #141821; color: #e6e6e6; border-color: #2e3140; }
+  input:focus { outline: none; border-color: #4a7fd4; }
+  button { background: #e94560; color: #fff; cursor: pointer; font-weight: 600; }
+  button:hover { opacity: .88; }
+  button.ghost { background: #2b3040; }
+  .result { margin-top: 6px; min-height: 24px; font-size: 15px; color: #50fa7b; word-break: break-all; }
+  .tick { margin-top: 10px; font-size: 13px; color: #8be9fd; min-height: 18px; }
+  .foot { margin-top: 18px; font-size: 12px; color: #6b7186; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>{{PROJECT_NAME}}</h1>
+    <p class="sub">仓颉后端 + 系统 WebView 前端 &nbsp;·&nbsp; invoke / listen 双向 IPC &nbsp;·&nbsp; capability 安全模型</p>
+
+    <div class="row">
+      <input id="name" placeholder="输入名字" value="world">
+      <button id="greet">greet</button>
+    </div>
+    <div class="row">
+      <button id="timer" class="ghost">启动后端事件推送</button>
+      <button id="version" class="ghost">system:version</button>
+    </div>
+
+    <div id="result" class="result">等待 invoke…</div>
+    <div id="tick" class="tick"></div>
+    <div class="foot">越权命令（未在 capabilities/default.json 声明）会被后端拒绝</div>
+  </div>
+
+  <script>
+    // 注入的桥（对标 @tauri-apps/api）：window.__CJ_TAURI__
+    function withBridge(cb) {
+      if (window.__CJ_TAURI__) { cb(window.__CJ_TAURI__); return; }
+      setTimeout(function () { withBridge(cb); }, 50);
+    }
+
+    withBridge(function (tauri) {
+      var result = document.getElementById('result');
+      var tick = document.getElementById('tick');
+
+      function show(text, ok) {
+        result.textContent = text;
+        result.style.color = ok === false ? '#ff6b81' : '#50fa7b';
+      }
+
+      // JS → 仓颉
+      document.getElementById('greet').onclick = function () {
+        var name = document.getElementById('name').value || 'world';
+        tauri.invoke('greet', { name: name })
+          .then(function (data) { show('invoke OK: ' + data); })
+          .catch(function (err) { show('invoke FAIL: ' + err.message, false); });
+      };
+
+      document.getElementById('version').onclick = function () {
+        tauri.invoke('system:version')
+          .then(function (data) { show('system:version -> ' + JSON.stringify(data)); })
+          .catch(function (err) { show('system:version FAIL: ' + err.message, false); });
+      };
+
+      // 仓颉 → JS（事件推送）
+      document.getElementById('timer').onclick = function () {
+        tauri.invoke('timer')
+          .then(function (d) { show('后端: ' + d); })
+          .catch(function (err) { show('timer FAIL: ' + err.message, false); });
+      };
+
+      tauri.listen('tick', function (payload) {
+        tick.textContent = '收到后端事件 tick #' + payload.n;
+      });
+    });
+  </script>
+</body>
+</html>

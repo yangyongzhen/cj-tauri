@@ -1,39 +1,40 @@
 package cjTauri
 
 /**
- * C 桥 FFI 声明（native/libcjtbridge.so）
- * 所有 GTK/WebKit 调用在 C 桥的原生 pthread 内执行（见 native/bridge_linux.c 头注释）。
+ * C 桥 FFI 声明（native/libcjtbridge.dll）
+ * Win32 窗口 + WebView2（Edge Chromium）在 C 桥的宿主线程内运行（见 native/bridge_win.c 头注释）。
+ * 与 Linux 端（host_webkit.cj）同名同签名，两端宿主实现同构。
  */
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_init(m: CFunc<(CString) -> Unit>, d: CFunc<() -> Unit>): Unit
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_start(html: CString): Unit
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_run_js(js: CString): Unit
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_quit(): Unit
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_is_ready(): Int32
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 foreign func cj_bridge_should_quit(): Int32
 
 /**
- * Linux WebKit 宿主实现：通过 C 桥驱动
+ * Windows WebView2 宿主实现：通过 C 桥驱动
  */
-@When[os == "Linux"]
-public class WebKitHost <: WebViewHost {
-    // 消息回调：GTK 线程（原生 pthread）→ 仓颉
+@When[os == "Windows"]
+public class WebView2Host <: WebViewHost {
+    // 消息回调：宿主线程（原生 Win32 消息循环）→ 仓颉
     public var onMessage: (String) -> Unit = { _ => }
     // 销毁回调
     public var onDestroy: () -> Unit = { => }
@@ -73,7 +74,7 @@ public class WebKitHost <: WebViewHost {
 }
 
 // C 回调中转：C 桥线程 → 仓颉闭包（经全局槽位）
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 func hostOnMessage(json: CString): Unit {
     try {
@@ -83,7 +84,7 @@ func hostOnMessage(json: CString): Unit {
     }
 }
 
-@When[os == "Linux"]
+@When[os == "Windows"]
 @C
 func hostOnDestroy(): Unit {
     try {

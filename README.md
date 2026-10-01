@@ -3,6 +3,7 @@
 用华为仓颉语言实现的轻量混合开发框架——仿 Tauri（Rust 后端 + 系统 WebView 前端）架构：
 **WebView 宿主 + IPC 双向桥 + 能力安全模型**。前端用任意 Web 技术，后端用仓颉静态编译。
 
+> **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
 
 ## 运行效果
@@ -15,7 +16,7 @@
 
 ```
 前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对标 @tauri-apps/api）
-        │  JSON over postMessage（WebKitUserContentManager script message）
+        │  JSON over postMessage（Linux: WebKitUserContentManager script message；Windows: chrome.webview.postMessage）
         ▼
 IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（对标 tauri IPC）
         ▼
@@ -23,8 +24,9 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（对标 tauri I
         ▼
 内置命令（src/api_system.cj）：system:version / ping / echo
         ▼
-WebView 宿主（src/host_webkit.cj + native/bridge.c）
-   ├─ Linux: webkit2gtk-4.1（C 桥在原生 pthread 运行，见下方关键点）
+WebView 宿主（src/host.cj 抽象 + 各平台实现）
+   ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
+   ├─ Windows: WebView2（src/host_webview2.cj + native/bridge_win.c，Win32 消息循环在宿主线程）
    └─ 鸿蒙: ArkWeb（架构预留，条件编译位）
 ```
 
@@ -41,33 +43,81 @@ tauri_cj/
 │   ├── api_system.cj      # 内置系统命令
 │   ├── host.cj            # WebViewHost 抽象接口
 │   ├── host_webkit.cj     # Linux WebKit 宿主（FFI + C 桥）
+│   ├── host_webview2.cj   # Windows WebView2 宿主（FFI + C 桥）
 │   └── app.cj             # TauriApp 装配（对标 tauri::Builder）
-├── native/bridge.c        # C 桥（GTK/WebKit 原生线程宿主）
+├── native/bridge_linux.c  # Linux C 桥（GTK/WebKit 原生线程宿主）
+├── native/bridge_win.c    # Windows C 桥（Win32 窗口 + WebView2）
+├── native/build_win.bat   # Windows C 桥构建脚本（含 WebView2 SDK/loader 同步）
+├── native/build_linux.sh  # Linux C 桥构建脚本
 ├── examples/hello/        # 示例应用（greet + tick 事件 + 越权演示）
-├── cli/cj-tauri           # 脚手架 CLI
-└── docs/                  # 技术方案 + 踩坑记录
+├── cli/                   # 脚手架 CLI（仓颉实现，跨平台）
+│   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
+│   ├── cj-tauri.bat       # Windows 启动器
+│   ├── src/               # CLI 源码：resolve / scaffold / project / main
+│   └── templates/app/     # 工程模板（占位符渲染，按宿主平台注入依赖与链接段）
+└── docs/                  # 使用文档 + 技术方案 + 踩坑记录
 ```
 
 ## 快速开始
 
+前提（详见[使用文档](docs/使用文档.md#2-环境准备)）：
+
+- **仓颉 SDK**（验证版本 1.2.0）+ **stdx**；
+- PATH 需包含 SDK 的 `runtime/lib/<平台>`、`bin`、`tools/bin`、`tools/lib`（官方 `envsetup` 的布局），
+  或只设 `CANGJIE_HOME` 交给 `cli/cj-tauri.sh` / `cli/cj-tauri.bat` 自动补齐；stdx 路径可用 `CANGJIE_STDX` 指定；
+- Windows：mingw gcc + WebView2 Runtime（Win11 自带）+ WebView2 SDK（仅编译桥时需要）；
+  Linux：`libwebkit2gtk-4.1-dev`、`libgtk-3-dev`。
+
+用脚手架建一个新应用（首次运行会自动构建 CLI 本体）：
+
 ```bash
-# 1. 环境
-source cj-env.sh            # CANGJIE_HOME / PATH / LD_LIBRARY_PATH
-# 依赖：libwebkit2gtk-4.1-dev libgtk-3-dev
+# Linux / macOS / Git Bash
+./cli/cj-tauri.sh create myapp
+cd myapp
+./cli/cj-tauri.sh dev        # 构建 C 桥 + cjpm build + 启动窗口
+```
 
-# 2. 编译 C 桥
-cd native && gcc -shared -fPIC -fstack-protector-all bridge.c \
-    -o libcjtbridge.so $(pkg-config --cflags --libs webkit2gtk-4.1) && cd ..
+```bat
+REM Windows cmd
+cli\cj-tauri.bat create myapp
+cd myapp
+..\..\cli\cj-tauri.bat dev
+```
 
-# 3. 示例应用
+`cj-tauri` 子命令：`create` / `dev` / `build` / `run` / `info` / `help`。
+`dev`/`build`/`run` 会自动为子进程准备「桥（含 `native/webview2`）+ stdx + 仓颉运行时」的动态库搜索路径，
+不必手工拼 `PATH` / `LD_LIBRARY_PATH`；`cj-tauri info` 可打印全部路径解析结果，排障先跑它。
+
+### 运行仓内示例（不用脚手架）
+
+Windows：
+```bat
+REM 1. 编译 C 桥（SDK 路径与版本要求见 native\build_win.bat 顶部）
+native\build_win.bat
+
+REM 2. 编译示例应用
+cd examples\hello && cjpm build
+
+REM 3. 运行（run_win.bat 已配好 Cangjie 运行时 / stdx / 桥 DLL 的 PATH）
+run_win.bat
+```
+
+Linux：
+```bash
+# 1. 编译 C 桥
+cd native && ./build_linux.sh && cd ..
+
+# 2. 编译并运行示例应用（应用以项目根为工作目录）
 cd examples/hello && cjpm build
 LD_LIBRARY_PATH=../../native:$(stdx路径):$LD_LIBRARY_PATH ./target/release/bin/main
-
-# 4. 脚手架创建新项目
-cd /tmp && cj-tauri create myapp && cd myapp
-cj-tauri dev                 # 构建 + 运行
-cj-tauri build               # 仅构建
 ```
+
+> Windows 注意：编译桥所用 WebView2 SDK 版本应与机器上的 WebView2 Runtime 版本兼容
+> （SDK 不高于运行时；本机运行时 122.0.2365.106 对应 SDK 1.0.2365.46）。
+> 运行时版本查询命令见 `native/build_win.bat` 注释。
+>
+> Git Bash 注意：往 `PATH` 里塞路径必须用 POSIX 形式（`/d/...`），写成 `D:/...` 会让依赖仓颉运行时
+> DLL 的原生进程启动失败（退出码 127 且无输出）；`cli/cj-tauri.sh` 已内置该转换。
 
 ## 开发一个应用
 
@@ -129,15 +179,24 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 2. 原生→JS 的脚本投递用 **FIFO 队列 + g_idle_add**，不能单槽位覆盖。
 3. 仓颉迭代 String 得到的是 **UInt32 码点**（非 Rune），`Rune(cp)` 还原字符。
 4. stdx 的 JSON（`JsonValue.fromStr`）是 1.0.5 的 JSON 方案，标准库无 `std.json`。
+5. **Windows（WebView2）：回调里拿到的 `ICoreWebView2Environment` / `Controller` 必须自己 AddRef 持有**，
+   否则回调返回后对象即被释放，WebView2 会立刻关掉浏览器进程——现象是窗口空白、导航完成事件不触发、
+   `ExecuteScript` 返回 `0x8007139F`（E_ILLEGAL_METHOD_CALL）。
 
 ## 现状与路线
 
-- ✅ MVP（Linux 桌面）：WebView 宿主 + IPC 双向 + capability + 内置命令 + 示例 + CLI
+- ✅ MVP（Linux 桌面）：WebView 宿主 + IPC 双向 + capability + 内置命令 + 示例
+- ✅ Windows 桌面：WebView2 后端（`src/host_webview2.cj` + `native/bridge_win.c`），IPC/capability 与 Linux 完全共用
+- ✅ 脚手架 CLI（仓颉原生实现，`cli/`）：`create` / `dev` / `build` / `run` / `info`，Windows + Linux
+  双平台启动器（`cli/cj-tauri.sh` / `cli/cj-tauri.bat`），首次运行自动构建 CLI 本体
+- ✅ 使用文档：`docs/使用文档.md`
 - 🔜 P1：capability 文件自动加载、窗口配置化、devtools 开关
-- 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、Windows/macOS WebView
+- 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView
 - 🔜 P3：前端框架模板（React/Vue）、插件体系
 
-## 验证结果（2026-08-21）
+## 验证结果
+
+Linux（2026-08-21）：
 
 | 验证项 | 结果 |
 |---|---|
@@ -147,4 +206,14 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 | 未注册命令 `no_such_cmd` | ✅ 拒绝 |
 | 事件推送 `tick`（仓颉→JS） | ✅ 11+ 条到达前端 |
 | UI 真实渲染 | ✅ 截图确认（深色主题卡片 + 按钮） |
-| `cj-tauri create` 生成项目 | ✅ 独立构建运行 |
+
+Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2365.46）：
+
+| 验证项 | 结果 |
+|---|---|
+| C 桥构建 `native\build_win.bat` | ✅ `libcjtbridge.dll` + 同步 `webview2\WebView2Loader.dll` |
+| 示例应用启动（WebView2） | ✅ 窗口创建、环境/控制器就绪、HTML 导航 `hr=0x0` |
+| 脚手架 CLI 构建与自检 | ✅ `cjpm build success`；`cj-tauri info` 正确解析框架/项目/stdx/SDK/cjpm/桥 |
+| `cj-tauri create` 生成工程 | ✅ 6 个文件，`cjpm.toml` 路径转义、mingw 链接段、stdx 段均正确 |
+| 新工程 `cj-tauri build` | ✅ `target/release/bin/main.exe` |
+| 新工程 `cj-tauri run` | ✅ 窗口显示，JS→原生双向通信（62/48 字节消息，`ExecuteScript hr=0x0`） |

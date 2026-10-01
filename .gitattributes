@@ -1,0 +1,8 @@
+# 跨平台换行规则：
+# - shell 脚本必须保持 LF，否则在 Windows 检出后 CRLF 会破坏 shebang（bad interpreter）
+# - .bat / .cmd 保持 CRLF，符合 cmd.exe 习惯
+*.sh text eol=lf
+native/build_linux.sh text eol=lf
+cli/cj-tauri.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

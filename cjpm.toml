@@ -7,10 +7,19 @@
   output-type = "static"
   compile-option = ""
   override-compile-option = ""
-  link-option = "-Lnative -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+  link-option = ""
   package-configuration = {}
 
 [dependencies]
 
+[target.x86_64-unknown-linux-gnu]
+  link-option = "-Lnative -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
     path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
+
+[target.x86_64-w64-mingw32]
+  link-option = "-Lnative -lcjtbridge"
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]

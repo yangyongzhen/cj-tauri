@@ -14,7 +14,7 @@ import stdx.encoding.json.*
 public class TauriApp {
     private var hub: IpcHub = IpcHub()
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
-    private var host: WebKitHost = WebKitHost()
+    private var host: WebViewHost = createHost()
     private var started: Bool = false
 
     public init() {}
@@ -66,10 +66,9 @@ public class TauriApp {
         this.hub.setCapabilities(this.capabilities)
 
         // 装配：宿主消息 → IPC hub；hub 输出 → 宿主 JS
-        HostGlobals.host = Some(this.host)
-        this.host.onMessage = { raw =>
+        this.host.setMessageHandler({ raw =>
             this.hub.handleRawMessage(raw)
-        }
+        })
         this.hub.jsSink = { json =>
             // JSON 本身就是合法 JS 对象字面量，直接嵌入（toJsonString 已转义字符串内特殊字符）
             let js = "window.postMessage(${json}, '*');"
@@ -78,9 +77,9 @@ public class TauriApp {
 
         this.host.start(html)
 
-        // 阻塞等待：C 桥 quit 后主循环结束。仓颉侧轮询宿主状态，避免空转
+        // 阻塞等待：宿主事件循环退出（窗口关闭 / quit）后返回
         var spins: Int64 = 0
-        while (spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
+        while (!this.host.shouldQuit() && spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
             sleep(Duration.millisecond * 10)
             spins += 1
         }

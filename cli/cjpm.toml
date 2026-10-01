@@ -1,0 +1,13 @@
+[package]
+  cjc-version = "1.0.5"
+  name = "cli"
+  description = "cj-tauri CLI：脚手架 create / dev / build / run / info"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]

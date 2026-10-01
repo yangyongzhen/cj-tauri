@@ -37,6 +37,7 @@ typedef struct js_node {
 static js_node *g_js_head = NULL;
 static js_node *g_js_tail = NULL;
 static int g_ready = 0;
+static volatile int g_should_quit = 0;
 
 /* ===== 仓颉 → C 桥 ===== */
 
@@ -89,6 +90,7 @@ void cj_bridge_run_js(const char *js) {
 }
 
 void cj_bridge_quit(void) {
+    g_should_quit = 1;
     if (g_window) {
         gtk_main_quit();
     }
@@ -111,6 +113,7 @@ static void on_script_message(WebKitUserContentManager *mgr,
 }
 
 static void on_destroy(GtkWidget *w, gpointer ud) {
+    g_should_quit = 1;
     if (g_on_destroy) {
         g_on_destroy();
     }
@@ -218,4 +221,9 @@ void cj_bridge_start(const char *html) {
 
 int cj_bridge_is_ready(void) {
     return g_ready;
+}
+
+/* 宿主事件循环是否已退出（窗口关闭 / quit），供仓颉侧 app.run 阻塞等待 */
+int cj_bridge_should_quit(void) {
+    return g_should_quit;
 }

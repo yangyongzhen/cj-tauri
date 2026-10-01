@@ -1,0 +1,17 @@
+[package]
+  cjc-version = "{{CJC_VERSION}}"
+  name = "{{PACKAGE_NAME}}"
+  description = "{{PROJECT_NAME}} - cj-tauri 应用"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  # cj-tauri 框架本体（由 cj-tauri create 写入的本机路径）
+  cjTauri = { path = "{{FRAMEWORK_ROOT_TOML}}" }
+
+{{TARGET_SECTION}}

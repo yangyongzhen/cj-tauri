@@ -39,7 +39,7 @@ if ! pkg-config --exists $PKGS; then
 fi
 
 # shellcheck disable=SC2086
-"$CC" -shared -fPIC -O2 -fstack-protector-all bridge_linux.c \
+"$CC" -shared -fPIC -O2 -fstack-protector-all bridge_core.c bridge_linux.c \
     -o libcjtbridge.so \
     $(pkg-config --cflags --libs $PKGS)
 

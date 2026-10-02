@@ -5,49 +5,65 @@ import std.collection.*
 /**
  * C 桥 FFI 声明（native/libcjtbridge.so）
  * 所有 GTK/WebKit 调用在 C 桥的原生 pthread 内执行（见 native/bridge_linux.c 头注释）。
+ *
+ * 句柄制（批次 1）：宿主状态在 C 侧按句柄隔离，导出一律首参收句柄（`cj_host*`）。
+ * 句柄内存由 C 侧分配/回收（create 分配、destroy 释放）——跨 FFI 绝不「这边分配那边释放」
+ * （Windows 上 CRT 与仓颉运行时不是同一个分配器）；生命周期约定见
+ * docs/架构演进-多平台与多窗口.md §6.1。
  */
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_init(m: CFunc<(CString) -> Unit>, d: CFunc<() -> Unit>): Unit
+foreign func cj_bridge_create(): CPointer<Unit>
+
+/**
+ * 释放宿主编：对空指针安全、幂等；调用后该句柄不可再用
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_destroy(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_start(html: CString): Unit
+foreign func cj_bridge_init(h: CPointer<Unit>, m: CFunc<(CString) -> Unit>, d: CFunc<() -> Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_load_url(url: CString): Unit
+foreign func cj_bridge_start(h: CPointer<Unit>, html: CString): Unit
+
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_load_url(h: CPointer<Unit>, url: CString): Unit
 
 /**
  * 注册一段预执行脚本（插件 jsShim 等）：须在 cj_bridge_start 之前调用，桥在 document-start 注入
  */
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_add_init_script(js: CString): Unit
+foreign func cj_bridge_add_init_script(h: CPointer<Unit>, js: CString): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_reload(): Unit
+foreign func cj_bridge_reload(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_set_window(title: CString, width: Int32, height: Int32): Unit
+foreign func cj_bridge_set_window(h: CPointer<Unit>, title: CString, width: Int32, height: Int32): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_set_devtools(enabled: Int32): Unit
+foreign func cj_bridge_set_devtools(h: CPointer<Unit>, enabled: Int32): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_set_icon(path: CString): Unit
+foreign func cj_bridge_set_icon(h: CPointer<Unit>, path: CString): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_open_devtools(): Unit
+foreign func cj_bridge_open_devtools(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_set_dialog_callback(cb: CFunc<(CString) -> Unit>): Unit
+foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CString) -> Unit>): Unit
 
 /**
  * 原生对话框（阻塞式）：kind 0=打开文件 1=保存文件 2=info 3=warning 4=error 5=confirm。
@@ -55,23 +71,24 @@ foreign func cj_bridge_set_dialog_callback(cb: CFunc<(CString) -> Unit>): Unit
  */
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_show_dialog(kind: Int32, title: CString, message: CString, filter: CString): Int32
+foreign func cj_bridge_show_dialog(h: CPointer<Unit>, kind: Int32, title: CString, message: CString,
+                                   filter: CString): Int32
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_run_js(js: CString): Unit
+foreign func cj_bridge_run_js(h: CPointer<Unit>, js: CString): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_quit(): Unit
+foreign func cj_bridge_quit(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_is_ready(): Int32
+foreign func cj_bridge_is_ready(h: CPointer<Unit>): Int32
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_should_quit(): Int32
+foreign func cj_bridge_should_quit(h: CPointer<Unit>): Int32
 
 /**
  * Linux WebKit 宿主实现：通过 C 桥驱动
@@ -86,6 +103,8 @@ public class WebKitHost <: WebViewHost {
     private var config: WindowConfig = WindowConfig()
     // 预执行脚本（插件 jsShim 等）：start 前收集，prepareHost 一次性交给桥，桥在 document-start 注入
     private var initScripts = ArrayList<String>()
+    // 宿主编（C 侧分配）：空指针 = 尚未创建；dispose() 后置空
+    private var handle: CPointer<Unit> = CPointer<Unit>()
 
     public init() {}
 
@@ -110,7 +129,7 @@ public class WebKitHost <: WebViewHost {
 
     public func openDevTools(): Unit {
         unsafe {
-            cj_bridge_open_devtools()
+            cj_bridge_open_devtools(this.handle)
         }
     }
 
@@ -121,8 +140,8 @@ public class WebKitHost <: WebViewHost {
         }
         var ok: Int32 = 0
         unsafe {
-            ok = cj_bridge_show_dialog(kind, LibC.mallocCString(title), LibC.mallocCString(""),
-                                       LibC.mallocCString(filter))
+            ok = cj_bridge_show_dialog(this.handle, kind, LibC.mallocCString(title),
+                                       LibC.mallocCString(""), LibC.mallocCString(filter))
         }
         if (ok == 0) {
             // 取消 / 宿主未就绪：上游按「空路径」处理，不再读结果槽位
@@ -134,16 +153,28 @@ public class WebKitHost <: WebViewHost {
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         var ok: Int32 = 0
         unsafe {
-            ok = cj_bridge_show_dialog(dialogKindCode(kind), LibC.mallocCString(title),
+            ok = cj_bridge_show_dialog(this.handle, dialogKindCode(kind), LibC.mallocCString(title),
                                        LibC.mallocCString(message), LibC.mallocCString(""))
         }
         return ok != 0
     }
 
     /**
-     * 启动前的共同装配：回调槽位、窗口配置、图标
+     * 创建宿主编（幂等）：首次启动时分配，dispose() 后置空
+     */
+    private func ensureHandle(): Unit {
+        if (this.handle.isNull()) {
+            unsafe {
+                this.handle = cj_bridge_create()
+            }
+        }
+    }
+
+    /**
+     * 启动前的共同装配：宿主编、回调槽位、窗口配置、图标
      */
     private func prepareHost(): Unit {
+        this.ensureHandle()
         HostGlobals.onMessage = this.onMessage
         HostGlobals.onDestroy = this.onDestroy
         var devTools: Int32 = 0
@@ -151,17 +182,17 @@ public class WebKitHost <: WebViewHost {
             devTools = 1
         }
         unsafe {
-            cj_bridge_init(hostOnMessage, hostOnDestroy)
+            cj_bridge_init(this.handle, hostOnMessage, hostOnDestroy)
             // 原生对话框的结果回调：与消息回调同一套路（C 桥 UI 线程 → 仓颉全局槽位）
-            cj_bridge_set_dialog_callback(dialogOnResult)
-            cj_bridge_set_window(LibC.mallocCString(this.config.title),
+            cj_bridge_set_dialog_callback(this.handle, dialogOnResult)
+            cj_bridge_set_window(this.handle, LibC.mallocCString(this.config.title),
                                  Int32(this.config.width), Int32(this.config.height))
-            cj_bridge_set_devtools(devTools)
+            cj_bridge_set_devtools(this.handle, devTools)
             // 窗口图标：空串表示系统默认图标
-            cj_bridge_set_icon(LibC.mallocCString(this.config.iconPath))
+            cj_bridge_set_icon(this.handle, LibC.mallocCString(this.config.iconPath))
             // 预执行脚本（插件 jsShim 等）：与 BRIDGE_JS 同一条 document-start 通道，按注册顺序排在桥之后
             for (js in this.initScripts) {
-                cj_bridge_add_init_script(LibC.mallocCString(js))
+                cj_bridge_add_init_script(this.handle, LibC.mallocCString(js))
             }
         }
     }
@@ -169,41 +200,54 @@ public class WebKitHost <: WebViewHost {
     public func start(html: String): Unit {
         this.prepareHost()
         unsafe {
-            cj_bridge_start(LibC.mallocCString(html))
+            cj_bridge_start(this.handle, LibC.mallocCString(html))
         }
     }
 
     public func startUrl(url: String): Unit {
         this.prepareHost()
         unsafe {
-            cj_bridge_load_url(LibC.mallocCString(url))
+            cj_bridge_load_url(this.handle, LibC.mallocCString(url))
             // 空串表示「页面由 cj_bridge_load_url 指定」（同一次启动里 URL 优先）
-            cj_bridge_start(LibC.mallocCString(""))
+            cj_bridge_start(this.handle, LibC.mallocCString(""))
         }
     }
 
     public func reload(): Unit {
         unsafe {
-            cj_bridge_reload()
+            cj_bridge_reload(this.handle)
         }
     }
 
     public func runJs(js: String): Unit {
         unsafe {
-            cj_bridge_run_js(LibC.mallocCString(js))
+            cj_bridge_run_js(this.handle, LibC.mallocCString(js))
         }
     }
 
     public func quit(): Unit {
         unsafe {
-            cj_bridge_quit()
+            cj_bridge_quit(this.handle)
         }
     }
 
     public func shouldQuit(): Bool {
         unsafe {
-            cj_bridge_should_quit() != 0
+            cj_bridge_should_quit(this.handle) != 0
         }
+    }
+
+    /**
+     * 释放宿主编（幂等，未创建过则是空操作）：事件循环退出后调用一次，之后句柄置空、本实例不可再启动
+     */
+    public func dispose(): Unit {
+        if (this.handle.isNull()) {
+            return
+        }
+        unsafe {
+            cj_bridge_destroy(this.handle)
+        }
+        this.handle = CPointer<Unit>()
     }
 }
 

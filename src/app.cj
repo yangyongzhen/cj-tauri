@@ -160,6 +160,8 @@ public class TauriApp {
         this.registerPluginScripts()
         this.host.start(html)
         this.waitForExit()
+        // 事件循环已退出：释放宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
+        this.host.dispose()
     }
 
     /**

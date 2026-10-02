@@ -91,6 +91,15 @@ public interface WebViewHost {
      * 宿主事件循环是否已退出（窗口关闭等），app.run 据此阻塞与收尾
      */
     public func shouldQuit(): Bool
+
+    /**
+     * 释放宿主资源（宿主编由 C 侧分配与回收，跨 FFI 不换分配器）：幂等、无需检查调用时机
+     *
+     * TauriApp.run / runUrl 在 waitForExit() 之后调用它；实现方须把句柄置空——
+     * 释放后该实例不可再启动（原生窗口已随销毁路径在关窗时收尾）。
+     * 为什么「关窗」不等于「释放」：见 docs/架构演进-多平台与多窗口.md §6.1。
+     */
+    public func dispose(): Unit
 }
 
 /**

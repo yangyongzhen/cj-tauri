@@ -14,8 +14,19 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [0.5.0] - 2026-10-02
+
 ### Added
 
+- **C 桥公共核心的桩平台自检**：`native/bridge_core.c`（两平台逐字相同的回投队列与批处理、对话框单槽状态机、
+  窗口配置与预执行脚本存储、生命周期标志、全部 `cj_bridge_*` 导出）此前只有实机验证、没有单元测试。新增
+  `native/tests/test_bridge_core.c`——用「只记录调用」的桩平台实现 `bridge_core.h` 里的 18 个 `cj_plat_*` 原语，
+  把 core 与桩一起编译成单文件程序，**链接期即可证明** core 只经平台原语触达平台（批次 1 的分层契约）。61 项断言
+  覆盖：单条快路径 / 多条拼批（顺序 + 换行分隔）/ `CJ_JS_BATCH_MAX`=64 上限与「没取空就自续唤醒」、
+  未就绪时对话框被拒 / UI 线程快路径（**不**投递不阻塞）/ `dialog_abort` 幂等、`quit` 与窗口销毁的标志位与
+  「`onDestroy` 恰好一次」、窗口配置与脚本存储的边界（空串忽略、非法尺寸不覆盖）、全部导出对 NULL 安全。
+  入口 `scripts/test-bridge-core.sh`（只需要 C 编译器，本机没有就跳过），已接入 `scripts/test.sh` 与
+  `scripts/check-static.sh`。
 - **IPC 通信机制技术文档 + 性能探针**：新增 `docs/IPC-通信机制.md`——写清三层结构（页面 JS → 宿主桥 C → 仓颉 IPC hub）、
   四种报文（`invoke` / `emit` / `resolve`（成功或失败）/ `event`，外加宿主侧控制消息 `__cj_tauri_reload__`）、
   一次 invoke 的十步时序与两平台差异，并给出**实测数字**；正面回答「比起 WebSocket 如何」：

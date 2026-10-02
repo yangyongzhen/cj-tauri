@@ -128,9 +128,12 @@ void cj_plat_sync_signal(cj_sync *s);
 
 /* ---- 宿主 ---- */
 void cj_plat_init(cj_host *h);   /* 一次性平台初始化（Windows: COM vtbl；Linux: 无）*/
-/* 释放宿主级平台资源（COM 环境引用 / 模块句柄），幂等。
-   返回 1＝状态已释放、句柄可以回收；0＝宿主线程可能还在收尾（它会进入仓颉运行时，
-   阻塞式 join 会与运行时的线程退出握手互等），调用方须保留句柄与状态，不要 free。 */
+/* 释放宿主级平台资源（模块句柄、平台状态），幂等。
+   注意：**不**释放 COM 对象——WebView2 的 controller / environment 按「活到进程退出」口径处理，
+   平台文件只把指针置空（见 bridge_win.c 的 host_thread_main 收尾段），两平台的 fini 都不碰 COM。
+   等待必须有界：宿主线程收尾要进入仓颉运行时（onDestroy 回调），阻塞式 join 会与运行时「停处理器」
+   握手互等（Linux 侧实测 6 轮挂 1 轮，见 AGENTS.md §4），所以这里只做有界等待，不做无限 join。
+   返回 1＝状态已释放、句柄可以回收；0＝宿主线程可能还在收尾，调用方须保留句柄与状态，不要 free。 */
 int cj_plat_fini(cj_host *h);
 void cj_plat_start(cj_host *h);  /* 起宿主线程：建窗口 + WebView + 跑事件循环，非阻塞返回 */
 void cj_plat_quit(cj_host *h);   /* 请求退出：走与「用户关窗」同一条销毁路径 */

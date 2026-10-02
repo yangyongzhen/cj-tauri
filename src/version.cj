@@ -9,7 +9,7 @@ package cjTauri
  *   - cli/src/project.cj      的 cliVersion()
  *   - CHANGELOG.md            顶部第一个已发版段
  */
-public let CJ_TAURI_VERSION = "0.4.0"
+public let CJ_TAURI_VERSION = "0.5.0"
 
 /** 当前宿主平台标识（`system:version` 的 platform 字段） */
 @When[os == "Linux"]

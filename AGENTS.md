@@ -1,7 +1,7 @@
 # cj-tauri 项目开发规范（AGENTS.md）
 
 > 本文件是本项目的**开发契约**：人类开发者与 AI 助手共同遵守，由 agent 自动加载注入。
-> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.4.0**（2026-10-01），与 `CHANGELOG.md` 同步维护。
+> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.5.0**（2026-10-02），与 `CHANGELOG.md` 同步维护。
 > 当前进度、未完成项与本机环境坑见 `docs/进度记录.md`；会话上下文导出（含换到 Linux 机器怎么接）见 `docs/会话交接.md`。
 
 ## 0. 项目定位
@@ -22,7 +22,10 @@
 3. 行为变更必须给出**可观测证据**（日志行、`system:version` 返回值、窗口标题等），不允许「先交付后补证据」。
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
-   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 91 个用例。
+   仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
+   当前 91 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，61 项断言，不依赖 SDK / 图形栈），入口是
+   `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
 ## 2. 架构契约（改哪里、怎么改）
@@ -172,7 +175,7 @@
 
 ## 6. 版本与发版
 
-- 语义化版本。0.x 阶段：新增能力进中间位（0.3.0 → 0.4.0），修复进末位（0.4.0 → 0.4.1）。当前 **0.4.0**。
+- 语义化版本。0.x 阶段：新增能力进中间位（0.4.0 → 0.5.0），修复进末位（0.5.0 → 0.5.1）。当前 **0.5.0**。
 - 必须同步的**五个位置**（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
   1. `cjpm.toml` 的 `version`（框架包）
   2. `cli/cjpm.toml` 的 `version` 与 `cli/src/project.cj` 的 `cliVersion()`（`--version` / `info` 打印它）

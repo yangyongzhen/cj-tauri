@@ -43,6 +43,7 @@
 | [`examples/vue_todo`](examples/vue_todo) | 上面待办的 Vue 3 版：同一套 `todo:add` / `todo:remove` / `todo:list` 命令与 `todo:changed` 事件，前端换成独立的 Vite + Vue 3 工程（`ui/`）。 | 在 `examples/vue_todo` 下用仓库根的 `cli/cj-tauri.sh` 跑 `dev`（接管 Vite dev server，退出自动收掉）或 `build`（`vite-plugin-singlefile` 打成单个 `ui/dist/index.html`） |
 | [`examples/plugin-fs`](examples/plugin-fs) | 插件体系示例：一行 `.plugin(FsPlugin())` 接入官方文件读写插件（`fs:readText` / `fs:writeText` / `fs:exists`），并演示**权限仍由 capabilities 决定**——清单故意只放行两条，第三条启动即提示、前端调用被拒。 | `cd examples/plugin-fs && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
+| [`examples/plugin-shell`](examples/plugin-shell) | 插件体系示例：一行 `.plugin(ShellPlugin())` 接入官方 `shell` 插件（`shell:open` / `shell:exec`）——用系统默认程序打开链接、执行子进程取回退出码与输出；**argv 直传不过 shell**（页面拼不出注入），命名集 `shell:allow-open` 只放行打开，另带未授权对照组。 | `cd examples/plugin-shell && cjpm build`，再按上方「运行仓内示例」启动 |
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
@@ -63,6 +64,12 @@
 文件框选中的路径经回调回传（`dialog:open => path="/tmp/dialog-pick.txt"`），未授权的 `system:devtools` 仍被拒：
 
 ![plugin-dialog 示例运行截图：原生提示框压在主窗口上](docs/images/example-plugin-dialog.png)
+
+`plugin-shell`：同一个插件体系接系统默认程序与子进程——`shell:open` 把链接交给系统处理器（实测用假浏览器
+冒充默认程序，它收到的参数正是 `https://atomgit.com`），`shell:exec` 取回退出码与 stdout / stderr，
+参数里的 `&&` 原样输出（argv 直传、不经过 shell）；未授权的 `system:devtools` 仍被拒：
+
+![plugin-shell 示例运行截图：shell:open 与 shell:exec 的实机自检输出](docs/images/example-plugin-shell.png)
 
 ### 前端工程模板
 
@@ -336,7 +343,9 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   官方 `fs` 插件（`fs:readText` / `fs:writeText` / `fs:exists`）与 `examples/plugin-fs` 示例；
   设计取舍见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)，
   上手教程见 [`docs/插件体系教程.md`](docs/插件体系教程.md)
-- 🔜 更多官方插件（`dialog` / `shell` 等）
+- ✅ 官方插件三件套：`fs`（文件读写）、`dialog`（系统原生对话框）、`shell`（交给系统默认程序打开 / 执行子进程；
+  命名集 `shell:allow-open` / `shell:default`，argv 直传不过 shell）——各带示例（`examples/plugin-*`）与 Linux 实机证据
+- 🔜 更多官方插件（托盘、全局快捷键等需要宿主层先有对应 API）
 
 ## 验证结果
 

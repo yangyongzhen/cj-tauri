@@ -1,0 +1,7 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": ["report", "system:version", "shell:exec"],
+  "permissions": ["shell:allow-open"],
+  "events": []
+}

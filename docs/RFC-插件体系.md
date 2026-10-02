@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段。**v1.1 增补（2026-10-02）：命名权限集落地**，见 §7.1 第 7 行与 §8 问题 2。**v1.2 增补（2026-10-02）：官方 `dialog` 插件落地**（系统原生对话框 + 宿主接口新能力 + 两平台 C 桥），见 §7.1 第 8 行 |
+| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段。**v1.1 增补（2026-10-02）：命名权限集落地**，见 §7.1 第 7 行与 §8 问题 2。**v1.2 增补（2026-10-02）：官方 `dialog` 插件落地**（系统原生对话框 + 宿主接口新能力 + 两平台 C 桥），见 §7.1 第 8 行。**v1.3 增补（2026-10-02）：官方 `shell` 插件落地**（打开系统默认程序 + 执行子进程；argv 直传不过 shell，纯仓颉零 C 桥），见 §7.1 第 9 行 |
 | 编号 | RFC-001 |
 | 日期 | 2026-10-01 |
 | 评审方式 | 在本仓提 issue 讨论，标题以 `[RFC-001]` 开头；结论回写本文「开放问题」一节 |
@@ -203,6 +203,7 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 | 6. 回归 | `scripts/test.sh` 38/38、`scripts/check-version.sh` 5/5、`examples/hello` 实机复测 | 单测 23 → 38（`src/tests/plugin_test.cj`）；hello 在 Linux 下日志 623 行含 `[verify] ALL DONE`，行为未变 |
 | 7. 命名权限集（**v1.1**，2026-10-02） | `src/plugin.cj`（`permissions()` / `pluginPermissionSets` / `registerPluginPermissionSets` / `describePermissionSets`）、`src/capability.cj`（`Capability.permissions` + `CapabilityRegistry.addPermissionSet` / `coveredByPermissionSet` / `warnUnknownPermissionSets`）、`src/plugin_fs.cj`（`fs:readonly` / `fs:default`） | 集名 `<插件名>:<短集名>`，成员短名自动补前缀、全名原样；**集声明 ≠ 放行**（清单不引用不生效）；未知集只提示；清单新增可选 `permissions` 字段，与明文命令名等价、可混用。示例清单改用 `"permissions": ["fs:readonly"]`，Linux 实机：启动打印两个集、只对 `fs:writeText` 报未授权、页面自检 `清单用集 fs:readonly=true; 清单未写死 fs:readText=true` / `DENY-OK fs:writeText` / `[verify] ALL DONE`（日志 `/tmp/cj-plugin-fs-permset.log`）。单测 38 → 50 |
 | 8. 官方 `dialog` 插件（**v1.2**，2026-10-02） | `src/plugin_dialog.cj`、`src/host.cj`（`WebViewHost.showFileDialog` / `showMessageDialog`、对话框编号与结果回调共享槽位）、`src/host_webkit.cj` / `src/host_webview2.cj`、`native/bridge_linux.c` / `native/bridge_win.c`（`cj_bridge_show_dialog` / `cj_bridge_set_dialog_callback`）、`examples/plugin-dialog/` | 三条命令 `dialog:open` / `dialog:save` / `dialog:message`（`kind` = info/warning/error/confirm），弹**系统原生**对话框（Linux GTK / Windows Win32 通用对话框），结果经既有 `@C` 回调通道送回（不引入新的 FFI 形态）；命名集 `dialog:files` / `dialog:default`，同样不自动放行。宿主新能力按 §2 契约走：先扩接口、再改两平台实现、C 桥导出同名同签名。**实机抓到的坑**：两平台的 JS→native 回调本就跑在宿主 UI 线程上，故「投递到 UI 线程 + 阻塞等结果」会自锁（日志停在 `[cj-bridge] dialog: kind=…`、对话框永不出现）——桥改为按调用线程分流（已在 UI 线程直接弹，否则投递 + 等）。Linux（WebKitGTK / Xvfb）实机：`dialog closed: kind=2 ok=1` → `dialog:message(info) => confirmed=true` → `dialog closed: kind=0 ok=1 path=/tmp/dialog-pick.txt` → `dialog:open => path="/tmp/dialog-pick.txt"` → 对照组 `DENY-OK system:devtools` → `[verify] ALL DONE`（截图 `docs/images/example-plugin-dialog.png`，日志 `/tmp/cj-plugin-dialog.log`）。单测 50 → 57。**Windows 未实机**（仅 mingw 编译校验 + 桩语法检查） |
+| 9. 官方 `shell` 插件（**v1.3**，2026-10-02） | `src/plugin_shell.cj`（**纯仓颉、零 C 桥**：进程 API 来自 `std.process`，平台差异只在 `@When` 里选 `xdg-open` / `rundll32 url.dll,FileProtocolHandler`）、`examples/plugin-shell/` | 两条命令 `shell:open`（URL / 本地路径交给系统默认程序）与 `shell:exec`（`{ program, args?, cwd? }` → `{ code, stdout, stderr }`）；命名集 `shell:allow-open`（只含 `open`）/ `shell:default`（另含 `exec`），同样不自动放行。**安全取舍（评审时请确认）**：v1 **不做程序白名单 scope**——放行 `shell:exec` 就等于把「执行任意程序」交给页面，闸门只有能力清单（见 §8 第 8 条）；注入面靠**不过 shell** 收敛：`program` 与每个参数都是独立 argv 元素直传 `launch` / `executeWithOutput`，页面写 `&&` / `;` / `>` 都只是普通字符（实机对照 `shell:exec(probe) => a b && echo INJECTED`）；输出每流截 256 KiB 并标注，非 UTF-8 退化成摘要。Linux（WebKitGTK / Xvfb）实机：`shell:open(url) => true` 且冒充系统默认程序的假浏览器收到 `argv=https://atomgit.com`（证明目标真到了系统处理器）、`shell:exec(uname) => code=0 stdout=Linux …`、`shell:exec(exit7) => code=7 stderr=to-stderr`、程序不存在给可读错误、对照组 `DENY-OK system:devtools` → `[verify] ALL DONE`（截图 `docs/images/example-plugin-shell.png`，日志 `/tmp/plugin-shell.log`）。单测 57 → 68。**Windows 未实机**（仅编译校验 `@When` 的 Windows 分支） |
 
 开放问题的 v1 结论：1）命令全名用 `<插件名>:<短名>`（与 `system:*` 同形，分发与校验零改动）；
 2）v1 不引入 permission set，权限按全名写进 `capabilities/`——**v1.1 已改为支持命名权限集**
@@ -224,6 +225,12 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 6. 非命令类能力（托盘、全局快捷键、协议处理）以后怎么进这个模型？v1 的 `Plugin` 只覆盖「命令 + 事件 + JS」，
    这类能力需要宿主层先有对应 API——是否要把「插件可以要求宿主能力」写进接口预留位？
 7. 是否需要 `Plugin.manifest()` 这样的机器可读清单（供 CLI 打印与生成能力片段）？
+8. 执行子进程（§7.1 第 9 行 `shell:exec`）要不要**挪出 UI 线程**、要不要做**程序白名单 scope**？
+   **v1（2026-10-02）的答案：都不做。** ① 同步阻塞是已知限制——IPC 处理器跑在宿主 UI 线程上，长驻 / 交互式程序
+   会把窗口卡住；文档与插件注释都已写明「别这么用」，等宿主层有工作线程（或命令分发支持异步返回）再改，
+   那属破坏性变更。② 「程序白名单」需要能力模型新增**命令级 scope**（`Capability` 里按命令写 `programs: [...]`，
+   插件在放行前查），比 v1.1 的命名集动得深（要扩 `capability.cj` 的校验口径与清单 schema），因此 v1 明确
+   **不做**：闸门仍是「放行 / 不放行 `shell:exec`」，要更细的粒度请等 scope 设计定稿。
 
 ## 9. 参考
 

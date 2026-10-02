@@ -34,6 +34,15 @@ public interface Plugin {
 
     /** 初始化：记录 app 引用、做一次性准备。默认空实现 */
     public func setup(app: TauriApp): Unit {}
+
+    /**
+     * 命名权限集（v1.1）：短集名 → 成员（写短名会自动补 "<插件名>:"，写全名则原样保留）。
+     * 应用在 capabilities 的 permissions 里按 "<插件名>:<短集名>" 引用，一次放行一组。
+     * 默认无。**集声明不等于放行**——清单不引用它，一条也不会生效。
+     */
+    public func permissions(): HashMap<String, ArrayList<String>> {
+        return HashMap<String, ArrayList<String>>()
+    }
 }
 
 /**
@@ -70,6 +79,48 @@ public func registerPluginCommands(hub: IpcHub, p: Plugin): Unit {
     for ((short, handler) in p.commands()) {
         hub.register("${p.name()}:${short}", handler)
     }
+}
+
+/** 某插件的命名权限集：`<插件名>:<短集名>` → 展开后的成员全名列表 */
+public func pluginPermissionSets(p: Plugin): HashMap<String, ArrayList<String>> {
+    let out = HashMap<String, ArrayList<String>>()
+    for ((shortSet, members) in p.permissions()) {
+        let expanded = ArrayList<String>()
+        for (m in members) {
+            if (m.contains(":")) {
+                expanded.add(m)
+            } else {
+                expanded.add("${p.name()}:${m}")
+            }
+        }
+        out.add("${p.name()}:${shortSet}", expanded)
+    }
+    return out
+}
+
+/** 把插件的命名权限集注册进能力注册中心（TauriApp.prepare 与测试共用） */
+public func registerPluginPermissionSets(reg: CapabilityRegistry, p: Plugin): Unit {
+    for ((setName, members) in pluginPermissionSets(p)) {
+        reg.addPermissionSet(setName, members)
+    }
+}
+
+/** 人类可读的命名权限集清单（启动日志用）；一个集都没有时返回空串 */
+public func describePermissionSets(plugins: ArrayList<Plugin>): String {
+    var text = ""
+    for (p in plugins) {
+        for ((setName, members) in pluginPermissionSets(p)) {
+            var list = ""
+            for (m in members) {
+                if (list.size > 0) {
+                    list += ", "
+                }
+                list += m
+            }
+            text += "  ${setName}  ${list}\n"
+        }
+    }
+    return text
 }
 
 /** 汇总所有插件的 jsShim 成一个 script 块；没有任何 shim 时返回空串 */

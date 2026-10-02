@@ -168,18 +168,26 @@ public class TauriApp {
 
         this.hub.setCapabilities(this.capabilities)
 
-        // 插件装配：注册命令（带 "<插件名>:" 前缀）→ setup → 汇总前端 JS → 未授权提示。
+        // 插件装配：注册命令（带 "<插件名>:" 前缀）→ 注册命名权限集 → setup → 汇总前端 JS → 未授权提示。
         // 顺序有意放在能力清单加载之后：提示要反映真实的放行情况。
         for (p in this.plugins) {
             registerPluginCommands(this.hub, p)
+            registerPluginPermissionSets(this.capabilities, p)
             p.setup(this)
         }
         this.pluginJs = assemblePluginJs(this.plugins)
         if (this.plugins.size > 0) {
             eprintln("[cj-tauri] 已装配 ${this.plugins.size} 个插件：")
             eprintln(describePlugins(this.plugins))
+            let sets = describePermissionSets(this.plugins)
+            if (sets.size > 0) {
+                eprintln("[cj-tauri] 命名权限集（在 capabilities 的 permissions 里按集名引用）：")
+                eprintln(sets)
+            }
             warnUnauthorizedPlugins(this.plugins, this.capabilities)
         }
+        // 集注册完才可能判定「清单引用的集有没有插件提供」，故放在插件装配之后
+        warnUnknownPermissionSets(this.capabilities)
 
         // 装配：宿主消息 → IPC hub；hub 输出 → 宿主 JS
         this.host.setMessageHandler({ raw =>

@@ -114,3 +114,77 @@ func testLoaderToleratesMissingDir(): Unit {
     @Expect(loadCapabilitiesFromDir("no/such/capabilities/dir", reg), 0)
     @Expect(reg.size(), 0)
 }
+
+/*
+ * 命名权限集（v1.1）：清单里按集名引用，成员展开后与明文同权。
+ * 三条底线要锁住：集名单独存在不放行、注册了没引用不放行、未知集不生效也不炸。
+ */
+
+@Test
+func testFromJsonParsesPermissionSets(): Unit {
+    let cap = Capability.fromJson(JsonValue.fromStr("{\"identifier\":\"default\",\"permissions\":[\"fs:readonly\"]}"))
+    @Expect(cap.isSome(), true)
+    let c = cap.getOrThrow()
+    @Expect(c.permissions.size, 1)
+    // 集名只是「引用」：没有插件注册同名集时，它一条也不放行
+    @Expect(c.canInvoke("fs:readText"), false)
+}
+
+@Test
+func testPermissionSetExpandsToMembers(): Unit {
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"permissions\":[\"fs:readonly\"]}"))
+    let members = ArrayList<String>()
+    members.add("fs:readText")
+    members.add("fs:exists")
+    reg.addPermissionSet("fs:readonly", members)
+    @Expect(reg.canInvoke("fs:readText"), true)
+    @Expect(reg.canInvoke("fs:exists"), true)
+    @Expect(reg.canInvoke("fs:writeText"), false)      // 集外命令照旧拒绝
+    @Expect(reg.canInvoke("system:version"), false)    // 内置命令的放行规则没变
+}
+
+@Test
+func testPermissionSetCoversEventsToo(): Unit {
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"permissions\":[\"demo:watch\"]}"))
+    let members = ArrayList<String>()
+    members.add("demo:changed")
+    reg.addPermissionSet("demo:watch", members)
+    @Expect(reg.canEmit("demo:changed"), true)
+    @Expect(reg.canEmit("demo:other"), false)
+}
+
+@Test
+func testRegisteredPermissionSetNotReferencedStaysDenied(): Unit {
+    // 集注册了，但清单没引用它：一条也不放行（默认最小权限不打折）
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\"}"))
+    let members = ArrayList<String>()
+    members.add("fs:readText")
+    reg.addPermissionSet("fs:readonly", members)
+    @Expect(reg.canInvoke("fs:readText"), false)
+}
+
+@Test
+func testPermissionSetWithoutProviderIsInert(): Unit {
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"permissions\":[\"nope:none\"],\"commands\":[\"greet\"]}"))
+    @Expect(reg.canInvoke("greet"), true)               // 明文命令不受影响
+    @Expect(reg.canInvoke("nope:thing"), false)         // 未知集不生效、也不炸
+    @Expect(reg.declaredPermissionSets().size, 1)       // 但要能被列出来，供启动提示
+    @Expect(reg.hasPermissionSet("nope:none"), false)
+}
+
+@Test
+func testPlainNameAndPermissionSetCoexist(): Unit {
+    // 两种写法混用：并集生效（旧清单可以逐条迁移）
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"commands\":[\"fs:exists\"],\"permissions\":[\"fs:readonly\"]}"))
+    let members = ArrayList<String>()
+    members.add("fs:readText")
+    reg.addPermissionSet("fs:readonly", members)
+    @Expect(reg.canInvoke("fs:exists"), true)
+    @Expect(reg.canInvoke("fs:readText"), true)
+    @Expect(reg.canInvoke("fs:writeText"), false)
+}

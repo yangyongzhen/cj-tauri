@@ -22,7 +22,7 @@
 3. 行为变更必须给出**可观测证据**（日志行、`system:version` 返回值、窗口标题等），不允许「先交付后补证据」。
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
-   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 38 个用例。
+   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 50 个用例。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
 ## 2. 架构契约（改哪里、怎么改）
@@ -43,6 +43,11 @@
   插件**只声明「我提供什么」，不自动放行**（默认最小权限不破）；`jsShim()` 返回的前端片段由框架
   汇总插到第一个 `</head>` 之前（早于页面脚本），`runUrl()` 下无法并入需在 stderr 提示。
   实现文件放 `src/plugin_<名字>.cj`（如 `src/plugin_fs.cj`），可跑样板 `examples/plugin-fs/`，设计见 `docs/RFC-插件体系.md`。
+- **命名权限集（v1.1）**：插件用 `Plugin.permissions()` 声明「短集名 → 成员」，框架装配时注册成 `<插件名>:<短集名>`；
+  应用的 `capabilities/*.json` 用 `"permissions": ["fs:readonly"]` 引用，成员展开后与 `commands`/`events`
+  里的明文名字**同权**（`CapabilityRegistry.coveredByPermissionSet`，单层展开、不递归）。
+  与插件的铁律一致：**集声明 ≠ 放行**，清单不引用就不生效；引用了没有插件提供的集名只提示不报错
+  （`warnUnknownPermissionSets`，在插件装配完之后才可能判定）。旧清单全写明文的行为不变，两者可混用。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
 - **能力清单加载**：默认在 `run()` 时自动扫描工作目录下 `capabilities/` 的所有 json；
   显式 `loadCapabilities(dir)` 或 `addCapabilityJson(json)` 优先，且一旦调用即不自动扫描。

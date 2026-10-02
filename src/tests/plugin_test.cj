@@ -58,6 +58,45 @@ class PluginEchoHandler <: CommandHandler {
     }
 }
 
+/** 声明命名权限集的插件：验证「短名补前缀」「集声明 ≠ 放行」 */
+class ScopedPlugin <: Plugin {
+    public init() {}
+
+    public func name(): String {
+        return "scoped"
+    }
+
+    public func commands(): HashMap<String, CommandHandler> {
+        let m = HashMap<String, CommandHandler>()
+        m.add("read", PluginEchoHandler())
+        m.add("write", PluginEchoHandler())
+        return m
+    }
+
+    public func events(): ArrayList<String> {
+        let e = ArrayList<String>()
+        e.add("changed")
+        return e
+    }
+
+    public func permissions(): HashMap<String, ArrayList<String>> {
+        let m = HashMap<String, ArrayList<String>>()
+        let watch = ArrayList<String>()
+        watch.add("read")                 // 短名：应补成 scoped:read
+        watch.add("scoped:changed")       // 全名：原样保留
+        m.add("watch", watch)
+        return m
+    }
+}
+
+/** 用给定能力注册中心装配的 hub（命名权限集用例用；不碰宿主层） */
+func hubWithRegistry(reg: CapabilityRegistry, sink: ArrayList<String>): IpcHub {
+    let hub = IpcHub()
+    hub.setCapabilities(reg)
+    hub.jsSink = { s => sink.add(s) }
+    return hub
+}
+
 /** 造一个只有 path 的对象 */
 func pathArgs(path: String): JsonObject {
     var o = JsonObject()
@@ -189,6 +228,90 @@ func testFsPluginShimTargetsItsOwnNamespace(): Unit {
     @Expect(js.contains("'fs:readText'"), true)
     @Expect(js.contains("'fs:writeText'"), true)
     @Expect(js.contains("'fs:exists'"), true)
+}
+
+@Test
+func testFsPluginDeclaresPermissionSets(): Unit {
+    let sets = pluginPermissionSets(FsPlugin())
+    @Expect(sets.size, 2)
+    let ro = sets.get("fs:readonly").getOrThrow()
+    @Expect(ro.size, 2)
+    var roHasWrite = false
+    for (m in ro) {
+        if (m == "fs:writeText") {
+            roHasWrite = true
+        }
+    }
+    @Expect(roHasWrite, false)                 // 只读集不含写：最小权限不打折
+    @Expect(sets.get("fs:default").getOrThrow().size, 3)
+}
+
+@Test
+func testPluginPermissionSetsAreNamespacedAndExpanded(): Unit {
+    let sets = pluginPermissionSets(ScopedPlugin())
+    @Expect(sets.size, 1)
+    @Expect(sets.contains("scoped:watch"), true)
+    let members = sets.get("scoped:watch").getOrThrow()
+    @Expect(members.size, 2)
+    var hasShort = false
+    var hasFull = false
+    for (m in members) {
+        if (m == "scoped:read") {
+            hasShort = true
+        }
+        if (m == "scoped:changed") {
+            hasFull = true
+        }
+    }
+    @Expect(hasShort, true)     // 短名补了插件名前缀
+    @Expect(hasFull, true)      // 全名原样
+}
+
+@Test
+func testPluginPermissionSetsDefaultEmpty(): Unit {
+    // 接口默认实现：没写 permissions() 的插件没有集（MiniPlugin 只写了必写成员）
+    @Expect(pluginPermissionSets(MiniPlugin()).size, 0)
+}
+
+@Test
+func testPluginPermissionSetDoesNotAutoGrant(): Unit {
+    let out = ArrayList<String>()
+    // 插件声明了 scoped:watch，但清单没引用它 → 命令仍被拒（集声明不等于放行）
+    let hub = hubWith([], [], out)
+    registerPluginCommands(hub, ScopedPlugin())
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":11,\"cmd\":\"scoped:read\"}")
+    @Expect(out.size, 1)
+    @Expect(strField(out[0], "error"), "command not allowed: scoped:read")
+}
+
+@Test
+func testPluginPermissionSetAuthorizesWhenReferenced(): Unit {
+    let out = ArrayList<String>()
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"permissions\":[\"scoped:watch\"]}"))
+    let hub = hubWithRegistry(reg, out)
+    registerPluginCommands(hub, ScopedPlugin())
+    registerPluginPermissionSets(reg, ScopedPlugin())
+    // 集内命令放行
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":12,\"cmd\":\"scoped:read\"}")
+    @Expect(out.size, 1)
+    @Expect(strField(out[0], "type"), "resolve")
+    @Expect(strField(out[0], "data"), "pong:scoped:read")
+    // 集外命令仍拒：放行的是那一组，不是整个插件
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":13,\"cmd\":\"scoped:write\"}")
+    @Expect(out.size, 2)
+    @Expect(strField(out[1], "error"), "command not allowed: scoped:write")
+}
+
+@Test
+func testDescribePermissionSets(): Unit {
+    let none = ArrayList<Plugin>()
+    @Expect(describePermissionSets(none), "")
+    let plugins = ArrayList<Plugin>()
+    plugins.add(ScopedPlugin())
+    let text = describePermissionSets(plugins)
+    @Expect(text.contains("scoped:watch"), true)
+    @Expect(text.contains("scoped:read"), true)
 }
 
 @Test

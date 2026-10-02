@@ -8,8 +8,9 @@ import stdx.encoding.json.*
  * 官方插件 fs：文件读写（纯仓颉，零 C 桥改动，RFC-001 §7.3）
  *
  * 命令：fs:readText / fs:writeText / fs:exists
- * 权限：**不自动放行**，应用要在 capabilities 的 commands 里显式声明要用的那几条，例如
- *   "commands": ["fs:readText", "fs:exists"]
+ * 权限：**不自动放行**，应用要在 capabilities 里显式声明，两种写法等价：
+ *   "commands": ["fs:readText", "fs:exists"]        // 明文逐条（旧写法，一直支持）
+ *   "permissions": ["fs:readonly"]                  // 命名权限集（v1.1，一次放行一组）
  * 前端：window.__CJ_TAURI__.fs.readText({ path: "notes.txt" })
  */
 public class FsPlugin <: Plugin {
@@ -24,6 +25,27 @@ public class FsPlugin <: Plugin {
         m.add("readText", FsCommands())
         m.add("writeText", FsCommands())
         m.add("exists", FsCommands())
+        return m
+    }
+
+    /**
+     * 命名权限集（v1.1，对标 Tauri v2 的 fs:default / fs:allow-read-text-file）。
+     *
+     * readonly 只含读相关两条：只想读文件的应用引用它即可，**写能力不会被顺带打开**；
+     * 要写文件必须显式引用 default（或把 fs:writeText 写成明文）——最小权限不打折。
+     * 集内写短名（readText），框架自动补成 fs:readText。
+     */
+    public func permissions(): HashMap<String, ArrayList<String>> {
+        let m = HashMap<String, ArrayList<String>>()
+        let ro = ArrayList<String>()
+        ro.add("readText")
+        ro.add("exists")
+        m.add("readonly", ro)
+        let all = ArrayList<String>()
+        all.add("readText")
+        all.add("writeText")
+        all.add("exists")
+        m.add("default", all)
         return m
     }
 

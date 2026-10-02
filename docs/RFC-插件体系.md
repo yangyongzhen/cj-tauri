@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段 |
+| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段。**v1.1 增补（2026-10-02）：命名权限集落地**，见 §7.1 第 7 行与 §8 问题 2 |
 | 编号 | RFC-001 |
 | 日期 | 2026-10-01 |
 | 评审方式 | 在本仓提 issue 讨论，标题以 `[RFC-001]` 开头；结论回写本文「开放问题」一节 |
@@ -126,9 +126,11 @@ v1 选 **B**，理由：权限模型是这个框架区别于「随便一个 WebV
    [cj-tauri]   请在 capabilities/*.json 的 commands 里加入 "fs:readText"
    ```
    这条提示的数据来源与 §5.5 的清单是同一份，几乎零成本。
-2. **给使用者一个「引用」动作而不是「自动放行」**：v2 可以引入插件自带的命名 permission set
-   （对标 Tauri v2：插件发布 permission，应用 capability 里引用 `"permissions": ["fs:default"]`），
-   v1 先用明文命令名，简单、可审计、可 grep。是否 v1 就引入，见 §8 开放问题 2。
+2. **给使用者一个「引用」动作而不是「自动放行」**：插件自带命名 permission set
+   （对标 Tauri v2：插件发布 permission，应用 capability 里引用 `"permissions": ["fs:default"]`）。
+   **v1.1 已落地**（2026-10-02，比本节原先「留到 v2」的判断提前）：`Plugin.permissions()` 声明集、
+   `CapabilityRegistry.addPermissionSet` 注册、清单 `permissions` 字段引用；明文命令名保留且与集**等价**——
+   集只解决「写法短」，闸门仍在清单手里（§8 问题 2 的答案）。
 
 ### 5.4 前端 JS：命名空间与注入时机
 
@@ -199,9 +201,11 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 | 4. 示例 + 实机证据 | `examples/plugin-fs/` | capability 故意只放行 `fs:readText` / `fs:exists`，`fs:writeText` 作**未授权对照组**；Linux（WebKitGTK / Xvfb）实机：`shim-ready-at-script-start=true`、readText/exists 成功、writeText 被拒 `command not allowed`、`[verify] ALL DONE`（截图 `docs/images/example-plugin-fs.png`，日志 `/tmp/cj-plugin-fs-final.log`）。**Windows 未跑**（本机为 Linux） |
 | 5. 文档 | `docs/使用文档.md` §6.7、`docs/前端入门教程.md` §11、`CHANGELOG.md`、`AGENTS.md` §2 | AGENTS.md 另记一条坑：内联在三引号字符串里的 JS 会被仓颉吃掉反斜杠转义（`\n` 变真换行 → 整段脚本语法错误、stderr 无提示） |
 | 6. 回归 | `scripts/test.sh` 38/38、`scripts/check-version.sh` 5/5、`examples/hello` 实机复测 | 单测 23 → 38（`src/tests/plugin_test.cj`）；hello 在 Linux 下日志 623 行含 `[verify] ALL DONE`，行为未变 |
+| 7. 命名权限集（**v1.1**，2026-10-02） | `src/plugin.cj`（`permissions()` / `pluginPermissionSets` / `registerPluginPermissionSets` / `describePermissionSets`）、`src/capability.cj`（`Capability.permissions` + `CapabilityRegistry.addPermissionSet` / `coveredByPermissionSet` / `warnUnknownPermissionSets`）、`src/plugin_fs.cj`（`fs:readonly` / `fs:default`） | 集名 `<插件名>:<短集名>`，成员短名自动补前缀、全名原样；**集声明 ≠ 放行**（清单不引用不生效）；未知集只提示；清单新增可选 `permissions` 字段，与明文命令名等价、可混用。示例清单改用 `"permissions": ["fs:readonly"]`，Linux 实机：启动打印两个集、只对 `fs:writeText` 报未授权、页面自检 `清单用集 fs:readonly=true; 清单未写死 fs:readText=true` / `DENY-OK fs:writeText` / `[verify] ALL DONE`（日志 `/tmp/cj-plugin-fs-permset.log`）。单测 38 → 50 |
 
 开放问题的 v1 结论：1）命令全名用 `<插件名>:<短名>`（与 `system:*` 同形，分发与校验零改动）；
-2）不引入 permission set，权限仍按全名写进 `capabilities/`；3）接口默认实现可用；
+2）v1 不引入 permission set，权限按全名写进 `capabilities/`——**v1.1 已改为支持命名权限集**
+（明文仍可用，两者等价、可混用）；3）接口默认实现可用；
 4）jsShim 用 HTML 字符串组装注入（`runUrl` 下 HTML 不在本进程、无法并入，已在 stderr 提示 + 文档对齐 `waitForBridge`）；
 5）不允许插件依赖插件，装配顺序由使用者负责；6）非命令类能力留待宿主层先有对应 API；7）`manifest()` v1 不做。
 
@@ -210,6 +214,9 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 1. 命令全名用 `<插件名>:<命令短名>`（改动为零、与 `system:*` 一致），
    还是 Tauri v2 风格 `plugin:<插件名>|<命令短名>`（来源更显式、便于按前缀统一放行，但要动校验）？
 2. 插件自带「命名 permission set」（使用者按名引用，如 `"permissions": ["fs:default"]`）是否 v1 就引入？
+   **已决（v1.1 落地，2026-10-02）**：引入，但**只作为写法简写**——插件 `permissions()` 声明集，
+   应用清单引用；集不自动放行、未知集只提示；明文命令名无限期保留（旧清单零改动）。理由：命令一多，
+   「逐条放行」的写法噪音大且容易漏；集让使用者写意图（`fs:readonly`）而不是写清单（三条命令名）。
 3. 仓颉接口能否带默认实现？不能的话，用 `AbstractPlugin` 基类提供 `events()` / `jsShim()` / `setup()` 的空实现，可以接受吗？
 4. jsShim 用「HTML 字符串组装注入」是否可接受（v2 换成宿主层的预执行脚本列表）？
 5. 插件是否允许声明「依赖另一个插件」（例如 `dialog` 依赖 `fs`）？v1 我倾向不允许，装配顺序由使用者负责。

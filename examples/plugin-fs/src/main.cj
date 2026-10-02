@@ -101,8 +101,10 @@ main(): Int64 {
 
       fs.readText({ path: 'capabilities/default.json' })
         .then(function (text) {
-          show('fs:readText OK => ' + text.length + ' chars; contains fs:readText=' +
-               (text.indexOf('fs:readText') >= 0));
+          // 这次读能成功，靠的是清单里的命名权限集 fs:readonly——清单里并没有写死 fs:readText
+          show('fs:readText OK => ' + text.length + ' chars; 清单用集 fs:readonly=' +
+               (text.indexOf('fs:readonly') >= 0) + '; 清单未写死 fs:readText=' +
+               (text.indexOf('fs:readText') < 0));
         })
         .catch(function (e) { show('fs:readText FAIL => ' + e.message); });
 

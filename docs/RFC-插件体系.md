@@ -177,8 +177,9 @@ WebView2 `AddScriptToExecuteOnDocumentCreated`），按注册顺序排在 `BRIDG
 
 v1 先做成启动日志的输出；**机器可读版本已提供**（2026-10-02）：框架函数
 `describePluginsJson(plugins): JsonValue`，形态 `[{name, commands, events, permissions, hasShim}]`，
-数组与权限键按字典序（输出稳定、可 diff）。不放进 `Plugin` 接口的理由见 §8 第 7 条；
-`cj-tauri info` 消费它仍待后续（CLI 不启动应用就拿不到装配结果）。
+数组与权限键按字典序（输出稳定、可 diff）。不放进 `Plugin` 接口的理由见 §8 第 7 条。
+`cj-tauri info` 消费它也已完成（2026-10-02）：CLI 让应用**跑到装配完成但不创建窗口**一次，
+把清单从 stdout 收回来（`CJ_TAURI_MANIFEST=json|text`，细节见 §8 第 7 条）。
 
 ## 6. 兼容性与版本
 
@@ -244,8 +245,12 @@ v1 先做成启动日志的输出；**机器可读版本已提供**（2026-10-02
    （形态 `[{name, commands, events, permissions, hasShim}]`，命令 / 事件 / 权限键都按字典序，输出稳定可 diff）。
    理由：这些数据框架本就能从 `commands()` / `events()` / `permissions()` 推出来，多一个接口方法只是给插件作者
    加负担（§7 的 v1 结论不变），而消费方（第三方工具、CI）要的是函数。单测 71 → 74。
-   遗留：`cj-tauri info` 仍不打印插件——CLI 不启动应用就拿不到装配结果，要在 CLI 里消费得先加载应用侧插件，
-   留作后续（谁有需求谁加，不影响本函数）。
+   **消费端也已落地（2026-10-02）**：`cj-tauri info` 末段打印插件表，`cj-tauri info --json` 只输出这份 JSON。
+   CLI 进程里没有应用那份 `TauriApp`，做法是让应用「跑到装配完成、但**不创建窗口**」一次：框架认环境变量
+   `CJ_TAURI_MANIFEST`（`json` / `text`），`run()` / `runUrl()` 在 `prepare()` 之后据此打印清单并直接返回，
+   CLI 用 `executeWithOutput` 收走 stdout——无 X 显示 / 未装 WebView2 Runtime 也能取到真值。
+   两道守卫（缺一则跳过，避免旧产物真去开窗口）：框架 `src/app.cj` 里得有这个变量名；应用产物不得早于它。
+   单测 74 → 78。
 8. 执行子进程（§7.1 第 9 行 `shell:exec`）要不要**挪出 UI 线程**、要不要做**程序白名单 scope**？
    **v1（2026-10-02）的答案：都不做。** ① 同步阻塞是已知限制——IPC 处理器跑在宿主 UI 线程上，长驻 / 交互式程序
    会把窗口卡住；文档与插件注释都已写明「别这么用」，等宿主层有工作线程（或命令分发支持异步返回）再改，

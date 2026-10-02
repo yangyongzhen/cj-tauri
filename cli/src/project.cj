@@ -481,8 +481,22 @@ func cmdRun(): Int64 {
     return 1
 }
 
-/** 环境自检：把解析结果打出来，排障用 */
-func cmdInfo(): Int64 {
+/**
+ * 环境自检：把解析结果打出来，排障用。
+ *
+ * `--json` 时只输出插件清单（机器可读，供工具 / CI 消费），stdout 保持是纯 JSON。
+ */
+func cmdInfo(asJson: Bool): Int64 {
+    if (asJson) {
+        // 失败原因由 pluginManifest 打到 stderr：stdout 留给清单本身，管道里才是干净的 JSON
+        match (pluginManifest("json")) {
+            case Some(text) =>
+                println(text)
+                return 0
+            case None =>
+                return 1
+        }
+    }
     println("cj-tauri CLI ${cliVersion()}")
     println("")
     println("  宿主平台    : ${hostOsName()} (${hostTriple()})")
@@ -536,5 +550,147 @@ func cmdInfo(): Int64 {
         println("  提示: Windows 需要 WebView2 Runtime（Win11 自带），且构建桥用的 WebView2 SDK")
         println("        版本不得高于本机 Runtime 版本；详见框架 native/build_win.bat 头部注释。")
     }
+    // 放在最后：取清单要跑一次应用（headless，不建窗口），自检结果先落屏，排障时更好读
+    println("")
+    println("插件清单（装配结果，取自应用 stdout）:")
+    match (pluginManifest("text")) {
+        case Some(text) =>
+            for (line in text.split("\n")) {
+                if (line.size > 0) {
+                    println("  " + line)
+                }
+            }
+        case None => println("  不可用（原因见 stderr 的 [cj-tauri] 提示）")
+    }
     return 0
+}
+
+/**
+ * 取插件清单：让应用「跑到装配完成、但不创建窗口」一次，把它打到 stdout 的清单收回来。
+ *
+ * 为什么非跑一次应用不可：插件是应用 main() 里装配的，CLI 进程里没有那份 TauriApp；
+ * 静态解析源码只能知道「插件声明了什么」，拿不到真实装配结果（前缀名、权限集展开、hasShim）。
+ * 环境变量 CJ_TAURI_MANIFEST 让框架的 run() / runUrl() 装配完就打印并返回，因此不需要窗口——
+ * 没有 X 显示、没装 WebView2 Runtime 的机器上照样能取到真值。
+ *
+ * 取不到时返回 None，并把原因打到 stderr（stdout 留给清单本身，`--json` 才不会被诊断污染）。
+ */
+func pluginManifest(mode: String): Option<String> {
+    var proj = ""
+    if (let Some(p) <- findProjectRoot()) {
+        proj = p
+    } else {
+        eprintln("[cj-tauri] 跳过插件清单: 当前目录不在 cj-tauri 项目内")
+        return None
+    }
+    var bin = ""
+    if (let Some(b) <- findAppBinary(proj)) {
+        bin = b
+    } else {
+        eprintln("[cj-tauri] 跳过插件清单: 未找到可执行产物（先跑 cj-tauri build）")
+        return None
+    }
+    var fw = ""
+    if (let Some(f) <- frameworkFromProject(proj)) {
+        fw = f
+    } else if (let Some(f) <- resolveFrameworkRoot()) {
+        fw = f
+    }
+    // 旧版框架认不出这个环境变量，真会去开窗口——那样 info 就卡在窗口上了，故先静态确认通道存在
+    if (!frameworkSupportsManifestDump(fw)) {
+        eprintln("[cj-tauri] 跳过插件清单: 框架 ${fw} 未提供 CJ_TAURI_MANIFEST 导出通道（该版本不支持）")
+        return None
+    }
+    // 产物可能比框架源码旧（改了框架没重建应用）：旧产物同样认不出该变量，跑起来就是真开窗口
+    if (!appBinaryIsFresh(bin, fw)) {
+        eprintln("[cj-tauri] 跳过插件清单: 应用产物早于框架源码，先 cj-tauri build 重建再跑 info")
+        return None
+    }
+    var stdx = ""
+    if (let Some(s) <- resolveStdx(fw, Some(proj))) {
+        stdx = s
+    }
+    // 与 cj-tauri run 同款环境：桥、stdx、仓颉运行时都要在动态库搜索路径里
+    prepareEnv(fw, stdx)
+    setVariable("CJ_TAURI_MANIFEST", mode)
+    let (code, out, err) = executeWithOutput(bin, Array<String>(), workingDirectory: Path(proj))
+    removeVariable("CJ_TAURI_MANIFEST")
+
+    let raw = String.fromUtf8(out)
+    if (code != 0) {
+        eprintln("[cj-tauri] 插件清单导出失败: 应用退出码 ${code}")
+        relayLines(String.fromUtf8(err))
+        return None
+    }
+    var picked = raw.trimAsciiEnd()
+    if (mode == "json") {
+        picked = lastJsonBlock(raw)
+    }
+    if (picked.size == 0) {
+        eprintln("[cj-tauri] 插件清单导出失败: 应用没走到 run()/runUrl()（例如模板缺 ui/dist/index.html）")
+        relayLines(String.fromUtf8(err))
+        return None
+    }
+    return Some(picked)
+}
+
+/** 原样转发子进程的 stderr：失败时应用自己的话最能说明卡在哪 */
+func relayLines(text: String): Unit {
+    for (line in text.split("\n")) {
+        if (line.size > 0) {
+            eprintln("  | " + line)
+        }
+    }
+}
+
+/**
+ * 框架是否支持清单导出通道：读源码找那个环境变量名。
+ * 比「跑一次看看」安全——旧框架不认这个变量，跑起来就是真开窗口。
+ */
+func frameworkSupportsManifestDump(fwRoot: String): Bool {
+    if (fwRoot.size == 0) {
+        return false
+    }
+    let src = joinPath(joinPath(fwRoot, "src"), "app.cj")
+    if (!exists(src)) {
+        return false
+    }
+    return readText(src).contains("CJ_TAURI_MANIFEST")
+}
+
+/**
+ * 应用产物是否不比框架源码旧：比源码旧说明改了框架却没重建应用，
+ * 那种产物里没有清单导出通道——放它跑就会真去开窗口（无显示环境直接失败，有显示环境会把 info 卡住）。
+ */
+func appBinaryIsFresh(bin: String, fwRoot: String): Bool {
+    let src = joinPath(joinPath(fwRoot, "src"), "app.cj")
+    if (!exists(src) || !exists(bin)) {
+        return false
+    }
+    return !(FileInfo(bin).lastModificationTime < FileInfo(src).lastModificationTime)
+}
+
+/**
+ * 取多行 JSON 正文：从**最后一个**以 '[' 开头的行起算。
+ * 为什么不直接拿整段 stdout：应用自己的代码也可能往 stdout 打东西，而清单是装配完最后打印的一段。
+ */
+func lastJsonBlock(text: String): String {
+    let lines = text.split("\n")
+    var start = -1
+    for (i in 0..lines.size) {
+        if (lines[i].trimAscii().startsWith("[")) {
+            start = i
+        }
+    }
+    if (start < 0) {
+        return ""
+    }
+    var out = ""
+    for (i in start..lines.size) {
+        if (out.size > 0) {
+            out += "\n"
+        }
+        out += lines[i]
+    }
+    return out.trimAscii()
 }

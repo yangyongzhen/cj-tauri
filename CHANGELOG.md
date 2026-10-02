@@ -20,7 +20,16 @@
   `[{name, commands, events, permissions, hasShim}]`——`commands` / `events` 是全名数组，`permissions` 是
   「集全名 → 成员全名数组」（框架展开后的样子，也就是清单里能引用的名字），`hasShim` 表示该插件是否带前端
   JS 片段。数组与权限键都按字典序排序：HashMap 迭代顺序不定，工具的输出 / diff 需要稳定。给第三方工具 / CI
-  消费用；`cj-tauri info` 暂未接入（CLI 不启动应用就拿不到装配结果）。单测 71 → 74。
+  消费用；`cj-tauri info` 已接入它（见下一条）。单测 71 → 74。
+- **`cj-tauri info` 打印插件清单（`--json` 给机器读）**：CLI 进程里没有应用那份 `TauriApp`，所以做法是让应用
+  「跑到装配完成、但**不创建窗口**」一次——框架认环境变量 `CJ_TAURI_MANIFEST`（`json` / `text`），
+  `run()` / `runUrl()` 在 `prepare()` 之后据此把清单打到 stdout 并直接返回。于是没有 X 显示、
+  也没装 WebView2 Runtime 的机器上照样能取到真实装配结果（前缀名、权限集展开、`hasShim`）。
+  `cj-tauri info` 末段打印人读表，`cj-tauri info --json` 只输出 `describePluginsJson` 的 JSON
+  （stdout 不含诊断，可直接喂工具 / CI）。两道守卫缺一则跳过导出：框架源码里没有这个变量名（旧框架）、
+  或应用产物早于 `src/app.cj`（陈旧产物）——这两种情况下跑应用会真去开窗口，把 `info` 卡住。单测 74 → 78。
+  Linux 实机（无 `DISPLAY`）：`info` 末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；
+  直跑应用 stderr 为 `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0。
 - **npm 包**：`npx cj-tauri` / `npm i -g cj-tauri` 成为跨平台统一入口（`npm/bin/cj-tauri.js`）——
   自动定位仓颉 SDK（`CANGJIE_HOME` 或平台默认路径）、拼 `PATH` / `LD_LIBRARY_PATH`、注入 `CJ_TAURI_ROOT`；
   CLI 本体优先用包内预编译二进制（`prebuilt/<平台-架构>/`），缺失则把 `cli/` 拷到缓存目录用本机 `cjpm build`

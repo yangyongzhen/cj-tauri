@@ -128,6 +128,9 @@ public class TauriApp {
      */
     public func run(html: String): Unit {
         this.prepare()
+        if (this.dumpManifestIfRequested()) {
+            return
+        }
         this.registerPluginScripts()
         this.host.start(html)
         this.waitForExit()
@@ -142,9 +145,31 @@ public class TauriApp {
      */
     public func runUrl(url: String): Unit {
         this.prepare()
+        if (this.dumpManifestIfRequested()) {
+            return
+        }
         this.registerPluginScripts()
         this.host.startUrl(url)
         this.waitForExit()
+    }
+
+    /**
+     * 清单导出（RFC §8 第 7 条的遗留项：让 `cj-tauri info` 消费 describePluginsJson）
+     *
+     * 设了 CJ_TAURI_MANIFEST 时，装配一完成就把清单打到 stdout 并返回 true——**不创建窗口**。
+     * 于是 CLI / CI 在既没有 X 显示、也没装 WebView2 Runtime 的机器上照样能拿到真实的装配结果。
+     * 为什么只能这样拿：CLI 进程里没有应用自己的 TauriApp，插件是应用 main() 里装配的，
+     * 所以「不启动窗口，但把 main() 跑到装配完成」是唯一能取到真值的路子（详见 manifestDumpMode）。
+     */
+    private func dumpManifestIfRequested(): Bool {
+        match (manifestDumpMode()) {
+            case Some(mode) =>
+                // flush 显式给：CLI 用管道抓 stdout，不能指望进程退出时的缓冲冲刷
+                print(renderPluginManifest(this.plugins, mode), flush: true)
+                eprintln("[cj-tauri] 已导出插件清单（mode=${mode}）：本轮未创建窗口")
+                return true
+            case None => return false
+        }
     }
 
     /**
@@ -238,4 +263,41 @@ public class TauriApp {
             spins += 1
         }
     }
+}
+
+/**
+ * 清单导出模式（环境变量 CJ_TAURI_MANIFEST）
+ *
+ * 取值：`json` → 机器可读 JSON（`describePluginsJson`）；其它非空值 → 人类可读表（`describePlugins`）；
+ * 未设置（或空串）→ None，即正常启动窗口。
+ *
+ * 为什么走环境变量，而不是给 TauriApp 加个方法：清单要**装配完成之后**才有值，而装配发生在
+ * run() / runUrl() 内部——加方法就得让每个应用的 main() 多写一个分支，既有应用全都要改。
+ * 环境变量让既有应用一行不动就能被 CLI 取出清单（就是 `cj-tauri info` 拿插件清单的通道）。
+ */
+func manifestDumpMode(): Option<String> {
+    if (let Some(v) <- getVariable("CJ_TAURI_MANIFEST")) {
+        if (v.size == 0) {
+            return None
+        }
+        if (v == "json") {
+            return Some("json")
+        }
+        return Some("text")
+    }
+    return None
+}
+
+/**
+ * 渲染清单文本：`json` 模式给机器（工具 / CI 直接解析），其余给人（启动日志里那份表的同款形态）。
+ * 抽成纯函数是为了单测能直接断言，不必真去跑一次宿主。
+ */
+func renderPluginManifest(plugins: ArrayList<Plugin>, mode: String): String {
+    if (mode == "json") {
+        return describePluginsJson(plugins).toJsonString()
+    }
+    if (plugins.size == 0) {
+        return "（未装配插件）\n"
+    }
+    return describePlugins(plugins)
 }

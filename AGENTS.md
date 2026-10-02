@@ -53,6 +53,11 @@
   与插件的铁律一致：**集声明 ≠ 放行**，清单不引用就不生效；引用了没有插件提供的集名只提示不报错
   （`warnUnknownPermissionSets`，在插件装配完之后才可能判定）。旧清单全写明文的行为不变，两者可混用。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
+- **CLI 取应用装配结果**（插件清单）：走环境变量 `CJ_TAURI_MANIFEST`（`json` / `text`）——`run()` / `runUrl()`
+  在 `prepare()` 之后若见它，就把清单打到 stdout 并**直接返回、不创建窗口**（`src/app.cj` 的模式解析 + 渲染），
+  消费方是 `cj-tauri info [--json]`（CLI 用 `executeWithOutput` 收 stdout）。CLI 侧**必须先过两道守卫**再启动应用：
+  框架 `src/app.cj` 里有这个变量名、且应用产物不比它旧；缺一个就跳过——旧框架 / 陈旧产物认不出该变量，
+  跑起来就是真开窗口，会把 `info` 卡死。
 - **命令执行线程模型（异步分发）**：`IpcHub.handleInvoke` 只做校验——「未授权 / 未注册」在调用线程上**同步拒绝**，
   通过校验的命令 `spawn` 到 worker 线程执行（`runCommand`），结果经 `jsSink` 回投。**不要**把 `handler.handle`
   挪回调用线程（那会退化成「慢命令钉住宿主 UI 线程」，`shell:exec` / 原生对话框最先遭殃）；worker 里也**只能**经
@@ -121,6 +126,9 @@
   但没有流式输出、也没有超时 / 取消，别在命令里等长驻 / 交互式进程。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
+- CLI 让应用「跑完装配但**不能开窗口**」的场景（`cj-tauri info` 取插件清单）务必防住陈旧产物：旧产物认不出
+  新环境变量，会真的创建窗口把命令卡住。守卫 = 「框架源码里有变量名」+「产物 mtime 不比框架源码旧」，
+  两者都过才允许跑。
 - 实机取证的三个坑（`/tmp/run-*-verify.sh` 一类脚本）：① 应用进程名是 `<示例>/target/release/bin/main`，
   按包名 `pkill -f plugin_shell` 匹配不上——陈旧实例会继续往同一个日志写（文件出现 NUL 空洞、上一轮旧输出混进
   本轮证据）；而 `pkill -f` 的模式又会匹配到脚本自己那行命令（自杀），写法用 `plugin-shel[l]/…` 避开。

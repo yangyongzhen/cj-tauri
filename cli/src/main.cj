@@ -13,13 +13,16 @@ func usage(): Unit {
     println("  cj-tauri dev               构建 C 桥 + cjpm build + 启动应用")
     println("  cj-tauri build             构建 C 桥 + cjpm build")
     println("  cj-tauri run               运行已构建产物")
-    println("  cj-tauri info              环境自检（排障用）")
+    println("  cj-tauri info [--json]     环境自检（排障用）；--json 只输出插件清单（机器可读）")
     println("  cj-tauri help              显示本帮助")
     println("")
     println("环境变量:")
     println("  CJ_TAURI_ROOT   框架仓库根目录（不在仓库内运行时必须设置）")
     println("  CANGJIE_HOME    仓颉 SDK 根目录（默认从 PATH 中的 cjc 反推）")
     println("  CANGJIE_STDX    stdx 动态库目录（默认从框架/项目 cjpm.toml 读取）")
+    println("  CJ_TAURI_MANIFEST")
+    println("                  仅由 cj-tauri info 设置（json / text）：应用装配完就打印清单并退出，")
+    println("                  不创建窗口——无显示环境也能取到真实的插件装配结果")
     println("")
     println("示例:")
     println("  cd /tmp && cj-tauri create myapp && cd myapp && cj-tauri dev")
@@ -75,7 +78,15 @@ main(args: Array<String>): Int64 {
         return cmdRun()
     }
     if (sub == "info") {
-        return cmdInfo()
+        var asJson = false
+        var i = 1
+        while (i < args.size) {
+            if (args[i] == "--json") {
+                asJson = true
+            }
+            i = i + 1
+        }
+        return cmdInfo(asJson)
     }
     eprintln("未知子命令: ${sub}")
     println("")

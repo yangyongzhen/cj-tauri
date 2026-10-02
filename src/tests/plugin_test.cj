@@ -2,6 +2,7 @@ package cjTauri.tests
 
 import cjTauri.*
 import std.collection.*
+import std.env.*
 import stdx.encoding.json.*
 import std.unittest.*
 import std.unittest.testmacro.*
@@ -459,4 +460,64 @@ func testDescribePluginsJsonStableAcrossRuns(): Unit {
 func testDescribePluginsJsonEmptyList(): Unit {
     let none = ArrayList<Plugin>()
     @Expect(jsonItemsOf(describePluginsJson(none)).size, 0)
+}
+
+/*
+ * 清单导出通道（CJ_TAURI_MANIFEST）：`cj-tauri info` 靠它从「跑到装配完成、但不建窗口」的应用里取清单。
+ * 这里只测纯逻辑（环境变量解析 + 两种模式的渲染与可解析性），不创建窗口。
+ */
+
+/** 把 manifestDumpMode() 的 Option 归一成字符串，便于用 @Expect 断言 */
+func manifestModeOf(): String {
+    match (manifestDumpMode()) {
+        case Some(m) => return m
+        case None => return "<none>"
+    }
+}
+
+@Test
+func testManifestDumpModeFromEnv(): Unit {
+    removeVariable("CJ_TAURI_MANIFEST")
+    @Expect(manifestModeOf(), "<none>")
+
+    setVariable("CJ_TAURI_MANIFEST", "")
+    @Expect(manifestModeOf(), "<none>")   // 空串等同未设置
+
+    setVariable("CJ_TAURI_MANIFEST", "json")
+    @Expect(manifestModeOf(), "json")
+
+    setVariable("CJ_TAURI_MANIFEST", "1")
+    @Expect(manifestModeOf(), "text")     // 只认 "json" 这一个值，其它一律当人类可读形态
+
+    removeVariable("CJ_TAURI_MANIFEST")
+    @Expect(manifestModeOf(), "<none>")   // 收尾：别把环境变量漏给后面的用例
+}
+
+@Test
+func testRenderPluginManifestTextMode(): Unit {
+    let plugins = ArrayList<Plugin>()
+    plugins.add(DemoPlugin())
+    // 人读形态就是启动日志里那份表，两种出口不能各写一套
+    @Expect(renderPluginManifest(plugins, "text"), describePlugins(plugins))
+    @Expect(renderPluginManifest(plugins, "text").contains("demo:do"), true)
+}
+
+@Test
+func testRenderPluginManifestJsonMode(): Unit {
+    let plugins = ArrayList<Plugin>()
+    plugins.add(DemoPlugin())
+    let text = renderPluginManifest(plugins, "json")
+    // 必须能被标准 JSON 解析器重新解析（CLI / CI 消费的就是它）
+    let arr = jsonItemsOf(JsonValue.fromStr(text))
+    @Expect(arr.size, 1)
+    let demo = arr[0].asObject()
+    @Expect(demo.get("name").getOrThrow().asString().getValue(), "demo")
+    @Expect(joinWithPipe(jsonStringsOf(demo, "commands")), "demo:do")
+}
+
+@Test
+func testRenderPluginManifestEmptyList(): Unit {
+    let none = ArrayList<Plugin>()
+    @Expect(renderPluginManifest(none, "text"), "（未装配插件）\n")
+    @Expect(JsonValue.fromStr(renderPluginManifest(none, "json")).asArray().size(), 0)
 }

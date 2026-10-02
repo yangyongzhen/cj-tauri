@@ -333,7 +333,7 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
   [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
 - ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
-- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，38 个用例）与 `scripts/check-static.sh`
+- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，71 个用例）与 `scripts/check-static.sh`
   （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
 - ✅ P3：热重载与前端框架模板（宿主加 `runUrl` / `loadUrl` / `reload`；`cj-tauri dev` 接管 Vite dev server，
   Vue 3 / React 18 模板，HMR 在窗口内生效）、`cj-tauri build` 打单文件前端产物
@@ -345,6 +345,8 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   上手教程见 [`docs/插件体系教程.md`](docs/插件体系教程.md)
 - ✅ 官方插件三件套：`fs`（文件读写）、`dialog`（系统原生对话框）、`shell`（交给系统默认程序打开 / 执行子进程；
   命名集 `shell:allow-open` / `shell:default`，argv 直传不过 shell）——各带示例（`examples/plugin-*`）与 Linux 实机证据
+- ✅ 命令执行异步分发：通过校验的命令在 worker 线程上跑，慢命令（`shell:exec` 跑进程、原生对话框）不再钉住窗口；
+  未授权 / 未注册仍在调用线程上同步拒绝，并发调用不保序、按 promise id 匹配。实机 A/B 对照见 `CHANGELOG.md`
 - 🔜 更多官方插件（托盘、全局快捷键等需要宿主层先有对应 API）
 
 ## 验证结果

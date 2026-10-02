@@ -19,8 +19,9 @@ import stdx.encoding.json.*
  * 不构成命令注入。但「放行 shell:exec」这件事本身就等于把「执行任意程序」交给页面：能力清单是唯一的闸门，
  * 页面拿到什么命令就等于能跑什么程序。只想让用户打开链接 / 文件的应用请引用 `shell:allow-open`。
  *
- * 已知限制（v1，记在 RFC-001 §8）：`shell:exec` 同步阻塞——IPC 处理器跑在宿主 UI 线程上，程序不退出窗口
- * 就不会重绘。别用它跑长驻 / 交互式程序。
+ * 限制：`shell:exec` 是同步调用（子进程不退出就不返回），且**没有**流式输出 / 超时 / 取消——但它跑在命令
+ * worker 线程上（命令分发已异步化，见 AGENTS.md §2 的线程模型），所以不会冻住窗口。长驻 / 交互式程序
+ * （编辑器、REPL、npm run dev）仍不要走这里。
  */
 public class ShellPlugin <: Plugin {
     public init() {}

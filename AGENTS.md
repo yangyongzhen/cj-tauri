@@ -22,7 +22,7 @@
 3. 行为变更必须给出**可观测证据**（日志行、`system:version` 返回值、窗口标题等），不允许「先交付后补证据」。
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
-   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 68 个用例。
+   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 71 个用例。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
 ## 2. 架构契约（改哪里、怎么改）
@@ -49,6 +49,11 @@
   与插件的铁律一致：**集声明 ≠ 放行**，清单不引用就不生效；引用了没有插件提供的集名只提示不报错
   （`warnUnknownPermissionSets`，在插件装配完之后才可能判定）。旧清单全写明文的行为不变，两者可混用。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
+- **命令执行线程模型（异步分发）**：`IpcHub.handleInvoke` 只做校验——「未授权 / 未注册」在调用线程上**同步拒绝**，
+  通过校验的命令 `spawn` 到 worker 线程执行（`runCommand`），结果经 `jsSink` 回投。**不要**把 `handler.handle`
+  挪回调用线程（那会退化成「慢命令钉住宿主 UI 线程」，`shell:exec` / 原生对话框最先遭殃）；worker 里也**只能**经
+  `jsSink` 回投，不要直接调 GTK / WebKit（仓颉轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort，见 §4）。
+  同一命令被并发调用**不保证执行顺序**，前端按 promise id 匹配；异步契约的用例在 `src/tests/ipc_hub_test.cj`。
 - **能力清单加载**：默认在 `run()` 时自动扫描工作目录下 `capabilities/` 的所有 json；
   显式 `loadCapabilities(dir)` 或 `addCapabilityJson(json)` 优先，且一旦调用即不自动扫描。
 - **依赖方向单向**：`app.cj` → `host.cj` / `ipc_hub.cj` → `capability.cj`；禁止反向依赖与循环依赖
@@ -108,9 +113,16 @@
   已在 UI 线程就直接弹，在别的线程才投递 + 等待；新增同类宿主能力（菜单、文件拖放等）照此办理。
 - 执行子进程（`shell` 插件）：一律 **argv 直传**（`launch` / `executeWithOutput` 收参数数组），
   不要为省事拼 `bash -c "<一整串命令>"`——那等于把页面可控的字符串塞进 shell 解析，自己开后门。
-  这类调用同时是**同步阻塞**的、且跑在宿主 UI 线程上（与 `dialog` 同一个坑面）：别在命令里等长驻进程。
+  这类调用本身仍是**同步阻塞**的：它跑在命令 worker 线程上（命令分发已异步，见 §2），所以不再冻窗口，
+  但没有流式输出、也没有超时 / 取消，别在命令里等长驻 / 交互式进程。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
+- 实机取证的三个坑（`/tmp/run-*-verify.sh` 一类脚本）：① 应用进程名是 `<示例>/target/release/bin/main`，
+  按包名 `pkill -f plugin_shell` 匹配不上——陈旧实例会继续往同一个日志写（文件出现 NUL 空洞、上一轮旧输出混进
+  本轮证据）；而 `pkill -f` 的模式又会匹配到脚本自己那行命令（自杀），写法用 `plugin-shel[l]/…` 避开。
+  ② X11 是 SSH 转发时 `import -window root` 要抓远端整屏，抓屏本身会把 X 客户端冻住几秒——别在「命令进行中」
+  抓屏，否则会污染「心跳是否中断」这类证据（实测先以为 UI 被卡住，其实是抓屏）。③ 等窗口别用固定 `sleep`：
+  `cjpm run` 可能要先重编译，改为轮询 `xdotool search --name`。
 - **工作目录 = 项目根**：`capabilities/`、`ui/` 都按相对路径读取，启动器/脚本必须切到项目根再启动应用。
 - npm 发布的 2FA 现状（2026-10-02 实测）：npm 已停用**新** TOTP 动态码绑定（2025-09-29），passkey 账号
   根本拿不到 6 位码；且自 2026-09-09 起「用过恢复码」会给**所有账号**套 **72 小时只读持有**——期间发布、

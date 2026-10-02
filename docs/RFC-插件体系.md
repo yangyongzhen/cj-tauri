@@ -231,6 +231,12 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
    那属破坏性变更。② 「程序白名单」需要能力模型新增**命令级 scope**（`Capability` 里按命令写 `programs: [...]`，
    插件在放行前查），比 v1.1 的命名集动得深（要扩 `capability.cj` 的校验口径与清单 schema），因此 v1 明确
    **不做**：闸门仍是「放行 / 不放行 `shell:exec`」，要更细的粒度请等 scope 设计定稿。
+   **① 已落地（2026-10-02，命令异步化）**：`IpcHub.handleInvoke` 只做校验，执行 `spawn` 到 worker 线程
+   （契约见 `AGENTS.md` §2 的线程模型），`shell:exec` 与原生对话框都不再冻窗口。对照取证：同一个演示
+   （`examples/plugin-shell` 的「长命令 3 秒 + 心跳」）只切换分发方式——同步臂心跳全堆在命令结束后
+   （`slow: done +3124ms`、心跳 +3126…3133ms），异步臂首跳 +503ms 并贯穿 3 秒全程（详值与截图见
+   `CHANGELOG.md` 的 `Changed` 首条与 `docs/进度记录.md` §3.1）。
+   **② 仍不做**：v1 的答案不变，闸门仍是「放行 / 不放行 `shell:exec`」。
 
 ## 9. 参考
 

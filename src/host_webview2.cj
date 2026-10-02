@@ -1,5 +1,7 @@
 package cjTauri
 
+import std.collection.*
+
 /**
  * C 桥 FFI 声明（native/libcjtbridge.dll）
  * Win32 窗口 + WebView2（Edge Chromium）在 C 桥的宿主线程内运行（见 native/bridge_win.c 头注释）。
@@ -16,6 +18,13 @@ foreign func cj_bridge_start(html: CString): Unit
 @When[os == "Windows"]
 @C
 foreign func cj_bridge_load_url(url: CString): Unit
+
+/**
+ * 注册一段预执行脚本（插件 jsShim 等）：须在 cj_bridge_start 之前调用，桥在 document-start 注入
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_add_init_script(js: CString): Unit
 
 @When[os == "Windows"]
 @C
@@ -76,6 +85,8 @@ public class WebView2Host <: WebViewHost {
     public var onDestroy: () -> Unit = { => }
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
+    // 预执行脚本（插件 jsShim 等）：start 前收集，prepareHost 一次性交给桥，桥在 document-start 注入
+    private var initScripts = ArrayList<String>()
 
     public init() {}
 
@@ -89,6 +100,13 @@ public class WebView2Host <: WebViewHost {
 
     public func setDevTools(enabled: Bool): Unit {
         this.config.devTools = enabled
+    }
+
+    public func addInitScript(js: String): Unit {
+        // 空串忽略（插件没写 shim 时不必占位，桥侧也会再挡一次）
+        if (js.size > 0) {
+            this.initScripts.add(js)
+        }
     }
 
     public func openDevTools(): Unit {
@@ -142,6 +160,10 @@ public class WebView2Host <: WebViewHost {
             cj_bridge_set_devtools(devTools)
             // 窗口图标：空串表示系统默认图标
             cj_bridge_set_icon(LibC.mallocCString(this.config.iconPath))
+            // 预执行脚本（插件 jsShim 等）：与 BRIDGE_JS 同一条 document-start 通道，按注册顺序排在桥之后
+            for (js in this.initScripts) {
+                cj_bridge_add_init_script(LibC.mallocCString(js))
+            }
         }
     }
 

@@ -24,6 +24,16 @@ public interface WebViewHost {
     public func startUrl(url: String): Unit
 
     /**
+     * 注册一段「页面脚本执行前」注入的初始化脚本（多次调用按注册顺序注入）
+     *
+     * 必须在 start() / startUrl() 之前调用：宿主创建 WebView 时一次性交给 C 桥，桥以
+     * document-start 注入（WebKit user script / WebView2 AddScriptToExecuteOnDocumentCreated）。
+     * 因此它对 HTML 与 URL 两种页面来源**一视同仁**——插件的 jsShim 走的就是这条通道（RFC §5.4 的 v2 方案），
+     * 不再靠字符串拼 HTML。空串忽略；脚本是普通 JS 片段，不要自带 <script> 标签。
+     */
+    public func addInitScript(js: String): Unit
+
+    /**
      * 重新加载当前页面（整页 reload，对标浏览器刷新）
      *
      * 页面尚未加载时为空操作；开发者工具里的刷新按钮等价于此。

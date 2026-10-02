@@ -123,36 +123,23 @@ public func describePermissionSets(plugins: ArrayList<Plugin>): String {
     return text
 }
 
-/** 汇总所有插件的 jsShim 成一个 script 块；没有任何 shim 时返回空串 */
-public func assemblePluginJs(plugins: ArrayList<Plugin>): String {
-    var body = ""
+/**
+ * 收集各插件的 jsShim，作为「预执行脚本」逐条返回（一个插件一段，顺序 = 装配顺序）
+ *
+ * v2 方案（RFC §5.4）：不再把 shim 拼成 script 标签塞进 HTML——那段字符串操作对畸形 HTML 不健壮，
+ * 而且 runUrl 的页面 HTML 根本不在本进程、拼不进去。改为交给宿主的 addInitScript，两平台都以
+ * document-start 注入，HTML / URL 两种来源一视同仁。
+ * 一个插件一段（而不是拼成一整段）：某个插件的 shim 写坏了不会带崩其它插件的命名空间。
+ */
+public func pluginInitScripts(plugins: ArrayList<Plugin>): ArrayList<String> {
+    let out = ArrayList<String>()
     for (p in plugins) {
         let shim = p.jsShim()
         if (shim.size > 0) {
-            body += shim
-            body += "\n"
+            out.add(shim)
         }
     }
-    if (body.size == 0) {
-        return ""
-    }
-    return "<script>\n" + body + "</script>\n"
-}
-
-/**
- * 把插件 JS 块插到第一个 head 结束标签之前——必须早于页面脚本执行，
- * 否则页面里读 window.__CJ_TAURI__.<插件名> 会拿到 undefined。
- * 没有该标签时退化插到文档最前，并在 stderr 说明（畸形 HTML 的兜底，RFC §5.4）。
- */
-public func injectPluginJs(html: String, jsBlock: String): String {
-    if (jsBlock.size == 0) {
-        return html
-    }
-    if (let Some(pos) <- html.indexOf("</head>")) {
-        return html[0..pos] + jsBlock + html[pos..html.size]
-    }
-    eprintln("[cj-tauri] HTML 里没有 </head>，插件 JS 已插到文档最前")
-    return jsBlock + html
+    return out
 }
 
 /** 人类可读的插件清单（启动日志用，对齐 RFC §5.5 的打印形态） */

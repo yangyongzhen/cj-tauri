@@ -152,39 +152,50 @@ func testPluginDoesNotAutoGrantCapability(): Unit {
 }
 
 @Test
-func testAssemblePluginJs(): Unit {
+func testPluginInitScriptsSkipEmpty(): Unit {
     let none = ArrayList<Plugin>()
-    @Expect(assemblePluginJs(none), "")   // 没有任何 shim 就不插脚本块
+    @Expect(pluginInitScripts(none).size, 0)   // 没有任何 shim 就不注册脚本
 
+    let onlyEmpty = ArrayList<Plugin>()
+    onlyEmpty.add(MiniPlugin())                // 默认 shim 为空，应被跳过
+    @Expect(pluginInitScripts(onlyEmpty).size, 0)
+}
+
+@Test
+func testPluginInitScriptsPassShimThrough(): Unit {
     let plugins = ArrayList<Plugin>()
-    plugins.add(MiniPlugin())             // 默认 shim 为空，应被跳过
     plugins.add(DemoPlugin())
-    let js = assemblePluginJs(plugins)
-    @Expect(js.startsWith("<script>"), true)
-    @Expect(js.contains("__CJ_TAURI__.demo"), true)
-    @Expect(js.endsWith("</script>\n"), true)
+    let scripts = pluginInitScripts(plugins)
+    @Expect(scripts.size, 1)
+    @Expect(scripts[0].contains("__CJ_TAURI__.demo"), true)
+    // 交给宿主的是裸 JS 片段、不是 script 标签块：桥按脚本注入，不再拼 HTML（RFC §5.4 的 v2）
+    @Expect(scripts[0].contains("<script>"), false)
+    @Expect(scripts[0].size, DemoPlugin().jsShim().size)   // 原样透传，不改写
 }
 
 @Test
-func testInjectPluginJsBeforeHeadEnd(): Unit {
-    let html = "<html><head><title>t</title></head><body>hi</body></html>"
-    let out = injectPluginJs(html, "<script>1</script>\n")
-    let at = out.indexOf("<script>1</script>").getOrThrow()
-    let headEnd = out.indexOf("</head>").getOrThrow()
-    @Expect(at < headEnd, true)                       // 必须早于 </head>，才早于页面脚本
-    @Expect(out.contains("<body>hi</body>"), true)    // 原内容不丢
+func testPluginInitScriptsOnePerPluginInOrder(): Unit {
+    let plugins = ArrayList<Plugin>()
+    plugins.add(DemoPlugin())
+    plugins.add(FsPlugin())
+    let scripts = pluginInitScripts(plugins)
+    // 一段一个插件（不拼成一大段）：某个插件的 shim 写坏了不会带崩别的插件
+    @Expect(scripts.size, 2)
+    @Expect(scripts[0].contains("__CJ_TAURI__.demo"), true)
+    @Expect(scripts[1].contains("t.fs ="), true)
 }
 
 @Test
-func testInjectPluginJsFallsBackToFront(): Unit {
-    let out = injectPluginJs("<div>hi</div>", "<script>1</script>\n")
-    @Expect(out.startsWith("<script>1</script>"), true)   // 没有 </head> 时插到最前
-}
-
-@Test
-func testInjectPluginJsNoopWithoutShim(): Unit {
-    let html = "<html><head></head></html>"
-    @Expect(injectPluginJs(html, ""), html)
+func testPluginInitScriptsMixedPluginsKeepOrder(): Unit {
+    // 空 shim 的插件不占位，剩下的仍按装配顺序排列
+    let plugins = ArrayList<Plugin>()
+    plugins.add(MiniPlugin())
+    plugins.add(DemoPlugin())
+    plugins.add(FsPlugin())
+    let scripts = pluginInitScripts(plugins)
+    @Expect(scripts.size, 2)
+    @Expect(scripts[0].contains("__CJ_TAURI__.demo"), true)
+    @Expect(scripts[1].contains("t.fs ="), true)
 }
 
 @Test

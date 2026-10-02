@@ -54,6 +54,12 @@ static int g_win_h = 640;
 static char *g_win_icon = NULL;
 static int g_devtools = 1; /* 开发者工具开关（cj_bridge_set_devtools） */
 
+/* 预执行脚本列表（cj_bridge_add_init_script 追加，WebView 创建时逐条注入到 document-start）：
+   插件的 jsShim 走这条通道，注册顺序排在 BRIDGE_JS 之后——脚本里可直接引用 window.__CJ_TAURI__ */
+static char **g_init_scripts = NULL;
+static int g_init_script_count = 0;
+static int g_init_script_cap = 0;
+
 /* ===== 仓颉 → C 桥 ===== */
 
 void cj_bridge_init(cj_on_message_fn m, cj_on_destroy_fn d) {
@@ -75,6 +81,29 @@ void cj_bridge_set_icon(const char *path) {
 void cj_bridge_set_devtools(int enabled) {
     g_devtools = enabled ? 1 : 0;
     fprintf(stderr, "[cj-bridge] devtools %s\n", g_devtools ? "enabled" : "disabled");
+}
+
+/* 注册一段预执行脚本（须在 cj_bridge_start 之前调用；空串忽略），与 Windows 侧同名同签名。
+   为什么在桥里排队、而不是仓颉侧把 JS 拼进 HTML：URL 页面（runUrl / dev server）的 HTML 不在本进程，
+   拼不进去；document-start 注入对 HTML / URL 两种来源都成立（RFC §5.4 的 v2 方案）。 */
+void cj_bridge_add_init_script(const char *js) {
+    if (!js || !js[0]) {
+        return;
+    }
+    if (g_init_script_count == g_init_script_cap) {
+        int cap = g_init_script_cap ? g_init_script_cap * 2 : 4;
+        char **grown = (char **)realloc(g_init_scripts, (size_t)cap * sizeof(char *));
+        if (!grown) {
+            fprintf(stderr, "[cj-bridge] add init script failed: out of memory\n");
+            return;
+        }
+        g_init_scripts = grown;
+        g_init_script_cap = cap;
+    }
+    g_init_scripts[g_init_script_count] = strdup(js);
+    g_init_script_count++;
+    fprintf(stderr, "[cj-bridge] init script queued: %d bytes (total %d)\n",
+            (int)strlen(js), g_init_script_count);
 }
 
 /* 运行时打开开发者工具：投递到 GTK 线程执行（仓颉线程禁止直接调 webkit） */
@@ -555,6 +584,16 @@ static void *gtk_thread_main(void *arg) {
                                WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
                                WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
                                NULL, NULL));
+    /* 预执行脚本按注册顺序追加在桥之后（同一 document-start 通道，脚本里可直接用 window.__CJ_TAURI__） */
+    for (int i = 0; i < g_init_script_count; i++) {
+        webkit_user_content_manager_add_script(
+            mgr,
+            webkit_user_script_new(g_init_scripts[i],
+                                   WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+                                   WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START,
+                                   NULL, NULL));
+    }
+    fprintf(stderr, "[cj-bridge] init scripts injected: %d\n", g_init_script_count);
     webkit_user_content_manager_register_script_message_handler(mgr, "cjtauri");
     g_signal_connect(mgr, "script-message-received::cjtauri",
                      G_CALLBACK(on_script_message), NULL);

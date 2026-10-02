@@ -1,6 +1,8 @@
 package plugin_fs
 
 import cjTauri.*
+import std.env.*
+import std.fs.*
 import stdx.encoding.json.*
 
 /**
@@ -12,6 +14,10 @@ import stdx.encoding.json.*
  *     → 启动时给出「缺哪条、加到哪」的提示；
  *  3. 前端脚本第一行就读到 __CJ_TAURI__.fs（证明 shim 早于页面脚本）；
  *  4. fs:readText / fs:exists 成功，fs:writeText 被拒 —— 默认最小权限的对照组。
+ *
+ * 另一条取证路径：`CJ_FS_URL_MODE=1` 会把同一份页面落成 /tmp/cj-fs-url-mode.html 并按 file:// 加载。
+ * 页面 HTML 不在本进程里了，走的仍是宿主 document-start 预执行脚本通道（RFC §5.4 的 v2）——
+ * 两种来源的 `shim-ready-at-script-start` 都是 true（脚本见 /tmp/run-init-verify.sh）。
  *
  * 运行目录 = 本示例根（capabilities/ 按相对路径解析，与 hello 一致）。
  */
@@ -130,7 +136,25 @@ main(): Int64 {
 </html>
 """
     eprintln("[plugin-fs] before run")
-    app.run(html)
+    // URL 模式（CJ_FS_URL_MODE=1）：把同一份页面落成文件、按 file:// 加载。
+    // 页面 HTML 不在本进程里了，正是 v1「把 shim 拼进 HTML 字符串」够不着的场景——
+    // 现在走宿主的 document-start 预执行脚本通道，与内联 HTML 共用一条链路（RFC §5.4 的 v2）。
+    var urlMode = false
+    match (getVariable("CJ_FS_URL_MODE")) {
+        case Some(v) =>
+            if (v == "1") {
+                urlMode = true
+            }
+        case None => ()
+    }
+    if (urlMode) {
+        let urlPath = "/tmp/cj-fs-url-mode.html"
+        File.writeTo(urlPath, html.toArray())
+        eprintln("[plugin-fs] URL 模式：file://${urlPath}")
+        app.runUrl("file://${urlPath}")
+    } else {
+        app.run(html)
+    }
     eprintln("[plugin-fs] after run")
     return 0
 }

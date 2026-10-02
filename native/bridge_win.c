@@ -77,6 +77,13 @@ static int g_js_lock_init = 0;
 /* 前端 __CJ_TAURI__.reload() 的控制消息：宿主级操作，不经过 IPC hub（与 BRIDGE_JS 里的字面量保持一致） */
 #define CJT_RELOAD_MSG "__cj_tauri_reload__"
 
+/* 预执行脚本列表（cj_bridge_add_init_script 追加，WebView 创建时逐条
+   AddScriptToExecuteOnDocumentCreated）：插件的 jsShim 走这条通道，注册顺序排在 BRIDGE_JS 之后——
+   脚本里可直接引用 window.__CJ_TAURI__。与 Linux 侧存储结构一致。 */
+static char **g_init_scripts = NULL;
+static int g_init_script_count = 0;
+static int g_init_script_cap = 0;
+
 /* ===== UTF-8 <-> UTF-16 ===== */
 
 static wchar_t *utf8_to_wide(const char *s) {
@@ -271,6 +278,15 @@ static HRESULT STDMETHODCALLTYPE ctrl_Invoke(
 
     /* 注入桥接脚本（页面脚本执行前）+ 注册 JS 消息通道 */
     g_webview->lpVtbl->AddScriptToExecuteOnDocumentCreated(g_webview, BRIDGE_JS, NULL);
+    /* 预执行脚本按注册顺序追加在桥之后（WebView2 按注册顺序执行），脚本里可直接用 window.__CJ_TAURI__ */
+    for (int i = 0; i < g_init_script_count; i++) {
+        wchar_t *w = utf8_to_wide(g_init_scripts[i]);
+        if (w) {
+            g_webview->lpVtbl->AddScriptToExecuteOnDocumentCreated(g_webview, w, NULL);
+            free(w);
+        }
+    }
+    fprintf(stderr, "[cj-bridge] init scripts injected: %d\n", g_init_script_count);
     g_webview->lpVtbl->add_WebMessageReceived(g_webview, &g_msg_handler, NULL);
     g_webview->lpVtbl->add_NavigationCompleted(g_webview, &g_nav_handler, NULL);
 
@@ -757,6 +773,29 @@ CJ_BRIDGE_API void cj_bridge_set_icon(const char *path) {
 CJ_BRIDGE_API void cj_bridge_set_devtools(int enabled) {
     g_devtools = enabled ? 1 : 0;
     fprintf(stderr, "[cj-bridge] devtools %s\n", g_devtools ? "enabled" : "disabled");
+}
+
+/* 注册一段预执行脚本（须在 cj_bridge_start 之前调用；空串忽略），与 Linux 侧同名同签名。
+   为什么在桥里排队、而不是仓颉侧把 JS 拼进 HTML：URL 页面的 HTML 不在本进程，拼不进去；
+   document-start 注入对 HTML / URL 两种来源都成立（RFC §5.4 的 v2 方案）。 */
+CJ_BRIDGE_API void cj_bridge_add_init_script(const char *js) {
+    if (!js || !js[0]) {
+        return;
+    }
+    if (g_init_script_count == g_init_script_cap) {
+        int cap = g_init_script_cap ? g_init_script_cap * 2 : 4;
+        char **grown = (char **)realloc(g_init_scripts, (size_t)cap * sizeof(char *));
+        if (!grown) {
+            fprintf(stderr, "[cj-bridge] add init script failed: out of memory\n");
+            return;
+        }
+        g_init_scripts = grown;
+        g_init_script_cap = cap;
+    }
+    g_init_scripts[g_init_script_count] = _strdup(js);
+    g_init_script_count++;
+    fprintf(stderr, "[cj-bridge] init script queued: %d bytes (total %d)\n",
+            (int)strlen(js), g_init_script_count);
 }
 
 /* 运行时打开开发者工具：投递到宿主线程执行（WebView2 要求在其 UI 线程上调用） */

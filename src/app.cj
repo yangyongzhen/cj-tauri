@@ -20,8 +20,8 @@ public class TauriApp {
     private var config: WindowConfig = WindowConfig()
     private var started: Bool = false
     private var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
-    // 各插件 jsShim() 的汇总，prepare() 时定稿，run(html) 时并入页面
-    private var pluginJs: String = ""
+    // 各插件 jsShim() 收集成的「预执行脚本」列表，prepare() 时定稿，run / runUrl 时交给宿主
+    private var pluginScripts: ArrayList<String> = ArrayList<String>()
 
     public init() {}
 
@@ -128,8 +128,8 @@ public class TauriApp {
      */
     public func run(html: String): Unit {
         this.prepare()
-        // 插件 JS 随 HTML 一起进宿主：必须早于页面脚本，见 plugin.cj 的 injectPluginJs
-        this.host.start(injectPluginJs(html, this.pluginJs))
+        this.registerPluginScripts()
+        this.host.start(html)
         this.waitForExit()
     }
 
@@ -142,14 +142,26 @@ public class TauriApp {
      */
     public func runUrl(url: String): Unit {
         this.prepare()
-        if (this.pluginJs.size > 0) {
-            // HTML 不在本进程里（dev server / 远程页面），无法把 shim 并进去：
-            // 只能等宿主注入，时序上可能晚于页面脚本。这是 v1 的已知局限（RFC §5.4）。
-            eprintln("[cj-tauri] runUrl 模式：插件 JS 无法随 HTML 注入，__CJ_TAURI__.<插件名> 可能晚于页面脚本")
-            eprintln("[cj-tauri]   前端请照模板的 waitForBridge 等桥出现后再用插件 API")
-        }
+        this.registerPluginScripts()
         this.host.startUrl(url)
         this.waitForExit()
+    }
+
+    /**
+     * 把插件 jsShim 注册到宿主的「预执行脚本」通道
+     *
+     * 必须在 start / startUrl 之前调用：宿主创建 WebView 时一次性交给 C 桥，
+     * 桥以 document-start 注入（早于页面脚本，两平台语义一致）。
+     * HTML 与 URL 两种来源共用这条通道——v1 那个「runUrl 模式下 shim 注入不进去」的局限就此消掉（RFC §5.4），
+     * 所以这里不再需要对使用者的额外提醒。
+     */
+    private func registerPluginScripts(): Unit {
+        for (js in this.pluginScripts) {
+            this.host.addInitScript(js)
+        }
+        if (this.pluginScripts.size > 0) {
+            eprintln("[cj-tauri] 插件 JS 已注册为预执行脚本：${this.pluginScripts.size} 段")
+        }
     }
 
     /**
@@ -186,7 +198,7 @@ public class TauriApp {
             registerPluginPermissionSets(this.capabilities, p)
             p.setup(this)
         }
-        this.pluginJs = assemblePluginJs(this.plugins)
+        this.pluginScripts = pluginInitScripts(this.plugins)
         if (this.plugins.size > 0) {
             eprintln("[cj-tauri] 已装配 ${this.plugins.size} 个插件：")
             eprintln(describePlugins(this.plugins))

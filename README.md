@@ -6,6 +6,7 @@
 > **第一次用？先看教程：[docs/前端入门教程.md](docs/前端入门教程.md)**——零基础把前端跑起来：
 > 目录约定 → 桥 API → 事件 → 能力清单 → 调试 → 完整实战（一个待办清单应用）。
 > **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
+> **插件体系教程：[docs/插件体系教程.md](docs/插件体系教程.md)**——插件是干嘛的 → 一行接入官方 `fs` 插件 → 自己写一个 → 排错。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
 >
 > **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
@@ -327,7 +328,8 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 插件体系 v1：`TauriApp.plugin(...)` + `Plugin` 接口（插件命令统一注册成 `<插件名>:<短名>`，
   与内置 `system:*` 同形，分发与校验零改动；**权限仍由 `capabilities/` 决定**，插件不自动放行）、
   官方 `fs` 插件（`fs:readText` / `fs:writeText` / `fs:exists`）与 `examples/plugin-fs` 示例；
-  设计取舍见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)
+  设计取舍见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)，
+  上手教程见 [`docs/插件体系教程.md`](docs/插件体系教程.md)
 - 🔜 更多官方插件（`dialog` / `shell` 等）
 
 ## 验证结果

@@ -42,6 +42,7 @@
 | [`examples/todo_check`](examples/todo_check) | 《[前端入门教程](docs/前端入门教程.md)》的实战示例：待办清单（添加 / 删除 / 计数）。页面由 `extract.js` 从教程文档抽取，文档与代码同源。 | 同上；Windows 直接双击 `run.bat` |
 | [`examples/vue_todo`](examples/vue_todo) | 上面待办的 Vue 3 版：同一套 `todo:add` / `todo:remove` / `todo:list` 命令与 `todo:changed` 事件，前端换成独立的 Vite + Vue 3 工程（`ui/`）。 | 在 `examples/vue_todo` 下用仓库根的 `cli/cj-tauri.sh` 跑 `dev`（接管 Vite dev server，退出自动收掉）或 `build`（`vite-plugin-singlefile` 打成单个 `ui/dist/index.html`） |
 | [`examples/plugin-fs`](examples/plugin-fs) | 插件体系示例：一行 `.plugin(FsPlugin())` 接入官方文件读写插件（`fs:readText` / `fs:writeText` / `fs:exists`），并演示**权限仍由 capabilities 决定**——清单故意只放行两条，第三条启动即提示、前端调用被拒。 | `cd examples/plugin-fs && cjpm build`，再按上方「运行仓内示例」启动 |
+| [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
@@ -57,6 +58,11 @@
 放行过的 `fs:readText` / `fs:exists` 正常返回，未授权的 `fs:writeText` 被拒（对照组）：
 
 ![plugin-fs 示例运行截图：插件验证结果，含未授权被拒的对照组](docs/images/example-plugin-fs.png)
+
+`plugin-dialog`：同一个插件体系接系统原生对话框——提示框是宿主弹的模态框（下面这张是它压在主窗口上），
+文件框选中的路径经回调回传（`dialog:open => path="/tmp/dialog-pick.txt"`），未授权的 `system:devtools` 仍被拒：
+
+![plugin-dialog 示例运行截图：原生提示框压在主窗口上](docs/images/example-plugin-dialog.png)
 
 ### 前端工程模板
 

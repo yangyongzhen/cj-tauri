@@ -39,6 +39,18 @@ foreign func cj_bridge_open_devtools(): Unit
 
 @When[os == "Windows"]
 @C
+foreign func cj_bridge_set_dialog_callback(cb: CFunc<(CString) -> Unit>): Unit
+
+/**
+ * 原生对话框（阻塞式）：kind 0=打开文件 1=保存文件 2=info 3=warning 4=error 5=confirm。
+ * 返回 1 = 用户确认；文件类选中路径经 cj_bridge_set_dialog_callback 注册的回调送回。
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_show_dialog(kind: Int32, title: CString, message: CString, filter: CString): Int32
+
+@When[os == "Windows"]
+@C
 foreign func cj_bridge_run_js(js: CString): Unit
 
 @When[os == "Windows"]
@@ -85,6 +97,32 @@ public class WebView2Host <: WebViewHost {
         }
     }
 
+    public func showFileDialog(save: Bool, title: String, filter: String): String {
+        var kind: Int32 = 0
+        if (save) {
+            kind = 1
+        }
+        var ok: Int32 = 0
+        unsafe {
+            ok = cj_bridge_show_dialog(kind, LibC.mallocCString(title), LibC.mallocCString(""),
+                                       LibC.mallocCString(filter))
+        }
+        if (ok == 0) {
+            // 取消 / 宿主未就绪：上游按「空路径」处理，不再读结果槽位
+            return ""
+        }
+        return HostGlobals.dialogResult
+    }
+
+    public func showMessageDialog(kind: String, title: String, message: String): Bool {
+        var ok: Int32 = 0
+        unsafe {
+            ok = cj_bridge_show_dialog(dialogKindCode(kind), LibC.mallocCString(title),
+                                       LibC.mallocCString(message), LibC.mallocCString(""))
+        }
+        return ok != 0
+    }
+
     /**
      * 启动前的共同装配：回调槽位、窗口配置、图标
      */
@@ -97,6 +135,8 @@ public class WebView2Host <: WebViewHost {
         }
         unsafe {
             cj_bridge_init(hostOnMessage, hostOnDestroy)
+            // 原生对话框的结果回调：与消息回调同一套路（C 桥宿主线程 → 仓颉全局槽位）
+            cj_bridge_set_dialog_callback(dialogOnResult)
             cj_bridge_set_window(LibC.mallocCString(this.config.title),
                                  Int32(this.config.width), Int32(this.config.height))
             cj_bridge_set_devtools(devTools)

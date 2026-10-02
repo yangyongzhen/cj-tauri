@@ -41,6 +41,17 @@ public class TauriApp {
     }
 
     /**
+     * 宿主实例（插件的 setup() 取用）
+     *
+     * 需要窗口 / 原生能力的插件命令（原生对话框等）走它；纯仓颉插件（如 fs）用不到。
+     * 宿主对象在构造 TauriApp 时就已存在，但**原生窗口要等 run()/runUrl() 才创建**——
+     * 依赖窗口的操作必须在启动之后调用，实现方自己会给出可读的降级结果。
+     */
+    public func webviewHost(): WebViewHost {
+        return this.host
+    }
+
+    /**
      * 注册命令处理器
      */
     public func register(cmd: String, handler: CommandHandler): TauriApp {

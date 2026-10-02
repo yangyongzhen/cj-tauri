@@ -21,9 +21,11 @@
 /* ===== 仓颉侧回调（@C 函数）===== */
 typedef void (*cj_on_message_fn)(const char *json); /* JS 消息到达 */
 typedef void (*cj_on_destroy_fn)(void);             /* 窗口销毁 */
+typedef void (*cj_on_dialog_fn)(const char *path);  /* 原生对话框选中的路径 */
 
 static cj_on_message_fn g_on_message = NULL;
 static cj_on_destroy_fn g_on_destroy = NULL;
+static cj_on_dialog_fn g_on_dialog = NULL;
 static GtkWidget *g_window = NULL;
 static GtkWidget *g_view = NULL;
 static char *g_pending_html = NULL;
@@ -128,6 +130,250 @@ void cj_bridge_reload(void) {
     g_idle_add(reload_idle, NULL);
 }
 
+/* ===== 原生对话框（仓颉线程 → GTK 线程：g_idle_add 投递 + 条件变量等结果）=====
+ * 对话框必须在 GTK 线程弹出（仓颉线程禁止直接调 GTK），而命令处理器要拿同步结果，
+ * 所以调用方投递后阻塞等待：GTK 线程弹完对话框，先把结果经 g_on_dialog 送回仓颉，
+ * 再唤醒调用方——顺序反了调用方会读到上一次的旧值。 */
+
+typedef struct dlg_req {
+    int kind;      /* 0 打开文件 1 保存文件 2 info 3 warning 4 error 5 confirm */
+    char *title;
+    char *message;
+    char *filter;  /* "描述|模式|描述|模式"；空串 = 不过滤 */
+    char *path;    /* 文件类结果：选中路径（取消时为空） */
+    int ok;        /* 1 = 用户点了确认 */
+} dlg_req;
+
+static pthread_mutex_t g_dlg_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_dlg_cond = PTHREAD_COND_INITIALIZER;
+static int g_dlg_busy = 0;      /* 同时只允许一个：对话框是模态的，嵌套调用直接拒绝而不是自锁 */
+static int g_dlg_ready = 0;     /* 结果就绪（与 g_dlg_mutex 配套的谓词） */
+static dlg_req *g_dlg_cur = NULL; /* 进行中的请求；窗口先关时由 cancel_pending_dialog 作废 */
+static pthread_t g_gtk_thread;    /* 跑 gtk_main 的线程：用来判断调用方是否已在 GTK 线程上 */
+static int g_gtk_thread_set = 0;
+
+/* "描述|模式|..." → GTK 过滤器（与 Win32 OPENFILENAME 用同一套写法） */
+static void apply_filter(GtkFileChooser *chooser, const char *filter) {
+    char *buf, *seg;
+    if (!filter || !filter[0]) {
+        return;
+    }
+    buf = strdup(filter);
+    if (!buf) {
+        return;
+    }
+    seg = buf;
+    while (seg && seg[0]) {
+        char *pat = strchr(seg, '|');
+        char *next = NULL;
+        if (!pat) {
+            break;  /* 落单的描述段：忽略 */
+        }
+        *pat = 0;
+        pat += 1;
+        next = strchr(pat, '|');
+        if (next) {
+            *next = 0;
+        }
+        {
+            GtkFileFilter *f = gtk_file_filter_new();
+            char *p = pat;
+            /* 一段里可以有多个空格分隔的 glob（如 "*.txt *.md"） */
+            while (p && p[0]) {
+                char *sp = strchr(p, ' ');
+                if (sp) {
+                    *sp = 0;
+                }
+                if (p[0]) {
+                    gtk_file_filter_add_pattern(f, p);
+                }
+                p = sp ? sp + 1 : NULL;
+            }
+            gtk_file_filter_set_name(f, seg);
+            gtk_file_chooser_add_filter(chooser, f);
+        }
+        seg = next ? next + 1 : NULL;
+    }
+    {
+        GtkFileFilter *all = gtk_file_filter_new();
+        gtk_file_filter_set_name(all, "所有文件");
+        gtk_file_filter_add_pattern(all, "*");
+        gtk_file_chooser_add_filter(chooser, all);
+    }
+    free(buf);
+}
+
+/* 窗口销毁时作废进行中的对话框：不这么做，gtk_main_quit 之后等待方会永远挂住 */
+static void cancel_pending_dialog(void) {
+    pthread_mutex_lock(&g_dlg_mutex);
+    if (g_dlg_cur && !g_dlg_ready) {
+        g_dlg_cur->ok = 0;
+        g_dlg_ready = 1;
+        g_dlg_cur = NULL;
+        pthread_cond_signal(&g_dlg_cond);
+    }
+    pthread_mutex_unlock(&g_dlg_mutex);
+}
+
+/* 已经站在 GTK 线程上：直接弹一次，返回 1 = 确认；选中路径写入 *out_path（由调用方 free） */
+static int show_dialog_here(int kind, const char *title, const char *message, const char *filter,
+                            char **out_path) {
+    GtkWindow *parent = g_window ? GTK_WINDOW(g_window) : NULL;
+    int ok = 0;
+
+    *out_path = NULL;
+    if (kind <= 1) {
+        GtkWidget *dlg = gtk_file_chooser_dialog_new(
+            title[0] ? title : (kind == 1 ? "保存文件" : "打开文件"),
+            parent,
+            (kind == 1) ? GTK_FILE_CHOOSER_ACTION_SAVE : GTK_FILE_CHOOSER_ACTION_OPEN,
+            "取消", GTK_RESPONSE_CANCEL,
+            (kind == 1) ? "保存" : "打开", GTK_RESPONSE_ACCEPT,
+            NULL);
+        apply_filter(GTK_FILE_CHOOSER(dlg), filter);
+        if (kind == 1) {
+            gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dlg), TRUE);
+        }
+        if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+            char *p = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
+            if (p) {
+                *out_path = strdup(p);
+                ok = 1;
+                g_free(p);
+            }
+        }
+        gtk_widget_destroy(dlg);
+    } else {
+        GtkMessageType type = GTK_MESSAGE_INFO;
+        GtkWidget *dlg;
+        int res;
+        if (kind == 3) {
+            type = GTK_MESSAGE_WARNING;
+        } else if (kind == 4) {
+            type = GTK_MESSAGE_ERROR;
+        } else if (kind == 5) {
+            type = GTK_MESSAGE_QUESTION;
+        }
+        /* 用 "%s" 占位：提示文案里带 % 也不会被当成格式串 */
+        dlg = gtk_message_dialog_new(parent, GTK_DIALOG_MODAL, type,
+                                     (kind == 5) ? GTK_BUTTONS_OK_CANCEL : GTK_BUTTONS_OK,
+                                     "%s", message[0] ? message : " ");
+        if (title[0]) {
+            gtk_window_set_title(GTK_WINDOW(dlg), title);
+        }
+        res = gtk_dialog_run(GTK_DIALOG(dlg));
+        ok = (kind == 5) ? (res == GTK_RESPONSE_OK) : 1;
+        gtk_widget_destroy(dlg);
+    }
+    return ok;
+}
+
+/* GTK 线程：处理别的线程投递进来的请求（调用方正阻塞等结果） */
+static gboolean dialog_idle(gpointer d) {
+    dlg_req *r = (dlg_req *)d;
+    int alive;
+
+    pthread_mutex_lock(&g_dlg_mutex);
+    alive = (g_dlg_cur == r);
+    pthread_mutex_unlock(&g_dlg_mutex);
+    if (!alive) {
+        /* 窗口先关了，结果槽位已交回调用方（它会 free 这个请求）：这里连碰都不能碰 */
+        return G_SOURCE_REMOVE;
+    }
+
+    r->ok = show_dialog_here(r->kind, r->title, r->message, r->filter, &r->path);
+    fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d%s%s\n", r->kind, r->ok,
+            (r->kind <= 1) ? " path=" : "",
+            (r->kind <= 1) ? (r->path ? r->path : "(none)") : "");
+    if (g_on_dialog) {
+        g_on_dialog(r->path ? r->path : "");
+    }
+    pthread_mutex_lock(&g_dlg_mutex);
+    g_dlg_cur = NULL;
+    g_dlg_ready = 1;
+    pthread_cond_signal(&g_dlg_cond);
+    pthread_mutex_unlock(&g_dlg_mutex);
+    return G_SOURCE_REMOVE;
+}
+
+void cj_bridge_set_dialog_callback(cj_on_dialog_fn cb) {
+    g_on_dialog = cb;
+}
+
+/* 阻塞式原生对话框：返回 1 = 用户确认（文件类路径已经回调送回），0 = 取消 / 宿主未就绪 */
+int cj_bridge_show_dialog(int kind, const char *title, const char *message, const char *filter) {
+    dlg_req *r;
+    int ok;
+
+    if (!g_ready || !g_window) {
+        fprintf(stderr, "[cj-bridge] dialog ignored: host not ready\n");
+        return 0;
+    }
+    pthread_mutex_lock(&g_dlg_mutex);
+    if (g_dlg_busy) {
+        pthread_mutex_unlock(&g_dlg_mutex);
+        fprintf(stderr, "[cj-bridge] dialog rejected: another dialog is open\n");
+        return 0;
+    }
+    g_dlg_busy = 1;
+    g_dlg_ready = 0;
+    pthread_mutex_unlock(&g_dlg_mutex);
+
+    /* 调用方已经在 GTK 线程上（WebKit 的 script-message 回调就跑在这个线程）：直接弹。
+       这里**不能**走「投递 idle + 阻塞等待」——idle 要由 GTK 线程来跑，而 GTK 线程正卡在
+       这次调用里，等于自己把自己锁死（实测：日志停在 dialog: kind=…，对话框永不出现）。 */
+    if (g_gtk_thread_set && pthread_equal(pthread_self(), g_gtk_thread)) {
+        char *path = NULL;
+        fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s (caller on GTK thread)\n", kind,
+                title ? title : "");
+        ok = show_dialog_here(kind, title ? title : "", message ? message : "",
+                              filter ? filter : "", &path);
+        fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d%s%s\n", kind, ok,
+                (kind <= 1) ? " path=" : "", (kind <= 1) ? (path ? path : "(none)") : "");
+        if (g_on_dialog) {
+            g_on_dialog(path ? path : "");
+        }
+        free(path);
+        pthread_mutex_lock(&g_dlg_mutex);
+        g_dlg_busy = 0;
+        pthread_mutex_unlock(&g_dlg_mutex);
+        return ok;
+    }
+
+    r = (dlg_req *)calloc(1, sizeof(dlg_req));
+    if (!r) {
+        pthread_mutex_lock(&g_dlg_mutex);
+        g_dlg_busy = 0;
+        pthread_mutex_unlock(&g_dlg_mutex);
+        return 0;
+    }
+    r->kind = kind;
+    r->title = strdup(title ? title : "");
+    r->message = strdup(message ? message : "");
+    r->filter = strdup(filter ? filter : "");
+    fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s\n", kind, r->title);
+
+    pthread_mutex_lock(&g_dlg_mutex);
+    g_dlg_cur = r;
+    pthread_mutex_unlock(&g_dlg_mutex);
+    g_idle_add(dialog_idle, r);
+
+    pthread_mutex_lock(&g_dlg_mutex);
+    while (!g_dlg_ready) {
+        pthread_cond_wait(&g_dlg_cond, &g_dlg_mutex);
+    }
+    ok = r->ok;
+    g_dlg_busy = 0;
+    pthread_mutex_unlock(&g_dlg_mutex);
+
+    free(r->title);
+    free(r->message);
+    free(r->filter);
+    free(r->path);
+    free(r);
+    return ok;
+}
+
 /* 窗口配置（标题 / 尺寸）：必须在 cj_bridge_start 之前调用 */
 void cj_bridge_set_window(const char *title, int width, int height) {
     fprintf(stderr, "[cj-bridge] set window: title=%s size=%dx%d\n",
@@ -221,6 +467,8 @@ static void on_destroy(GtkWidget *w, gpointer ud) {
     if (g_on_destroy) {
         g_on_destroy();
     }
+    /* 有对话框开着时先作废并唤醒等待方：gtk_main_quit 之后挂起的 idle 不再执行 */
+    cancel_pending_dialog();
     gtk_main_quit();
 }
 
@@ -277,6 +525,9 @@ static const char *BRIDGE_JS =
     "});";
 
 static void *gtk_thread_main(void *arg) {
+    /* 先记下 GTK 线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */
+    g_gtk_thread = pthread_self();
+    g_gtk_thread_set = 1;
     gtk_init(NULL, NULL);
 
     g_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);

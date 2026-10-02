@@ -35,7 +35,7 @@ cd /d "%SCRIPT_DIR%"
 gcc -shared -O2 -fstack-protector-all bridge_win.c -o libcjtbridge.dll ^
     -Wl,--out-implib,libcjtbridge.dll.a ^
     -I"%WEBVIEW2_SDK_INCLUDE%" ^
-    -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32
+    -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32
 
 if errorlevel 1 (
     echo [ERROR] build libcjtbridge.dll failed

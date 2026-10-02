@@ -46,6 +46,23 @@ public interface WebViewHost {
     public func openDevTools(): Unit
 
     /**
+     * 原生文件选择对话框（阻塞到用户关闭）：返回选中的路径，取消 / 失败返回空串。
+     *
+     * filter 是「描述|模式|描述|模式」拼串（Windows 惯例；GTK 端按同一格式解析），
+     * 例如 "文本文件|*.txt|所有文件|*.*"；空串表示不限制。
+     * 必须在 start() / startUrl() 之后调用——对话框要拿已创建的应用窗口当父窗口。
+     */
+    public func showFileDialog(save: Bool, title: String, filter: String): String
+
+    /**
+     * 原生消息对话框（阻塞到用户关闭）：返回用户是否点了「确定」。
+     *
+     * kind 取 "info" / "warning" / "error" / "confirm"（其它值按 info 处理）。
+     * info / warning / error 只有一个「确定」，弹出即成立；只有 confirm 会返回 false。
+     */
+    public func showMessageDialog(kind: String, title: String, message: String): Bool
+
+    /**
      * 原生 → JS：在 WebView 中执行脚本
      */
     public func runJs(js: String): Unit
@@ -73,6 +90,34 @@ public interface WebViewHost {
 class HostGlobals {
     static var onMessage: (String) -> Unit = { _ => }
     static var onDestroy: () -> Unit = { => }
+    // 文件类对话框的结果：C 桥在 GTK / 宿主线程上经 dialogOnResult 写入，
+    // 阻塞等待的调用方醒来后读取。同一时刻只允许一个对话框（桥侧有互斥），单槽位够用。
+    static var dialogResult: String = ""
+}
+
+/**
+ * kind 字符串 → C 桥的对话框编号（与 native/bridge_linux.c、bridge_win.c 的取值一一对应）
+ */
+func dialogKindCode(kind: String): Int32 {
+    match (kind) {
+        case "warning" => 3
+        case "error" => 4
+        case "confirm" => 5
+        case _ => 2
+    }
+}
+
+/**
+ * 对话框结果回调（C 桥 → 仓颉）：文件类对话框选中的路径经它送回。
+ * 由 C 桥在自己的 UI 线程上调用，与 hostOnMessage 同一套路；先写槽位再由桥唤醒调用方。
+ */
+@C
+func dialogOnResult(path: CString): Unit {
+    try {
+        HostGlobals.dialogResult = path.toString()
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] dialog callback error: ${e}")
+    }
 }
 
 /**

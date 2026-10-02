@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段。**v1.1 增补（2026-10-02）：命名权限集落地**，见 §7.1 第 7 行与 §8 问题 2 |
+| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段。**v1.1 增补（2026-10-02）：命名权限集落地**，见 §7.1 第 7 行与 §8 问题 2。**v1.2 增补（2026-10-02）：官方 `dialog` 插件落地**（系统原生对话框 + 宿主接口新能力 + 两平台 C 桥），见 §7.1 第 8 行 |
 | 编号 | RFC-001 |
 | 日期 | 2026-10-01 |
 | 评审方式 | 在本仓提 issue 讨论，标题以 `[RFC-001]` 开头；结论回写本文「开放问题」一节 |
@@ -202,6 +202,7 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 | 5. 文档 | `docs/使用文档.md` §6.7、`docs/前端入门教程.md` §11、`CHANGELOG.md`、`AGENTS.md` §2 | AGENTS.md 另记一条坑：内联在三引号字符串里的 JS 会被仓颉吃掉反斜杠转义（`\n` 变真换行 → 整段脚本语法错误、stderr 无提示） |
 | 6. 回归 | `scripts/test.sh` 38/38、`scripts/check-version.sh` 5/5、`examples/hello` 实机复测 | 单测 23 → 38（`src/tests/plugin_test.cj`）；hello 在 Linux 下日志 623 行含 `[verify] ALL DONE`，行为未变 |
 | 7. 命名权限集（**v1.1**，2026-10-02） | `src/plugin.cj`（`permissions()` / `pluginPermissionSets` / `registerPluginPermissionSets` / `describePermissionSets`）、`src/capability.cj`（`Capability.permissions` + `CapabilityRegistry.addPermissionSet` / `coveredByPermissionSet` / `warnUnknownPermissionSets`）、`src/plugin_fs.cj`（`fs:readonly` / `fs:default`） | 集名 `<插件名>:<短集名>`，成员短名自动补前缀、全名原样；**集声明 ≠ 放行**（清单不引用不生效）；未知集只提示；清单新增可选 `permissions` 字段，与明文命令名等价、可混用。示例清单改用 `"permissions": ["fs:readonly"]`，Linux 实机：启动打印两个集、只对 `fs:writeText` 报未授权、页面自检 `清单用集 fs:readonly=true; 清单未写死 fs:readText=true` / `DENY-OK fs:writeText` / `[verify] ALL DONE`（日志 `/tmp/cj-plugin-fs-permset.log`）。单测 38 → 50 |
+| 8. 官方 `dialog` 插件（**v1.2**，2026-10-02） | `src/plugin_dialog.cj`、`src/host.cj`（`WebViewHost.showFileDialog` / `showMessageDialog`、对话框编号与结果回调共享槽位）、`src/host_webkit.cj` / `src/host_webview2.cj`、`native/bridge_linux.c` / `native/bridge_win.c`（`cj_bridge_show_dialog` / `cj_bridge_set_dialog_callback`）、`examples/plugin-dialog/` | 三条命令 `dialog:open` / `dialog:save` / `dialog:message`（`kind` = info/warning/error/confirm），弹**系统原生**对话框（Linux GTK / Windows Win32 通用对话框），结果经既有 `@C` 回调通道送回（不引入新的 FFI 形态）；命名集 `dialog:files` / `dialog:default`，同样不自动放行。宿主新能力按 §2 契约走：先扩接口、再改两平台实现、C 桥导出同名同签名。**实机抓到的坑**：两平台的 JS→native 回调本就跑在宿主 UI 线程上，故「投递到 UI 线程 + 阻塞等结果」会自锁（日志停在 `[cj-bridge] dialog: kind=…`、对话框永不出现）——桥改为按调用线程分流（已在 UI 线程直接弹，否则投递 + 等）。Linux（WebKitGTK / Xvfb）实机：`dialog closed: kind=2 ok=1` → `dialog:message(info) => confirmed=true` → `dialog closed: kind=0 ok=1 path=/tmp/dialog-pick.txt` → `dialog:open => path="/tmp/dialog-pick.txt"` → 对照组 `DENY-OK system:devtools` → `[verify] ALL DONE`（截图 `docs/images/example-plugin-dialog.png`，日志 `/tmp/cj-plugin-dialog.log`）。单测 50 → 57。**Windows 未实机**（仅 mingw 编译校验 + 桩语法检查） |
 
 开放问题的 v1 结论：1）命令全名用 `<插件名>:<短名>`（与 `system:*` 同形，分发与校验零改动）；
 2）v1 不引入 permission set，权限按全名写进 `capabilities/`——**v1.1 已改为支持命名权限集**

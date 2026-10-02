@@ -21,6 +21,7 @@
 #define UNICODE
 #define _UNICODE
 #include <windows.h>
+#include <commdlg.h>
 #include <objbase.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,9 +33,11 @@
 /* ===== 仓颉侧回调（@C 函数）===== */
 typedef void (*cj_on_message_fn)(const char *json); /* JS 消息到达 */
 typedef void (*cj_on_destroy_fn)(void);             /* 窗口销毁 */
+typedef void (*cj_on_dialog_fn)(const char *path);  /* 原生对话框选中的路径 */
 
 static cj_on_message_fn g_on_message = NULL;
 static cj_on_destroy_fn g_on_destroy = NULL;
+static cj_on_dialog_fn g_on_dialog = NULL;
 
 static HWND g_hwnd = NULL;
 static ICoreWebView2Controller *g_controller = NULL;
@@ -69,6 +72,7 @@ static int g_js_lock_init = 0;
 #define WM_CJT_DEVTOOLS (WM_APP + 3)
 #define WM_CJT_LOAD_URL (WM_APP + 4)
 #define WM_CJT_RELOAD (WM_APP + 5)
+#define WM_CJT_DIALOG (WM_APP + 6)
 
 /* 前端 __CJ_TAURI__.reload() 的控制消息：宿主级操作，不经过 IPC hub（与 BRIDGE_JS 里的字面量保持一致） */
 #define CJT_RELOAD_MSG "__cj_tauri_reload__"
@@ -374,6 +378,139 @@ static ICoreWebView2NavigationCompletedEventHandlerVtbl g_nav_vtbl = {
     nav_QueryInterface, nav_AddRef, nav_Release, nav_Invoke
 };
 
+/* ===== 原生对话框（仓颉线程 → 宿主线程：PostMessage 投递 + 事件等待结果）=====
+ * 对话框要在宿主线程弹出（UI/COM 线程，WebView2 也归它管），命令处理器又要同步结果：
+ * 调用方把请求 PostMessage 给宿主窗口，然后等一个自动复位事件；宿主线程弹完对话框，
+ * 先把结果经 g_on_dialog 送回仓颉，再 SetEvent 唤醒调用方。 */
+
+typedef struct dlg_req {
+    int kind;      /* 0 打开文件 1 保存文件 2 info 3 warning 4 error 5 confirm */
+    char *title;
+    char *message;
+    char *filter;  /* "描述|模式|描述|模式"；空串 = 不过滤 */
+    char *path;    /* 文件类结果：选中路径（UTF-8，堆上，调用方释放） */
+    int ok;        /* 1 = 用户点了确认 */
+    HANDLE done;   /* 自动复位事件：宿主线程 SetEvent 唤醒调用方 */
+} dlg_req;
+
+static CRITICAL_SECTION g_dlg_lock;
+static int g_dlg_lock_init = 0;
+static volatile LONG g_dlg_busy = 0;  /* 同时只允许一个：模态对话框，嵌套调用直接拒绝 */
+static DWORD g_host_thread_id = 0;    /* 跑消息循环的宿主线程：用来判断调用方是否已在它上面 */
+static int g_host_thread_set = 0;
+
+/* "描述|模式|描述|模式" → Win32 双 NUL 过滤器串（末尾落单的描述段按 *.* 处理） */
+static wchar_t *build_win_filter(const char *filter) {
+    const char *p;
+    wchar_t *out;
+    size_t cap, len = 0;
+
+    if (!filter || !filter[0]) {
+        filter = "所有文件 (*.*)|*.*";
+    }
+    cap = strlen(filter) * 4 + 8;   /* UTF-8 → UTF-16 上界，末尾留双 NUL 位 */
+    out = (wchar_t *)calloc(cap, sizeof(wchar_t));
+    if (!out) return NULL;
+
+    p = filter;
+    while (p && p[0]) {
+        const char *bar = strchr(p, '|');
+        size_t seg = bar ? (size_t)(bar - p) : strlen(p);
+        int n = MultiByteToWideChar(CP_UTF8, 0, p, (int)seg, out + len, (int)(cap - len - 2));
+        if (n > 0) {
+            len += (size_t)n;
+            out[len++] = 0;         /* 段结束符 */
+        }
+        if (!bar) {
+            break;
+        }
+        if (!bar[1]) {              /* 末尾落单的描述段：补一个 *.* 当模式 */
+            int m = MultiByteToWideChar(CP_UTF8, 0, "*.*", 3, out + len, (int)(cap - len - 2));
+            if (m > 0) {
+                len += (size_t)m;
+                out[len++] = 0;
+            }
+            break;
+        }
+        p = bar + 1;
+    }
+    out[len] = 0;                   /* 双 NUL 收尾（上一格已经是 0） */
+    return out;
+}
+
+/* 已经站在宿主线程上：直接弹一次，返回 1 = 确认；选中路径写入 *out_path（由调用方 free） */
+static int show_dialog_here(int kind, const char *title, const char *message, const char *filter,
+                            char **out_path) {
+    int ok = 0;
+
+    *out_path = NULL;
+    if (kind <= 1) {
+        wchar_t path[32768];
+        wchar_t *title_w = utf8_to_wide(title[0] ? title : (kind == 1 ? "保存文件" : "打开文件"));
+        wchar_t *filter_w = build_win_filter(filter);
+        OPENFILENAMEW ofn;
+
+        path[0] = 0;
+        ZeroMemory(&ofn, sizeof(ofn));
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_hwnd;
+        ofn.lpstrFile = path;
+        ofn.nMaxFile = (DWORD)(sizeof(path) / sizeof(path[0]));
+        ofn.lpstrFilter = filter_w;
+        ofn.nFilterIndex = 1;
+        ofn.lpstrTitle = title_w;
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
+                    ((kind == 1) ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+        {
+            BOOL got = (kind == 1) ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn);
+            if (got) {
+                *out_path = wide_to_utf8(path);
+                ok = 1;
+            } else {
+                DWORD err = CommDlgExtendedError();
+                if (err) {
+                    fprintf(stderr, "[cj-bridge] dialog failed: CommDlgExtendedError=0x%lx\n",
+                            (unsigned long)err);
+                }
+            }
+        }
+        free(title_w);
+        free(filter_w);
+    } else {
+        UINT flags = MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND;
+        wchar_t *title_w, *msg_w;
+
+        if (kind == 3) {
+            flags = MB_OK | MB_ICONWARNING | MB_SETFOREGROUND;
+        } else if (kind == 4) {
+            flags = MB_OK | MB_ICONERROR | MB_SETFOREGROUND;
+        } else if (kind == 5) {
+            flags = MB_OKCANCEL | MB_ICONQUESTION | MB_SETFOREGROUND;
+        }
+        title_w = utf8_to_wide(title[0] ? title : "cj-tauri");
+        msg_w = utf8_to_wide(message[0] ? message : " ");
+        {
+            int res = MessageBoxW(g_hwnd, msg_w, title_w, flags);
+            ok = (kind == 5) ? (res == IDOK) : 1;
+        }
+        free(title_w);
+        free(msg_w);
+    }
+    return ok;
+}
+
+/* 宿主线程：处理别的线程投递进来的请求（调用方正阻塞等结果，由 wnd_proc 调用） */
+static void run_dialog(dlg_req *r) {
+    r->ok = show_dialog_here(r->kind, r->title, r->message, r->filter, &r->path);
+    fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d%s%s\n", r->kind, r->ok,
+            (r->kind <= 1) ? " path=" : "",
+            (r->kind <= 1) ? (r->path ? r->path : "(none)") : "");
+    if (g_on_dialog) {
+        g_on_dialog(r->path ? r->path : "");
+    }
+    SetEvent(r->done);
+}
+
 /* ===== 窗口消息处理 ===== */
 
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -410,6 +547,12 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         free(w);
         return 0;
     }
+    case WM_CJT_DIALOG:
+        /* lParam 是调用方（仓颉线程）堆上的请求：宿主线程只填结果，释放仍归调用方 */
+        if (lp) {
+            run_dialog((dlg_req *)lp);
+        }
+        return 0;
     case WM_DESTROY:
         InterlockedExchange(&g_should_quit, 1);
         if (g_on_destroy) g_on_destroy();
@@ -521,6 +664,10 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     wc.hIconSm = icon_small;
     RegisterClassExW(&wc);
 
+    /* 先记下宿主线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */
+    g_host_thread_id = GetCurrentThreadId();
+    g_host_thread_set = 1;
+
     g_hwnd = CreateWindowExW(0, WINDOW_CLASS,
                              g_win_title_w ? g_win_title_w : L"cj-tauri", WS_OVERLAPPEDWINDOW,
                              CW_USEDEFAULT, CW_USEDEFAULT, g_win_w, g_win_h,
@@ -572,6 +719,10 @@ CJ_BRIDGE_API void cj_bridge_init(cj_on_message_fn m, cj_on_destroy_fn d) {
     if (!g_js_lock_init) {
         InitializeCriticalSection(&g_js_lock);
         g_js_lock_init = 1;
+    }
+    if (!g_dlg_lock_init) {
+        InitializeCriticalSection(&g_dlg_lock);
+        g_dlg_lock_init = 1;
     }
 }
 
@@ -709,4 +860,87 @@ CJ_BRIDGE_API int cj_bridge_is_ready(void) {
 
 CJ_BRIDGE_API int cj_bridge_should_quit(void) {
     return (int)g_should_quit;
+}
+
+/* ===== 原生对话框（导出；实现在上面的「原生对话框」一节）===== */
+
+CJ_BRIDGE_API void cj_bridge_set_dialog_callback(cj_on_dialog_fn cb) {
+    g_on_dialog = cb;
+}
+
+/* 阻塞式原生对话框：返回 1 = 用户确认（文件类路径已回调送回），0 = 取消 / 宿主未就绪 */
+CJ_BRIDGE_API int cj_bridge_show_dialog(int kind, const char *title, const char *message, const char *filter) {
+    dlg_req *r;
+    int ok;
+
+    if (!g_hwnd || !g_dlg_lock_init) {
+        fprintf(stderr, "[cj-bridge] dialog ignored: host not ready\n");
+        return 0;
+    }
+    EnterCriticalSection(&g_dlg_lock);
+    if (InterlockedExchange(&g_dlg_busy, 1) == 1) {
+        LeaveCriticalSection(&g_dlg_lock);
+        fprintf(stderr, "[cj-bridge] dialog rejected: another dialog is open\n");
+        return 0;
+    }
+    LeaveCriticalSection(&g_dlg_lock);
+
+    /* 调用方已经在宿主线程上（WebView2 的 WebMessageReceived 回调就跑在这个线程）：直接弹。
+       这里**不能**走「PostMessage + 等事件」——消息得由宿主线程自己处理，而宿主线程正卡在
+       这次调用里，等于自己把自己锁死（与 Linux 桥同一个坑，实机踩到过）。 */
+    if (g_host_thread_set && GetCurrentThreadId() == g_host_thread_id) {
+        char *path = NULL;
+        fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s (caller on host thread)\n", kind,
+                title ? title : "");
+        ok = show_dialog_here(kind, title ? title : "", message ? message : "",
+                              filter ? filter : "", &path);
+        fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d%s%s\n", kind, ok,
+                (kind <= 1) ? " path=" : "", (kind <= 1) ? (path ? path : "(none)") : "");
+        if (g_on_dialog) {
+            g_on_dialog(path ? path : "");
+        }
+        free(path);
+        InterlockedExchange(&g_dlg_busy, 0);
+        return ok;
+    }
+
+    r = (dlg_req *)calloc(1, sizeof(dlg_req));
+    if (!r) {
+        InterlockedExchange(&g_dlg_busy, 0);
+        return 0;
+    }
+    /* 事件先建好再投递：否则宿主线程可能先 SetEvent、后 CreateEvent，唤醒就丢了 */
+    r->done = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!r->done) {
+        free(r);
+        InterlockedExchange(&g_dlg_busy, 0);
+        return 0;
+    }
+    r->kind = kind;
+    r->title = _strdup(title ? title : "");
+    r->message = _strdup(message ? message : "");
+    r->filter = _strdup(filter ? filter : "");
+    fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s\n", kind, r->title);
+
+    if (!PostMessageW(g_hwnd, WM_CJT_DIALOG, 0, (LPARAM)r)) {
+        fprintf(stderr, "[cj-bridge] dialog post failed: %lu\n", (unsigned long)GetLastError());
+        free(r->title);
+        free(r->message);
+        free(r->filter);
+        CloseHandle(r->done);
+        free(r);
+        InterlockedExchange(&g_dlg_busy, 0);
+        return 0;
+    }
+
+    WaitForSingleObject(r->done, INFINITE);
+    ok = r->ok;
+    free(r->title);
+    free(r->message);
+    free(r->filter);
+    free(r->path);
+    CloseHandle(r->done);
+    free(r);
+    InterlockedExchange(&g_dlg_busy, 0);
+    return ok;
 }

@@ -5,6 +5,25 @@ import std.env.*
 import stdx.encoding.json.*
 
 /**
+ * 附加窗口的登记项（试验性 API `TauriApp.addWindow` 的装配状态）
+ *
+ * 为什么宿主在这里就建好、html 也先留着：窗口表要在 run() 之前定稿（`hostOf` 当场可用），
+ * 而原生窗口要等 run() 才创建——两者分开存，正好对上宿主自己的两段式节奏
+ * （宿主对象构造时就有、原生窗口 start() 时才建）。
+ */
+class ExtraWindowSpec {
+    let label: String
+    let host: WebViewHost
+    let html: String
+
+    init(label: String, host: WebViewHost, html: String) {
+        this.label = label
+        this.host = host
+        this.html = html
+    }
+}
+
+/**
  * TauriApp 装配（对标 tauri::Builder / App）
  *
  * 用法：
@@ -12,14 +31,19 @@ import stdx.encoding.json.*
  *   app.register("greet", GreetCommand())
  *   app.addCapabilityJson(...)   // 或 addCapability(cap)
  *   app.run(html)                // 启动宿主并阻塞
+ *
+ * 多窗口（试验性，批次 3 的最小切片）：`addWindow(label, config, html)` 登记附加窗口，
+ * run() / runUrl() 统一启动；事件按 label 路由（`emitToWindow` / `hostOf`）。
  */
 public class TauriApp <: AppHost {
     private var hub: IpcHub = IpcHub()
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
-    private var host: WebViewHost = createHost()
+    private var host: WebViewHost = createHost(DEFAULT_WINDOW_LABEL)
     private var config: WindowConfig = WindowConfig()
     // 窗口注册表（批次 2）：单窗口阶段只有一条 "main"，多窗口时是「label → 宿主」的唯一权威来源
     private var windows: WindowRegistry = WindowRegistry()
+    // 附加窗口（批次 3 多窗口 UI 的最小切片，试验性）：addWindow() 登记、run() / runUrl() 统一启动
+    private var extraWindows: ArrayList<ExtraWindowSpec> = ArrayList<ExtraWindowSpec>()
     private var started: Bool = false
     private var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
     // 各插件 jsShim() 收集成的「预执行脚本」列表，prepare() 时定稿，run / runUrl 时交给宿主
@@ -32,6 +56,33 @@ public class TauriApp <: AppHost {
      */
     public func window(config: WindowConfig): TauriApp {
         this.config = config
+        return this
+    }
+
+    /**
+     * 登记一个附加窗口（**试验性**：批次 3「多窗口 UI」的最小切片，先给出可验证的通路）
+     *
+     * 语义：本方法只**登记 + 装配宿主**，原生窗口在 run() / runUrl() 里统一创建——
+     * 与默认窗口「构造时有宿主对象、start() 时才建窗口」是同一套节奏（WebViewHost 的契约）。
+     * 因此必须在 run() / runUrl() 之前调用；登记后 `hostOf(label)` 立刻可用。
+     *
+     * 现在**只接内联 HTML**（URL 变体等真实需求出现再加，判据见架构文档 §5）；
+     * 空 label / 重复 label 在调用点直接抛异常（WindowRegistry.add 的约定，不延迟到 run）。
+     *
+     * 已知限制（**未解决**，架构文档 §7.5 的残余项）：`onDestroy` 与对话框结果回调不带宿主 id，
+     * 多窗口下分不清是哪个窗口关的；对话框仍是同一时刻一个（桥侧互斥）。本方法不解这两条。
+     */
+    public func addWindow(label: String, config: WindowConfig, html: String): TauriApp {
+        if (this.started) {
+            throw CommandException("addWindow 必须在 run() / runUrl() 之前调用（页面加载前窗口表要定稿）")
+        }
+        let host = createHost(label)
+        host.setWindowConfig(config)
+        // label 注入与默认窗口走同一条通道（document-start 预执行脚本，桥 JS 懒读，先后顺序无所谓）
+        host.addInitScript("window.__CJ_TAURI_LABEL__ = ${JsonString(label)};")
+        // 登记放在这里（而不是 run 里）：重复 label / 空 label 当场报错，调用点即可见
+        this.windows.add(WindowRecord(label, host, config))
+        this.extraWindows.add(ExtraWindowSpec(label, host, html))
         return this
     }
 
@@ -146,6 +197,17 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 向指定窗口推送事件（对标 Tauri 的 `app.emit_to(label, event, payload)`）
+     *
+     * 多窗口的定向投递入口。label 未注册时**什么都不投**并打一条 stderr——不回落成广播：
+     * 写错 label 的表现就该是「谁都没收到」，静默变广播比丢事件更难查（见 WindowRegistry.targets）。
+     * 空串 = 广播，与 `emit` 等价。
+     */
+    public func emitToWindow(event: String, payload: JsonValue, window: String): Unit {
+        this.hub.emitToWindow(event, payload, window)
+    }
+
+    /**
      * 注册后端事件监听器：前端 `emit(event, payload)` 会调用到这里
      * （对标 Tauri Rust 侧的 `app.listen(...)`）
      *
@@ -186,9 +248,10 @@ public class TauriApp <: AppHost {
         this.registerPluginScripts()
         this.registerDefaultWindow()
         this.host.start(html)
+        this.startExtraWindows()
         this.waitForExit()
-        // 事件循环已退出：释放宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
-        this.host.dispose()
+        // 事件循环已退出：释放全部宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
+        this.disposeWindows()
     }
 
     /**
@@ -206,7 +269,9 @@ public class TauriApp <: AppHost {
         this.registerPluginScripts()
         this.registerDefaultWindow()
         this.host.startUrl(url)
+        this.startExtraWindows()
         this.waitForExit()
+        this.disposeWindows()
     }
 
     /**
@@ -294,9 +359,7 @@ public class TauriApp <: AppHost {
         warnUnknownPermissionSets(this.capabilities)
 
         // 装配：宿主消息 → IPC hub；hub 输出 → 宿主 JS
-        this.host.setMessageHandler({ raw =>
-            this.hub.handleRawMessage(raw)
-        })
+        this.wireHostCallbacks(this.host)
         this.hub.jsSink = { json, window =>
             this.deliverJs(json, window)
         }
@@ -353,9 +416,64 @@ public class TauriApp <: AppHost {
      */
     public func waitForExit(): Unit {
         var spins: Int64 = 0
-        while (!this.host.shouldQuit() && spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
+        while (!this.allWindowsExited() && spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
             sleep(Duration.millisecond * 10)
             spins += 1
+        }
+    }
+
+    /**
+     * 全部已登记窗口的循环是否都已退出
+     *
+     * 多窗口的「退出」是**每个窗口都收工**：主窗关了而副窗还开着时，应用不该返回
+     * （对标 Tauri：`app.exit()` 收掉全部窗口）。注册表为空（清单导出模式等）时回落到
+     * 默认宿主，与单窗口时代的行为逐字等价。
+     */
+    private func allWindowsExited(): Bool {
+        let recs = this.windows.targets("")
+        if (recs.size == 0) {
+            return this.host.shouldQuit()
+        }
+        for (rec in recs) {
+            if (!rec.host.shouldQuit()) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * 释放全部宿主编（幂等，见 WebViewHost.dispose 的契约）
+     */
+    private func disposeWindows(): Unit {
+        for (rec in this.windows.targets("")) {
+            rec.host.dispose()
+        }
+    }
+
+    /**
+     * 把一个宿主挂上应用级回调
+     *
+     * 多窗口下每个宿主都挂**同一只**派发器：报文自带发起窗口的 label（架构文档 §7.3），
+     * 路由不需要按句柄分表——所以这里传的是同一个闭包，不是每窗口一份。
+     */
+    private func wireHostCallbacks(host: WebViewHost): Unit {
+        host.setMessageHandler({ raw =>
+            this.hub.handleRawMessage(raw)
+        })
+    }
+
+    /**
+     * 启动 addWindow() 登记过的附加窗口
+     *
+     * 放在默认窗口 start() 之后：主窗先出现，附加窗口紧随其后（顺序只影响观感与探针取证节奏）。
+     * 每个附加窗口在启动前挂上应用级回调——与默认窗口同一只派发器。
+     */
+    private func startExtraWindows(): Unit {
+        for (w in this.extraWindows) {
+            this.wireHostCallbacks(w.host)
+            w.host.start(w.html)
+            eprintln("[cj-tauri] 附加窗口已启动：label=\"${w.label}\"")
         }
     }
 }

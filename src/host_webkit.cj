@@ -107,9 +107,19 @@ public class WebKitHost <: WebViewHost {
     private var handle: CPointer<Unit> = CPointer<Unit>()
     // 本窗口的 label（字段名不叫 label：接口有同名方法）。单窗口阶段是常量，
     // 与 TauriApp 注册的 WindowRecord.label 一致；多窗口时由构造参数给定。
-    private let windowLabel: String = DEFAULT_WINDOW_LABEL
+    private let windowLabel: String
 
-    public init() {}
+    public init() {
+        this.windowLabel = DEFAULT_WINDOW_LABEL
+    }
+
+    /**
+     * 带 label 构造（多窗口）：label 必须与 TauriApp 注册表里登记的那个一致，
+     * 页面侧的 `window.__CJ_TAURI_LABEL__` 也取同一个值（由 TauriApp 注入）。
+     */
+    public init(label: String) {
+        this.windowLabel = label
+    }
 
     public func label(): String {
         return this.windowLabel

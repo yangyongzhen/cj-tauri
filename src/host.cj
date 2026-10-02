@@ -182,13 +182,17 @@ func dialogOnResult(path: CString): Unit {
 
 /**
  * 创建当前平台的 WebView 宿主（对标 Tauri 2 的 runtime 选择）
+ *
+ * label 按窗口给定（多窗口）：默认窗口传 DEFAULT_WINDOW_LABEL，附加窗口传各自登记的 label。
+ * 必须是构造参数而不是事后 setter——label 决定页面侧 `window.__CJ_TAURI_LABEL__` 与事件过滤，
+ * 启动之后再改就晚了（见 docs/架构演进-多平台与多窗口.md §7.3）。
  */
 @When[os == "Linux"]
-func createHost(): WebViewHost {
-    return WebKitHost()
+func createHost(label: String): WebViewHost {
+    return WebKitHost(label)
 }
 
 @When[os == "Windows"]
-func createHost(): WebViewHost {
-    return WebView2Host()
+func createHost(label: String): WebViewHost {
+    return WebView2Host(label)
 }

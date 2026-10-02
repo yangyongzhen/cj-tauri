@@ -30,7 +30,7 @@
 
 ## 示例一览
 
-仓内 `examples/` 有三个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
+仓内 `examples/` 有四个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
 下面截图均为**发行态实机截图**（Linux / WebKitGTK，2026-10-02）。
 
 ### 示例应用
@@ -40,6 +40,7 @@
 | [`examples/hello`](examples/hello) | 最小示例：`greet` 命令（`invoke`）+ `tick` 事件（仓颉 → JS）+ 越权调用被拒。页面 HTML 内联在 `src/main.cj`，**零 Node**。 | `cd examples/hello && cjpm build`，再按上方「运行仓内示例」启动；Windows 可直接 `run_win.bat` |
 | [`examples/todo_check`](examples/todo_check) | 《[前端入门教程](docs/前端入门教程.md)》的实战示例：待办清单（添加 / 删除 / 计数）。页面由 `extract.js` 从教程文档抽取，文档与代码同源。 | 同上；Windows 直接双击 `run.bat` |
 | [`examples/vue_todo`](examples/vue_todo) | 上面待办的 Vue 3 版：同一套 `todo:add` / `todo:remove` / `todo:list` 命令与 `todo:changed` 事件，前端换成独立的 Vite + Vue 3 工程（`ui/`）。 | 在 `examples/vue_todo` 下用仓库根的 `cli/cj-tauri.sh` 跑 `dev`（接管 Vite dev server，退出自动收掉）或 `build`（`vite-plugin-singlefile` 打成单个 `ui/dist/index.html`） |
+| [`examples/plugin-fs`](examples/plugin-fs) | 插件体系示例：一行 `.plugin(FsPlugin())` 接入官方文件读写插件（`fs:readText` / `fs:writeText` / `fs:exists`），并演示**权限仍由 capabilities 决定**——清单故意只放行两条，第三条启动即提示、前端调用被拒。 | `cd examples/plugin-fs && cjpm build`，再按上方「运行仓内示例」启动 |
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
@@ -50,6 +51,11 @@
 ![todo_check 示例运行截图：待办清单，两条待办与计数](docs/images/example-todo-check.png)
 
 ![vue_todo 示例运行截图：两条待办、事件计数与后端版本](docs/images/example-vue-todo.png)
+
+`plugin-fs`：一行接入插件，页面自报验证结果——`shim-ready-at-script-start=true`（插件 JS 早于页面脚本）、
+放行过的 `fs:readText` / `fs:exists` 正常返回，未授权的 `fs:writeText` 被拒（对照组）：
+
+![plugin-fs 示例运行截图：插件验证结果，含未授权被拒的对照组](docs/images/example-plugin-fs.png)
 
 ### 前端工程模板
 
@@ -313,12 +319,16 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
   [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
 - ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
-- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，23 个用例）与 `scripts/check-static.sh`
+- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，38 个用例）与 `scripts/check-static.sh`
   （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
 - ✅ P3：热重载与前端框架模板（宿主加 `runUrl` / `loadUrl` / `reload`；`cj-tauri dev` 接管 Vite dev server，
   Vue 3 / React 18 模板，HMR 在窗口内生效）、`cj-tauri build` 打单文件前端产物
 - 🔜 P2：鸿蒙 ArkWeb 后端（`host_harmony.cj`，需 DevEco + 真机）、macOS WebView
-- 🔜 插件体系（设计草案见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)）
+- ✅ 插件体系 v1：`TauriApp.plugin(...)` + `Plugin` 接口（插件命令统一注册成 `<插件名>:<短名>`，
+  与内置 `system:*` 同形，分发与校验零改动；**权限仍由 `capabilities/` 决定**，插件不自动放行）、
+  官方 `fs` 插件（`fs:readText` / `fs:writeText` / `fs:exists`）与 `examples/plugin-fs` 示例；
+  设计取舍见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)
+- 🔜 更多官方插件（`dialog` / `shell` 等）
 
 ## 验证结果
 

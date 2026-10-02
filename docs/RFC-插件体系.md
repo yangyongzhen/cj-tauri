@@ -1,8 +1,8 @@
-# RFC-001：cj-tauri 插件体系 v1（草案）
+# RFC-001：cj-tauri 插件体系 v1
 
 | 项 | 内容 |
 |---|---|
-| 状态 | 草案，待评审 |
+| 状态 | **v1 已落地（2026-10-02）**：实现 `src/plugin.cj` / `src/plugin_fs.cj`，示例 `examples/plugin-fs`，契约 `AGENTS.md` §2，落地对照见 §7.1；开放问题的 v1 结论见 §7.1 末段 |
 | 编号 | RFC-001 |
 | 日期 | 2026-10-01 |
 | 评审方式 | 在本仓提 issue 讨论，标题以 `[RFC-001]` 开头；结论回写本文「开放问题」一节 |
@@ -188,6 +188,22 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 5. 文档：使用文档新增「插件」一章；前端教程补「用插件」小节；CHANGELOG；
    `AGENTS.md` 增「新增插件的三处契约」（与现有「新增命令三处联动」并存）。
 6. 回归：`examples/hello` 与脚手架模板工程行为不变，版本自检脚本仍 4/4。
+
+### 7.1 落地对照（2026-10-02）
+
+| 交付物 | 落地位置 | 说明 |
+|---|---|---|
+| 1. `Plugin` 接口 + `TauriApp.plugin()` | `src/plugin.cj`、`src/app.cj` | 接口四个方法中 `events()` / `jsShim()` / `setup()` 带默认实现（开放问题 3 的实测答案：仓颉接口支持默认实现，无需 `AbstractPlugin`） |
+| 2. 未授权提示 + jsShim 组装注入 | `src/plugin.cj`（`warnUnauthorizedPlugins` / `assemblePluginJs` / `injectPluginJs`） | 启动打印已装配清单并逐条提示缺哪条；shim 汇总成一个 `<script>` 插到第一个 `</head>` 之前 |
+| 3. 官方 `fs` 插件 | `src/plugin_fs.cj` | 纯仓颉、零 C 桥改动；`fs:readText` / `fs:writeText`（覆盖写）/ `fs:exists` |
+| 4. 示例 + 实机证据 | `examples/plugin-fs/` | capability 故意只放行 `fs:readText` / `fs:exists`，`fs:writeText` 作**未授权对照组**；Linux（WebKitGTK / Xvfb）实机：`shim-ready-at-script-start=true`、readText/exists 成功、writeText 被拒 `command not allowed`、`[verify] ALL DONE`（截图 `docs/images/example-plugin-fs.png`，日志 `/tmp/cj-plugin-fs-final.log`）。**Windows 未跑**（本机为 Linux） |
+| 5. 文档 | `docs/使用文档.md` §6.7、`docs/前端入门教程.md` §11、`CHANGELOG.md`、`AGENTS.md` §2 | AGENTS.md 另记一条坑：内联在三引号字符串里的 JS 会被仓颉吃掉反斜杠转义（`\n` 变真换行 → 整段脚本语法错误、stderr 无提示） |
+| 6. 回归 | `scripts/test.sh` 38/38、`scripts/check-version.sh` 5/5、`examples/hello` 实机复测 | 单测 23 → 38（`src/tests/plugin_test.cj`）；hello 在 Linux 下日志 623 行含 `[verify] ALL DONE`，行为未变 |
+
+开放问题的 v1 结论：1）命令全名用 `<插件名>:<短名>`（与 `system:*` 同形，分发与校验零改动）；
+2）不引入 permission set，权限仍按全名写进 `capabilities/`；3）接口默认实现可用；
+4）jsShim 用 HTML 字符串组装注入（`runUrl` 下 HTML 不在本进程、无法并入，已在 stderr 提示 + 文档对齐 `waitForBridge`）；
+5）不允许插件依赖插件，装配顺序由使用者负责；6）非命令类能力留待宿主层先有对应 API；7）`manifest()` v1 不做。
 
 ## 8. 开放问题（评审时请逐条回答）
 

@@ -22,7 +22,7 @@
 3. 行为变更必须给出**可观测证据**（日志行、`system:version` 返回值、窗口标题等），不允许「先交付后补证据」。
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
-   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 23 个用例。
+   测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；当前 38 个用例。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
 ## 2. 架构契约（改哪里、怎么改）
@@ -36,6 +36,13 @@
   2. `TauriApp.register("cmd", Handler())`；
   3. 在能力清单的 `commands` 里声明。
   只做 1+3 会得到 `command not registered`；只做 1+2 会得到 `command not allowed`。
+- **新增插件三处联动**（同命令，漏一处就用不了）：
+  1. 实现 `Plugin`（`src/plugin.cj`）——必写 `name()` + `commands()`，要推事件 / 前端 shim 再写 `events()` / `jsShim()`；
+  2. 装配：`TauriApp().plugin(XxxPlugin())`（框架自动把命令注册成 `"<插件名>:<短名>"`）；
+  3. 在能力清单的 `commands` 里声明 `"<插件名>:<短名>"`。
+  插件**只声明「我提供什么」，不自动放行**（默认最小权限不破）；`jsShim()` 返回的前端片段由框架
+  汇总插到第一个 `</head>` 之前（早于页面脚本），`runUrl()` 下无法并入需在 stderr 提示。
+  实现文件放 `src/plugin_<名字>.cj`（如 `src/plugin_fs.cj`），可跑样板 `examples/plugin-fs/`，设计见 `docs/RFC-插件体系.md`。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
 - **能力清单加载**：默认在 `run()` 时自动扫描工作目录下 `capabilities/` 的所有 json；
   显式 `loadCapabilities(dir)` 或 `addCapabilityJson(json)` 优先，且一旦调用即不自动扫描。
@@ -59,6 +66,10 @@
 **仓颉语言**
 
 - 块注释里出现 `/*` 会开启**嵌套注释**：正文/注释里写路径通配（如能力 json 的星号通配）必须改写，否则注释永不闭合、编译报莫名错误。
+- **三引号字符串会处理反斜杠转义**：示例/模板把 HTML+JS 内联在 `"""` 里时，JS 的反斜杠转义会**先被仓颉吃掉**——
+  写 `\n` 会变成真换行，把 JS 字符串或单行注释拆断 → 整段 `<script>` 语法错误 → 页面里一行都不执行，
+  而 stderr 毫无提示（实测踩坑：`examples/plugin-fs` 的验证脚本静默全灭，靠对照 `examples/hello` 才定位）。
+  内联 JS 里避免出现反斜杠（换行用 `String.fromCharCode(10)`，正则改用 `indexOf`），改完用 `node --check` 验一遍。
 - `@When` 的平台取值**首字母大写**：`@When[os == "Windows"]` / `"Linux"`，不是 `windows`。
 - 迭代 `String` 得到的是 `UInt32` 码点（不是 `Rune`），需要时用 `Rune(cp)` 还原。
 - `cjc-version` 是最低要求而非精确版本：写 `1.0.5` 时用 1.2.0 的 cjc 也能编译。

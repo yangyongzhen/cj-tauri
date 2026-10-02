@@ -3,7 +3,9 @@
 # 为什么只跑静态检查、不跑 cjpm build / cjpm test：
 #   本平台没有预装仓颉 SDK 与 stdx（且需要 WebView2 SDK 才能构建 C 桥），
 #   而静态检查（版本一致性、文档围栏、模板占位符、脚本编码、构建产物）不需要 SDK 就能跑，
-#   能在 PR 阶段拦住最常见的一类问题。带 SDK 的完整构建门禁见 AGENTS.md §7 的待办。
+#   能在 PR 阶段拦住最常见的一类问题。带 SDK 的完整门禁（cjpm build + cjpm test）在 GitHub 侧的
+#   .github/workflows/ci.yml 里，靠仓库 secret 提供 SDK 安装包（本平台无预装镜像、官方包无匿名直链），
+#   见 AGENTS.md §7；本平台仍只跑静态检查。
 #
 # 坑：runs-on 的标签随平台可用镜像而变。此处用 ubuntu-latest；
 #     若 AtomGit 上只有别的镜像（如 euleros-2.10.1），改这一行即可。

@@ -1,7 +1,13 @@
-# GitHub Actions：静态门禁（与 .atomgit/workflows/ci.yml 同一份检查）
+# GitHub Actions：静态门禁（与 .atomgit/workflows/ci.yml 同一份检查）+ 可选完整门禁
 #
-# 与 AtomGit 侧一致：不装仓颉 SDK，只跑不需要 SDK 的静态检查。
-# 完整门禁（cjpm build + 单元测试）需要 SDK 镜像，见 AGENTS.md §7 的待办。
+# static 作业不装仓颉 SDK，只跑不需要 SDK 的静态检查，任何环境都能跑。
+# sdk 作业跑真正的 `cjpm build` + `cjpm test`（框架编译 + 全部单元测试），它需要 SDK 安装包：
+#   仓颉 SDK 官方下载页（cangjie-lang.cn/download）要登录华为账号，**没有匿名直链**，
+#   本平台也没有预装 SDK 的官方镜像，所以这里用仓库 secret 自托管 SDK 压缩包：
+#     CANGJIE_SDK_URL   仓颉 SDK 压缩包直链（配置了才启用本作业）
+#     CANGJIE_STDX_URL  stdx 压缩包直链（可选，但本仓库 cjpm.toml 依赖它）
+#   未配置时本作业只打印一条 notice 后跳过——不让 CI 因「拿不到 SDK」这种环境原因长期变红；
+#   配好之后它就是与 AGENTS.md §7 一致的完整门禁。填写方法与两个已知前提见 AGENTS.md §7。
 name: static checks
 
 on:
@@ -19,3 +25,73 @@ jobs:
 
       - name: Static checks
         run: bash scripts/check-static.sh
+
+  # 完整门禁：需要 SDK，靠仓库 secret 提供安装包；没配就跳过（不判失败）
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # secrets 不能直接写进 if（GitHub 的限制），先落到 step 输出再判断
+      - name: 判断是否配置了 SDK 源
+        id: probe
+        env:
+          SDK_URL: ${{ secrets.CANGJIE_SDK_URL }}
+          STDX_URL: ${{ secrets.CANGJIE_STDX_URL }}
+        run: |
+          if [ -z "$SDK_URL" ]; then
+            echo "configured=0" >> "$GITHUB_OUTPUT"
+            echo "::notice title=跳过完整门禁::未配置仓库 secret CANGJIE_SDK_URL（仓颉 SDK 无匿名下载直链），已跳过 cjpm build / cjpm test；配置方法见 AGENTS.md §7"
+          else
+            echo "configured=1" >> "$GITHUB_OUTPUT"
+            {
+              echo "CANGJIE_SDK_URL=$SDK_URL"
+              echo "CANGJIE_STDX_URL=$STDX_URL"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: 安装 SDK 与 stdx
+        if: steps.probe.outputs.configured == '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/sdk"
+          curl -fsSL "$CANGJIE_SDK_URL" -o /tmp/cangjie-sdk.tar.gz
+          tar xzf /tmp/cangjie-sdk.tar.gz -C "$HOME/sdk"
+          # 压缩包内层的目录名随版本而变，用 cjc 反查 SDK 根，避免写死版本路径
+          CJC="$(find "$HOME/sdk" -type f -name cjc | head -1)"
+          if [ -z "$CJC" ]; then
+            echo "SDK 压缩包里找不到 cjc，包结构异常" >&2
+            exit 1
+          fi
+          SDK_ROOT="$(cd "$(dirname "$CJC")/.." && pwd)"
+          echo "CANGJIE_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "PATH=$SDK_ROOT/bin:$SDK_ROOT/tools/bin:$PATH" >> "$GITHUB_ENV"
+          # cjpm.toml 的 bin-dependencies 写死了 /root/.cangjie/stdx/...（本地开发机路径），
+          # runner 上是普通用户，只能 sudo 放到位，否则 cjpm 解析不到 stdx 依赖
+          if [ -n "${CANGJIE_STDX_URL:-}" ]; then
+            sudo mkdir -p /root/.cangjie/stdx
+            curl -fsSL "$CANGJIE_STDX_URL" -o /tmp/cangjie-stdx.tar.gz
+            sudo tar xzf /tmp/cangjie-stdx.tar.gz -C /root/.cangjie/stdx
+          else
+            echo "::warning::未配置 CANGJIE_STDX_URL；若 cjpm.toml 的 bin-dependencies 指向的 stdx 不存在，后面会报依赖缺失"
+          fi
+          "$SDK_ROOT/bin/cjc" --version || true
+
+      - name: 系统依赖（链接 C 桥需要 GTK / WebKit 开发包）
+        if: steps.probe.outputs.configured == '1'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev
+
+      - name: 构建 C 桥
+        if: steps.probe.outputs.configured == '1'
+        run: bash native/build_linux.sh
+
+      - name: cjpm build
+        if: steps.probe.outputs.configured == '1'
+        run: cjpm build
+
+      - name: 单元测试
+        if: steps.probe.outputs.configured == '1'
+        run: bash scripts/test.sh

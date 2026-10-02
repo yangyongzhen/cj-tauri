@@ -191,5 +191,21 @@
 - [ ] 实机跑通：桥 stderr 无 `hr=` 非 0，无 `command not allowed` / `command not registered` 误报
 - [ ] 新命令/新 API 三处联动齐全（注册 + 能力清单 + 前端调用）
 - [ ] `CHANGELOG.md` 的 `[Unreleased]` 已写；`README.md` / `docs/使用文档.md` 已同步
+
+### CI 上的完整门禁（可选，默认跳过）
+
+`.github/workflows/ci.yml` 除 `static` 作业外还有一个 `sdk` 作业，跑 `cjpm build` + `scripts/test.sh`。
+仓颉 SDK 的官方下载页（`cangjie-lang.cn/download`）要登录华为账号、**没有匿名直链**，
+本平台也没有预装 SDK 的官方镜像，所以 SDK 由仓库 secret 自托管
+（GitHub → Settings → Secrets and variables → Actions）：
+
+1. `CANGJIE_SDK_URL` —— SDK 压缩包直链；**配了才启用该作业**，未配置时作业只打印一条 notice 后跳过（不判失败，
+   免得 CI 因「拿不到 SDK」这种环境原因长期变红）。
+2. `CANGJIE_STDX_URL` —— stdx 压缩包直链（可选；本仓库各 `cjpm.toml` 的 `bin-dependencies` 依赖它）。
+
+两个已知前提（不满足就会红，作业里已分别处理）：① 用 `sudo` 把 stdx 放到 `/root/.cangjie/stdx/` —— `cjpm.toml`
+的 `bin-dependencies` 路径是写死的本地路径，CI runner 是普通用户、`$HOME` 不同；② runner 要装
+`gcc pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev` 才链得了 C 桥（`cjpm.toml` 里 `-lcjtbridge -lwebkit2gtk-4.1`）。
+配好 secret 后**实推一次确认变绿再算数**，不要只看 YAML 通过。
 - [ ] 发版相关改动已跑 `bash scripts/check-version.sh` 且全 `ok`
 - [ ] `git status` 无构建产物与无关文件；按双仓约定推送（tag 一并推）

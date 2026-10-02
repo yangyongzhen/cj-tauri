@@ -354,6 +354,11 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   未授权 / 未注册仍在调用线程上同步拒绝，并发调用不保序、按 promise id 匹配。实机 A/B 对照见 `CHANGELOG.md`
 - ✅ 插件清单机器可读：框架函数 `describePluginsJson()`（不动 `Plugin` 接口）+ `cj-tauri info [--json]`——
   CLI 让应用「跑到装配完成但不创建窗口」一次取回清单，无显示环境也能拿到真实装配结果
+- ✅ 窗口注册表 + label 路由（纯仓颉）：`TauriApp` 持 `WindowRegistry`（label → per-window 宿主 + 配置），
+  桥 JS **懒读**宿主注入的 `window.__CJ_TAURI_LABEL__`，上行报文带 `window` 字段（协议增量，旧前端不受影响），
+  `emitToWindow` 真正按窗口投递（未注册 label 打 stderr，不静默）；新增应用级 `AppHost`
+  （`quit()` / `waitForExit()` / `hostOf(label)`）与 `WebViewHost.label()`。单窗口行为与旧版等价，
+  多窗口 UI 与回调身份（架构文档 §7.5）留批次 3
 - 🔜 更多官方插件（托盘、全局快捷键等需要宿主层先有对应 API）
 
 ## 验证结果

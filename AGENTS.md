@@ -23,7 +23,7 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 91 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   当前 101 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
    （`native/tests/test_bridge_core.c`，61 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。

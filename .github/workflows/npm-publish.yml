@@ -5,7 +5,12 @@
 # 所以这里出现 GitHub 地址属于功能必需——「文档与注释只引 AtomGit」的例外范围仅限本目录。
 #
 # 一次性前置（都在 npmjs.com 上手工做，配好之前本 workflow 必定失败）：
-#   1. 包得先存在：trusted publishing 的配置入口在「包设置页」，所以首版必须手工 `npm publish` 一次；
+#   1. 包得先存在：trusted publishing 的配置入口在「包设置页」，所以首版必须手工发一次。
+#      但首版**不必**用 `npm publish`：所有写操作都要过 2FA，浏览器登录态过不了这道门，填 6 位码或走
+#      bypass-2FA token 也走不通（该 token 正在退场，2027-01 起不能直发）。改用**暂存发布**：
+#      `npm stage publish`（npm CLI ≥ 11.15.0 + 账号已启 2FA）会给不存在的包先落一个 0.0.0-stage 占位版本、
+#      把包装出来，再到 npmjs.com → Staged packages 里用 passkey 批准。**别用恢复码**——它会触发账号级
+#      72 小时只读持有（发布与建 token 全暂停）；完整步骤与坑见 AGENTS.md §6。
 #   2. 包设置 → Trusted publishing → 添加 GitHub Actions，三个字段逐字一致（大小写敏感，且 npm 保存时不校验）：
 #        Organization or user: yangyongzhen
 #        Repository:           cj-tauri

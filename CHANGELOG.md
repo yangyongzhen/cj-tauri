@@ -161,6 +161,11 @@
   窗口数随分发节奏变，尾值恒 50，所以断言是 `hits<50` + 尾值必达而非 `hits==1`）、
   对照 `emit × 50 → listener-hits=50`、`emitLatest × 1 → listener-hits=1`，桥侧 `run js failed` 计数 0。
   Windows（WebView2）未实机（本机是 Linux），但报文与仓颉侧两平台共用、桥 JS 本就同源。
+- **`WebViewHost.dispose()`：宿主句柄显式释放**：`run()` / `runUrl()` 返回前框架自己会调一次（幂等）。
+  C 桥侧同步把 15 个 `cj_bridge_*` 导出改成**首参句柄**（`cj_host *h`，不透明指针，仓颉侧 `CPointer<Unit>`），
+  平台无关的部分抽到共用的 `native/bridge_core.h` / `bridge_core.c`，平台文件只留原语——多窗口与新增平台的
+  地基。**单窗口行为不变**（Linux 有现成回归探针：ipc-coalesce 三条对照全过、ipc-bench 三轮无 SIGSEGV，
+  四组数字与基线同量级）。
 
 ### Changed
 
@@ -284,6 +289,20 @@
   内容比视口高时不会被裁掉），再把挂载点 `#app` / `#root` 设成 `width: 100%` 的居中列 —— 光靠 body 的
   `align-items` 不够：挂载点只有一个子节点，提示行（页面来源 / 桥状态 / 后端版本）很长时会把整列撑宽，
   卡片反而贴在左边。Linux 发行态实测：三处均为整列居中，`greet`、`timer`、`todo:add` 交互未回退。
+- **Linux：`quit()` 退出时进程偶发挂死**：宿主线程收尾要进仓颉运行时（窗口销毁回调），而仓颉线程阻塞在
+  `cj_plat_fini` 的 `pthread_join` 上会与运行时的「停处理器」握手互等——实测 6 轮挂 1 轮（栈：
+  `cj_plat_fini → pthread_join` ↔ `CJ_CJThreadMexit → CJ_ProcessorStopWithLastCheck`）。现改为
+  `pthread_detach` + 宿主线程自己置「跑完」标记 + 有界轮询等待（不 join）；没等完就保留平台状态与句柄
+  （`cj_plat_fini` 返回 `int`，返回 0 时 `cj_bridge_destroy` 不回收 `cj_host`）。复跑 6/6 干净退出。
+- **Linux：`quit()` 退出以 SIGABRT 收尾（退出码 134）**：窗口若在主循环内被销毁，libwebkit2gtk 的**退出期
+  析构函数**会在自己的 `g_object_unref` 里 abort（栈：`StartMainTask → exit → __run_exit_handlers →
+  libwebkit2gtk … → abort`，与框架代码无关；AB 对照：不销毁窗口 5/6 干净、销毁窗口 5/6 abort）。现改为
+  「`quit()` 只收主循环、窗口交给 `gtk_main` 返回后的收尾销毁」，清理照做，`onDestroy` 仍由 `destroy`
+  信号触发一次。实测 6/6 干净退出。
+- **Linux：收尾对已被父窗口销毁的 view 重复 `g_object_unref`**：`on_destroy` 原先只置空窗口指针、没置空
+  view，主循环退出后的收尾仍去 unref 失效的 view。现收尾前判存活并一律置空。
+  （注：探针日志里 `g_object_unref: assertion 'G_IS_OBJECT' failed` 的量级与批次 1 之前一致
+  ——4449 → 4444~4455，主要来源是既有环境噪声，本条只消掉「重复 unref」这一条路径。）
 
 ### Changed
 

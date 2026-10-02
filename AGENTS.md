@@ -124,6 +124,15 @@
   不要为省事拼 `bash -c "<一整串命令>"`——那等于把页面可控的字符串塞进 shell 解析，自己开后门。
   这类调用本身仍是**同步阻塞**的：它跑在命令 worker 线程上（命令分发已异步，见 §2），所以不再冻窗口，
   但没有流式输出、也没有超时 / 取消，别在命令里等长驻 / 交互式进程。
+- Linux 宿主收尾**不要用 `pthread_join` 等宿主线程**：宿主线退出前要进仓颉运行时（窗口销毁回调），
+  而仓颉线程阻塞在 join 上会与运行时的「停处理器」握手互等（实测约 1/6 概率整进程挂死，栈是
+  `cj_plat_fini → pthread_join` ↔ `CJ_CJThreadMexit → CJ_ProcessorStopWithLastCheck`）。正确做法是
+  `pthread_detach` + 宿主线自己置「跑完」标记 + 有界轮询等待；等不到就保留平台状态——`cj_plat_fini`
+  返回 0 时 `cj_bridge_destroy` **不回收句柄**（进程随即退出，泄漏一次状态远比死锁安全）。
+- Linux 宿主**销毁 WebKit 窗口必须留在 `gtk_main` 之外**（`quit` 只 `gtk_main_quit()`，窗口交给主循环
+  返回后的收尾销毁）：在主循环内 `gtk_widget_destroy` 会让 libwebkit2gtk 的**退出期析构**在自己的
+  `g_object_unref` 里 abort（退出码 134，栈 `StartMainTask → exit → __run_exit_handlers → libwebkit2gtk … → abort`，
+  与框架代码无关，gdb 里一眼可见）。`onDestroy` 仍由 `destroy` 信号触发一次，收尾里那次是幂等兜底。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
 - CLI 让应用「跑完装配但**不能开窗口**」的场景（`cj-tauri info` 取插件清单）务必防住陈旧产物：旧产物认不出

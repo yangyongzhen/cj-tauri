@@ -89,6 +89,11 @@
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
 - **工作目录 = 项目根**：`capabilities/`、`ui/` 都按相对路径读取，启动器/脚本必须切到项目根再启动应用。
+- npm 发布的 2FA 现状（2026-10-02 实测）：npm 已停用**新** TOTP 动态码绑定（2025-09-29），passkey 账号
+  根本拿不到 6 位码；且自 2026-09-09 起「用过恢复码」会给**所有账号**套 **72 小时只读持有**——期间发布、
+  创建 token 等写操作全被拒（`temporarily suspended due to a recent security-sensitive action`），自动解除、
+  无需申诉、无法加速。**不要拿恢复码反复试发布**（很可能重新计时）。旁路也不再可靠：本机 npm 10.9.4 的
+  `npm token create` 没有 bypass 开关（npm 11 起才有），而 bypass-2FA token 本身已在退场（2026-07-31 公告）。
 
 ## 5. 文档与提交
 
@@ -124,13 +129,18 @@
 - **npm 发布**：首版必须手工发（trusted publishing 的配置入口在 npm 的包设置页，包得先存在），绑定好之后
   推 `v*` tag 由 `.github/workflows/npm-publish.yml` 自动发布：
   1. 手工发首版——**这一步躲不开**：npm 只允许给「已存在的包」配置 trusted publisher（入口在该包的 settings 页），
-     `npm stage publish` 也不能创建新包，所以自动发布只能从第二个版本开始。发布命令：
-     `npm login --registry=https://registry.npmjs.org/` → `bash scripts/npm-pack.sh --publish --otp <6 位动态码>`
-     （脚本固定官方 registry 并先做登录预检——本机 npm 常配成镜像，直接 `npm publish` 会发错地方）。
-     坑：**登录成功 ≠ 能发布**，`npm whoami` 正常但 `npm publish` 仍会
-     `E403 … Two-factor authentication or granular access token with bypass 2fa enabled is required`——
-     浏览器登录态只解决身份，写操作还要动态码；拿不到动态码（例如 2FA 只有 passkey）时，临时建一个勾了
-     `Bypass two-factor authentication` 的 granular token 写进**用户级** `~/.npmrc`，发完即删；
+     所以自动发布只能从第二个版本开始。首版走 **staged publishing**（`npm stage publish` 不要 2FA，
+     且**能创建尚不存在的包**：registry 先放一个 `0.0.0-stage` 占位版本，正文等批准后才公开）：
+     `npx --yes npm@latest stage publish ./dist-npm/cj-tauri-<版本>.tgz --registry=https://registry.npmjs.org/`
+     → npmjs.com 的 **Staged Packages** 页 → Approve（浏览器里 passkey 直接过 2FA）。
+     `npm stage` 需 CLI ≥ 11.15.0 与 Node ≥ 22.14.0，本机 npm 10.9.4 没有该子命令，故用 `npx --yes npm@latest`
+     绕开、不动全局 npm。发布固定走官方 registry（本机 npm 配的是 npmmirror 镜像，别直接 `npm publish`）。
+     坑：**别拿 2FA 恢复码当 `--otp` 直发**。npm 自 2025-09-29 停用**新** TOTP 绑定，passkey 账号根本没有
+     6 位动态码；而自 2026-09-09 起「用过恢复码」会给账号套上 **72 小时只读持有**——发布、建 token 全被拒，
+     报 `temporarily suspended due to a recent security-sensitive action`，自动解除、无法加速，
+     反复用恢复码很可能重新计时（本项目 2026-10-02 已实际踩过）。同理也别依赖
+     `bash scripts/npm-pack.sh --publish` 直发：bypass-2FA 的 granular token 曾能直发，但 npm 已在
+     2026-07-31 公告其退场（直发 2027-01 取消，此后只保留读私有包与 staging）；
   2. npmjs.com → 包 → Settings → **Trusted publishing** → 添加 GitHub Actions，三个字段逐字一致（大小写敏感，
      且保存时不校验）：user/repo `yangyongzhen/cj-tauri`、workflow 文件名 `npm-publish.yml`，并**勾上
      Allow npm publish**（2026-09-03 之后新建的配置默认只允许 `npm stage publish`，不勾则 CI 发布会 `E_STAGE_REQUIRED`）；

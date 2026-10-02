@@ -64,10 +64,14 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
 | 报文 | 方向 | 形状 | 谁产生 | 谁消费 |
 |---|---|---|---|---|
 | invoke | JS → 仓颉 | `{"type":"invoke","id":1,"cmd":"greet","args":{…}}` | 前端 `invoke()` | `InvokeRequest.parse` |
+| emit | JS → 仓颉 | `{"type":"emit","id":2,"event":"save-done","payload":{…}}` | 前端 `emit()` | `EmitRequest.parse` |
 | resolve(成功) | 仓颉 → JS | `{"type":"resolve","id":1,"ok":true,"data":…}` | `IpcMessage.resolve` | 前端 `_dispatch` |
 | resolve(失败) | 仓颉 → JS | `{"type":"resolve","id":1,"ok":false,"error":"…"}` | `IpcMessage.reject` | 前端 `_dispatch` |
-| event | 仓颉 → JS | `{"type":"event","event":"tick","payload":{…}}` | `IpcMessage.event` | 前端 `listen` 的监听器 |
+| event | 仓颉 → JS | `{"type":"event","event":"tick","payload":{…},"window":"main"}` | `IpcMessage.event` | 前端 `_dispatch` → `listen` 的监听器 |
 | 控制消息 | JS → 宿主 | 裸字符串 `__cj_tauri_reload__` | 前端 `reload()` | **C 桥**（不进仓颉） |
+
+`emit` 与 `invoke` 共用 `resolve` 回执（`emit` 的 `data` 恒为空对象）；`event` 的 `window` 字段标明目标窗口，
+**空 = 广播**（当前只有 `"main"` 一个窗口，投递侧尚未按它分流，见 §3.3 与 §7 限制 2）。
 
 设计要点：
 
@@ -78,9 +82,12 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
   写明了这是有意为之：执行挪到 worker 后天然并发，保序要靠队列，没必要）。
 - **三种响应共用 `type:"resolve"`**，失败只是 `ok:false` + `error`。好处是前端 `_dispatch` 只有两个分支
   （`resolve` / `event`），坏处是「成功」与「失败」在协议层长得像——前端必须看 `ok`。
-- **`args` 宽松处理**：不是对象（缺省 / `null` / 数组）一律当空对象；`id`、`cmd` 缺失或 `type` 不是
-  `invoke` 则整条判为非法，只往 stderr 打 `invalid IPC message: …`，**不给前端任何回包**（见 §7 限制 1）。
-- **事件是单向推送**：没有订阅报文，`listen` 纯前端行为，仓颉侧只按 `canEmit` 校验后推。
+- **`args` 宽松处理**：不是对象（缺省 / `null` / 数组）一律当空对象；`id`、`cmd`（`emit` 则是
+  `event`）缺失、或 `type` 不认识则整条判为非法——**读得出 `id` 就回一条 `ok:false` 的 reject**
+  （`IpcMessage.peekId`），读不出 `id` 的才只往 stderr 打 `invalid IPC message: …`（见 §7 限制 1）。
+- **事件两个方向都在**：仓颉 → JS 是 `ipc.emit(event, payload)`，前端 `listen` 订阅（没有订阅报文，
+  `listen` 纯前端行为）；JS → 仓颉 是前端 `emit()`，后端 `app.listenEvent(name, handler)` 订阅（见 §3.3）。
+  两个方向都按 `canEmit(event)` 校验事件名；**前端 emit 只投后端监听器、不回投页面**——有意与 Tauri 不同，理由见 §7 限制 2。
 - **reload 走旁路**：它是宿主控制消息，C 桥 `strcmp` 命中就自己处理（记日志 + 投递重载），
   所以它永远不会进 IPC hub，也不受能力清单约束。
 
@@ -143,6 +150,27 @@ Windows 用 `PostMessageW(WM_CJT_FLUSH)` 唤醒窗口线程。**这也是 worker
 与 invoke 相比少了三件事：**没有 id 配对、没有 promise、没有 worker**（发射方本来就在某个线程上）。
 所以单位成本更低（实测 0.115 ms/条，比往返的 0.447 ms 便宜约 4 倍）。事件没有背压与丢包策略：
 一条 emit 就是一次 JS 执行，前端的监听器同步跑——监听器里写重活会拖慢整个页面。
+
+反方向（前端 → 后端）走的是**另一条路**，别把两者当成同一个 `emit`：
+
+```
+页面                     C 桥(GTK 线程)            仓颉                       worker 线程
+ emit(event, payload)
+  ├ JSON.stringify
+  ├ postMessage ──► on_script_message ──► handleRawMessage
+  │                                          ├ EmitRequest.parse
+  │                                          ├ canEmit(event)? ─┐ 同步拒绝
+  │                                          │                  └ reject("event not allowed: …")
+  │                                          └ spawn ──────────► 逐个跑 listenEvent 的监听器
+ promise 挂起 ◄────────────────────────────────────────────────────┤
+  │                          _dispatch ◄── jsSink(resolve) ◄────────┘
+  └ pending[id].resolve({})
+```
+
+与仓颉 → JS 方向的差别只有一处：**它带 `id`、有 promise**。代价是每条 emit 多一次回投，收益是
+「事件未授权」能以 `reject` 回到前端（以前只在 stderr 里丢，调用方永远等不到结果）。后端某个监听器
+抛异常只记 stderr，不影响同事件上的其它监听器，也不影响发送方——事件是广播语义，没有「整体成功 / 失败」。
+**它不回投给页面**：谁 emit 的、页面上有没有 `listen` 同一个事件，都不影响投递（理由见 §7 限制 2）。
 
 ### 3.4 两平台的结构差异
 
@@ -332,14 +360,18 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
 
 ## 7. 已知限制与坑
 
-1. **非法报文没有回包**：解析失败（不是 JSON / `type` 不是 `invoke` / 缺 `id` 或 `cmd`）只往 stderr
-   打 `invalid IPC message: …`，**不回任何错误**，前端那条 promise 会永久 pending。
-   前端侧务必自己加超时；协议层面这是「最小化处理」的有意取舍，不是漏写。
-2. **前端 `emit()` 目前是空转（未实现）**：`__CJ_TAURI__.emit(event, payload)` 会发出
-   `{"type":"emit",…}`，但仓颉侧只认 `type:"invoke"`，于是它被判为非法报文 → 只打 stderr，
-   **不会广播给后端，也不会转给别的窗口**。也就是说现在的事件只有「仓颉 → JS」一个方向；
-   要用 JS → 仓颉推送，当前只能自己包一个 invoke 命令（本项目自己的示例就是这么做的）。
-   这是待补的能力，不是「有时不灵」的玄学。
+1. **读不出 `id` 的非法报文仍然没有回包（已部分修）**：解析失败时先尽量把 `id` 捞出来
+   （`IpcMessage.peekId`），捞得到就回一条 `ok:false` 的 reject，前端那条 promise 立刻落地——
+   实机探针里页面直接投 `{"type":"wat","id":9001}`，收到的回投报文是
+   `{"type":"resolve","id":9001,"ok":false,"error":"invalid IPC message"}`。
+   **捞不出 `id` 的（不是 JSON / 缺 `id`）只能打 stderr**：没有 id 就对应不到任何 promise，
+   回包也没处落地。这类情况前端仍要自己加超时兜底。
+2. **前端 `emit()` 已打通，但事件不做跨窗口广播（有意）**：`__CJ_TAURI__.emit(event, payload)` 现在返回
+   Promise——`EmitRequest.parse` → `canEmit(event)`（调用线程同步拒绝）→ worker 上跑后端监听器
+   （`app.listenEvent` 注册）→ 回投 resolve；未授权则 `reject("event not allowed: <event>")`。
+   **它不回投给任何页面**：单窗口下"广播"等于自己发自己收（Tauri 用户真实踩过这个坑，官方 issue 是
+   won't fix），多窗口寻址我们也还没实现。协议里的 `window` 字段与桥的 label 过滤已经就位，
+   将来接投递侧时**协议与前端都不用改**。页面内广播继续用原生 `CustomEvent`。
 3. **没有超时 / 取消 / 背压 / 丢包策略**：命令一旦发出去就只能等；事件连发会把 UI 线程的脚本队列堆满
    （每条事件都是一次 `eval`，且都在宿主 UI 线程执行）。
 4. **UI 线程是稀缺资源**：所有回投都在宿主 UI 线程执行，单条 MB 级 payload 或高频事件会直接卡住界面。

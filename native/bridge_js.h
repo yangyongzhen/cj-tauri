@@ -23,6 +23,8 @@
     CJ_LIT("  var seq = 0;") \
     CJ_LIT("  var pending = {};") \
     CJ_LIT("  var listeners = {};") \
+    CJ_LIT("  /* 本页面所属窗口的 label：多窗口落地时由宿主按 webview 注入各自的这个值 */") \
+    CJ_LIT("  var windowLabel = 'main';") \
     CJ_LIT("  function post(obj) {") \
     POST_STMT \
     CJ_LIT("  }") \
@@ -43,7 +45,11 @@
     CJ_LIT("      };") \
     CJ_LIT("    },") \
     CJ_LIT("    emit: function (event, payload) {") \
-    CJ_LIT("      post({ type: 'emit', event: event, payload: payload || {} });") \
+    CJ_LIT("      /* 带 id 才有回执：后端能把「事件未授权 / 报文非法」reject 回来（对齐 Tauri 的 emit 返回 Promise） */") \
+    CJ_LIT("      var id = ++seq;") \
+    CJ_LIT("      var p = new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });") \
+    CJ_LIT("      post({ type: 'emit', id: id, event: event, payload: payload === undefined ? {} : payload });") \
+    CJ_LIT("      return p;") \
     CJ_LIT("    },") \
     CJ_LIT("    reload: function () {") \
     CJ_LIT("      /* 与 CJT_RELOAD_MSG 保持一致：宿主拦截后不会进 IPC hub */") \
@@ -57,6 +63,8 @@
     CJ_LIT("        delete pending[msg.id];") \
     CJ_LIT("        if (msg.ok) p.resolve(msg.data); else p.reject(new Error(msg.error || 'invoke failed'));") \
     CJ_LIT("      } else if (msg.type === 'event') {") \
+    CJ_LIT("        /* window 缺省 = 广播，放行；定向推送只投给 label 匹配的页面 */") \
+    CJ_LIT("        if (msg.window && msg.window !== windowLabel) return;") \
     CJ_LIT("        var arr = listeners[msg.event] || [];") \
     CJ_LIT("        for (var i = 0; i < arr.length; i++) arr[i](msg.payload);") \
     CJ_LIT("      }") \

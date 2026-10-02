@@ -42,6 +42,15 @@ func strField(json: String, key: String): String {
     return ""
 }
 
+/** 取 JSON 顶层布尔字段（缺失返回 false） */
+func boolField(json: String, key: String): Bool {
+    let o = JsonValue.fromStr(json).asObject()
+    if (let Some(x) <- o.get(key)) {
+        return x.asBool().getValue()
+    }
+    return false
+}
+
 /*
  * 命令执行自「异步分发」改造起跑在 worker 线程上（见 IpcHub.handleInvoke），于是用例里出现两侧并发：
  * worker 线程往 sink 里写，用例线程读。两边都过同一把锁——既避免读写竞态，也借锁的释放/获取建立可见性
@@ -114,8 +123,8 @@ func testInvokeRequestParseRejectsMalformed(): Unit {
     @Expect(InvokeRequest.parse("not json").isNone(), true)
     // 顶层不是对象
     @Expect(InvokeRequest.parse("[1,2,3]").isNone(), true)
-    // type 不是 invoke：桥的 emit 占位实现就落在这一支
-    @Expect(InvokeRequest.parse("{\"type\":\"emit\",\"event\":\"x\"}").isNone(), true)
+    // type 不是 invoke：emit 报文由 EmitRequest.parse 接走，这边照样是 None
+    @Expect(InvokeRequest.parse("{\"type\":\"emit\",\"id\":1,\"event\":\"x\"}").isNone(), true)
     // 缺 cmd
     @Expect(InvokeRequest.parse("{\"type\":\"invoke\",\"id\":1}").isNone(), true)
     // 缺 id
@@ -182,13 +191,14 @@ func testHubReportsUnexpectedException(): Unit {
 }
 
 @Test
-func testHubIgnoresMalformedMessage(): Unit {
+func testHubIgnoresMessageWithoutId(): Unit {
     let out = ArrayList<String>()
-    let hub = hubWith(["greet"], [], out)
+    let hub = hubWith(["greet"], ["tick"], out)
     hub.register("greet", OkHandler())
-    // emit 的消息类型不是 invoke：不投递、不回写（前端 emit 目前是占位实现）
-    hub.handleRawMessage("{\"type\":\"emit\",\"event\":\"tick\",\"payload\":{}}")
+    // 结构坏掉且**读不出 id**：对应不到任何 promise，只能 stderr（这是设计，不是遗留问题）
     hub.handleRawMessage("garbage")
+    hub.handleRawMessage("{\"type\":\"emit\",\"event\":\"tick\"}")
+    hub.handleRawMessage("{\"type\":\"invoke\"}")
     @Expect(out.size, 0)
 }
 
@@ -284,4 +294,126 @@ func testConcurrentInvokesEachResolveExactlyOnce(): Unit {
         // 既不丢（0）也不重复（2）：并发下每条 invoke 恰好被回投一次
         @Expect(hits, 1)
     }
+}
+
+/*
+ * 前端 emit（P1-4 缺口）：只投后端监听器、不回投页面；未授权与非法报文的失败都要回给前端。
+ * 与 Tauri v2 的差异是有意选的（见 EmitRequest 注释 / docs/IPC-通信机制.md §7）。
+ */
+
+/** 抛异常的监听器：验证「一个听众崩了不牵连别的听众与发送方」 */
+func boomListener(p: JsonValue): Unit {
+    throw Exception("listener boom")
+}
+
+@Test
+func testEmitRequestParseOk(): Unit {
+    let req = EmitRequest.parse("{\"type\":\"emit\",\"id\":9,\"event\":\"tick\",\"payload\":{\"n\":1}}")
+    @Expect(req.isSome(), true)
+    let r = req.getOrThrow()
+    @Expect(r.id, 9)
+    @Expect(r.event, "tick")
+    @Expect(r.payload.asObject().get("n").getOrThrow().asInt().getValue(), 1)
+}
+
+@Test
+func testEmitRequestParseDefaultsPayloadAndRejectsMalformed(): Unit {
+    // 前端 emit('tick') 不带第二个参数：payload 缺省成空对象
+    let bare = EmitRequest.parse("{\"type\":\"emit\",\"id\":1,\"event\":\"tick\"}")
+    @Expect(bare.isSome(), true)
+    @Expect(bare.getOrThrow().payload.asObject().size(), 0)
+    // 缺 id / 缺 event / 类型不对，都不是合法 emit 报文
+    @Expect(EmitRequest.parse("{\"type\":\"emit\",\"event\":\"tick\"}").isNone(), true)
+    @Expect(EmitRequest.parse("{\"type\":\"emit\",\"id\":1}").isNone(), true)
+    @Expect(EmitRequest.parse("{\"type\":\"invoke\",\"id\":1,\"cmd\":\"greet\"}").isNone(), true)
+    @Expect(EmitRequest.parse("not json").isNone(), true)
+}
+
+@Test
+func testFrontendEmitReachesBackendListener(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    let seen = ArrayList<Int64>()
+    hub.listenEvent("tick", { p =>
+        synchronized(TEST_SINK_LOCK) {
+            seen.add(p.asObject().get("n").getOrThrow().asInt().getValue())
+        }
+    })
+    hub.handleRawMessage("{\"type\":\"emit\",\"id\":21,\"event\":\"tick\",\"payload\":{\"n\":7}}")
+    waitSink(out, 1)
+    @Expect(seen.size, 1)
+    @Expect(seen[0], 7)
+    @Expect(out.size, 1)
+    @Expect(strField(out[0], "type"), "resolve")
+    @Expect(boolField(out[0], "ok"), true)
+}
+
+@Test
+func testAllListenersOfEventAreCalled(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    let hits = ArrayList<String>()
+    hub.listenEvent("tick", { _ => synchronized(TEST_SINK_LOCK) { hits.add("a") } })
+    hub.listenEvent("tick", { _ => synchronized(TEST_SINK_LOCK) { hits.add("b") } })
+    hub.handleRawMessage("{\"type\":\"emit\",\"id\":23,\"event\":\"tick\",\"payload\":{}}")
+    waitSink(out, 1)
+    @Expect(hits.size, 2)
+}
+
+@Test
+func testFailingListenerDoesNotBreakOthers(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    hub.listenEvent("tick", boomListener)
+    let ok = ArrayList<Bool>()
+    hub.listenEvent("tick", { _ => synchronized(TEST_SINK_LOCK) { ok.add(true) } })
+    hub.handleRawMessage("{\"type\":\"emit\",\"id\":24,\"event\":\"tick\",\"payload\":{}}")
+    waitSink(out, 1)
+    // 事件是广播语义：一个听众抛错不该牵连其它听众，也不该让发送方收到失败
+    @Expect(ok.size, 1)
+    @Expect(boolField(out[0], "ok"), true)
+}
+
+@Test
+func testFrontendEmitDeniedEventIsRejected(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    // 未授权的事件：与命令一样在调用线程上同步拒绝，不必等 worker
+    hub.handleRawMessage("{\"type\":\"emit\",\"id\":22,\"event\":\"nope\",\"payload\":{}}")
+    @Expect(out.size, 1)
+    @Expect(boolField(out[0], "ok"), false)
+    @Expect(strField(out[0], "error"), "event not allowed: nope")
+}
+
+@Test
+func testFrontendEmitWithoutListenerStillResolves(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    // 授权了但没人听：不是错误（Tauri 同样不报），发送方照常拿到 resolve
+    hub.handleRawMessage("{\"type\":\"emit\",\"id\":25,\"event\":\"tick\",\"payload\":{}}")
+    waitSink(out, 1)
+    @Expect(out.size, 1)
+    @Expect(boolField(out[0], "ok"), true)
+}
+
+@Test
+func testMalformedMessageWithIdIsRejected(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    // 未知报文类型但 id 可读：回一条 reject，前端那条 promise 不再永久 pending
+    hub.handleRawMessage("{\"type\":\"wat\",\"id\":31}")
+    @Expect(out.size, 1)
+    @Expect(boolField(out[0], "ok"), false)
+    @Expect(strField(out[0], "error"), "invalid IPC message")
+}
+
+@Test
+func testEventCarriesWindowLabelOrNothingWhenBroadcast(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    hub.emitToWindow("tick", JsonObject(), "main")
+    @Expect(strField(out[0], "window"), "main")
+    hub.emitAll("tick", JsonObject())
+    // 广播不带 window 字段：页面里由桥放行（多窗口过滤靠它）
+    @Expect(JsonValue.fromStr(out[1]).asObject().get("window").isNone(), true)
 }

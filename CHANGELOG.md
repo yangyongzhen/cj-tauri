@@ -134,6 +134,18 @@
   异步分发」后它跑在 worker 线程上，命令期间窗口照常响应（对照取证见 Changed 首条）。仍不建议用它跑长驻 /
   交互式程序——没有流式输出，也没有超时 / 取消。Windows 侧**未实机验证**（开发机只有 Linux），
   `@When` 的 Windows 分支只做了编译校验，实机待 Windows 机。
+- **前端 `emit()` 打通（JS → 仓颉方向的事件，此前是空转的死 API）**：`__CJ_TAURI__.emit(event, payload)`
+  现在返回 Promise——报文经 `EmitRequest.parse` → `canEmit(event)`（调用线程同步校验）→ `spawn` 到 worker，
+  交给后端监听器。配套新增 `TauriApp.listenEvent(event, handler)`（对标 Tauri 的 `app.listen`，插件在
+  `setup()` 期注册一次）。语义**有意与 Tauri v2 不同**：前端 emit 只投后端监听器、**不回投任何页面**
+  （单窗口下「广播」等于自己发自己收——Tauri 用户真实踩过的坑、官方 issue 是 won't fix；多窗口寻址还没实现，
+  页面内广播继续用原生 `CustomEvent`）。事件报文加了 `window` 字段（`{"type":"event",…,"window":"main"}`，
+  空 = 广播），桥的 `_dispatch` 按 label 过滤——将来接投递侧时协议与前端都不用改。未授权事件现在以
+  `reject("event not allowed: <event>")` 回到前端，而不是只在 stderr 里丢；某个后端监听器抛异常只记 stderr，
+  不影响同事件的其它监听器与发送方（事件是广播语义）。Linux 实机（WebKitGTK / Xvfb，探针 `/tmp/probe-emit`）：
+  `PROBE-1 emit-allowed-resolved=true data={}`、后端侧 `backend-listener payload={"from":"ui","n":1}`、
+  页面侧同名监听器命中 **0** 次（`PROBE-2 frontend-loopback-hits=0`）、未授权事件
+  `PROBE-3 emit-denied-rejected=true msg=event not allowed: probe:denied`。单测 78 → 87。
 
 ### Changed
 
@@ -199,6 +211,12 @@
 
 ### Fixed
 
+- **带 `id` 的非法报文不再让前端永久 pending**：解析失败的报文原先一律只往 stderr 打
+  `invalid IPC message: …`，前端那条 promise 永远等不到结果、只能靠业务自己加超时。现在先用
+  `IpcMessage.peekId` 尽量把 `id` 捞出来，捞得到就回一条 `ok:false` 的 reject。实机探针里页面直接投
+  `{"type":"wat","id":9001}`，收到的回投报文是
+  `{"type":"resolve","id":9001,"ok":false,"error":"invalid IPC message"}`（`PROBE-4`）。
+  捞不出 `id` 的（不是 JSON / 缺 `id`）仍然只能打 stderr——没有 id 就对应不到任何 promise。
 - **Linux 桥看不到入站消息**：`on_script_message` 直接回调仓颉、不打日志（Windows 一直有
   `js -> native (N bytes)`），Linux 上排查时无法从日志对数。现已对齐（实测日志出现 `js -> native (54 bytes)`）。
 - **Linux 回投失败被静默吞掉**：`webkit_web_view_run_javascript(..., NULL, NULL, NULL)` 不接执行结果，

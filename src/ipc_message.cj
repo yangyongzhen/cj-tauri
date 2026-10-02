@@ -7,11 +7,15 @@ import stdx.encoding.json.*
  *
  * JS → 仓颉 (invoke):
  *   {"type":"invoke","id":1,"cmd":"greet","args":{...}}
+ * JS → 仓颉 (emit):
+ *   {"type":"emit","id":2,"event":"tick","payload":{...}}
  * 仓颉 → JS (resolve/reject):
  *   {"type":"resolve","id":1,"ok":true,"data":...}
  *   {"type":"resolve","id":1,"ok":false,"error":"..."}
  * 仓颉 → JS (event):
- *   {"type":"event","event":"tick","payload":{...}}
+ *   {"type":"event","event":"tick","payload":{...},"window":"main"}
+ *   window 字段缺省 = 广播（所有窗口）；定向推送时给接收窗口的 label，
+ *   页面里由桥按自己的 label 过滤（多窗口落地前只有一个 "main"）。
  */
 
 public class InvokeRequest {
@@ -31,23 +35,15 @@ public class InvokeRequest {
      */
     public static func parse(raw: String): Option<InvokeRequest> {
         try {
-            let root = JsonValue.fromStr(raw)
-            match (root.kind()) {
-                case JsonKind.JsObject => ()
-                case _ => return None
-            }
-            let obj = root.asObject()
-            let typeV = obj.get("type")
-            if (typeV.isNone()) {
+            let envOpt = parseEnvelope(raw)
+            if (envOpt.isNone()) {
                 return None
             }
-            match (typeV.getOrThrow().kind()) {
-                case JsonKind.JsString => ()
-                case _ => return None
-            }
-            if (typeV.getOrThrow().asString().getValue() != "invoke") {
+            let env = envOpt.getOrThrow()
+            if (env.msgType != "invoke") {
                 return None
             }
+            let obj = env.obj
             let idV = obj.get("id")
             let cmdV = obj.get("cmd")
             if (idV.isNone() || cmdV.isNone()) {
@@ -66,6 +62,97 @@ public class InvokeRequest {
         } catch (e: Exception) {
             return None
         }
+    }
+}
+
+/**
+ * 前端 emit 事件（对标 Tauri v2 前端 `emit()` → `plugin:event|emit`）
+ *
+ * 语义与 Tauri 的**有意差异**（选了更保守的一条，理由与后续演进口径见 docs/IPC-通信机制.md §7）：
+ * 事件只投给**后端监听器**（`IpcHub.listenEvent` 注册的），不回投给任何页面。
+ * Tauri 的 `emit` 是全局广播（含发起者自己），在单窗口下退化成「自己发自己收」，
+ * 且多窗口寻址（报文里的 window 字段）还没落地——等窗口有了再把投递侧接到窗口注册表上，
+ * 前端与报文格式都不用改。
+ *
+ * 带 id 是有意的：事件未授权 / 报文非法都要能把失败**回给前端**（reject 同一个 id），
+ * 而不是只在 stderr 里悄悄丢（对照 Tauri 的 `emit()` 返回 Promise<void>）。
+ */
+public class EmitRequest {
+    public let id: Int64
+    public let event: String
+    public let payload: JsonValue
+
+    public init(id: Int64, event: String, payload: JsonValue) {
+        this.id = id
+        this.event = event
+        this.payload = payload
+    }
+
+    /**
+     * 解析前端 emit 报文；payload 缺省为空对象，解析失败返回 None。
+     */
+    public static func parse(raw: String): Option<EmitRequest> {
+        try {
+            let envOpt = parseEnvelope(raw)
+            if (envOpt.isNone()) {
+                return None
+            }
+            let env = envOpt.getOrThrow()
+            if (env.msgType != "emit") {
+                return None
+            }
+            let obj = env.obj
+            let idV = obj.get("id")
+            let eventV = obj.get("event")
+            if (idV.isNone() || eventV.isNone()) {
+                return None
+            }
+            let id = idV.getOrThrow().asInt().getValue()
+            let event = eventV.getOrThrow().asString().getValue()
+            var payload: JsonValue = JsonObject()
+            if (let Some(p) <- obj.get("payload")) {
+                payload = p
+            }
+            return Some(EmitRequest(id, event, payload))
+        } catch (e: Exception) {
+            return None
+        }
+    }
+}
+
+/**
+ * 报文信封：顶层 JSON 对象 + 字符串 type 字段。
+ * invoke / emit 两条解析路径共用——两份重复的预检迟早漂移，而「type 必须是字符串」这类
+ * 判定正是非法报文与正常报文的分界。
+ */
+class IpcEnvelope {
+    let obj: JsonObject
+    let msgType: String
+
+    init(obj: JsonObject, msgType: String) {
+        this.obj = obj
+        this.msgType = msgType
+    }
+}
+
+/** 解析报文信封；非 JSON / 顶层不是对象 / type 缺失或不是字符串，一律 None */
+func parseEnvelope(raw: String): Option<IpcEnvelope> {
+    try {
+        let root = JsonValue.fromStr(raw)
+        match (root.kind()) {
+            case JsonKind.JsObject => ()
+            case _ => return None
+        }
+        let obj = root.asObject()
+        if (let Some(t) <- obj.get("type")) {
+            match (t.kind()) {
+                case JsonKind.JsString => return Some(IpcEnvelope(obj, t.asString().getValue()))
+                case _ => return None
+            }
+        }
+        return None
+    } catch (e: Exception) {
+        return None
     }
 }
 
@@ -96,12 +183,45 @@ public class IpcMessage {
 
     /**
      * 构造事件推送 JSON
+     *
+     * @param window 接收窗口的 label；空串 = 广播（报文里不带 window 字段，桥放行）。
+     *               多窗口落地前只会是 "main"，但字段现在就留在协议里，免得那次改造再动报文。
      */
-    public static func event(event: String, payload: JsonValue): String {
+    public static func event(event: String, payload: JsonValue, window: String): String {
         var obj = JsonObject()
         obj.put("type", JsonString("event"))
         obj.put("event", JsonString(event))
         obj.put("payload", payload)
+        if (window.size > 0) {
+            obj.put("window", JsonString(window))
+        }
         return obj.toJsonString()
+    }
+
+    /**
+     * 尽力从报文里取出 id（只认顶层 int 字段），取下取不到返回 None。
+     *
+     * 用途是非法报文的回包：前端 `invoke` / `emit` 都带 id，只要 id 可读就应该回一条 reject，
+     * 否则前端那条 promise 会永久 pending（比报错更难排查）。取不到 id 的（例如裸字符串、
+     * 没有 id 的 JSON）没法对应到任何 promise，只能打 stderr。
+     */
+    public static func peekId(raw: String): Option<Int64> {
+        try {
+            let root = JsonValue.fromStr(raw)
+            match (root.kind()) {
+                case JsonKind.JsObject => ()
+                case _ => return None
+            }
+            let idV = root.asObject().get("id")
+            if (idV.isNone()) {
+                return None
+            }
+            match (idV.getOrThrow().kind()) {
+                case JsonKind.JsInt => return Some(idV.getOrThrow().asInt().getValue())
+                case _ => return None
+            }
+        } catch (e: Exception) {
+            return None
+        }
     }
 }

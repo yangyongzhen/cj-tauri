@@ -101,10 +101,24 @@ public class TauriApp {
     }
 
     /**
-     * 向所有窗口推送事件（经 capability 校验）
+     * 向所有窗口推送事件（对标 Tauri 的 `emit`；经 capability 校验，未声明的事件不投递）
      */
     public func emit(event: String, payload: JsonValue): Unit {
-        this.hub.emitToWindow(event, payload, "main")
+        this.hub.emitAll(event, payload)
+    }
+
+    /**
+     * 注册后端事件监听器：前端 `emit(event, payload)` 会调用到这里
+     * （对标 Tauri Rust 侧的 `app.listen(...)`）
+     *
+     * 与 `emit` 是相反方向：`emit` 是后端 → 前端，本方法收前端 → 后端。
+     * 后端自己 emit 出去的事件**不**回流到监听器（否则「收到就再广播」会自激）。
+     * 装配期调用（`run()` / `runUrl()` 之前，或插件的 setup() 里）；注册本身不需要能力授权——
+     * 权限卡在前端那侧（emit 的事件必须在 capability 的 events 里声明）。
+     */
+    public func listenEvent(event: String, handler: (JsonValue) -> Unit): TauriApp {
+        this.hub.listenEvent(event, handler)
+        return this
     }
 
     /**

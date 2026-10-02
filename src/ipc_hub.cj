@@ -64,6 +64,10 @@ public class IpcHub {
     public var jsSink: (String) -> Unit = { _ => }
     // 开发者工具通道：由 TauriApp 注入宿主实现
     public var devToolsSink: () -> Unit = { => }
+    // 后端事件监听器（对标 Tauri 的 Rust 侧 Listener）：事件名 → 处理函数。
+    // 只在前端 emit 时被调用；后端自己 emit 给前端的事件**不**回流到这里（否则「后端广播 → 监听器再广播」会自激）。
+    private var eventListeners: HashMap<String, ArrayList<(JsonValue) -> Unit>> =
+        HashMap<String, ArrayList<(JsonValue) -> Unit>>()
 
     public init() {}
 
@@ -87,14 +91,37 @@ public class IpcHub {
     }
 
     /**
-     * 处理来自前端的原始 invoke 消息（JSON 字符串）
-     * 全链路：解析 → capability 校验（调用线程上同步完成）→ 命令执行（worker 线程）→ 结果/错误回投
+     * 注册后端事件监听器（对标 Tauri Rust 侧的 `app.listen(...)`）
+     *
+     * 调用时机：装配期（插件在自己的 setup() 里注册）。同一事件可注册多个监听器，按注册顺序调用；
+     * 暂时不提供注销（emit 分发是遍历快照式的短回调，注册期外再改表属于未定义用法）。
+     */
+    public func listenEvent(event: String, handler: (JsonValue) -> Unit): Unit {
+        if (!this.eventListeners.contains(event)) {
+            this.eventListeners.add(event, ArrayList<(JsonValue) -> Unit>())
+        }
+        this.eventListeners.get(event).getOrThrow().add(handler)
+    }
+
+    /**
+     * 处理来自前端的原始消息（JSON 字符串）：invoke 与 emit 两条路径
+     *
+     * 全链路：解析 → capability 校验（调用线程上同步完成）→ 执行（worker 线程）→ 结果/错误回投
      */
     public func handleRawMessage(raw: String): Unit {
         if (let Some(req) <- InvokeRequest.parse(raw)) {
             this.handleInvoke(req)
-        } else {
-            eprintln("[cj-tauri] invalid IPC message: ${raw}")
+            return
+        }
+        if (let Some(ev) <- EmitRequest.parse(raw)) {
+            this.handleEmit(ev)
+            return
+        }
+        // 两条解析都不认：只要报文里读得出 id 就回一条 reject——前端那条 promise 否则会永久 pending，
+        // 比一条明确的报错难排查得多（前端 invoke 没有超时参数）。
+        eprintln("[cj-tauri] invalid IPC message: ${raw}")
+        if (let Some(id) <- IpcMessage.peekId(raw)) {
+            this.reject(id, "invalid IPC message")
         }
     }
 
@@ -144,13 +171,58 @@ public class IpcHub {
     }
 
     /**
+     * 前端 emit 事件：校验（同步，调用线程）→ 投给后端监听器（worker 线程）→ resolve。
+     *
+     * 为什么校验同步、投递异步：与命令同一套理由——未授权要在调用线程上立刻拒（报错即时、顺序确定），
+     * 而回调可能慢，不能钉住宿主 UI 线程。
+     * 「没有监听器」不是错误：事件是广播语义，没人听很正常（Tauri 同样不报），照常 resolve。
+     * 与 Tauri 的差异（不广播回页面）见 EmitRequest 的文档注释。
+     */
+    private func handleEmit(req: EmitRequest): Unit {
+        if (!this.capabilities.canEmit(req.event)) {
+            eprintln("[cj-tauri] event not allowed: ${req.event}")
+            this.reject(req.id, "event not allowed: ${req.event}")
+            return
+        }
+        let _ = spawn { => this.dispatchEvent(req) }
+    }
+
+    /** worker 线程上把事件投给监听器，然后 resolve 发送方 */
+    private func dispatchEvent(req: EmitRequest): Unit {
+        match (this.eventListeners.get(req.event)) {
+            case Some(handlers) =>
+                for (h in handlers) {
+                    // 单个监听器抛错只记 stderr：事件是广播，一个听众崩了不该牵连别的听众和发送方
+                    try {
+                        h(req.payload)
+                    } catch (e: Exception) {
+                        eprintln("[cj-tauri] event listener failed (${req.event}): ${e}")
+                    }
+                }
+            case None => ()
+        }
+        this.jsSink(IpcMessage.resolve(req.id, JsonObject()))
+    }
+
+    /**
+     * 广播事件到所有窗口（对标 Tauri 的 `emit`）：报文不带 window 字段，各窗口的桥自行放行。
+     * 多窗口落地前 jsSink 只通向那一个窗口，与 `emitToWindow(..., "main")` 效果相同。
+     */
+    public func emitAll(event: String, payload: JsonValue): Unit {
+        this.emitToWindow(event, payload, "")
+    }
+
+    /**
      * 推送事件到指定窗口（经 capability 校验）
+     *
+     * @param window 接收窗口的 label；空串 = 广播。此前这个参数被丢掉（报文里也无 window 字段），
+     *               定向推送实际退化成广播——协议补上字段后，多窗口的过滤由各页面的桥完成。
      */
     public func emitToWindow(event: String, payload: JsonValue, window: String): Unit {
         if (!this.capabilities.canEmit(event)) {
             eprintln("[cj-tauri] event not allowed: ${event}")
             return
         }
-        this.jsSink(IpcMessage.event(event, payload))
+        this.jsSink(IpcMessage.event(event, payload, window))
     }
 }

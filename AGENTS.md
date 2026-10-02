@@ -31,6 +31,10 @@
   IPC、能力校验、命令分发必须跨平台共用，禁止在上层散落运行期平台分支。
 - **新增宿主能力**：先扩 `WebViewHost` 接口（`src/host.cj`），再改各平台实现，最后在 C 桥加**同名同签名**的导出函数
   （`cj_bridge_*`）。两平台导出名必须一致，避免上层出现平台分叉的调用点。
+- **插件 JS 的注入通道**：`Plugin.jsShim()` 由 `pluginInitScripts()` 收成「一个插件一段」，
+  经 `WebViewHost.addInitScript()` 交给宿主，桥在 document-start 注入（排在 `BRIDGE_JS` 之后）。
+  必须在 `start()` / `startUrl()` 之前注册；**不要再往 HTML 字符串里拼 `<script>` 注入 shim**——
+  `runUrl()` 的页面 HTML 不在本进程，那样永远拿不到（RFC-插件体系 §5.4 的 v2）。
 - **新增命令三处联动**（漏一处就用不了）：
   1. 实现 `CommandHandler`；
   2. `TauriApp.register("cmd", Handler())`；

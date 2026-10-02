@@ -111,6 +111,15 @@
 
 ### Changed
 
+- **插件 JS 的注入通道换成宿主层「预执行脚本列表」（破坏性变更）**：插件 `jsShim()` 不再由框架拼成
+  `<script>` 块塞进 HTML，改为经 `WebViewHost.addInitScript(js)` 注册、由 C 桥在 document-start 注入
+  （排在 `BRIDGE_JS` 之后）。收益：`runUrl()`（dev server / 远程页面）的页面 HTML 不在后端进程里，
+  以前根本拿不到 shim，现在与内联 HTML 走同一条链路、时序一致。`pluginInitScripts(plugins)` 返回
+  「一个插件一段」的脚本列表（某个插件的 shim 写坏了不会带崩别的命名空间），`app.run` / `app.runUrl`
+  在 start 之前逐段注册；启动时 stderr 打印 `插件 JS 已注册为预执行脚本：N 段`，桥侧打印
+  `init script queued: N bytes` / `init scripts injected: N`。Linux 实测（WebKitGTK / Xvfb，
+  脚本 `/tmp/run-init-verify.sh`）：内联 HTML 与 `file://` 两种来源，页面第一行都读到
+  `shim-ready-at-script-start=true`、`__CJ_TAURI__.fs` 为 `object`（`[verify] ALL DONE`）。
 - **命令执行改为异步分发（破坏性变更）**：`IpcHub.handleInvoke` 把通过校验的命令 `spawn` 到 worker 线程执行
   （此前 handler 直接在宿主 UI 线程上跑完），慢命令不再钉住窗口——`shell:exec` 跑一个进程、等原生对话框期间，
   窗口照常重绘、JS 定时器照常回调、其它 invoke 照常处理。语义上有三点要知道：① 未授权 / 未注册仍在**调用线程上
@@ -141,6 +150,12 @@
 - 更正此前「首版可自动化」的预期：npm 只允许给**已存在**的包配置 trusted publisher（入口在该包的 settings 页），
   `npm stage publish` 也不能创建新包，因此 `v*` tag 触发的 OIDC 自动发布**只能从第二个版本开始**，
   首个版本必须本机手工发（带动态码，或用勾了 Bypass 2FA 的 granular token）。
+
+### Removed
+
+- `assemblePluginJs()` / `injectPluginJs()`（v1 那套「把 shim 拼进 HTML 字符串」的取巧做法）随上述注入
+  通道切换一并删除，等价能力是 `pluginInitScripts()`（返回脚本列表，交给 `WebViewHost.addInitScript`）；
+  框架不再改写你传进来的 HTML。
 
 ### Fixed
 

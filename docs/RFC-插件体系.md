@@ -152,11 +152,18 @@ const text = await __CJ_TAURI__.fs.readText({ path: 'notes.txt' });
 （`AddScriptToExecuteOnDocumentCreated`），因此**先于页面脚本**；而插件的 shim 如果走
 `runJs`（等价于 `ExecuteScript`）注入，就可能晚于页面里自己的 inline script，出现竞态。
 
-v1 方案：**纯仓颉侧的 HTML 组装**——`run(html)` 时把各插件的 `jsShim()` 拼成一个 `<script>` 块，
-插到 `</head>` 之前（没有 `</head>` 时插到文档最前面，并在 stderr 说明）。
-优点：顺序确定，**不需要改 C 桥**，两端行为一致。
-局限：本质上是字符串操作，对畸形 HTML 不健壮——因此 v2 的方向是给宿主层加「预执行脚本列表」
-（WebView2 与 WebKit 都支持注入多段 pre-page script），届时替换掉这个取巧做法。
+**v1 方案（已废弃）：纯仓颉侧的 HTML 组装**——`run(html)` 时把各插件的 `jsShim()` 拼成一个 `<script>` 块，
+插到 `</head>` 之前。优点是不用改 C 桥；局限是本质上的字符串操作：对畸形 HTML 不健壮，
+而且 `runUrl()`（dev server / 远程页面）下页面 HTML 根本不在后端进程里，拼不进去、只能靠 `waitForBridge` 兜。
+
+**v2 方案（现行，2026-10-02 落地）**：把「预执行脚本列表」加到宿主层——
+`WebViewHost.addInitScript(js)` 在 `start()` / `startUrl()` 之前注册，宿主创建 WebView 时一次性交给 C 桥，
+桥在 document-start 注入（WebKit `webkit_user_script_new(..., INJECT_AT_DOCUMENT_START)` /
+WebView2 `AddScriptToExecuteOnDocumentCreated`），按注册顺序排在 `BRIDGE_JS` 之后。
+`pluginInitScripts(plugins)` 把各插件 `jsShim()` 收成「一个插件一段」（某个插件的 shim 写坏了不会带崩别的命名空间）。
+好处：HTML 与 URL 两种来源共用一条链路，`runUrl` 的限制消失，也不再是字符串拼接。
+实测（Linux / WebKitGTK / Xvfb，脚本 `/tmp/run-init-verify.sh`）：两种来源下页面第一行都读到
+`__CJ_TAURI__.fs` 为 `object`、`shim-ready-at-script-start=true`，桥侧对应 `init scripts injected: 1`。
 
 ### 5.5 插件清单（给工具与文档用）
 
@@ -196,7 +203,7 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 | 交付物 | 落地位置 | 说明 |
 |---|---|---|
 | 1. `Plugin` 接口 + `TauriApp.plugin()` | `src/plugin.cj`、`src/app.cj` | 接口四个方法中 `events()` / `jsShim()` / `setup()` 带默认实现（开放问题 3 的实测答案：仓颉接口支持默认实现，无需 `AbstractPlugin`） |
-| 2. 未授权提示 + jsShim 组装注入 | `src/plugin.cj`（`warnUnauthorizedPlugins` / `assemblePluginJs` / `injectPluginJs`） | 启动打印已装配清单并逐条提示缺哪条；shim 汇总成一个 `<script>` 插到第一个 `</head>` 之前 |
+| 2. 未授权提示 + jsShim 注入 | `src/plugin.cj`（`warnUnauthorizedPlugins` / `pluginInitScripts`）+ `WebViewHost.addInitScript` + 两平台 C 桥 `cj_bridge_add_init_script` | 启动打印已装配清单并逐条提示缺哪条；shim 走宿主预执行脚本通道（document-start），HTML / URL 两种来源一致（§5.4 的 v2） |
 | 3. 官方 `fs` 插件 | `src/plugin_fs.cj` | 纯仓颉、零 C 桥改动；`fs:readText` / `fs:writeText`（覆盖写）/ `fs:exists` |
 | 4. 示例 + 实机证据 | `examples/plugin-fs/` | capability 故意只放行 `fs:readText` / `fs:exists`，`fs:writeText` 作**未授权对照组**；Linux（WebKitGTK / Xvfb）实机：`shim-ready-at-script-start=true`、readText/exists 成功、writeText 被拒 `command not allowed`、`[verify] ALL DONE`（截图 `docs/images/example-plugin-fs.png`，日志 `/tmp/cj-plugin-fs-final.log`）。**Windows 未跑**（本机为 Linux） |
 | 5. 文档 | `docs/使用文档.md` §6.7、`docs/前端入门教程.md` §11、`CHANGELOG.md`、`AGENTS.md` §2 | AGENTS.md 另记一条坑：内联在三引号字符串里的 JS 会被仓颉吃掉反斜杠转义（`\n` 变真换行 → 整段脚本语法错误、stderr 无提示） |
@@ -208,7 +215,8 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 开放问题的 v1 结论：1）命令全名用 `<插件名>:<短名>`（与 `system:*` 同形，分发与校验零改动）；
 2）v1 不引入 permission set，权限按全名写进 `capabilities/`——**v1.1 已改为支持命名权限集**
 （明文仍可用，两者等价、可混用）；3）接口默认实现可用；
-4）jsShim 用 HTML 字符串组装注入（`runUrl` 下 HTML 不在本进程、无法并入，已在 stderr 提示 + 文档对齐 `waitForBridge`）；
+4）jsShim 的注入已从「HTML 字符串组装」换成宿主层预执行脚本通道（`addInitScript` + 桥
+   `cj_bridge_add_init_script`，document-start 注入，`runUrl` 同样覆盖）；
 5）不允许插件依赖插件，装配顺序由使用者负责；6）非命令类能力留待宿主层先有对应 API；7）`manifest()` v1 不做。
 
 ## 8. 开放问题（评审时请逐条回答）
@@ -221,6 +229,10 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
    「逐条放行」的写法噪音大且容易漏；集让使用者写意图（`fs:readonly`）而不是写清单（三条命令名）。
 3. 仓颉接口能否带默认实现？不能的话，用 `AbstractPlugin` 基类提供 `events()` / `jsShim()` / `setup()` 的空实现，可以接受吗？
 4. jsShim 用「HTML 字符串组装注入」是否可接受（v2 换成宿主层的预执行脚本列表）？
+   **已决（v2 落地，2026-10-02）**：换成宿主层预执行脚本列表。`WebViewHost.addInitScript()` +
+   两平台 C 桥 `cj_bridge_add_init_script`（同名同签名），document-start 注入、排在桥脚本之后；
+   `pluginInitScripts()` 一段一个插件；v1 的 `assemblePluginJs` / `injectPluginJs` 已删除。
+   实测：`run(html)` 与 `runUrl(file://)` 页面第一行都是 `shim-ready-at-script-start=true`（见 §5.4）。
 5. 插件是否允许声明「依赖另一个插件」（例如 `dialog` 依赖 `fs`）？v1 我倾向不允许，装配顺序由使用者负责。
 6. 非命令类能力（托盘、全局快捷键、协议处理）以后怎么进这个模型？v1 的 `Plugin` 只覆盖「命令 + 事件 + JS」，
    这类能力需要宿主层先有对应 API——是否要把「插件可以要求宿主能力」写进接口预留位？

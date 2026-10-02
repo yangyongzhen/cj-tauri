@@ -7,6 +7,8 @@
 #   3. 脚手架模板里的 {{占位符}} 都在 scaffold.cj 的渲染表里（否则生成的工程会残留占位符）
 #   4. .bat / .ps1 纯 ASCII（cmd 的 OEM 码页与 PowerShell 5.1 会吃坏中文注释）
 #   5. 被跟踪的文件里没有构建产物（target/、*.dll、*.log、cjpm.lock）
+#   6. C 桥公共核心自检（native/tests/test_bridge_core.c + 桩平台）：只需 C 编译器，
+#      不需要 SDK / 图形栈；本机没有 C 编译器时该项自行跳过（退出码仍为 0）
 #
 # 用法：bash scripts/check-static.sh
 # 退出码：0 = 全部通过；1 = 有失败项（每项失败都会打印 FAIL 行）
@@ -105,6 +107,17 @@ if [ -n "$hits" ]; then
     printf '%s\n' "$hits" | sed 's/^/        /'
 else
     ok "无 target/、*.dll、*.log、cjpm.lock"
+fi
+
+# ------------------------------------------------- 6. C 桥公共核心自检
+section "C 桥公共核心自检"
+before=$fails
+# 桩平台编译 native/tests/test_bridge_core.c + native/bridge_core.c 并跑断言；
+# 不需要 SDK / 图形栈，只需 C 编译器（没有就自己跳过，退出码仍为 0）
+if bash scripts/test-bridge-core.sh; then
+    ok "bridge_core 纯逻辑自检通过（回投批处理 / 对话框状态机 / 生命周期标志）"
+else
+    bad "bridge_core 自检失败（明细见上）"
 fi
 
 # ------------------------------------------------------------------ 汇总

@@ -78,4 +78,7 @@ case "$(uname -s)" in
 esac
 
 echo "[test] platform=$(uname -s) CANGJIE_HOME=$CANGJIE_HOME"
+# C 桥公共核心的自检先跑：它不需要 SDK / 图形栈（本机没有 C 编译器时脚本自己跳过），
+# 跟 cjpm test 分开，出问题时一眼能看出是哪一层。
+bash "$ROOT/scripts/test-bridge-core.sh"
 exec cjpm test --no-color "$@"

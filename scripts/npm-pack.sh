@@ -8,9 +8,16 @@
 #   3. 包内预编译 CLI 走「打包时若本机有产物就带上」——二进制不入库，只进 tarball。
 #
 # 用法:
-#   bash scripts/npm-pack.sh                # 只打包，产出 dist-npm/cj-tauri-<版本>.tgz
-#   bash scripts/npm-pack.sh --publish      # 打包后发布（npm 会要求账号 2FA 确认）
-#   bash scripts/npm-pack.sh --keep         # 保留 dist-npm/ 里展开的目录树（排查用）
+#   bash scripts/npm-pack.sh                        # 只打包，产出 dist-npm/cj-tauri-<版本>.tgz
+#   bash scripts/npm-pack.sh --publish              # 打包后发布
+#   bash scripts/npm-pack.sh --publish --otp 123456 # 带 2FA 动态码发布（见下）
+#   bash scripts/npm-pack.sh --keep                 # 保留 dist-npm/ 里展开的目录树（排查用）
+#
+# 为什么发布常要 --otp：账号开了「写操作需 2FA」时，`npm login` 的浏览器登录态只证明「你是谁」，
+# 发布仍要一次性动态码，否则 registry 直接回
+#   E403 ... Two-factor authentication or granular access token with bypass 2fa enabled is required
+# （`npm whoami` 正常并不代表能发布）。换不了动态码时，可临时用勾了 Bypass 2FA 的 granular token
+# 写进用户级 ~/.npmrc（别进仓库），发完即删。动态码也可用环境变量 NPM_OTP 传，避免进 shell 历史。
 #
 # 前置：Node >= 18（打包与安装都用它），本机装了仓颉 SDK（首次构建 CLI 用）。
 set -euo pipefail
@@ -20,13 +27,23 @@ cd "$ROOT"
 
 DO_PUBLISH=0
 KEEP=0
-for arg in "$@"; do
-  case "$arg" in
+OTP="${NPM_OTP:-}"
+while [ $# -gt 0 ]; do
+  case "$1" in
     --publish) DO_PUBLISH=1 ;;
     --keep)    KEEP=1 ;;
-    *) echo "[npm-pack] 未知参数: $arg（支持 --publish / --keep）" >&2; exit 2 ;;
+    --otp)     OTP="${2:-}"; [ -n "$OTP" ] || { echo "[npm-pack] --otp 后面要跟 6 位动态码" >&2; exit 2; }; shift ;;
+    --otp=*)   OTP="${1#--otp=}" ;;
+    *) echo "[npm-pack] 未知参数: $1（支持 --publish / --keep / --otp <6 位码>）" >&2; exit 2 ;;
   esac
+  shift
 done
+if [ -n "$OTP" ]; then
+    case "$OTP" in
+      [0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+      *) echo "[npm-pack] --otp / NPM_OTP 应是 6 位数字" >&2; exit 2 ;;
+    esac
+fi
 
 # 发布固定走官方 registry：本机 npm 常配成镜像（如 registry.npmmirror.com），而镜像不接收 publish，
 # 直接 `npm publish` 会报错或发到别处；要用私服/其他 registry 时用环境变量覆盖。
@@ -114,11 +131,18 @@ if [ "$DO_PUBLISH" -eq 1 ]; then
         echo "           npm login --registry=$NPM_PUBLISH_REGISTRY" >&2
         exit 1
     fi
-    echo "[npm-pack] 发布到 $NPM_PUBLISH_REGISTRY（会要求 2FA 一次性验证码）..."
-    npm publish "$DIST/$OUT" --access public --registry="$NPM_PUBLISH_REGISTRY"
+    PUBLISH_ARGS=(publish "$DIST/$OUT" --access public --registry="$NPM_PUBLISH_REGISTRY")
+    if [ -n "$OTP" ]; then
+        PUBLISH_ARGS+=(--otp "$OTP")
+        echo "[npm-pack] 发布到 $NPM_PUBLISH_REGISTRY（用传入的动态码过 2FA）..."
+    else
+        echo "[npm-pack] 发布到 $NPM_PUBLISH_REGISTRY（登录态不能写时会被 2FA 拦成 403，那就加 --otp <6 位码>）..."
+    fi
+    npm "${PUBLISH_ARGS[@]}"
     echo "[npm-pack] 已发布。核对: npm view cj-tauri version --registry=$NPM_PUBLISH_REGISTRY"
 else
     echo "[npm-pack] 未发布。要发布请执行："
-    echo "           npm publish dist-npm/$OUT --access public --registry=$NPM_PUBLISH_REGISTRY"
+    echo "           npm publish dist-npm/$OUT --access public --registry=$NPM_PUBLISH_REGISTRY --otp=<6 位动态码>"
+    echo "           （或：bash scripts/npm-pack.sh --publish --otp <6 位动态码>）"
     echo "           本地试装：npm i -g ./dist-npm/$OUT   （或 npm i ./dist-npm/$OUT 装进当前工程）"
 fi

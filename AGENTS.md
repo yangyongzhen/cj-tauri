@@ -123,8 +123,14 @@
   → 提交 → 打 tag `vX.Y.Z` → `git push origin main --tags` 双推。
 - **npm 发布**：首版必须手工发（trusted publishing 的配置入口在 npm 的包设置页，包得先存在），绑定好之后
   推 `v*` tag 由 `.github/workflows/npm-publish.yml` 自动发布：
-  1. 手工发首版：`npm login --registry=https://registry.npmjs.org/` 后 `bash scripts/npm-pack.sh --publish`
-     （需要账号 2FA；脚本固定官方 registry 并先做登录预检——本机 npm 常配成镜像，直接 `npm publish` 会发错地方）；
+  1. 手工发首版——**这一步躲不开**：npm 只允许给「已存在的包」配置 trusted publisher（入口在该包的 settings 页），
+     `npm stage publish` 也不能创建新包，所以自动发布只能从第二个版本开始。发布命令：
+     `npm login --registry=https://registry.npmjs.org/` → `bash scripts/npm-pack.sh --publish --otp <6 位动态码>`
+     （脚本固定官方 registry 并先做登录预检——本机 npm 常配成镜像，直接 `npm publish` 会发错地方）。
+     坑：**登录成功 ≠ 能发布**，`npm whoami` 正常但 `npm publish` 仍会
+     `E403 … Two-factor authentication or granular access token with bypass 2fa enabled is required`——
+     浏览器登录态只解决身份，写操作还要动态码；拿不到动态码（例如 2FA 只有 passkey）时，临时建一个勾了
+     `Bypass two-factor authentication` 的 granular token 写进**用户级** `~/.npmrc`，发完即删；
   2. npmjs.com → 包 → Settings → **Trusted publishing** → 添加 GitHub Actions，三个字段逐字一致（大小写敏感，
      且保存时不校验）：user/repo `yangyongzhen/cj-tauri`、workflow 文件名 `npm-publish.yml`，并**勾上
      Allow npm publish**（2026-09-03 之后新建的配置默认只允许 `npm stage publish`，不勾则 CI 发布会 `E_STAGE_REQUIRED`）；

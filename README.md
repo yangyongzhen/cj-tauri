@@ -151,9 +151,13 @@ npm 包把「平台差异 + 仓颉环境自检 + CLI 本体的获取」收进一
 （npm trusted publishing / OIDC，不需要任何 token，自动附 provenance）：
 
 ```bash
-bash scripts/npm-pack.sh            # 只打包 → dist-npm/cj-tauri-<版本>.tgz
-bash scripts/npm-pack.sh --publish  # 打包并发布到 npm（首版走这条）
+bash scripts/npm-pack.sh                        # 只打包 → dist-npm/cj-tauri-<版本>.tgz
+bash scripts/npm-pack.sh --publish --otp 123456 # 打包并发布（动态码 = 你 2FA 应用里的 6 位码）
 ```
+
+> `--otp` 不能省：账号开了「写操作需 2FA」时，`npm login` 的浏览器登录态只证明你是谁，发布仍要一次性动态码，
+> 否则报 `E403 … granular access token with bypass 2fa enabled is required`。npm 也不给尚不存在的包配置
+> trusted publisher，所以**首版只能手工发一次**，自动发布从下一个版本开始。
 
 发布固定走官方 registry（`https://registry.npmjs.org/`，可用 `NPM_PUBLISH_REGISTRY` 覆盖），脚本会先做登录预检。
 包在 npm 上需一次性绑定 GitHub 仓库与 workflow 文件名（步骤见 `AGENTS.md` §6）。CI 环境没有仓颉 SDK，

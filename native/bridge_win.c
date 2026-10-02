@@ -108,56 +108,14 @@ static char *wide_to_utf8(const wchar_t *w) {
 
 /* ===== 注入前端桥接脚本（暴露 window.__CJ_TAURI__，对标 @tauri-apps/api）===== */
 
-static const wchar_t *BRIDGE_JS =
-    L"window.__CJ_TAURI__ = (function () {"
-    L"  var seq = 0;"
-    L"  var pending = {};"
-    L"  var listeners = {};"
-    L"  function post(obj) {"
-    L"    window.chrome.webview.postMessage(JSON.stringify(obj));"
-    L"  }"
-    L"  return {"
-    L"    invoke: function (cmd, args) {"
-    L"      var id = ++seq;"
-    L"      var p = new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });"
-    L"      post({ type: 'invoke', id: id, cmd: cmd, args: args || {} });"
-    L"      return p;"
-    L"    },"
-    L"    listen: function (event, cb) {"
-    L"      if (!listeners[event]) listeners[event] = [];"
-    L"      listeners[event].push(cb);"
-    L"      return function () {"
-    L"        var arr = listeners[event] || [];"
-    L"        var i = arr.indexOf(cb);"
-    L"        if (i >= 0) arr.splice(i, 1);"
-    L"      };"
-    L"    },"
-    L"    emit: function (event, payload) {"
-    L"      post({ type: 'emit', event: event, payload: payload || {} });"
-    L"    },"
-    L"    reload: function () {"
-    L"      /* 与 CJT_RELOAD_MSG 保持一致：宿主拦截后不会进 IPC hub */"
-    L"      window.chrome.webview.postMessage('__cj_tauri_reload__');"
-    L"    },"
-    L"    _dispatch: function (msg) {"
-    L"      if (!msg) return;"
-    L"      if (msg.type === 'resolve') {"
-    L"        var p = pending[msg.id];"
-    L"        if (!p) return;"
-    L"        delete pending[msg.id];"
-    L"        if (msg.ok) p.resolve(msg.data); else p.reject(new Error(msg.error || 'invoke failed'));"
-    L"      } else if (msg.type === 'event') {"
-    L"        var arr = listeners[msg.event] || [];"
-    L"        for (var i = 0; i < arr.length; i++) arr[i](msg.payload);"
-    L"      }"
-    L"    }"
-    L"  };"
-    L"})();"
-    L"window.addEventListener('message', function (e) {"
-    L"  var msg = e.data;"
-    L"  if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (err) { return; } }"
-    L"  window.__CJ_TAURI__._dispatch(msg);"
-    L"});";
+/* 平台唯一差异行（其余 JS 见 native/bridge_js.h，两平台共用一份，防漂移）：
+   post 通道 = chrome.webview；reload 控制消息同通道发字面量。宽字符：本文件要 wchar_t。 */
+#define CJ_LIT(s) L##s
+#define CJ_POST_STMT L"    window.chrome.webview.postMessage(JSON.stringify(obj));"
+#define CJ_RELOAD_STMT L"      window.chrome.webview.postMessage('__cj_tauri_reload__');"
+#include "bridge_js.h"
+
+static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 
 /* ===== COM 回调实现（WebView2 的完成/事件 handler，静态生命周期）===== */
 
@@ -579,25 +537,94 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
-/* 原生 → JS：把脚本投递到宿主线程串行执行（FIFO，防覆盖） */
+/* 单批上限：一次 WM_CJT_FLUSH 最多合并多少条回投（理由同 Linux 桥的 CJ_JS_BATCH_MAX） */
+#define CJ_JS_BATCH_MAX 64
+
+/* 原生 → JS：把脚本投递到宿主线程串行执行（FIFO，防覆盖）。
+   一次消息取走队列里最多 CJ_JS_BATCH_MAX 条、拼成一段脚本只发一次 ExecuteScript——
+   每次 ExecuteScript 都要跨进 WebView2 的 JS 引擎，N 条合并即省掉 N-1 次。
+   队里只有一条时走快路径（直接用它自己的字符串），与 Linux 桥一致：
+   「一次往返一条响应」是最常见形态，拼批的拷贝在那条路上是白花。
+   没取空就再投一次 WM_CJT_FLUSH 自续。 */
 static void flush_js(void) {
-    for (;;) {
-        js_node *node = NULL;
-        if (!g_js_lock_init) return;
-        EnterCriticalSection(&g_js_lock);
-        node = g_js_head;
-        if (node) {
-            g_js_head = node->next;
-            if (!g_js_head) g_js_tail = NULL;
+    js_node *batch[CJ_JS_BATCH_MAX];
+    wchar_t *script = NULL;
+    wchar_t *single = NULL;   /* 快路径专用：非空表示这次就投这一条 */
+    size_t len = 0;   /* script 里已写入的字符数（不含结尾 NUL） */
+    size_t cap = 0;   /* script 容量（字符数） */
+    int n = 0;
+    int more;
+    int i;
+
+    if (!g_js_lock_init) return;
+    EnterCriticalSection(&g_js_lock);
+    if (g_js_head) {
+        js_node *node = g_js_head;
+        g_js_head = node->next;
+        if (!g_js_head) g_js_tail = NULL;
+        if (g_js_head) {
+            /* 后面还有第二条 → 拼批：这条当批头，剩下的在同一把锁里收完 */
+            batch[n++] = node;
+            while (g_js_head && n < CJ_JS_BATCH_MAX) {
+                node = g_js_head;
+                g_js_head = node->next;
+                if (!g_js_head) g_js_tail = NULL;
+                batch[n++] = node;
+            }
+        } else {
+            single = node->js;   /* 接管字符串所有权，省掉一次拷贝 */
+            free(node);
         }
-        LeaveCriticalSection(&g_js_lock);
-        if (!node) return;
-        if (g_webview) {
-            log_hr("ExecuteScript", g_webview->lpVtbl->ExecuteScript(g_webview, node->js, NULL));
-        }
-        free(node->js);
-        free(node);
     }
+    more = (g_js_head != NULL);
+    LeaveCriticalSection(&g_js_lock);
+    if (!single && n == 0) return;
+
+    if (single) {
+        if (g_webview) {
+            log_hr("ExecuteScript", g_webview->lpVtbl->ExecuteScript(g_webview, single, NULL));
+        }
+        free(single);
+    } else {
+        for (i = 0; i < n; i++) {
+            size_t nl = wcslen(batch[i]->js);
+            if (len + nl + 2 > cap) {
+                wchar_t *np;
+                cap = (len + nl + 2) * 2;
+                np = (wchar_t *)realloc(script, cap * sizeof(wchar_t));
+                if (!np) {
+                    /* 内存不够就退回逐条执行：宁可多花开销，也不丢回投 */
+                    int j;
+                    for (j = i; j < n; j++) {
+                        if (g_webview) {
+                            log_hr("ExecuteScript", g_webview->lpVtbl->ExecuteScript(g_webview, batch[j]->js, NULL));
+                        }
+                        free(batch[j]->js);
+                        free(batch[j]);
+                    }
+                    for (j = 0; j < i; j++) {
+                        free(batch[j]->js);
+                        free(batch[j]);
+                    }
+                    free(script);
+                    if (more && g_hwnd) PostMessageW(g_hwnd, WM_CJT_FLUSH, 0, 0);
+                    return;
+                }
+                script = np;
+            }
+            wmemcpy(script + len, batch[i]->js, nl);
+            len += nl;
+            script[len++] = L'\n';
+            script[len] = L'\0';
+            free(batch[i]->js);
+            free(batch[i]);
+        }
+        if (g_webview) {
+            log_hr("ExecuteScript", g_webview->lpVtbl->ExecuteScript(g_webview, script, NULL));
+        }
+        free(script);
+    }
+    if (more && g_hwnd) PostMessageW(g_hwnd, WM_CJT_FLUSH, 0, 0);
 }
 
 /* ===== 宿主线程（对标 tao 的事件循环线程）===== */

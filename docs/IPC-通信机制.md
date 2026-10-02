@@ -35,8 +35,8 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
 宿主桥 C  │  Linux  ：window.webkit.messageHandlers.cjtauri.postMessage
           │  Windows：window.chrome.webview.postMessage
           │  入：原生回调 → 仓颉（字符串原样上交，C 层不解析 JSON）
-          │  回投：ExecuteScript("window.postMessage(json,'*')")
-          │        加锁 FIFO 队列 + 只投队首 + 排空自续（在宿主 UI 线程执行）
+          │  回投：ExecuteScript("window.__CJ_TAURI__._dispatch(json)")
+          │        加锁 FIFO 队列 + 一次调度合并成批（单条走快路径）+ 排空自续（在宿主 UI 线程执行）
 ──────────┼─────────────────────────────────────────────────────────
 仓颉      │  IpcHub.handleRawMessage：解析 → 能力校验 → 命令分发
           │  执行在 worker 线程；结果经 jsSink → 宿主 runJs → 回投路径
@@ -102,7 +102,7 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
   │                                                                             ├ handler.handle
  promise 挂起 ◄──────────────────────────────────────────────────────────────────┤
   │                                    g_idle_add(flush_pending_js) ◄── jsSink(resolve json)
-  │                                        └ evaluate_javascript ──► window.postMessage(json,'*')
+  │                                        └ run_javascript ──► window.__CJ_TAURI__._dispatch(json)
   └ _dispatch {type:'resolve',id,ok,data} → pending[id].resolve(data)
 ```
 
@@ -297,23 +297,29 @@ Tauri v2 官方文档对自家 IPC 的描述与本项目同构（原文见 §9�
 | 6 | `handler.handle` | worker | 业务本身 |
 | 7 | `IpcMessage.resolve`：拼 JSON 字符串 | worker | 一次序列化 |
 | 8 | `jsSink` → 入队 + 唤醒 UI 线程 | C 桥 | `g_idle_add` / `PostMessageW` |
-| 9 | `evaluate_javascript("window.postMessage(<json>,'*')")` | 宿主 UI 线程 | **又一次 JS 解析**（见下） |
+| 9 | `run_javascript("window.__CJ_TAURI__._dispatch(<json>)")` | 宿主 UI 线程 | 一次 eval 直派（**不含 JSON 解析**，也没有结构克隆 / message 事件）；同批积压合并成一次 eval |
 | 10 | `_dispatch` → `pending[id]` → promise → `await` 续体 | 页面 JS | 兑现 |
 
-哪几段占大头？实测拒绝路径（只走 1–4 + 8–10）是 0.376 ms，成功路径 0.446 ms：
-**5–7 段合计 ≈70 µs，其余 ≈376 µs 全是"固定开销"**——JSON 编解码、两次跨语言边界、
+哪几段占大头？实测拒绝路径（只走 1–4 + 8–10）是 0.349 ms，成功路径 0.3905 ms：
+**5–7 段合计 ≈40 µs，其余 ≈350 µs 全是"固定开销"**——JSON 编解码、两次跨语言边界、
 UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不是业务代码。
 
-按「收益 / 风险」排序的可做优化（**尚未实施，属本文给出的方向**）：
+按「收益 / 风险」排序的可做优化（**第 1、2 项本轮已实施并实测，其余仍是方向**）：
 
-1. **回投直接派发，省掉一次 `JSON.parse`**（低风险、可量化）：第 9 步现在是
-   `window.postMessage(<json>, '*')`，页面 `_dispatch` 里再 `JSON.parse` 一次。
-   而 `postMessage` 的对象本来就要结构克隆一次——改成 `window.__CJ_TAURI__._dispatch(<json>)`
-   可直接把对象交给 `_dispatch`，省掉一次解析 + 一次 message 事件派发。
-2. **回投批处理**（收益最大、需要策略）：把队列里积压的多条响应合成一次
-   `eval`（例如 `_dispatch([r1, r2, …])`），把 N 次 UI 线程脚本执行变成 1 次。
-   事件连发场景（0.115 ms/条）受益最直接；代价是要定「积压多少条或等多久就冲」的策略，
-   单条响应会多一点延迟。
+1. ~~回投直接派发~~ **已实施**：第 9 步的回投脚本从 `window.postMessage(<json>, '*')` 改为直派
+   `window.__CJ_TAURI__._dispatch(<json>)`（`src/app.cj` 的 `jsSink`），桥 JS 里那个 `message`
+   监听器随之删除——省掉结构化克隆 + 一次 message 事件派发，顺带消掉
+   「谁能向 `window.postMessage` 投递谁就能伪造回包」的那个面（实测伪造投递被派发 0 次，§7-8）。
+   ⚠️ **更正一处早先的误述**：这里**并没有多一次 `JSON.parse`**——`<json>` 是被当作 JS
+   **对象字面量**嵌进 eval 的，页面收到的已经是对象，`_dispatch` 中 `typeof msg === 'string'`
+   的分支根本不走。
+2. ~~回投批处理~~ **已实施**：一次空闲回调（Linux `g_idle_add`，Windows `WM_CJT_FLUSH`）把队列里
+   最多 64 条响应拼成一段脚本、只执行一次 eval，没取空就自续再排；队列里只有一条时走**快路径**
+   （直接用原字符串，不拼批）。实测（Xvfb，各 3 轮取中位，同一份应用二进制只换 C 桥）：
+   吞吐 6024 → **11905 ops/s**（≈2.0×）、事件 0.105 → **0.04 ms/条**（≈2.6×）、
+   顺序往返 386.5 → 390.5 µs（+1%，噪声内）、1 MiB 回显 49.5 → 51.8 MB/s（噪声内）。
+   快路径不是可选项：只做拼批、不做快路径时顺序往返中位数是 414.5 µs（比基线慢约 7%），
+   因为「一次往返一条响应」这条最热的路上白花了一次拷贝。
 3. **worker 线程池**（中等收益、影响语义）：把第 5 步的 `spawn` 换成池化。
    `spawn` 只占 ~70 µs 里的一部分，所以只对「命令本身极短」的场景有意义；
    代价是并发/顺序/取消语义要重新定义，风险比 1、2 高。
@@ -340,11 +346,21 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
    worker 里**不要**绕过桥去直接调 GTK/WebKit——JSC 的栈边界校验会 abort（`AGENTS.md` §4 的坑），
    只能经 `jsSink` 排队回投。
 5. **同一命令不保序**：并发调用按完成先后回投（有意为之，见 §2）；需要顺序就得自己在业务层排队。
-6. **Linux 侧缺少逐条消息日志**：桥只在 Windows 打 `js -> native (N bytes)`，Linux 端排查看不到入站条数，
-   只能从前端计数或临时加日志。
-7. **本轮未验证的部分（如实说明）**：Windows 宿主只做了编译校验，协议同构但未在本机实机跑；
-   「让 socket 客户端也跑在同一个 webview 里」的严格对照实验没做（§4.3 的对照是量级参考，不是胜负判决）；
-   性能数字是单次运行样本、无显示器（Xvfb）环境，不能直接外推到有真实 GPU/合成分辨率的桌面。
+6. **Linux 侧缺少逐条消息日志**（**已修**）：现在两平台入站都打 `js -> native (N bytes)`，
+   排查时能直接对数（实测见 §8）。
+7. **回投失败原先不可见**（**已修**）：Linux 桥以前是 `run_javascript(..., NULL, NULL, NULL)`，不接执行结果，
+   eval 失败（脚本抛异常、JS 上下文失效）只会静默丢掉这条回投，前端那条 promise 永久 pending。
+   现在挂了 `on_js_done`（用 `webkit_web_view_run_javascript_finish` 取 `GError`）打 `run js failed: …`；
+   实测把页面 `_dispatch` 换成必抛实现后，宿主日志出现
+   `run js failed: about:blank:31:78: Error: probe-boom`。Windows 侧一直是 `log_hr("ExecuteScript", …)`。
+8. **页面可以伪造回投**（**已修**）：回投原先经 `window.postMessage(json, '*')` + 页面 `message` 监听器落地，
+   任何拿得到 window 的脚本（包括被注入的第三方脚本）都能投一条假 `resolve` / `event` 冒充原生。
+   改成直派 `__CJ_TAURI__._dispatch(json)` 后监听器删除，这个投递面随之消失；
+   实测页面自己 `window.postMessage({type:'event',…}, '*')` 时监听器被调 **0** 次。
+9. **本轮未验证的部分（如实说明）**：Windows 宿主只做了编译校验（本机无 WebView2 头文件），
+   协议同构但未在本机实机跑；「让 socket 客户端也跑在同一个 webview 里」的严格对照实验没做
+   （§4.3 的对照是量级参考，不是胜负判决）；性能数字是 3 次运行的中位数、无显示器（Xvfb）环境，
+   不能直接外推到有真实 GPU/合成分辨率的桌面。
 
 ## 8. 复现本文的数字
 
@@ -361,7 +377,7 @@ xvfb-run -a ./target/release/bin/main 2>&1 | grep BENCH
 node scripts/bench-ws-vs-tcp.js
 ```
 
-本文数字对应的真实输出（原样摘录）：
+本文数字对应的真实输出（原样摘录）。**改动前**（回投走 `window.postMessage`，每条响应一次 eval）：
 
 ```
 [frontend] BENCH latency_scaled n=2000 wall=893ms mean=446.5us ops/s=2240
@@ -373,6 +389,24 @@ node scripts/bench-ws-vs-tcp.js
 [frontend] BENCH events n=200 received=200 wall=23ms per=0.115ms
 [frontend] BENCH done
 ```
+
+**改动后**（回投直派 `_dispatch` + 批处理 + 单条快路径；同机、同一份应用二进制，只换 C 桥）：
+
+```
+[frontend] BENCH start ua=Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWeb
+[frontend] BENCH latency n=200 ping min=0ms p50=1ms p95=1ms max=5ms mean=0.58ms
+[frontend] BENCH latency_scaled n=2000 wall=781ms mean=390.5us ops/s=2561
+[frontend] BENCH deny_scaled n=2000 wall=698ms mean=349us ops/s=2865
+[frontend] BENCH throughput n=500 wall=54ms ops/s=9259
+[frontend] BENCH payload bytes=1024 iters=100 mean=0.53ms MB/s=1.843
+[frontend] BENCH payload bytes=65536 iters=40 mean=1.7ms MB/s=36.765
+[frontend] BENCH payload bytes=1048576 iters=10 mean=19.3ms MB/s=51.813
+[frontend] BENCH events n=200 received=200 wall=8ms per=0.04ms
+[frontend] BENCH done
+```
+
+（吞吐那一项 3 轮分别 9259 / 11905 / 13514 ops/s，取中位 11905 写进 §6；单轮取样波动大，
+引用时按 3 轮中位而不是挑最好的一轮。）
 
 ```
 payload=41B n=200 warmup=20 node=v22.22.0
@@ -399,7 +433,7 @@ TCP  localhost tcp echo  min=0.051ms p50=0.059ms p95=0.137ms max=0.399ms mean=0.
 |---|---|
 | 报文定义（协议权威描述） | `src/ipc_message.cj` |
 | 分发 / 能力校验 / 异步执行 / 事件推送 | `src/ipc_hub.cj` |
-| 前端桥 + reload 拦截 + 回投队列 | `native/bridge_linux.c`、`native/bridge_win.c` |
+| 前端桥 + reload 拦截 + 回投队列（桥 JS 两平台共用一份） | `native/bridge_js.h`、`native/bridge_linux.c`、`native/bridge_win.c` |
 | 装配与 `jsSink` 接线 | `src/app.cj`、`src/host.cj` |
 | 能力模型（与 Tauri permissions 对照） | `src/capability.cj`、`docs/RFC-插件体系.md` |
 | 性能探针 | `examples/ipc-bench/`、`scripts/bench-ws-vs-tcp.js` |

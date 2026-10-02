@@ -137,6 +137,20 @@
 
 ### Changed
 
+- **回投路径改为「一次调度合并成批 + 单条快路径」**：原生 → JS 的回投脚本从
+  `window.postMessage(<json>, '*')` 改为直派 `window.__CJ_TAURI__._dispatch(<json>)`（桥 JS 里那个
+  `message` 监听器随之删除），并且一次空闲回调（Linux `g_idle_add` / Windows `WM_CJT_FLUSH`）把队列里
+  最多 64 条响应拼成一段脚本、只执行一次 eval，没取空就自续再排；队列里只有一条时走**快路径**
+  （直接用原字符串，不拼批）。实测（Linux / WebKitGTK / Xvfb，同机、同一份应用二进制只换 C 桥，
+  各 3 轮取中位）：**管线化吞吐 6024 → 11905 ops/s（≈2.0×）**、**事件推送 0.105 → 0.04 ms/条（≈2.6×）**、
+  顺序往返 386.5 → 390.5 µs（噪声内）、1 MB 回显 49.5 → 51.8 MB/s（噪声内）。只做拼批不做快路径时
+  顺序往返中位 414.5 µs（比基线慢约 7%），所以快路径是这条改动的必需部分而不是可选优化。
+- **两平台桥的前端 JS 收敛为单份 `native/bridge_js.h`**：原先 `bridge_linux.c` / `bridge_win.c` 各内联
+  一份 `BRIDGE_JS`（除 `char`/`wchar_t` 与原生投递 API 名之外逻辑逐字重复），现在只留一份、两桥
+  `#include`，平台差异点仍留在各自文件里——避免以后改一处漏一处。
+- **`docs/IPC-通信机制.md` 的性能数字随本轮优化刷新**：§6 的两项优化候选改成「已实施」并附前后对照
+  （含中间态数据），§8 同时保留改动前 / 改动后的原样输出，§7 补齐已修项与仍存在的限制。
+
 - **插件 JS 的注入通道换成宿主层「预执行脚本列表」（破坏性变更）**：插件 `jsShim()` 不再由框架拼成
   `<script>` 块塞进 HTML，改为经 `WebViewHost.addInitScript(js)` 注册、由 C 桥在 document-start 注入
   （排在 `BRIDGE_JS` 之后）。收益：`runUrl()`（dev server / 远程页面）的页面 HTML 不在后端进程里，
@@ -184,6 +198,18 @@
   框架不再改写你传进来的 HTML。
 
 ### Fixed
+
+- **Linux 桥看不到入站消息**：`on_script_message` 直接回调仓颉、不打日志（Windows 一直有
+  `js -> native (N bytes)`），Linux 上排查时无法从日志对数。现已对齐（实测日志出现 `js -> native (54 bytes)`）。
+- **Linux 回投失败被静默吞掉**：`webkit_web_view_run_javascript(..., NULL, NULL, NULL)` 不接执行结果，
+  eval 失败（脚本抛异常、JS 上下文失效）只会丢掉这一条回投，前端那条 promise 永久 pending。
+  现挂 `on_js_done`（`webkit_web_view_run_javascript_finish` 取 `GError`）打 `run js failed: …`——
+  实测把页面 `_dispatch` 换成必抛实现后再发一条 invoke，宿主日志出现
+  `run js failed: about:blank:31:78: Error: probe-boom`。
+- **页面可以伪造回投**：回投原先经 `window.postMessage(json, '*')` + 页面 `message` 监听器落地，
+  任何拿得到 window 的脚本（包括被注入的第三方脚本）都能投一条假 `resolve` / `event` 冒充原生。
+  改成直派 `_dispatch` 后该投递面消失——实测页面自己 `window.postMessage({type:'event',…}, '*')`
+  时监听器被调 **0** 次。
 
 - `cj-tauri dev` 退出后残留 vite / esbuild：收尾改为按「先子后父」递归收掉整棵 dev server 进程树
   （`npm → sh -c vite → node(vite) → esbuild`），此前只 terminate 直接子进程（`bash`）。Linux 实测：

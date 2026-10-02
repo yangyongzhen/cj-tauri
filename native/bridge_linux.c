@@ -418,28 +418,73 @@ void cj_bridge_set_window(const char *title, int width, int height) {
     if (height > 0) g_win_h = height;
 }
 
-/* 原生 → JS：把脚本投递到 GTK 线程执行（仓颉线程禁止直接调 webkit） */
+/* 回投结果校验：这条 eval 是「仓颉 → 前端」的唯一出口，静默失败会让前端 promise 永久 pending。
+   Windows 侧有 log_hr("ExecuteScript", …) 兜同一件事，此前 Linux 完全不看结果（两平台不对称）。 */
+static void on_js_done(GObject *src, GAsyncResult *res, gpointer ud) {
+    GError *err = NULL;
+    WebKitJavascriptResult *r = webkit_web_view_run_javascript_finish(WEBKIT_WEB_VIEW(src), res, &err);
+    if (r) {
+        g_object_unref(r);  /* 每次回投都会新建一个结果对象，不看也要释放 */
+    }
+    if (err) {
+        fprintf(stderr, "[cj-bridge] run js failed: %s\n", err->message);
+        g_error_free(err);
+    }
+}
+
+/* 单批上限：一次 idle 最多合并多少条回投。写成常量而不是「取空为止」，
+   是为了长队列也肯让出 UI 线程（剩下的由自续 idle 接手）。 */
+#define CJ_JS_BATCH_MAX 64
+
+/* 原生 → JS：把脚本投递到 GTK 线程执行（仓颉线程禁止直接调 webkit）。
+   一次 idle 取走队列里最多 CJ_JS_BATCH_MAX 条、拼成一段脚本只执行一次：
+   eval 的固定开销（跨语言进 JS 引擎 + 启动一次脚本）是这里的成本大头，N 条合并即省掉 N-1 次。
+   队里只有一条时走快路径（直接用它自己的字符串，不拼批）：「一次往返一条响应」是最常见形态，
+   拼批那点拷贝在顺序往返上是白花，实测会让它慢几个百分点。
+   每条脚本自带分号，拼接靠换行分隔；一条语句运行时报错不会中断后续语句（只有语法错会整批失败，
+   真出这种错由 on_js_done 打日志兜底）。 */
 static gboolean flush_pending_js(gpointer d) {
-    js_node *node = NULL;
+    char *single = NULL;   /* 快路径专用：非空表示这次就投这一条 */
+    GString *script = NULL;
+    int n = 0;
     pthread_mutex_lock(&g_js_mutex);
     if (g_js_head) {
-        node = g_js_head;
-        g_js_head = g_js_head->next;
+        js_node *node = g_js_head;
+        g_js_head = node->next;
         if (!g_js_head) g_js_tail = NULL;
-    }
-    pthread_mutex_unlock(&g_js_mutex);
-    if (node) {
-        if (g_view) {
-            webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(g_view), node->js, NULL, NULL, NULL);
+        if (g_js_head) {
+            /* 后面还有第二条 → 拼批：这条当批头，剩下的在同一把锁里收完 */
+            script = g_string_new(node->js);
+            g_string_append_c(script, '\n');
+            n = 1;
+            while (g_js_head && n < CJ_JS_BATCH_MAX) {
+                js_node *next = g_js_head;
+                g_js_head = next->next;
+                if (!g_js_head) g_js_tail = NULL;
+                g_string_append(script, next->js);
+                g_string_append_c(script, '\n');
+                free(next->js);
+                free(next);
+                n++;
+            }
+        } else {
+            single = node->js;   /* 接管字符串所有权，省掉一次拷贝 */
+            node->js = NULL;
         }
         free(node->js);
         free(node);
-        /* 若队列仍有剩余，继续调度 */
-        pthread_mutex_lock(&g_js_mutex);
-        int more = (g_js_head != NULL);
-        pthread_mutex_unlock(&g_js_mutex);
-        if (more) g_idle_add(flush_pending_js, NULL);
     }
+    int more = (g_js_head != NULL);
+    pthread_mutex_unlock(&g_js_mutex);
+    /* 注意快路径下 n 仍是 0（那条不算进批量），守卫必须把 single 一起放进来 */
+    if ((single || n > 0) && g_view) {
+        webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(g_view),
+                                       single ? single : script->str, NULL, on_js_done, NULL);
+    }
+    free(single);
+    if (script) g_string_free(script, TRUE);
+    /* 队列没取空就再挂一次 idle 自续 */
+    if (more) g_idle_add(flush_pending_js, NULL);
     return G_SOURCE_REMOVE;
 }
 
@@ -485,6 +530,9 @@ static void on_script_message(WebKitUserContentManager *mgr,
         g_free(s);
         return;
     }
+    /* 入站日志：与 Windows 侧同一格式（bridge_win.c 的 js -> native (%d bytes)）。
+       此前只有 Windows 打这行，端到端取证时两平台不对称（AGENTS.md §1 的交付凭证就看它）。 */
+    fprintf(stderr, "[cj-bridge] js -> native (%d bytes)\n", (int)strlen(s ? s : ""));
     if (g_on_message) {
         g_on_message(s);
     }
@@ -502,56 +550,14 @@ static void on_destroy(GtkWidget *w, gpointer ud) {
 }
 
 /* 注入前端桥接脚本：暴露 window.__CJ_TAURI__ */
-static const char *BRIDGE_JS =
-    "window.__CJ_TAURI__ = (function () {"
-    "  var seq = 0;"
-    "  var pending = {};"
-    "  var listeners = {};"
-    "  function post(obj) {"
-    "    window.webkit.messageHandlers.cjtauri.postMessage(JSON.stringify(obj));"
-    "  }"
-    "  return {"
-    "    invoke: function (cmd, args) {"
-    "      var id = ++seq;"
-    "      var p = new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });"
-    "      post({ type: 'invoke', id: id, cmd: cmd, args: args || {} });"
-    "      return p;"
-    "    },"
-    "    listen: function (event, cb) {"
-    "      if (!listeners[event]) listeners[event] = [];"
-    "      listeners[event].push(cb);"
-    "      return function () {"
-    "        var arr = listeners[event] || [];"
-    "        var i = arr.indexOf(cb);"
-    "        if (i >= 0) arr.splice(i, 1);"
-    "      };"
-    "    },"
-    "    emit: function (event, payload) {"
-    "      post({ type: 'emit', event: event, payload: payload || {} });"
-    "    },"
-    "    reload: function () {"
-    "      /* 与 CJT_RELOAD_MSG 保持一致：宿主拦截后不会进 IPC hub */"
-    "      window.webkit.messageHandlers.cjtauri.postMessage('__cj_tauri_reload__');"
-    "    },"
-    "    _dispatch: function (msg) {"
-    "      if (!msg) return;"
-    "      if (msg.type === 'resolve') {"
-    "        var p = pending[msg.id];"
-    "        if (!p) return;"
-    "        delete pending[msg.id];"
-    "        if (msg.ok) p.resolve(msg.data); else p.reject(new Error(msg.error || 'invoke failed'));"
-    "      } else if (msg.type === 'event') {"
-    "        var arr = listeners[msg.event] || [];"
-    "        for (var i = 0; i < arr.length; i++) arr[i](msg.payload);"
-    "      }"
-    "    }"
-    "  };"
-    "})();"
-    "window.addEventListener('message', function (e) {"
-    "  var msg = e.data;"
-    "  if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (err) { return; } }"
-    "  window.__CJ_TAURI__._dispatch(msg);"
-    "});";
+/* 平台唯一差异行（其余 JS 见 native/bridge_js.h，两平台共用一份，防漂移）：
+   post 通道 = webkit.messageHandlers；reload 控制消息同通道发字面量。 */
+#define CJ_LIT(s) s
+#define CJ_POST_STMT "    window.webkit.messageHandlers.cjtauri.postMessage(JSON.stringify(obj));"
+#define CJ_RELOAD_STMT "      window.webkit.messageHandlers.cjtauri.postMessage('__cj_tauri_reload__');"
+#include "bridge_js.h"
+
+static const char *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 
 static void *gtk_thread_main(void *arg) {
     /* 先记下 GTK 线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */

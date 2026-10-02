@@ -242,8 +242,10 @@ public class TauriApp {
             this.hub.handleRawMessage(raw)
         })
         this.hub.jsSink = { json =>
-            // JSON 本身就是合法 JS 对象字面量，直接嵌入（toJsonString 已转义字符串内特殊字符）
-            let js = "window.postMessage(${json}, '*');"
+            // 直派：JSON 本身就是合法 JS 对象字面量，直接嵌进 eval 交给桥的 _dispatch。
+            // 不走 window.postMessage —— 那样每条响应要多一次结构化克隆 + 一次 message 事件派发，
+            // 而且那个监听器是全页面（含 iframe / opener）都能投递的伪造入口。
+            let js = "window.__CJ_TAURI__._dispatch(${json});"
             this.host.runJs(js)
         }
         this.hub.devToolsSink = { =>

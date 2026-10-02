@@ -380,7 +380,7 @@ Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2
 | 新工程 `cj-tauri build` | ✅ `target/release/bin/main.exe` |
 | 新工程 `cj-tauri run` | ✅ 窗口显示，JS→原生双向通信（62/48 字节消息，`ExecuteScript hr=0x0`） |
 | 窗口图标 `cfg.iconPath = "icon.ico"` | ✅ 桥日志 `set icon: path=icon.ico` → `window icon: path=icon.ico loaded (big=0x… small=0x…)`，标题栏 / 任务栏 / Alt-Tab 生效 |
-| 单元测试 `bash scripts/test.sh` | ✅ 23/23 通过（IPC 分发、能力校验、版本常量） |
+| 单元测试 `bash scripts/test.sh` | ✅ 78/78 通过（IPC 分发、能力校验、版本常量、插件体系 / 命名权限集 / 对话框 / shell / 清单导出） |
 
 Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 stderr 日志）：
 
@@ -397,7 +397,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | React 18 模板 `cj-tauri dev` | ✅ 页面探针 3 次上报 `href=http://127.0.0.1:5173/`；退出后相关进程 CLEAN |
 | `cj-tauri build`（Vue 模板） | ✅ `npm run build` + `vite-plugin-singlefile` → `ui/dist/` 只有 `index.html`（63.4 KB）→ `cjpm build success` |
 | 示例工程构建 | ✅ `examples/hello` / `examples/todo_check` / `examples/vue_todo` 均 `cjpm build success` |
-| `examples/ipc-bench`（IPC 基准，Xvfb） | ✅ 6 组基准全部出数：顺序往返 446.5 µs/次、未授权拒绝 376 µs/次、管线化 6410 ops/s、1 MB 回显 16.8 ms（59.5 MB/s）、事件 0.115 ms/条，末行 `BENCH done`；对照 `scripts/bench-ws-vs-tcp.js` 同机 WebSocket 0.151 ms / 裸 TCP 0.077 ms |
+| `examples/ipc-bench`（IPC 基准，Xvfb） | ✅ 6 组基准全部出数：顺序往返 390.5 µs/次、未授权拒绝 349 µs/次、管线化 11905 ops/s、1 MB 回显 19.3 ms（51.8 MB/s）、事件 0.04 ms/条，末行 `BENCH done`；**回投直派 + 批处理**前后对照（同机、同一份应用二进制只换 C 桥，各 3 轮取中位）：吞吐 6024 → 11905 ops/s、事件 0.105 → 0.04 ms/条、顺序往返 386.5 → 390.5 µs（噪声内）；对照 `scripts/bench-ws-vs-tcp.js` 同机 WebSocket 0.151 ms / 裸 TCP 0.077 ms |
 | `cj-tauri info` 取插件清单（`DISPLAY` 故意 unset） | ✅ `examples/plugin-shell`：末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；直跑应用 stderr `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0；陈旧产物 / 非项目目录均明确跳过 |
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、

@@ -17,17 +17,18 @@
 ### Added
 
 - **IPC 通信机制技术文档 + 性能探针**：新增 `docs/IPC-通信机制.md`——写清三层结构（页面 JS → 宿主桥 C → 仓颉 IPC hub）、
-  四种报文（`invoke` / `resolve` 成功 / `resolve` 失败 / `event`，外加宿主侧控制消息 `__cj_tauri_reload__`）、
+  四种报文（`invoke` / `emit` / `resolve`（成功或失败）/ `event`，外加宿主侧控制消息 `__cj_tauri_reload__`）、
   一次 invoke 的十步时序与两平台差异，并给出**实测数字**；正面回答「比起 WebSocket 如何」：
   两者不在同一层（webview 消息通道是 webview 自带的，WebSocket 是传输层），本机 loopback 对照
-  （WebSocket 0.151 ms、裸 TCP 0.077 ms）与本框架进程内往返（0.45 ms 成功 / 0.38 ms 拒绝）同处
+  （WebSocket 0.151 ms、裸 TCP 0.077 ms）与本框架进程内往返（0.39 ms 成功 / 0.35 ms 拒绝）同处
   0.1–0.5 ms 一档——换传输方式不是数量级差异，开销在报文编解码与调度上。实测（Linux / WebKitGTK /
-  2 vCPU / Xvfb，单次样本）：顺序往返 446.5 µs/次（2240 ops/s）、未授权命令同步拒绝 376 µs/次、
-  管线化 6410 ops/s、1 KB → 64 KB → 1 MB 回显 0.54 ms → 2.03 ms → 16.8 ms（1.8 → 30.9 → 59.5 MB/s）、
-  事件推送 0.115 ms/条。配套两件可复现工具：探针 `examples/ipc-bench/`（4 组基准，结果回传仓颉侧 stderr）
-  与对照脚本 `scripts/bench-ws-vs-tcp.js`（Node 22 内置 `WebSocket` 客户端 + 手写最小服务端，零依赖）。
-  文档同时如实记下三处限制：**非法报文只打 stderr、不回包**（前端 promise 会永久 pending）、
-  **前端 `emit()` 目前是空转**（事件只有仓颉 → JS 一个方向）、无超时 / 取消 / 背压策略。
+  2 vCPU / Xvfb，**三轮取中位**，原始日志 `/tmp/ipc-bench-round{1,2,3}.log`）：顺序往返 390.5 µs/次（2561 ops/s）、
+  未授权命令同步拒绝 350 µs/次、管线化 10000 ops/s、1 KB → 64 KB → 1 MB 回显 0.49 ms → 1.65 ms → 14.6 ms
+  （2.0 → 37.9 → 68.5 MB/s）、事件推送 0.02 ms/条。配套两件可复现工具：探针 `examples/ipc-bench/`
+  （4 组基准，结果回传仓颉侧 stderr）与对照脚本 `scripts/bench-ws-vs-tcp.js`（Node 22 内置 `WebSocket`
+  客户端 + 手写最小服务端，零依赖）。文档同时如实记下限制：**捞不出 `id` 的非法报文仍只打 stderr**
+  （捞得到 `id` 的已能回 `ok:false`，见 `Fixed`——此前前端 promise 会永久 pending）、无超时 / 取消 / 背压策略
+  （前端 `emit()` 已由本段的 `emit` 条目打通，不再是空转）。
 - **机器可读的插件清单 `describePluginsJson()`**：框架侧函数（**不动 `Plugin` 接口**，仍是 6 个方法）返回
   `[{name, commands, events, permissions, hasShim}]`——`commands` / `events` 是全名数组，`permissions` 是
   「集全名 → 成员全名数组」（框架展开后的样子，也就是清单里能引用的名字），`hasShim` 表示该插件是否带前端

@@ -13,13 +13,13 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
 
 实测（Linux / WebKitGTK / 2 vCPU，详见 §4）：
 
-| 场景 | 实测 |
+| 场景 | 实测（当前实现，三轮中位） |
 |---|---|
-| 顺序往返（`bench:ping`，2000 次取均值） | **≈0.45 ms/次**（2240 ops/s） |
-| 未授权命令被拒（同步快路径，2000 次取均值） | **≈0.38 ms/次**（2660 ops/s） |
-| 管线化吞吐（500 条不等回） | **≈6400 ops/s** |
-| 1 MB 字符串回显往返 | **≈17 ms**（≈60 MB/s） |
-| 事件推送（仓颉连发 200 条） | **≈0.12 ms/条** |
+| 顺序往返（`bench:ping`，2000 次取均值） | **≈0.39 ms/次**（2561 ops/s） |
+| 未授权命令被拒（同步快路径，2000 次取均值） | **≈0.35 ms/次**（2857 ops/s） |
+| 管线化吞吐（500 条不等回） | **≈1.0 万 ops/s** |
+| 1 MB 字符串回显往返 | **≈14.6 ms**（≈68.5 MB/s；这项单轮波动大，三轮 45.2–70.9 MB/s） |
+| 事件推送（仓颉连发 200 条） | **≈0.02 ms/条**（三轮 0.015–0.06 ms，绝对值小、波动大） |
 
 结论先给：**这个量级对「UI 交互 + 命令式 API」完全够用**；真正的边界在大 payload（MB/s 级）与高频小消息
 （几千 ops/s 级）。它与 WebSocket 的关系不是「谁更快」，而是「压根不在同一层」——见 §5。
@@ -141,14 +141,15 @@ Windows 用 `PostMessageW(WM_CJT_FLUSH)` 唤醒窗口线程。**这也是 worker
 ### 3.2 为什么校验留在调用线程
 
 「未授权 / 未注册」在前端是最常见的失败，报错必须即时且顺序确定；而且为一条注定失败的请求白开一个线程
-不划算。所以线程模型是**两段式**：校验同步、执行异步。实测这两条路径的差距很小（§4：拒绝 0.376 ms vs
-成功 0.447 ms），说明「同步拒绝」并没有因为「没走 worker」而变慢——省下的是线程与回投排队，量级约 70 µs。
+不划算。所以线程模型是**两段式**：校验同步、执行异步。实测这两条路径的差距很小（§4：拒绝 0.350 ms vs
+成功 0.3905 ms），说明「同步拒绝」并没有因为「没走 worker」而变慢——省下的是线程与回投排队，量级约 40 µs。
 
 ### 3.3 事件推送（仓颉 → JS）
 
 `IpcContext.emit(event, payload)` → `IpcHub.emitToWindow` → `canEmit(event)` 校验 → `jsSink(event json)`。
 与 invoke 相比少了三件事：**没有 id 配对、没有 promise、没有 worker**（发射方本来就在某个线程上）。
-所以单位成本更低（实测 0.115 ms/条，比往返的 0.447 ms 便宜约 4 倍）。事件没有背压与丢包策略：
+所以单位成本更低（实测 0.02 ms/条，比往返的 0.39 ms 低一个量级；这项绝对值小、单轮波动大，三轮分别是
+0.06 / 0.015 / 0.02 ms）。事件没有背压与丢包策略：
 一条 emit 就是一次 JS 执行，前端的监听器同步跑——监听器里写重活会拖慢整个页面。
 
 反方向（前端 → 后端）走的是**另一条路**，别把两者当成同一个 `emit`：
@@ -202,34 +203,50 @@ Windows 用 `PostMessageW(WM_CJT_FLUSH)` 唤醒窗口线程。**这也是 worker
   也就是说，下面所有数字都含「两次 JSON 编解码 + 一次 webview 消息 + 一次 JS eval + 一次 promise 调度」。
 - **逐条计时不可信**：WebKitGTK 的 `performance.now()` 实测粒度约 1 ms（`latency` 项 min=0 ms、p50=1 ms），
   所以可信的均值一律来自**总墙钟 ÷ N**（`latency_scaled` / `throughput` / `payload` / `events` 项）。
-- 预热 20 次后才计时；单次运行样本（未取多轮中位数），机器负载会影响绝对值——**请看量级与相对关系，不要抠小数**。
+- 预热 20 次后才计时；**连跑三轮取中位**（2026-10-02，原始日志 `/tmp/ipc-bench-round{1,2,3}.log`，
+  §8 摘录的是吞吐那一项为中位的第 1 轮，与 `/tmp/ipc-bench-linux.log` 逐字节一致）。
+  机器负载依然会影响绝对值——**请看量级与相对关系，不要抠小数**。
 
 ### 4.2 结果
 
-`examples/ipc-bench/`，单次运行（`/tmp/ipc-bench-linux.log`）：
+`examples/ipc-bench/`，**当前实现**（回投直派 + 批处理 + 单条快路径）连跑三轮取中位
+（原始日志 `/tmp/ipc-bench-round{1,2,3}.log`）：
+
+| 基准 | 参数 | 结果（三轮中位） |
+|---|---|---|
+| `latency_scaled` `bench:ping` | 2000 次顺序 | 781 ms → **390.5 µs/次**，2561 ops/s |
+| `deny_scaled` 未授权命令 | 2000 次顺序 | 700 ms → **350 µs/次**，2857 ops/s |
+| `throughput` `bench:ping` | 500 条不等回 | 50 ms → **10000 ops/s** |
+| `payload` `bench:echo` 1 KB | 100 次 | 0.49 ms/次 → 1.99 MB/s |
+| `payload` `bench:echo` 64 KB | 40 次 | 1.65 ms/次 → 37.9 MB/s |
+| `payload` `bench:echo` 1 MB | 10 次 | 14.6 ms/次 → **68.5 MB/s**（单轮 45.2–70.9） |
+| `events` 仓颉连发事件 | 200 条 | 4 ms → **0.02 ms/条**（单轮 0.015–0.06） |
+| `latency` 逐条分布（仅看长尾） | 200 次 | min=0 ms / p50=1 ms / p95=2 ms / max=6 ms（粒度所限） |
+
+改动前（回投走 `window.postMessage`、每条响应一次 eval）的历史基线，保留作对照（单次运行，
+那份原始日志已被后续运行覆盖）：
 
 | 基准 | 参数 | 结果 |
 |---|---|---|
-| `latency_scaled` `bench:ping` | 2000 次顺序 | 893 ms → **446.5 µs/次**，2240 ops/s |
-| `deny_scaled` 未授权命令 | 2000 次顺序 | 752 ms → **376 µs/次**，2660 ops/s |
-| `throughput` `bench:ping` | 500 条不等回 | 78 ms → **6410 ops/s** |
-| `payload` `bench:echo` 1 KB | 100 次 | 0.54 ms/次 → 1.81 MB/s |
-| `payload` `bench:echo` 64 KB | 40 次 | 2.03 ms/次 → 30.9 MB/s |
-| `payload` `bench:echo` 1 MB | 10 次 | 16.8 ms/次 → **59.5 MB/s** |
-| `events` 仓颉连发事件 | 200 条 | 23 ms → **0.115 ms/条** |
-| `latency` 逐条分布（仅看长尾） | 200 次 | min=0 ms / p50=1 ms / p95=1 ms / max=5 ms（粒度所限） |
+| `latency_scaled` | 2000 次顺序 | 893 ms → 446.5 µs/次，2240 ops/s |
+| `deny_scaled` | 2000 次顺序 | 752 ms → 376 µs/次，2660 ops/s |
+| `throughput` | 500 条不等回 | 78 ms → 6410 ops/s |
+| `payload` 1 KB / 64 KB | 100 / 40 次 | 0.54 ms（1.81 MB/s） / 2.03 ms（30.9 MB/s） |
+| `payload` 1 MB | 10 次 | 16.8 ms → 59.5 MB/s |
+| `events` | 200 条 | 23 ms → 0.115 ms/条 |
 
 怎么读：
 
-- **顺序 0.45 ms/次、管线化 0.64 万 ops/s**：管线化快了约 2.9×——顺序模式每次都在等一次
+- **顺序 0.39 ms/次、管线化 1.0 万 ops/s**：管线化快了约 3.9×——顺序模式每次都在等一次
   「eval 回投 + JS 事件循环」的往返，不等回地连发可以重叠这些等待。前端要不要并发，取决于业务是否关心顺序。
-- **拒绝路径 0.376 ms，比成功少 70 µs**：省掉的是 `spawn` + `handler.handle` + `resolve` 组装。
+- **拒绝路径 0.350 ms，比成功少约 40 µs**：省掉的是 `spawn` + `handler.handle` + `resolve` 组装。
   这条是「校验留在调用线程」这个设计决策的直接收益——同步拒绝没有额外代价。
-- **payload 越大越接近吞吐上限**：1 KB → 64 KB（数据 64×）时间只涨 3.8×，MB/s 从 1.8 涨到 30.9；
-  1 MB 时 59.5 MB/s。小 payload 完全被固定开销支配（0.54 ms 里几乎没有「数据搬运」的份额），
-  1 MB 那行的 ≈60 MB/s 就是 **JSON 编解码 + 单线程 JS** 的实际天花板量级。
-- **事件 0.115 ms/条**：比请求-响应便宜约 4 倍，符合「少了 id 配对、promise、worker」的预期。
-  高频事件推送（例如 60 fps 量级的动画数据）在这个量级下是可行的，但注意 §7 的背压问题。
+- **payload 越大越接近吞吐上限**：1 KB → 64 KB（数据 64×）时间涨 3.4×，MB/s 从 1.99 涨到 37.9；
+  1 MB 时 68.5 MB/s。小 payload 完全被固定开销支配（0.49 ms 里几乎没有「数据搬运」的份额），
+  1 MB 那行的 ≈68 MB/s 就是 **JSON 编解码 + 单线程 JS** 的实际天花板量级。
+- **事件 0.02 ms/条**（三轮 0.06 / 0.015 / 0.02）：比请求-响应低一个量级，符合「少了 id 配对、promise、worker」
+  的预期。这项绝对值小、单轮波动大，别拿单次结果做结论。高频事件推送（例如 60 fps 量级的动画数据）
+  在这个量级下是可行的，但注意 §7 的背压问题。
 
 ### 4.3 同机对照：localhost WebSocket / 裸 TCP
 
@@ -240,7 +257,7 @@ Windows 用 `PostMessageW(WM_CJT_FLUSH)` 唤醒窗口线程。**这也是 worker
 | WebSocket `ws://127.0.0.1`（手写最小服务端） | 0.112 ms | 0.131 ms | 0.215 ms | 0.945 ms | **0.151 ms** |
 | 裸 TCP 回显（socket 往返下限） | 0.051 ms | 0.059 ms | 0.137 ms | 0.399 ms | **0.077 ms** |
 
-**怎么读这组对照（重要）**：表面看 loopback socket 更快（0.08–0.15 ms vs cj-tauri 的 0.38–0.45 ms），
+**怎么读这组对照（重要）**：表面看 loopback socket 更快（0.08–0.15 ms vs cj-tauri 的 0.35–0.39 ms），
 但这个比较**不是胜负判决**，因为两条线不在同一个执行环境里：WS 那条跑在 Node 里（没有 webview、
 没有页面事件循环、没有跨语言回调），cj-tauri 那条跑在 webview 里且每次都要跨 JS↔C↔仓颉 三道边界，
 还要付 JSON 编解码与 worker 线程 spawn。它的价值是给出**量级参考**：三者都在 0.1–0.5 ms 这一档，
@@ -278,10 +295,10 @@ cj-tauri 的 IPC 没有「传输层」可换——JS 与仓颉本来就在同一
 ### 5.3 数字对照
 
 同机 loopback 的实测下限（§4.3）：WebSocket 0.151 ms、裸 TCP 0.077 ms；
-cj-tauri 的进程内往返 0.45 ms（成功）/ 0.38 ms（拒绝）。三者同处 **0.1–0.5 ms 这一档**，
+cj-tauri 的进程内往返 0.39 ms（成功）/ 0.35 ms（拒绝）。三者同处 **0.1–0.5 ms 这一档**，
 没有数量级差异——因为这一档的耗时主要由「报文编解码 + 调度 + 跨边界调用」构成，而不是由「有没有 socket」决定。
 
-大 payload（1 MB ≈ 17 ms / 59.5 MB/s）是另一回事：我们这条链路的瓶颈是
+大 payload（1 MB ≈ 14.6 ms / 68.5 MB/s，单轮 45.2–70.9）是另一回事：我们这条链路的瓶颈是
 **JSON 编解码 + 单线程 JS**，而 WebSocket 有二进制帧与更省的分片路径，在 MB 级以上通常更有优势。
 真要搬大块二进制数据（图像、音视频帧），应当设计专门通道（Tauri v2 也是往这个方向补的），
 而不是指望把 JSON 往返调快。
@@ -313,7 +330,7 @@ Tauri v2 官方文档对自家 IPC 的描述与本项目同构（原文见 §9�
 
 ## 6. 一次往返的开销构成与优化空间
 
-把 0.45 ms 拆开（`src/ipc_hub.cj` + C 桥逐段对照）：
+把 0.39 ms 拆开（`src/ipc_hub.cj` + C 桥逐段对照）：
 
 | # | 步骤 | 在哪 | 备注 |
 |---|---|---|---|
@@ -328,7 +345,7 @@ Tauri v2 官方文档对自家 IPC 的描述与本项目同构（原文见 §9�
 | 9 | `run_javascript("window.__CJ_TAURI__._dispatch(<json>)")` | 宿主 UI 线程 | 一次 eval 直派（**不含 JSON 解析**，也没有结构克隆 / message 事件）；同批积压合并成一次 eval |
 | 10 | `_dispatch` → `pending[id]` → promise → `await` 续体 | 页面 JS | 兑现 |
 
-哪几段占大头？实测拒绝路径（只走 1–4 + 8–10）是 0.349 ms，成功路径 0.3905 ms：
+哪几段占大头？实测拒绝路径（只走 1–4 + 8–10）是 0.350 ms，成功路径 0.3905 ms：
 **5–7 段合计 ≈40 µs，其余 ≈350 µs 全是"固定开销"**——JSON 编解码、两次跨语言边界、
 UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不是业务代码。
 
@@ -348,8 +365,10 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
    顺序往返 386.5 → 390.5 µs（+1%，噪声内）、1 MiB 回显 49.5 → 51.8 MB/s（噪声内）。
    快路径不是可选项：只做拼批、不做快路径时顺序往返中位数是 414.5 µs（比基线慢约 7%），
    因为「一次往返一条响应」这条最热的路上白花了一次拷贝。
+   （注：这是「只换 C 桥」的 A/B 对照——两处改动的收益要单独摘出来只能这么测；§4.2 是对当前实现的
+   绝对测量（三轮中位吞吐 10000 ops/s），与这里的 11905 属同一档，差异来自会话噪声。）
 3. **worker 线程池**（中等收益、影响语义）：把第 5 步的 `spawn` 换成池化。
-   `spawn` 只占 ~70 µs 里的一部分，所以只对「命令本身极短」的场景有意义；
+   `spawn` 只占那 ~40 µs 里的一部分，所以只对「命令本身极短」的场景有意义；
    代价是并发/顺序/取消语义要重新定义，风险比 1、2 高。
 4. **大 payload 走专门通道**：需要搬 MB 级数据时，别回内容，回**句柄/路径**（我们自己解析）；
    或后续版本加二进制通道（Tauri v2 的方向）。
@@ -409,7 +428,8 @@ xvfb-run -a ./target/release/bin/main 2>&1 | grep BENCH
 node scripts/bench-ws-vs-tcp.js
 ```
 
-本文数字对应的真实输出（原样摘录）。**改动前**（回投走 `window.postMessage`，每条响应一次 eval）：
+本文数字对应的真实输出（原样摘录）。**改动前**（回投走 `window.postMessage`，每条响应一次 eval）——
+历史记录，那份日志文件已被后续运行覆盖，摘录按原样保留：
 
 ```
 [frontend] BENCH latency_scaled n=2000 wall=893ms mean=446.5us ops/s=2240
@@ -422,23 +442,25 @@ node scripts/bench-ws-vs-tcp.js
 [frontend] BENCH done
 ```
 
-**改动后**（回投直派 `_dispatch` + 批处理 + 单条快路径；同机、同一份应用二进制，只换 C 桥）：
+**改动后 / 当前实现**（回投直派 `_dispatch` + 批处理 + 单条快路径）——2026-10-02 连跑三轮，
+下面是吞吐为中位的那一轮（第 1 轮），与 `/tmp/ipc-bench-linux.log` 逐字节一致：
 
 ```
 [frontend] BENCH start ua=Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWeb
-[frontend] BENCH latency n=200 ping min=0ms p50=1ms p95=1ms max=5ms mean=0.58ms
-[frontend] BENCH latency_scaled n=2000 wall=781ms mean=390.5us ops/s=2561
-[frontend] BENCH deny_scaled n=2000 wall=698ms mean=349us ops/s=2865
-[frontend] BENCH throughput n=500 wall=54ms ops/s=9259
-[frontend] BENCH payload bytes=1024 iters=100 mean=0.53ms MB/s=1.843
-[frontend] BENCH payload bytes=65536 iters=40 mean=1.7ms MB/s=36.765
-[frontend] BENCH payload bytes=1048576 iters=10 mean=19.3ms MB/s=51.813
-[frontend] BENCH events n=200 received=200 wall=8ms per=0.04ms
+[frontend] BENCH latency n=200 ping min=0ms p50=1ms p95=2ms max=7ms mean=0.75ms
+[frontend] BENCH latency_scaled n=2000 wall=785ms mean=392.5us ops/s=2548
+[frontend] BENCH deny_scaled n=2000 wall=700ms mean=350us ops/s=2857
+[frontend] BENCH throughput n=500 wall=50ms ops/s=10000
+[frontend] BENCH payload bytes=1024 iters=100 mean=0.5ms MB/s=1.953
+[frontend] BENCH payload bytes=65536 iters=40 mean=1.725ms MB/s=36.232
+[frontend] BENCH payload bytes=1048576 iters=10 mean=22.1ms MB/s=45.249
+[frontend] BENCH events n=200 received=200 wall=12ms per=0.06ms
 [frontend] BENCH done
 ```
 
-（吞吐那一项 3 轮分别 9259 / 11905 / 13514 ops/s，取中位 11905 写进 §6；单轮取样波动大，
-引用时按 3 轮中位而不是挑最好的一轮。）
+（§4.2 的每一行都取这三轮的中位：吞吐 10000 / 9615 / 10638 → 10000 ops/s；1 MB 回显 45.2 / 70.9 / 68.5 →
+68.5 MB/s；事件 0.06 / 0.015 / 0.02 → 0.02 ms/条。单轮取样波动大——引用时按 3 轮中位，不要挑最好的一轮，
+也不要把单轮数字当结论。§6 里的 11905 ops/s 是更早那次「只换 C 桥」A/B 对照的吞吐中位，两者属同一档。）
 
 ```
 payload=41B n=200 warmup=20 node=v22.22.0

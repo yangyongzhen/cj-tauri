@@ -8,6 +8,8 @@
 > **使用指南：[docs/使用文档.md](docs/使用文档.md)**——环境准备 → 创建应用 → 开发 → 排障。
 > **插件体系教程：[docs/插件体系教程.md](docs/插件体系教程.md)**——插件是干嘛的 → 一行接入官方 `fs` 插件 → 自己写一个 → 排错。
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
+> **IPC 通信机制：[docs/IPC-通信机制.md](docs/IPC-通信机制.md)**——协议报文 → 完整时序 → 实测性能
+> （含与 WebSocket / 裸 TCP 的同机对照）→ 已知限制与优化空间。
 >
 > **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
 > ——同主题文档：[docs/仓颉版Tauri-介绍与使用指南.md](docs/仓颉版Tauri-介绍与使用指南.md)（指南体）、`docs/仓颉版Tauri-博客稿.md`（博客体）。
@@ -31,7 +33,7 @@
 
 ## 示例一览
 
-仓内 `examples/` 有四个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
+仓内 `examples/` 有七个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
 下面截图均为**发行态实机截图**（Linux / WebKitGTK，2026-10-02）。
 
 ### 示例应用
@@ -44,6 +46,7 @@
 | [`examples/plugin-fs`](examples/plugin-fs) | 插件体系示例：一行 `.plugin(FsPlugin())` 接入官方文件读写插件（`fs:readText` / `fs:writeText` / `fs:exists`），并演示**权限仍由 capabilities 决定**——清单故意只放行两条，第三条启动即提示、前端调用被拒。 | `cd examples/plugin-fs && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-shell`](examples/plugin-shell) | 插件体系示例：一行 `.plugin(ShellPlugin())` 接入官方 `shell` 插件（`shell:open` / `shell:exec`）——用系统默认程序打开链接、执行子进程取回退出码与输出；**argv 直传不过 shell**（页面拼不出注入），命名集 `shell:allow-open` 只放行打开，另带未授权对照组。 | `cd examples/plugin-shell && cjpm build`，再按上方「运行仓内示例」启动 |
+| [`examples/ipc-bench`](examples/ipc-bench) | **IPC 性能探针**：4 组基准（顺序往返延迟 / 管线化吞吐 / payload 放大 / 事件推送成本），前端算完经 `report` 命令回传仓颉侧 stderr；配套 `scripts/bench-ws-vs-tcp.js` 量同机 localhost WebSocket 与裸 TCP 的回环往返做对照。数字与解读见 [docs/IPC-通信机制.md](docs/IPC-通信机制.md)。 | `cd examples/ipc-bench && cjpm build`，再按上方「运行仓内示例」启动（结果在 stderr，以 `BENCH` 开头） |
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
@@ -131,6 +134,7 @@ cj-tauri/
 ├── examples/hello/        # 示例应用（greet + tick 事件 + 越权演示）
 ├── examples/todo_check/   # 教程实战示例（待办清单，前端页面由 `extract.js` 从教程文档抽取）
 ├── examples/vue_todo/     # todo_check 的 Vue 3 版（同一套命令与事件，前端是 Vite 工程）
+├── examples/ipc-bench/    # IPC 性能探针（4 组基准，结果打 stderr；数字见 docs/IPC-通信机制.md）
 ├── cli/                   # 脚手架 CLI（仓颉实现，跨平台）
 │   ├── cj-tauri.sh        # Linux / macOS / Git Bash 启动器（首次运行自动构建 CLI）
 │   ├── cj-tauri.bat       # Windows 启动器
@@ -334,7 +338,7 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
   [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
 - ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
-- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，71 个用例）与 `scripts/check-static.sh`
+- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，78 个用例）与 `scripts/check-static.sh`
   （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
 - ✅ P3：热重载与前端框架模板（宿主加 `runUrl` / `loadUrl` / `reload`；`cj-tauri dev` 接管 Vite dev server，
   Vue 3 / React 18 模板，HMR 在窗口内生效）、`cj-tauri build` 打单文件前端产物
@@ -393,6 +397,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | React 18 模板 `cj-tauri dev` | ✅ 页面探针 3 次上报 `href=http://127.0.0.1:5173/`；退出后相关进程 CLEAN |
 | `cj-tauri build`（Vue 模板） | ✅ `npm run build` + `vite-plugin-singlefile` → `ui/dist/` 只有 `index.html`（63.4 KB）→ `cjpm build success` |
 | 示例工程构建 | ✅ `examples/hello` / `examples/todo_check` / `examples/vue_todo` 均 `cjpm build success` |
+| `examples/ipc-bench`（IPC 基准，Xvfb） | ✅ 6 组基准全部出数：顺序往返 446.5 µs/次、未授权拒绝 376 µs/次、管线化 6410 ops/s、1 MB 回显 16.8 ms（59.5 MB/s）、事件 0.115 ms/条，末行 `BENCH done`；对照 `scripts/bench-ws-vs-tcp.js` 同机 WebSocket 0.151 ms / 裸 TCP 0.077 ms |
 | `cj-tauri info` 取插件清单（`DISPLAY` 故意 unset） | ✅ `examples/plugin-shell`：末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；直跑应用 stderr `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0；陈旧产物 / 非项目目录均明确跳过 |
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、

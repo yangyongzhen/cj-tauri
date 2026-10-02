@@ -1,0 +1,7 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": ["bench:ping", "bench:echo", "bench:emit", "report"],
+  "permissions": [],
+  "events": ["bench:tick"]
+}

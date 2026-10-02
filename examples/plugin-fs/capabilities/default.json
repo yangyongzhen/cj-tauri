@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["report", "system:version", "fs:readText", "fs:exists"],
+  "events": []
+}

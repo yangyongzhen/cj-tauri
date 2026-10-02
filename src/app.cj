@@ -1,5 +1,6 @@
 package cjTauri
 
+import std.collection.*
 import std.env.*
 import stdx.encoding.json.*
 
@@ -18,6 +19,9 @@ public class TauriApp {
     private var host: WebViewHost = createHost()
     private var config: WindowConfig = WindowConfig()
     private var started: Bool = false
+    private var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
+    // 各插件 jsShim() 的汇总，prepare() 时定稿，run(html) 时并入页面
+    private var pluginJs: String = ""
 
     public init() {}
 
@@ -41,6 +45,21 @@ public class TauriApp {
      */
     public func register(cmd: String, handler: CommandHandler): TauriApp {
         this.hub.register(cmd, handler)
+        return this
+    }
+
+    /**
+     * 装配插件（对标 Tauri v2 的 .plugin(...)）
+     *
+     * 插件的命令会自动加上 "<插件名>:" 前缀后注册；事件登记、前端 JS 与未授权提示
+     * 都在 run()/runUrl() 的 prepare() 阶段统一收尾（那时能力清单才加载完）。
+     * 必须在 run()/runUrl() 之前调用——页面加载前命令表要定稿。
+     */
+    public func plugin(p: Plugin): TauriApp {
+        if (!isValidPluginName(p.name())) {
+            throw Exception("invalid plugin name: \"${p.name()}\"（要求非空、且不含 ':'）")
+        }
+        this.plugins.add(p)
         return this
     }
 
@@ -98,7 +117,8 @@ public class TauriApp {
      */
     public func run(html: String): Unit {
         this.prepare()
-        this.host.start(html)
+        // 插件 JS 随 HTML 一起进宿主：必须早于页面脚本，见 plugin.cj 的 injectPluginJs
+        this.host.start(injectPluginJs(html, this.pluginJs))
         this.waitForExit()
     }
 
@@ -111,6 +131,12 @@ public class TauriApp {
      */
     public func runUrl(url: String): Unit {
         this.prepare()
+        if (this.pluginJs.size > 0) {
+            // HTML 不在本进程里（dev server / 远程页面），无法把 shim 并进去：
+            // 只能等宿主注入，时序上可能晚于页面脚本。这是 v1 的已知局限（RFC §5.4）。
+            eprintln("[cj-tauri] runUrl 模式：插件 JS 无法随 HTML 注入，__CJ_TAURI__.<插件名> 可能晚于页面脚本")
+            eprintln("[cj-tauri]   前端请照模板的 waitForBridge 等桥出现后再用插件 API")
+        }
         this.host.startUrl(url)
         this.waitForExit()
     }
@@ -141,6 +167,19 @@ public class TauriApp {
         autoLoadCapabilities(this.capabilities)
 
         this.hub.setCapabilities(this.capabilities)
+
+        // 插件装配：注册命令（带 "<插件名>:" 前缀）→ setup → 汇总前端 JS → 未授权提示。
+        // 顺序有意放在能力清单加载之后：提示要反映真实的放行情况。
+        for (p in this.plugins) {
+            registerPluginCommands(this.hub, p)
+            p.setup(this)
+        }
+        this.pluginJs = assemblePluginJs(this.plugins)
+        if (this.plugins.size > 0) {
+            eprintln("[cj-tauri] 已装配 ${this.plugins.size} 个插件：")
+            eprintln(describePlugins(this.plugins))
+            warnUnauthorizedPlugins(this.plugins, this.capabilities)
+        }
 
         // 装配：宿主消息 → IPC hub；hub 输出 → 宿主 JS
         this.host.setMessageHandler({ raw =>

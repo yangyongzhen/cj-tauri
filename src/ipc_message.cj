@@ -16,6 +16,8 @@ import stdx.encoding.json.*
  *   {"type":"event","event":"tick","payload":{...},"window":"main"}
  *   window 字段缺省 = 广播（所有窗口）；定向推送时给接收窗口的 label，
  *   页面里由桥按自己的 label 过滤（多窗口落地前只有一个 "main"）。
+ *   `emitLatest` 发出的报文多一个 "coalesce":true —— 页面侧同一帧内同名事件只投最后一次
+ *   payload（中间值丢弃），tick = 一帧。
  */
 
 public class InvokeRequest {
@@ -188,14 +190,34 @@ public class IpcMessage {
      *               多窗口落地前只会是 "main"，但字段现在就留在协议里，免得那次改造再动报文。
      */
     public static func event(event: String, payload: JsonValue, window: String): String {
+        return eventJson(event, payload, window, false).toJsonString()
+    }
+
+    /**
+     * 构造「只保最新」的事件推送 JSON（`IpcHub.emitLatest` 用）
+     *
+     * 报文只比 `event` 多一个 `coalesce: true`：页面侧桥把它落进「本帧槽位」，
+     * 同一帧内同名事件只投最后一次 payload，中间值丢弃。要不要这种语义由**调用方显式选**——
+     * 默认路径不做合并（静默丢数据比慢更难排查，Tauri v2 核心同样不合并）。
+     * tick = 一帧，理由与对照见 docs/IPC-通信机制.md §6 第 5 项。
+     */
+    public static func eventLatest(event: String, payload: JsonValue, window: String): String {
+        return eventJson(event, payload, window, true).toJsonString()
+    }
+
+    /** 事件报文的公共构造：`coalesce` 只在需要时落字段，旧报文形态逐字节不变 */
+    private static func eventJson(event: String, payload: JsonValue, window: String, coalesce: Bool): JsonObject {
         var obj = JsonObject()
         obj.put("type", JsonString("event"))
         obj.put("event", JsonString(event))
         obj.put("payload", payload)
+        if (coalesce) {
+            obj.put("coalesce", JsonBool(true))
+        }
         if (window.size > 0) {
             obj.put("window", JsonString(window))
         }
-        return obj.toJsonString()
+        return obj
     }
 
     /**

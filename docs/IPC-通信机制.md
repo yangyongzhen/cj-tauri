@@ -349,7 +349,7 @@ Tauri v2 官方文档对自家 IPC 的描述与本项目同构（原文见 §9�
 **5–7 段合计 ≈40 µs，其余 ≈350 µs 全是"固定开销"**——JSON 编解码、两次跨语言边界、
 UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不是业务代码。
 
-按「收益 / 风险」排序的可做优化（**第 1、2 项本轮已实施并实测，其余仍是方向**）：
+按「收益 / 风险」排序的可做优化（**第 1、2、5 项本轮已实施并实测，其余仍是方向**）：
 
 1. ~~回投直接派发~~ **已实施**：第 9 步的回投脚本从 `window.postMessage(<json>, '*')` 改为直派
    `window.__CJ_TAURI__._dispatch(<json>)`（`src/app.cj` 的 `jsSink`），桥 JS 里那个 `message`
@@ -372,7 +372,39 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
    代价是并发/顺序/取消语义要重新定义，风险比 1、2 高。
 4. **大 payload 走专门通道**：需要搬 MB 级数据时，别回内容，回**句柄/路径**（我们自己解析）；
    或后续版本加二进制通道（Tauri v2 的方向）。
-5. **事件背压与合并**：给 `emit` 加「同事件同 tick 合并」或丢弃策略，避免 UI 被事件淹没（§7）。
+5. **事件背压与合并**（**本轮选定方案，理由与证据如下**）：给事件一个**显式**的「只保最新」开关，
+   而不是默认静默合并。为此把 Tauri v2 翻到源码级，事实是：
+   - 它的事件投递就是 `self.eval(emit_js_script(...))`（`crates/tauri/src/webview/mod.rs:2230`），
+     而 `emit_js_script` 每次 emit 现拼一段脚本
+     `(function () { const fn = window['…']; fn && fn({event: '…', payload: …}, <ids>) })()`
+     （`crates/tauri/src/event/mod.rs:194`）——**一条事件一次 eval**，监听器 id 在那一次 eval 内循环。
+     **没有批处理、没有同事件合并、队列也没有长度上限**。
+   - 官方文档的态度是「事件系统不是为低延迟或高吞吐设计的」，重活请走 `Channel`；而且事件
+     **没有**细粒度 capability（只有命令级的 `core:event:allow-emit/listen`）——这正是我们可以做得更好的地方。
+   - 社区侧的答案是自己节流：高频率 emit 能把应用打崩（issue #8177）、页面消费不及时会涨内存（#12724），
+     维护者的回复是「应用层限流」；第三方 `tauri-queue` 干脆做成显式配置
+     （`buffer_size=256` / `drop_policy=DropNewest` / `coalesce_interval_ms=50`，
+     文档原话是「快到间隔以内的事件会被合并、只保留最新值」）。
+   **我们的取舍**：不做默认合并（静默丢数据不可接受，Tauri 也不做），也不做会丢回执的队列限长
+   （`resolve` 丢了 request/response 契约就破了）；改为提供**显式 opt-in**——`emitLatest(event, payload)`：
+   同一帧内同名事件只投最后一次 payload、中间值丢弃。
+   **为什么落点在桥 JS 而不是 C 桥队列**：实测每条事件的管线成本只有 0.02 ms（§4.2），真正的开销在
+   监听器与 DOM——只有 JS 侧能省掉；而 `native/bridge_js.h` 是两平台**单源**，改它等于两个平台同时改完
+   （本机无法实机验证 Windows，这一点很关键）。C 桥按 key 去重能顺带少排几个队列节点，
+   但要为它引入 per-key 表与又一条 Windows-only 未验证路径，收益只在极端频率下才显现。
+   **已实施（2026-10-02）**：报文侧 `IpcMessage.eventLatest`（多一个 `coalesce: true`）+ 仓颉 API
+   `IpcHub.emitLatest` / `IpcContext.emitLatest` / `TauriApp.emitLatest`，页面侧就是上面那句「本帧槽位 +
+   `requestAnimationFrame`」，并以 `setTimeout(…, 50)` 兜底（窗口不可见、rAF 不来时也能把尾值送出）。
+   单测 87 → 91（报文契约 / 能力白名单 / 对照「默认路径不含 `coalesce` 字段」）、`scripts/test.sh` 91/91、
+   `cjpm build` 通过。实机证据（Linux / WebKitGTK / Xvfb，探针 `examples/ipc-coalesce`（**随仓库发布**，跑法见 §8），
+   脚本 `/tmp/run-coalesce-verify.sh`，日志 `/tmp/probe-coalesce-run.log`）：
+   `PROBE-1 coalesced: emitted=50 listener-hits=1 last-n=50`（emitLatest × 50 → 合成 1 次，且尾值必达；
+   **命中次数 = 这串事件落进了几个批刷窗口**——连跑 4 次里 3 次为 1、1 次为 2，尾值恒为 50，
+   所以断言写成 `hits<50` + 尾值必达，而不是 `hits==1`）、
+   `PROBE-2 plain-emit: emitted=50 listener-hits=50 last-n=50`（对照：默认路径逐条投递）、
+   `PROBE-3 single-latest: emitted=1 listener-hits=1 last-n=1`（走合并路径的单条也不丢）、
+   桥侧 `run js failed` 计数 0。Windows（WebView2）**未实机**——但改的是 `native/bridge_js.h`，
+   两平台同源，报文与仓颉侧完全共用，平台差异仍只在 `@When` 与 `native/bridge_*.c`。
 
 **不建议**为了微优化去做的事：把能力校验挪进 worker（会破坏「同步拒绝、顺序确定」的语义）、
 把 JSON 换成自定义二进制编码（收益要到 MB 级才显现，代价是可调试性——现在抓包看日志就能看懂报文）。
@@ -394,7 +426,9 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
 3. **没有超时 / 取消 / 背压 / 丢包策略**：命令一旦发出去就只能等；事件连发会把 UI 线程的脚本队列堆满
    ——队列没有长度上限，每条事件都要在宿主 UI 线程上跑一次 `_dispatch` 与它的监听器。注意别把「每条事件
    一次 `eval`」当成现状：`eval` 本身是**按批合并**的（§6 第 2 项，一次空闲回调最多拼 64 条），贵的是
-   逐条的事件处理与「总量无合并、无上限」这两件事。
+   逐条的事件处理与「总量无合并、无上限」这两件事。**无上限这一点已有部分可控的补法（本轮已实施，见 §6 第 5 项）**：
+   高频事件改用 `emitLatest` 后，UI 线程每帧至多处理一次同名事件（省掉的是监听器与 DOM 的逐条开销；
+   回投队列本身仍无长度上限，但回执 `resolve` / `reject` 永不丢弃——那是请求/响应契约，不能拿来换吞吐）。
 4. **UI 线程是稀缺资源**：所有回投都在宿主 UI 线程执行，单条 MB 级 payload 或高频事件会直接卡住界面。
    worker 里**不要**绕过桥去直接调 GTK/WebKit——JSC 的栈边界校验会 abort（`AGENTS.md` §4 的坑），
    只能经 `jsSink` 排队回投。
@@ -428,6 +462,13 @@ xvfb-run -a ./target/release/bin/main 2>&1 | grep BENCH
 
 # 3) 同机对照：localhost WebSocket vs 裸 TCP 回显（Node 22 起自带 WebSocket 客户端，无需装依赖）
 node scripts/bench-ws-vs-tcp.js
+```
+
+§6 第 5 项的**事件合并语义**由另一个探针取证（它只判「命中几次」，不看数字），两轮走法已写进注释：
+
+```bash
+cd examples/ipc-coalesce && cjpm build
+xvfb-run -a ./target/release/bin/main 2>&1 | grep '\[probe\]'
 ```
 
 本文数字对应的真实输出（原样摘录）。**改动前**（回投走 `window.postMessage`，每条响应一次 eval）——

@@ -23,6 +23,27 @@
     CJ_LIT("  var seq = 0;") \
     CJ_LIT("  var pending = {};") \
     CJ_LIT("  var listeners = {};") \
+    CJ_LIT("  var coalesceSlots = Object.create(null);  /* 本帧待投的事件：event -> 最新 payload */") \
+    CJ_LIT("  var coalesceTimer = null;") \
+    CJ_LIT("  var coalesceRaf = 0;") \
+    CJ_LIT("  /* tick = 一帧：同一帧内同名事件只投最后一次 payload（中间值丢弃） */") \
+    CJ_LIT("  function flushCoalesced() {") \
+    CJ_LIT("    if (coalesceTimer !== null) { clearTimeout(coalesceTimer); coalesceTimer = null; }") \
+    CJ_LIT("    if (coalesceRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(coalesceRaf);") \
+    CJ_LIT("    coalesceRaf = 0;") \
+    CJ_LIT("    var due = coalesceSlots;") \
+    CJ_LIT("    coalesceSlots = Object.create(null);") \
+    CJ_LIT("    for (var name in due) {") \
+    CJ_LIT("      var arr = listeners[name] || [];") \
+    CJ_LIT("      for (var i = 0; i < arr.length; i++) arr[i](due[name]);") \
+    CJ_LIT("    }") \
+    CJ_LIT("  }") \
+    CJ_LIT("  function scheduleCoalesced() {") \
+    CJ_LIT("    if (coalesceTimer !== null || coalesceRaf) return;") \
+    CJ_LIT("    /* rAF 是帧边界；窗口不可见时它不来，用定时器兜底，保证尾值一定送达 */") \
+    CJ_LIT("    if (typeof requestAnimationFrame === 'function') coalesceRaf = requestAnimationFrame(flushCoalesced);") \
+    CJ_LIT("    coalesceTimer = setTimeout(flushCoalesced, 50);") \
+    CJ_LIT("  }") \
     CJ_LIT("  /* 本页面所属窗口的 label：多窗口落地时由宿主按 webview 注入各自的这个值 */") \
     CJ_LIT("  var windowLabel = 'main';") \
     CJ_LIT("  function post(obj) {") \
@@ -65,6 +86,12 @@
     CJ_LIT("      } else if (msg.type === 'event') {") \
     CJ_LIT("        /* window 缺省 = 广播，放行；定向推送只投给 label 匹配的页面 */") \
     CJ_LIT("        if (msg.window && msg.window !== windowLabel) return;") \
+    CJ_LIT("        if (msg.coalesce) {") \
+    CJ_LIT("          /* emitLatest：只记最新值，一帧后统一投（同一帧内同名事件合成一条） */") \
+    CJ_LIT("          coalesceSlots[msg.event] = msg.payload;") \
+    CJ_LIT("          scheduleCoalesced();") \
+    CJ_LIT("          return;") \
+    CJ_LIT("        }") \
     CJ_LIT("        var arr = listeners[msg.event] || [];") \
     CJ_LIT("        for (var i = 0; i < arr.length; i++) arr[i](msg.payload);") \
     CJ_LIT("      }") \

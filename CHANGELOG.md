@@ -147,6 +147,20 @@
   `PROBE-1 emit-allowed-resolved=true data={}`、后端侧 `backend-listener payload={"from":"ui","n":1}`、
   页面侧同名监听器命中 **0** 次（`PROBE-2 frontend-loopback-hits=0`）、未授权事件
   `PROBE-3 emit-denied-rejected=true msg=event not allowed: probe:denied`。单测 78 → 87。
+- **高频事件的「只保最新」投递 `emitLatest`（显式 opt-in）**：新增 `IpcHub.emitLatest` /
+  `IpcContext.emitLatest` / `TauriApp.emitLatest`——同一帧内同名事件只投最后一次 payload（中间值丢弃，
+  **尾值必达**），报文因此多一个 `coalesce: true`，而页面监听器写法不变（`listen` 照旧）。
+  **默认的 `emit` 一行没改**：不合并、不丢回执、队列也不设上限——静默丢数据比慢更难排查，
+  而丢 `resolve` 会直接破坏 request/response 契约。合并落在桥 JS（`native/bridge_js.h`，两平台单源）：
+  本帧槽位 + `requestAnimationFrame`，并用 `setTimeout(…, 50)` 兜底（窗口不可见、rAF 不来时也能送出尾值）。
+  与 Tauri v2 的源码级对照：它的事件投递是 `self.eval(emit_js_script(...))`
+  （`crates/tauri/src/webview/mod.rs:2230`）——一条事件一次 eval，无批处理、无合并、队列无上限；
+  官方立场是高吞吐走 `Channel`，社区答案是应用层自己限流。单测 87 → 91。
+  实机（Linux/WebKitGTK/Xvfb，探针 `examples/ipc-coalesce`，日志 `/tmp/probe-coalesce-run.log`）：
+  `emitLatest × 50 → listener-hits=1 last-n=50`（连跑 4 次里 3 次为 1、1 次为 2：**合并以「一次批刷窗口」为界**，
+  窗口数随分发节奏变，尾值恒 50，所以断言是 `hits<50` + 尾值必达而非 `hits==1`）、
+  对照 `emit × 50 → listener-hits=50`、`emitLatest × 1 → listener-hits=1`，桥侧 `run js failed` 计数 0。
+  Windows（WebView2）未实机（本机是 Linux），但报文与仓颉侧两平台共用、桥 JS 本就同源。
 
 ### Changed
 

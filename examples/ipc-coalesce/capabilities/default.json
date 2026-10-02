@@ -1,0 +1,7 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": ["report", "burst"],
+  "permissions": [],
+  "events": ["progress"]
+}

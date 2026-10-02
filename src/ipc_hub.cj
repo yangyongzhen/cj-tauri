@@ -47,6 +47,15 @@ public class IpcContext {
     }
 
     /**
+     * 向当前窗口推送「只保最新」的事件：同一帧内同名事件只投最后一次 payload，中间值丢弃
+     *
+     * 高频进度类事件用；需要每条都到达的继续用 `emit`。选型理由见 docs/IPC-通信机制.md §6 第 5 项。
+     */
+    public func emitLatest(event: String, payload: JsonValue): Unit {
+        this.hub.emitLatest(event, payload, this.window)
+    }
+
+    /**
      * 打开开发者工具（宿主实现），供内置 system:devtools 与应用自定义命令使用
      */
     public func openDevTools(): Unit {
@@ -210,6 +219,23 @@ public class IpcHub {
      */
     public func emitAll(event: String, payload: JsonValue): Unit {
         this.emitToWindow(event, payload, "")
+    }
+
+    /**
+     * 推送「只保最新」的事件到指定窗口（经 capability 校验，与 `emitToWindow` 同一套白名单）
+     *
+     * 与 `emitToWindow` 只差页面侧的合并语义（报文多 `coalesce: true`）：同一帧内同名事件只投
+     * 最后一次 payload。**默认不合并**——静默丢数据比慢更难排查，要不要这条路必须调用方显式选
+     * （Tauri v2 核心同样不做合并，对照见 docs/IPC-通信机制.md §6 第 5 项）。
+     *
+     * @param window 接收窗口的 label；空串 = 广播（语义同 `emitToWindow`）
+     */
+    public func emitLatest(event: String, payload: JsonValue, window: String): Unit {
+        if (!this.capabilities.canEmit(event)) {
+            eprintln("[cj-tauri] event not allowed: ${event}")
+            return
+        }
+        this.jsSink(IpcMessage.eventLatest(event, payload, window))
     }
 
     /**

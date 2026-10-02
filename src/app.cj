@@ -108,6 +108,18 @@ public class TauriApp {
     }
 
     /**
+     * 向所有窗口推送「只保最新」的事件：同一帧内同名事件只投最后一次 payload，中间值丢弃
+     *
+     * 给进度 / 动画 / 滚动位置这类高频且「中间值没有意义」的事件用；需要每条都到达的场合继续 `emit`。
+     * 能力校验与 `emit` 共用一份 `events` 白名单（不额外放行）。与 Tauri v2 的差异：它核心不做合并，
+     * 高频事件要么应用层自己限流、要么改用 `Channel`——我们的选择是给一条显式的 API，
+     * 理由与源码级对照见 docs/IPC-通信机制.md §6 第 5 项。
+     */
+    public func emitLatest(event: String, payload: JsonValue): Unit {
+        this.hub.emitLatest(event, payload, "")
+    }
+
+    /**
      * 注册后端事件监听器：前端 `emit(event, payload)` 会调用到这里
      * （对标 Tauri Rust 侧的 `app.listen(...)`）
      *

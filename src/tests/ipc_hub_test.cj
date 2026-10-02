@@ -417,3 +417,57 @@ func testEventCarriesWindowLabelOrNothingWhenBroadcast(): Unit {
     // 广播不带 window 字段：页面里由桥放行（多窗口过滤靠它）
     @Expect(JsonValue.fromStr(out[1]).asObject().get("window").isNone(), true)
 }
+
+/*
+ * emitLatest：显式 opt-in 的「同事件同帧只投最新值」。
+ * 报文侧只该多一个 coalesce:true，页面侧的合并（一帧一次、只投尾值）由桥 JS 做，
+ * 所以单元测试能钉住的是「报文契约」与「能力白名单」两条；合并行为本身靠实机探针取证
+ * （见 docs/IPC-通信机制.md §6 第 5 项）。
+ */
+
+@Test
+func testEmitLatestMarksCoalesceAndKeepsPayload(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["progress"], out)
+    var payload = JsonObject()
+    payload.put("n", JsonInt(3))
+    hub.emitLatest("progress", payload, "")
+    @Expect(out.size, 1)
+    @Expect(strField(out[0], "type"), "event")
+    @Expect(strField(out[0], "event"), "progress")
+    @Expect(boolField(out[0], "coalesce"), true)
+    let n = JsonValue.fromStr(out[0]).asObject().get("payload").getOrThrow().asObject().get("n").getOrThrow().asInt().getValue()
+    @Expect(n, 3)
+    // 广播不带 window 字段（与 emitAll 一致）
+    @Expect(JsonValue.fromStr(out[0]).asObject().get("window").isNone(), true)
+}
+
+@Test
+func testEmitLatestCarriesWindowLabelWhenTargeted(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["progress"], out)
+    hub.emitLatest("progress", JsonObject(), "main")
+    @Expect(strField(out[0], "window"), "main")
+    @Expect(boolField(out[0], "coalesce"), true)
+}
+
+@Test
+func testEmitLatestRespectsCapabilityDeny(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["other"], out)
+    // 未授权的事件与 emit 同一套白名单：不投递，也不能因为「只是合并语义」就绕过声明
+    hub.emitLatest("progress", JsonObject(), "")
+    @Expect(out.size, 0)
+}
+
+@Test
+func testPlainEmitHasNoCoalesceField(): Unit {
+    let out = ArrayList<String>()
+    let hub = hubWith([], ["tick"], out)
+    hub.emitAll("tick", JsonObject())
+    // 默认路径不做合并：报文里不能出现 coalesce 字段（合并必须显式 opt-in）
+    @Expect(JsonValue.fromStr(out[0]).asObject().get("coalesce").isNone(), true)
+    hub.emitToWindow("tick", JsonObject(), "main")
+    @Expect(JsonValue.fromStr(out[1]).asObject().get("coalesce").isNone(), true)
+    @Expect(strField(out[1], "window"), "main")
+}

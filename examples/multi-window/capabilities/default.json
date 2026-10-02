@@ -1,0 +1,7 @@
+{
+  "identifier": "multi-window-poc",
+  "windows": ["main", "second"],
+  "commands": ["report", "boot", "boots", "fire", "quit"],
+  "permissions": [],
+  "events": ["probe:broadcast", "probe:targeted"]
+}

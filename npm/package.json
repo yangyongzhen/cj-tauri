@@ -1,6 +1,6 @@
 {
   "name": "cj-tauri",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "仓颉版 Tauri：用仓颉写桌面应用后端的类 Tauri 框架脚手架 CLI（WebView 宿主 + IPC 双向桥 + 能力安全模型，Windows / Linux）",
   "keywords": [
     "cangjie",

@@ -77,6 +77,7 @@ func testShellPermissionSetGatesCommands(): Unit {
 
     // 集内命令放行：故意不传 target，报的应是业务错误（参数校验），而不是「未授权」
     hub.handleRawMessage("{\"type\":\"invoke\",\"id\":31,\"cmd\":\"shell:open\"}")
+    waitSink(out, 1)
     @Expect(out.size, 1)
     let firstError = strField(out[0], "error")
     @Expect(firstError.contains("command not allowed"), false)

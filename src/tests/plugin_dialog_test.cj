@@ -80,6 +80,7 @@ func testDialogPermissionSetGatesCommands(): Unit {
 
     // 集内命令放行：这条会真的去弹对话框，测试环境没有宿主 → 报的是业务错误，不是「未授权」
     hub.handleRawMessage("{\"type\":\"invoke\",\"id\":21,\"cmd\":\"dialog:open\"}")
+    waitSink(out, 1)
     @Expect(out.size, 1)
     let firstError = strField(out[0], "error")
     @Expect(firstError.contains("command not allowed"), false)

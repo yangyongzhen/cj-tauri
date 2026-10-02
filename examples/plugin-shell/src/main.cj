@@ -13,10 +13,25 @@ import stdx.encoding.json.*
  *  3. 前端第一行就读到 __CJ_TAURI__.shell（证明 shim 早于页面脚本）；
  *  4. shell:exec 取回退出码 / stdout / stderr；参数里写 `&&` 时它原样出现在输出里
  *     （证明参数是 argv 直传、不经过 shell，页面拼不出「注入」）；
- *  5. 对照组：system:devtools 已注册但不在清单里 → 被拒（默认最小权限不被破坏）。
+ *  5. 对照组：system:devtools 已注册但不在清单里 → 被拒（默认最小权限不被破坏）；
+ *  6. 「长命令 + 心跳」按钮：命令执行已挪到 worker 线程（异步分发），框架侧 `slow` 命令睡 3 秒期间，
+ *     心跳（每次一次完整 IPC 往返）应当照常每 300ms 来一条——若命令还占着宿主 UI 线程，这几秒会整段静默。
  *
  * 运行目录 = 本示例根（capabilities/ 按相对路径解析，与 hello 一致）。
  */
+/**
+ * 框架侧慢命令：睡 3 秒再回答，用来验证「命令执行不占宿主 UI 线程」。
+ * 与 `shell:exec` 跑一个长驻进程是同一类阻塞，但跨平台（不依赖 sleep 可执行文件）。
+ */
+public class SlowCommand <: CommandHandler {
+    public init() {}
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        sleep(Duration.second * 3)
+        return JsonBool(true)
+    }
+}
+
 public class ReportCommand <: CommandHandler {
     public init() {}
 
@@ -38,6 +53,7 @@ main(): Int64 {
         .window(WindowConfig("cj-tauri 插件 shell 示例", 940, 640))
         .plugin(ShellPlugin())       // 插件体系：一行接入（对标 Tauri v2 的 .plugin(...)）
         .register("report", ReportCommand())
+        .register("slow", SlowCommand())
 
     // 前端页面：内联 HTML（与 examples/hello 同风格，零 Node 依赖）
     let html = """
@@ -53,7 +69,8 @@ main(): Int64 {
   .card { background: #1b2440; border-radius: 12px; padding: 20px 26px; width: 700px;
           box-shadow: 0 8px 24px rgba(0,0,0,.4); }
   pre { background: #0d1226; border-radius: 8px; padding: 12px; font-size: 13px;
-        line-height: 1.5; white-space: pre-wrap; word-break: break-all; margin: 10px 0 0; }
+        line-height: 1.5; white-space: pre-wrap; word-break: break-all; margin: 10px 0 0;
+        max-height: 300px; overflow: auto; }
   button { background: #e94560; color: #fff; border: none; border-radius: 8px;
            padding: 8px 14px; font-size: 14px; cursor: pointer; margin: 0 6px 6px 0; }
   button:hover { opacity: .85; }
@@ -73,6 +90,7 @@ main(): Int64 {
       <button id="btnUname">uname -a</button>
       <button id="btnExit">退出码 + stderr</button>
       <button id="btnProbe">注入对照</button>
+      <button id="btnSlow">长命令 3 秒 + 心跳</button>
     </p>
     <pre id="log">[shell] …</pre>
   </div>
@@ -88,6 +106,8 @@ main(): Int64 {
       // 换行用 fromCharCode(10) 现算：本段 JS 写在仓颉三引号字符串里，
       // 反斜杠转义会先被仓颉处理掉，写反斜杠-n 会变成真换行把 JS 拆断（整段语法错误）
       logEl.textContent = lines.join(String.fromCharCode(10));
+      // 跟着最新一行走：日志长了也不会把新出的证据顶出可视区
+      logEl.scrollTop = logEl.scrollHeight;
       // 同一行也回传仓颉侧 → stderr 留证
       if (window.__CJ_TAURI__) {
         window.__CJ_TAURI__.invoke('report', { line: line });
@@ -163,6 +183,28 @@ main(): Int64 {
       sh.exec({ program: 'echo', args: ['a b', '&&', 'echo INJECTED'] })
         .then(function (r) { show('shell:exec(probe) => ' + r.stdout.trim()); })
         .catch(function (e) { show('shell:exec(probe) FAIL => ' + e.message); });
+    };
+
+    // 异步分发实证：慢命令（框架侧 slow，睡 3 秒）跑起来后心跳照常。
+    // 心跳每 500ms 一次 system:version 往返——既要 JS 引擎有空，也要仓颉侧的 IPC 分发有空。
+    document.getElementById('btnSlow').onclick = function () {
+      var t0 = Date.now();
+      var n = 0;
+      show('slow: start（命令睡 3 秒，看下面心跳是否照常）');
+      var hb = setInterval(function () {
+        n = n + 1;
+        var k = n;   // 每跳先捕获自己的序号：promise 回投时 n 可能已涨，直接读 n 会把几条都印成同一个号
+        window.__CJ_TAURI__.invoke('system:version').then(function (v) {
+          show('hb n=' + k + ' +' + (Date.now() - t0) + 'ms version=' + JSON.stringify(v));
+        }).catch(function (e) { show('hb n=' + k + ' FAIL => ' + e.message); });
+      }, 500);
+      window.__CJ_TAURI__.invoke('slow').then(function (ok) {
+        clearInterval(hb);
+        show('slow: done ok=' + ok + ' +' + (Date.now() - t0) + 'ms，心跳发到 n=' + n + '（中途没有整段静默即 UI 未被卡住）');
+      }).catch(function (e) {
+        clearInterval(hb);
+        show('slow FAIL => ' + e.message);
+      });
     };
 
     // 自动化实证：等页面稳下来再依次跑（人工点击走上面的按钮）

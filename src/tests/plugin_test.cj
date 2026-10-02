@@ -93,7 +93,7 @@ class ScopedPlugin <: Plugin {
 func hubWithRegistry(reg: CapabilityRegistry, sink: ArrayList<String>): IpcHub {
     let hub = IpcHub()
     hub.setCapabilities(reg)
-    hub.jsSink = { s => sink.add(s) }
+    hub.jsSink = { s => addToTestSink(sink, s) }
     return hub
 }
 
@@ -134,6 +134,7 @@ func testRegisterPluginCommandsUsesNamespace(): Unit {
     let hub = hubWith(["mini:ping"], [], out)
     registerPluginCommands(hub, MiniPlugin())
     hub.handleRawMessage("{\"type\":\"invoke\",\"id\":1,\"cmd\":\"mini:ping\"}")
+    waitSink(out, 1)
     @Expect(out.size, 1)
     @Expect(strField(out[0], "type"), "resolve")
     @Expect(strField(out[0], "data"), "pong:mini:ping")
@@ -294,6 +295,7 @@ func testPluginPermissionSetAuthorizesWhenReferenced(): Unit {
     registerPluginPermissionSets(reg, ScopedPlugin())
     // 集内命令放行
     hub.handleRawMessage("{\"type\":\"invoke\",\"id\":12,\"cmd\":\"scoped:read\"}")
+    waitSink(out, 1)   // 执行是异步的，先等这条 resolve 落地，再发下一条同步拒绝
     @Expect(out.size, 1)
     @Expect(strField(out[0], "type"), "resolve")
     @Expect(strField(out[0], "data"), "pong:scoped:read")

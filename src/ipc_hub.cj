@@ -88,7 +88,7 @@ public class IpcHub {
 
     /**
      * 处理来自前端的原始 invoke 消息（JSON 字符串）
-     * 全链路：解析 → capability 校验 → 命令分发 → 结果/错误回写
+     * 全链路：解析 → capability 校验（调用线程上同步完成）→ 命令执行（worker 线程）→ 结果/错误回投
      */
     public func handleRawMessage(raw: String): Unit {
         if (let Some(req) <- InvokeRequest.parse(raw)) {
@@ -98,6 +98,18 @@ public class IpcHub {
         }
     }
 
+    /**
+     * 校验与执行分两段，这是当前的线程模型（改之前想清楚，见 RFC-001 §8 第 8 条）：
+     *   1/2. 「未授权」「未注册」在**调用线程上同步**拒绝——前端拿到的报错要即时、顺序确定，
+     *        也免得为一条注定失败的请求白开一个线程；
+     *   3.   真正执行挪到 worker 线程（spawn）。此前 handler 直接在宿主 UI 线程上跑完，
+     *        慢命令（`shell:exec` 跑一个进程、等原生对话框）会把窗口钉住——不重绘、不响应事件。
+     * 结果经 jsSink 回投即可：两平台桥的 runJs 都是「加锁入队 + 投递到宿主 UI 线程」
+     * （bridge_linux.c 的 g_idle_add → flush_pending_js，bridge_win.c 的 PostMessageW(WM_CJT_FLUSH) → flush_js），
+     * 从任意线程调用都安全。也正因如此，worker 里**不要**绕过桥直接调 GTK / WebKit：
+     * 仓颉轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort（AGENTS.md §4）。
+     * 同一命令被并发调用**不保证执行顺序**（前端按 promise id 匹配，不会串包）。
+     */
     private func handleInvoke(req: InvokeRequest): Unit {
         // 1. 能力校验（默认最小权限）
         if (!this.capabilities.canInvoke(req.cmd)) {
@@ -109,7 +121,12 @@ public class IpcHub {
             this.reject(req.id, "command not registered: ${req.cmd}")
             return
         }
-        // 3. 执行
+        // 3. 交给 worker 线程执行：调用线程立刻返回，UI 不被命令阻塞
+        let _ = spawn { => this.runCommand(req) }
+    }
+
+    /** worker 线程上的实际执行：跑完（或抛错）就把 resolve / reject 回投给前端 */
+    private func runCommand(req: InvokeRequest): Unit {
         try {
             let handler = this.commands.get(req.cmd).getOrThrow()
             let ctx = IpcContext("main", this)

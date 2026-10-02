@@ -16,8 +16,10 @@
 # 为什么发布常要 --otp：账号开了「写操作需 2FA」时，`npm login` 的浏览器登录态只证明「你是谁」，
 # 发布仍要一次性动态码，否则 registry 直接回
 #   E403 ... Two-factor authentication or granular access token with bypass 2fa enabled is required
-# （`npm whoami` 正常并不代表能发布）。换不了动态码时，可临时用勾了 Bypass 2FA 的 granular token
-# 写进用户级 ~/.npmrc（别进仓库），发完即删。动态码也可用环境变量 NPM_OTP 传，避免进 shell 历史。
+# （`npm whoami` 正常并不代表能发布）。2FA 绑的是验证器 App 就用 App 里的 6 位码（30 秒一换）；
+# 一个未用过的**恢复码**也能当 OTP 提交——registry 的 npm-otp 字段两者都收。拿不到码时（例如只绑了
+# 安全密钥/passkey），可临时用勾了 Bypass 2FA 的 granular token 写进用户级 ~/.npmrc（别进仓库），
+# 发完即删。码也可用环境变量 NPM_OTP 传，避免进 shell 历史。
 #
 # 前置：Node >= 18（打包与安装都用它），本机装了仓颉 SDK（首次构建 CLI 用）。
 set -euo pipefail
@@ -32,16 +34,19 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --publish) DO_PUBLISH=1 ;;
     --keep)    KEEP=1 ;;
-    --otp)     OTP="${2:-}"; [ -n "$OTP" ] || { echo "[npm-pack] --otp 后面要跟 6 位动态码" >&2; exit 2; }; shift ;;
-    --otp=*)   OTP="${1#--otp=}" ;;
+    --otp)     OTP="${2:-}"; [ -n "$OTP" ] || { echo "[npm-pack] --otp 后面要跟动态码" >&2; exit 2; }; shift ;;
+    --otp=*)   OTP="${1#--otp=}"; [ -n "$OTP" ] || { echo "[npm-pack] --otp= 后面要跟动态码" >&2; exit 2; } ;;
     *) echo "[npm-pack] 未知参数: $1（支持 --publish / --keep / --otp <6 位码>）" >&2; exit 2 ;;
   esac
   shift
 done
 if [ -n "$OTP" ]; then
     case "$OTP" in
-      [0-9][0-9][0-9][0-9][0-9][0-9]) ;;
-      *) echo "[npm-pack] --otp / NPM_OTP 应是 6 位数字" >&2; exit 2 ;;
+      [0-9][0-9][0-9][0-9][0-9][0-9]) ;;                    # 验证器 App 的 TOTP
+      *[!A-Za-z0-9_-]*|?|??|???|????|?????)                 # 含非法字符，或长度不足 6
+          echo "[npm-pack] --otp / NPM_OTP 应是 6 位动态码，或一个未用过的恢复码" >&2
+          exit 2 ;;
+      *) ;;                                                 # 6 位以上字母数字：按恢复码放行
     esac
 fi
 

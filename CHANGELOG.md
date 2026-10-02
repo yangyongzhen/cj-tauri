@@ -56,7 +56,9 @@
 - `scripts/npm-pack.sh` 支持 `--otp <6 位码>` / `NPM_OTP`：账号开启「写操作需 2FA」时，`npm login` 的浏览器
   登录态只证明身份，发布仍要一次性动态码，否则 registry 回
   `E403 … Two-factor authentication or granular access token with bypass 2fa enabled is required`；
-  脚本在发布前会把动态码校验成 6 位数字，未发布时的提示也带上该参数。
+  脚本在发布前校验 OTP 形态（6 位动态码，或 ≥6 位的未用过恢复码——registry 的 `npm-otp` 两者都收），
+  未发布时的提示也带上该参数；只绑了安全密钥/passkey 的账号没有动态码，那就改走勾了 Bypass 2FA 的
+  granular token（临时写进用户级 `~/.npmrc`，发完即删）。
 - 更正此前「首版可自动化」的预期：npm 只允许给**已存在**的包配置 trusted publisher（入口在该包的 settings 页），
   `npm stage publish` 也不能创建新包，因此 `v*` tag 触发的 OIDC 自动发布**只能从第二个版本开始**，
   首个版本必须本机手工发（带动态码，或用勾了 Bypass 2FA 的 granular token）。

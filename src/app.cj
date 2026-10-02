@@ -13,11 +13,13 @@ import stdx.encoding.json.*
  *   app.addCapabilityJson(...)   // 或 addCapability(cap)
  *   app.run(html)                // 启动宿主并阻塞
  */
-public class TauriApp {
+public class TauriApp <: AppHost {
     private var hub: IpcHub = IpcHub()
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
     private var host: WebViewHost = createHost()
     private var config: WindowConfig = WindowConfig()
+    // 窗口注册表（批次 2）：单窗口阶段只有一条 "main"，多窗口时是「label → 宿主」的唯一权威来源
+    private var windows: WindowRegistry = WindowRegistry()
     private var started: Bool = false
     private var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
     // 各插件 jsShim() 收集成的「预执行脚本」列表，prepare() 时定稿，run / runUrl 时交给宿主
@@ -49,6 +51,30 @@ public class TauriApp {
      */
     public func webviewHost(): WebViewHost {
         return this.host
+    }
+
+    /**
+     * 按 label 取窗口宿主（AppHost 契约，对标 `app.get_webview_window(label)`）；未注册返回 None
+     *
+     * 单窗口阶段只可能命中 "main"；多窗口落地后这是插件拿到「别的窗口」的唯一入口。
+     */
+    public func hostOf(label: String): Option<WebViewHost> {
+        match (this.windows.get(label)) {
+            case Some(rec) => return Some(rec.host)
+            case None => return None
+        }
+    }
+
+    /**
+     * 退出应用（AppHost 契约，对标 Tauri 的 `app.exit()`）：收掉所有窗口的事件循环，run() / runUrl() 随即返回
+     *
+     * 单窗口下与宿主自己的 `quit()` 等价；多窗口时这里是「先收各窗口的循环、再各自收尾」的唯一入口——
+     * 所以命令处理器里退应用走它，不要直接调 `webviewHost().quit()`（那只是本窗口的低层原语）。
+     */
+    public func quit(): Unit {
+        for (rec in this.windows.targets("")) {
+            rec.host.quit()
+        }
     }
 
     /**
@@ -158,6 +184,7 @@ public class TauriApp {
             return
         }
         this.registerPluginScripts()
+        this.registerDefaultWindow()
         this.host.start(html)
         this.waitForExit()
         // 事件循环已退出：释放宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
@@ -177,6 +204,7 @@ public class TauriApp {
             return
         }
         this.registerPluginScripts()
+        this.registerDefaultWindow()
         this.host.startUrl(url)
         this.waitForExit()
     }
@@ -269,12 +297,8 @@ public class TauriApp {
         this.host.setMessageHandler({ raw =>
             this.hub.handleRawMessage(raw)
         })
-        this.hub.jsSink = { json =>
-            // 直派：JSON 本身就是合法 JS 对象字面量，直接嵌进 eval 交给桥的 _dispatch。
-            // 不走 window.postMessage —— 那样每条响应要多一次结构化克隆 + 一次 message 事件派发，
-            // 而且那个监听器是全页面（含 iframe / opener）都能投递的伪造入口。
-            let js = "window.__CJ_TAURI__._dispatch(${json});"
-            this.host.runJs(js)
+        this.hub.jsSink = { json, window =>
+            this.deliverJs(json, window)
         }
         this.hub.devToolsSink = { =>
             this.host.openDevTools()
@@ -284,9 +308,50 @@ public class TauriApp {
     }
 
     /**
-     * 阻塞等待：宿主事件循环退出（窗口关闭 / quit）后返回
+     * 把默认窗口登记进注册表（label = "main"）并给它注入 label
+     *
+     * 必须在 start() / startUrl() 之前：① 页面一加载就可能发 invoke / emit，回执要按 label 找到窗口；
+     * ② label 走宿主的预执行脚本通道（document-start）注入，晚于 start 就没机会了。
+     * 桥 JS 是**懒读** `window.__CJ_TAURI_LABEL__` 的（首次用到才取、取到即缓存），
+     * 所以注入脚本与桥 JS 的先后顺序无所谓——两平台的注入时机本就不同。
+     * 多窗口落地前只登记这一条；将来增补窗口走同一个 add() + 注入，路由侧不用改。
      */
-    private func waitForExit(): Unit {
+    private func registerDefaultWindow(): Unit {
+        let label = DEFAULT_WINDOW_LABEL
+        this.windows.add(WindowRecord(label, this.host, this.config))
+        // JSON 字符串字面量与 JS 字符串字面量同构（双引号、同样的转义），拼进赋值语句是安全的
+        this.host.addInitScript("window.__CJ_TAURI_LABEL__ = ${JsonString(label)};")
+    }
+
+    /**
+     * 把一段回执 / 事件投递给目标窗口（批次 2 的 label 路由）
+     *
+     * @param window 目标窗口 label；空串 = 广播（按登记顺序投给每个窗口）
+     *
+     * 未注册的 label 打 stderr 而非静默丢弃：`emitToWindow` 写错 label 的表现是「前端什么都没
+     * 收到」，只剩这条日志能定位。空注册表（清单导出模式等）到不了这里——那时没有页面能发消息。
+     */
+    private func deliverJs(json: String, window: String): Unit {
+        // 直派：JSON 本身就是合法 JS 对象字面量，直接嵌进 eval 交给桥的 _dispatch。
+        // 不走 window.postMessage —— 那样每条响应要多一次结构化克隆 + 一次 message 事件派发，
+        // 而且那个监听器是全页面（含 iframe / opener）都能投递的伪造入口。
+        let js = "window.__CJ_TAURI__._dispatch(${json});"
+        let targets = this.windows.targets(window)
+        if (targets.size == 0 && window.size > 0) {
+            eprintln("[cj-tauri] 未注册的窗口 label：\"${window}\"（回执 / 事件未投递）")
+            return
+        }
+        for (rec in targets) {
+            rec.host.runJs(js)
+        }
+    }
+
+    /**
+     * 阻塞等待：宿主事件循环退出（窗口关闭 / quit）后返回
+     *
+     * 公开是 AppHost 契约要求的（插件等不必自己写轮询）；内部按宿主自己的节奏收尾。
+     */
+    public func waitForExit(): Unit {
         var spins: Int64 = 0
         while (!this.host.shouldQuit() && spins < 360_000) {  // 最长 ~1 小时（10ms 步进）
             sleep(Duration.millisecond * 10)

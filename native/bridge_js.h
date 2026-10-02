@@ -44,8 +44,16 @@
     CJ_LIT("    if (typeof requestAnimationFrame === 'function') coalesceRaf = requestAnimationFrame(flushCoalesced);") \
     CJ_LIT("    coalesceTimer = setTimeout(flushCoalesced, 50);") \
     CJ_LIT("  }") \
-    CJ_LIT("  /* 本页面所属窗口的 label：多窗口落地时由宿主按 webview 注入各自的这个值 */") \
-    CJ_LIT("  var windowLabel = 'main';") \
+    CJ_LIT("  /* 本页面所属窗口的 label：宿主在 document-start 注入 window.__CJ_TAURI_LABEL__ */") \
+    CJ_LIT("  /* 懒读 + 缓存（首次用到才取值）：注入脚本与桥 JS 谁先执行都可能，默认 'main' 与老前端对齐 */") \
+    CJ_LIT("  var cachedLabel = null;") \
+    CJ_LIT("  function labelOf() {") \
+    CJ_LIT("    if (cachedLabel === null) {") \
+    CJ_LIT("      var v = (typeof window !== 'undefined') ? window.__CJ_TAURI_LABEL__ : null;") \
+    CJ_LIT("      cachedLabel = (typeof v === 'string' && v.length > 0) ? v : 'main';") \
+    CJ_LIT("    }") \
+    CJ_LIT("    return cachedLabel;") \
+    CJ_LIT("  }") \
     CJ_LIT("  function post(obj) {") \
     POST_STMT \
     CJ_LIT("  }") \
@@ -53,7 +61,7 @@
     CJ_LIT("    invoke: function (cmd, args) {") \
     CJ_LIT("      var id = ++seq;") \
     CJ_LIT("      var p = new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });") \
-    CJ_LIT("      post({ type: 'invoke', id: id, cmd: cmd, args: args || {} });") \
+    CJ_LIT("      post({ type: 'invoke', id: id, cmd: cmd, args: args || {}, window: labelOf() });") \
     CJ_LIT("      return p;") \
     CJ_LIT("    },") \
     CJ_LIT("    listen: function (event, cb) {") \
@@ -69,7 +77,7 @@
     CJ_LIT("      /* 带 id 才有回执：后端能把「事件未授权 / 报文非法」reject 回来（对齐 Tauri 的 emit 返回 Promise） */") \
     CJ_LIT("      var id = ++seq;") \
     CJ_LIT("      var p = new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });") \
-    CJ_LIT("      post({ type: 'emit', id: id, event: event, payload: payload === undefined ? {} : payload });") \
+    CJ_LIT("      post({ type: 'emit', id: id, event: event, payload: payload === undefined ? {} : payload, window: labelOf() });") \
     CJ_LIT("      return p;") \
     CJ_LIT("    },") \
     CJ_LIT("    reload: function () {") \
@@ -85,7 +93,7 @@
     CJ_LIT("        if (msg.ok) p.resolve(msg.data); else p.reject(new Error(msg.error || 'invoke failed'));") \
     CJ_LIT("      } else if (msg.type === 'event') {") \
     CJ_LIT("        /* window 缺省 = 广播，放行；定向推送只投给 label 匹配的页面 */") \
-    CJ_LIT("        if (msg.window && msg.window !== windowLabel) return;") \
+    CJ_LIT("        if (msg.window && msg.window !== labelOf()) return;") \
     CJ_LIT("        if (msg.coalesce) {") \
     CJ_LIT("          /* emitLatest：只记最新值，一帧后统一投（同一帧内同名事件合成一条） */") \
     CJ_LIT("          coalesceSlots[msg.event] = msg.payload;") \

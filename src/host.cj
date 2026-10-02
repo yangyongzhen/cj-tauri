@@ -11,6 +11,14 @@ package cjTauri
  */
 public interface WebViewHost {
     /**
+     * 本窗口的 label（单窗口阶段恒为 "main"）
+     *
+     * 与 `WindowRecord.label` 是同一个值：注册表是路由的权威来源，宿主自己也留一份——
+     * 给前端注入 label（`window.__CJ_TAURI_LABEL__`）以及将来的窗口内自省都用它。
+     */
+    public func label(): String
+
+    /**
      * 启动宿主：创建窗口 + WebView，加载 HTML，进入事件循环
      */
     public func start(html: String): Unit
@@ -78,7 +86,11 @@ public interface WebViewHost {
     public func runJs(js: String): Unit
 
     /**
-     * 退出应用
+     * 停止本窗口的事件循环（低层原语）
+     *
+     * 应用级退出请用 `AppHost.quit()`——它会走所有窗口；单窗口下两者等价。
+     * 原语留在宿主上是因为「循环归谁所有」只有实现方知道（两平台的收尾方式不同：
+     * Linux 只收主循环、窗口留给收尾销毁，Windows 直接 DestroyWindow），上层不该自己拼。
      */
     public func quit(): Unit
 
@@ -89,6 +101,8 @@ public interface WebViewHost {
 
     /**
      * 宿主事件循环是否已退出（窗口关闭等），app.run 据此阻塞与收尾
+     *
+     * 同为低层原语：应用级等待用 `AppHost.waitForExit()`，调用方不必自己写轮询。
      */
     public func shouldQuit(): Bool
 
@@ -100,6 +114,33 @@ public interface WebViewHost {
      * 为什么「关窗」不等于「释放」：见 docs/架构演进-多平台与多窗口.md §6.1。
      */
     public func dispose(): Unit
+}
+
+/**
+ * 应用级宿主（对标 Tauri 2 的 `AppHandle`）
+ *
+ * 与 `WebViewHost` 的分工：`WebViewHost` 是**一个窗口**（创建、投脚本、对话框、本窗口的循环原语），
+ * `AppHost` 是**整个应用**（退出、按 label 取窗口；将来还有托盘与应用菜单——批次 3 只定模型）。
+ * 批次 2 由 `TauriApp` 实现：它持有窗口注册表，也只有它知道「哪些窗口还开着、应用该不该退」。
+ *
+ * 为什么 quit / waitForExit 收在这一层：它们跨窗口。宿主仍保留 `quit()` / `shouldQuit()` 作低层原语
+ * （循环归宿主所有），但**应用的公开入口只有这里**——多窗口时代的「退出」必然是「先把各窗口收掉」。
+ */
+public interface AppHost {
+    /**
+     * 退出应用：收掉所有窗口的事件循环，`run()` / `runUrl()` 随即返回
+     */
+    public func quit(): Unit
+
+    /**
+     * 阻塞到应用退出（窗口关闭 / quit）后返回；`run()` / `runUrl()` 内部调它
+     */
+    public func waitForExit(): Unit
+
+    /**
+     * 按 label 取窗口宿主（对标 Tauri 的 `app.get_webview_window(label)`）；未注册返回 None
+     */
+    public func hostOf(label: String): Option<WebViewHost>
 }
 
 /**

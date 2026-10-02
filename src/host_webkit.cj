@@ -105,8 +105,15 @@ public class WebKitHost <: WebViewHost {
     private var initScripts = ArrayList<String>()
     // 宿主编（C 侧分配）：空指针 = 尚未创建；dispose() 后置空
     private var handle: CPointer<Unit> = CPointer<Unit>()
+    // 本窗口的 label（字段名不叫 label：接口有同名方法）。单窗口阶段是常量，
+    // 与 TauriApp 注册的 WindowRecord.label 一致；多窗口时由构造参数给定。
+    private let windowLabel: String = DEFAULT_WINDOW_LABEL
 
     public init() {}
+
+    public func label(): String {
+        return this.windowLabel
+    }
 
     public func setMessageHandler(handler: (String) -> Unit): Unit {
         this.onMessage = handler

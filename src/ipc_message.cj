@@ -3,12 +3,22 @@ package cjTauri
 import stdx.encoding.json.*
 
 /**
+ * 窗口 label 的缺省值（对外契约，不能改）
+ *
+ * 与桥 JS 的 `windowLabel` 缺省、`emitToWindow(..., "main")` 是同一个约定：老前端与现有示例
+ * 都写死 `"main"`，默认值一错，事件就静默收不到、回执就静默投不回原窗口（见架构文档 §6.4）。
+ */
+let DEFAULT_WINDOW_LABEL = "main"
+
+/**
  * IPC 消息模型（对标 Tauri IPC 协议）
  *
  * JS → 仓颉 (invoke):
- *   {"type":"invoke","id":1,"cmd":"greet","args":{...}}
+ *   {"type":"invoke","id":1,"cmd":"greet","args":{...},"window":"main"}
  * JS → 仓颉 (emit):
- *   {"type":"emit","id":2,"event":"tick","payload":{...}}
+ *   {"type":"emit","id":2,"event":"tick","payload":{...},"window":"main"}
+ *   `window` 是发起窗口的 label（批次 2 起由桥 JS 带上）。**缺省 / 非字符串 / 空串一律按 "main" 处理**：
+ *   上行方向没有「广播」语义——一条回执必须能回到唯一一个窗口，否则前端那条 promise 永远 pending。
  * 仓颉 → JS (resolve/reject):
  *   {"type":"resolve","id":1,"ok":true,"data":...}
  *   {"type":"resolve","id":1,"ok":false,"error":"..."}
@@ -24,11 +34,14 @@ public class InvokeRequest {
     public let id: Int64
     public let cmd: String
     public let args: JsonObject
+    /** 发起窗口的 label（批次 2 起随报文来）；回执按它回投给同一窗口 */
+    public let window: String
 
-    public init(id: Int64, cmd: String, args: JsonObject) {
+    public init(id: Int64, cmd: String, args: JsonObject, window!: String = DEFAULT_WINDOW_LABEL) {
         this.id = id
         this.cmd = cmd
         this.args = args
+        this.window = window
     }
 
     /**
@@ -60,7 +73,7 @@ public class InvokeRequest {
                     case _ => ()
                 }
             }
-            return Some(InvokeRequest(id, cmd, args))
+            return Some(InvokeRequest(id, cmd, args, window: parseWindowLabel(obj)))
         } catch (e: Exception) {
             return None
         }
@@ -83,11 +96,14 @@ public class EmitRequest {
     public let id: Int64
     public let event: String
     public let payload: JsonValue
+    /** 发起窗口的 label（批次 2 起随报文来）；resolve 回执按它回投给同一窗口 */
+    public let window: String
 
-    public init(id: Int64, event: String, payload: JsonValue) {
+    public init(id: Int64, event: String, payload: JsonValue, window!: String = DEFAULT_WINDOW_LABEL) {
         this.id = id
         this.event = event
         this.payload = payload
+        this.window = window
     }
 
     /**
@@ -115,7 +131,7 @@ public class EmitRequest {
             if (let Some(p) <- obj.get("payload")) {
                 payload = p
             }
-            return Some(EmitRequest(id, event, payload))
+            return Some(EmitRequest(id, event, payload, window: parseWindowLabel(obj)))
         } catch (e: Exception) {
             return None
         }
@@ -135,6 +151,26 @@ class IpcEnvelope {
         this.obj = obj
         this.msgType = msgType
     }
+}
+
+/**
+ * 从报文里取发起窗口的 label：缺失 / 非字符串 / 空串一律回落到 `DEFAULT_WINDOW_LABEL`
+ *
+ * 为什么空串也回落：下行方向的空串是「广播」（谁在听谁收），上行方向没有这个语义——
+ * 一条回执必须回到唯一一个窗口，否则前端那条 promise 永远 pending。
+ */
+func parseWindowLabel(obj: JsonObject): String {
+    if (let Some(w) <- obj.get("window")) {
+        match (w.kind()) {
+            case JsonKind.JsString =>
+                let s = w.asString().getValue()
+                if (s.size > 0) {
+                    return s
+                }
+            case _ => ()
+        }
+    }
+    return DEFAULT_WINDOW_LABEL
 }
 
 /** 解析报文信封；非 JSON / 顶层不是对象 / type 缺失或不是字符串，一律 None */

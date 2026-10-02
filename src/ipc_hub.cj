@@ -69,8 +69,10 @@ public class IpcContext {
 public class IpcHub {
     private var commands: HashMap<String, CommandHandler> = HashMap<String, CommandHandler>()
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
-    // 事件投递通道：由宿主层注入（把 JSON 字符串投递给前端 JS）
-    public var jsSink: (String) -> Unit = { _ => }
+    // 事件 / 回执投递通道：由宿主层注入（把 JSON 字符串投递给前端 JS）。
+    // 第二个参数是**目标窗口 label**：批次 2 起由 TauriApp 按窗口注册表派发，
+    // 空串 = 广播（投给所有已注册窗口），非空 = 只投该窗口。
+    public var jsSink: (String, String) -> Unit = { _, _ => }
     // 开发者工具通道：由 TauriApp 注入宿主实现
     public var devToolsSink: () -> Unit = { => }
     // 后端事件监听器（对标 Tauri 的 Rust 侧 Listener）：事件名 → 处理函数。
@@ -130,7 +132,9 @@ public class IpcHub {
         // 比一条明确的报错难排查得多（前端 invoke 没有超时参数）。
         eprintln("[cj-tauri] invalid IPC message: ${raw}")
         if (let Some(id) <- IpcMessage.peekId(raw)) {
-            this.reject(id, "invalid IPC message")
+            // 报文非法时读不出窗口，只能广播一份：id 只会挂在某一个页面的 pending 上，
+            // 别的窗口的 _dispatch 找不到它、忽略即可——这样发起方那条 promise 才不会永久 pending。
+            this.reject(id, "invalid IPC message", "")
         }
     }
 
@@ -149,12 +153,12 @@ public class IpcHub {
     private func handleInvoke(req: InvokeRequest): Unit {
         // 1. 能力校验（默认最小权限）
         if (!this.capabilities.canInvoke(req.cmd)) {
-            this.reject(req.id, "command not allowed: ${req.cmd}")
+            this.reject(req.id, "command not allowed: ${req.cmd}", req.window)
             return
         }
         // 2. 命令是否存在
         if (!this.commands.contains(req.cmd)) {
-            this.reject(req.id, "command not registered: ${req.cmd}")
+            this.reject(req.id, "command not registered: ${req.cmd}", req.window)
             return
         }
         // 3. 交给 worker 线程执行：调用线程立刻返回，UI 不被命令阻塞
@@ -165,18 +169,21 @@ public class IpcHub {
     private func runCommand(req: InvokeRequest): Unit {
         try {
             let handler = this.commands.get(req.cmd).getOrThrow()
-            let ctx = IpcContext("main", this)
+            let ctx = IpcContext(req.window, this)
             let result = handler.handle(req.cmd, req.args, ctx)
-            this.jsSink(IpcMessage.resolve(req.id, result))
+            this.jsSink(IpcMessage.resolve(req.id, result), req.window)
         } catch (e: CommandException) {
-            this.reject(req.id, e.message)
+            this.reject(req.id, e.message, req.window)
         } catch (e: Exception) {
-            this.reject(req.id, "command failed: ${e}")
+            this.reject(req.id, "command failed: ${e}", req.window)
         }
     }
 
-    private func reject(id: Int64, error: String): Unit {
-        this.jsSink(IpcMessage.reject(id, error))
+    /**
+     * 回一条 reject；window 是回投目标（空串 = 广播，只用在读不出窗口的非法报文路径）
+     */
+    private func reject(id: Int64, error: String, window: String): Unit {
+        this.jsSink(IpcMessage.reject(id, error), window)
     }
 
     /**
@@ -190,7 +197,7 @@ public class IpcHub {
     private func handleEmit(req: EmitRequest): Unit {
         if (!this.capabilities.canEmit(req.event)) {
             eprintln("[cj-tauri] event not allowed: ${req.event}")
-            this.reject(req.id, "event not allowed: ${req.event}")
+            this.reject(req.id, "event not allowed: ${req.event}", req.window)
             return
         }
         let _ = spawn { => this.dispatchEvent(req) }
@@ -210,12 +217,12 @@ public class IpcHub {
                 }
             case None => ()
         }
-        this.jsSink(IpcMessage.resolve(req.id, JsonObject()))
+        this.jsSink(IpcMessage.resolve(req.id, JsonObject()), req.window)
     }
 
     /**
      * 广播事件到所有窗口（对标 Tauri 的 `emit`）：报文不带 window 字段，各窗口的桥自行放行。
-     * 多窗口落地前 jsSink 只通向那一个窗口，与 `emitToWindow(..., "main")` 效果相同。
+     * 批次 2 起投递侧按 label 派发，空串即「已注册的每个窗口各投一份」。
      */
     public func emitAll(event: String, payload: JsonValue): Unit {
         this.emitToWindow(event, payload, "")
@@ -235,7 +242,7 @@ public class IpcHub {
             eprintln("[cj-tauri] event not allowed: ${event}")
             return
         }
-        this.jsSink(IpcMessage.eventLatest(event, payload, window))
+        this.jsSink(IpcMessage.eventLatest(event, payload, window), window)
     }
 
     /**
@@ -249,6 +256,6 @@ public class IpcHub {
             eprintln("[cj-tauri] event not allowed: ${event}")
             return
         }
-        this.jsSink(IpcMessage.event(event, payload, window))
+        this.jsSink(IpcMessage.event(event, payload, window), window)
     }
 }

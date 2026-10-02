@@ -96,7 +96,8 @@ func hubWith(commands: Array<String>, events: Array<String>, sink: ArrayList<Str
     let reg = CapabilityRegistry()
     reg.add(cap)
     hub.setCapabilities(reg)
-    hub.jsSink = { s => addToTestSink(sink, s) }
+    // 第二个参数是目标窗口 label：单窗口用例只关心「有没有投出去」，路由由 TauriApp 层的用例覆盖
+    hub.jsSink = { s, _ => addToTestSink(sink, s) }
     return hub
 }
 

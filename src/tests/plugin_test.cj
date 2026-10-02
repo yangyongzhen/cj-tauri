@@ -94,7 +94,8 @@ class ScopedPlugin <: Plugin {
 func hubWithRegistry(reg: CapabilityRegistry, sink: ArrayList<String>): IpcHub {
     let hub = IpcHub()
     hub.setCapabilities(reg)
-    hub.jsSink = { s => addToTestSink(sink, s) }
+    // 第二个参数是目标窗口 label：本文件只关心「投出去了什么」，路由由 TauriApp 层的用例覆盖
+    hub.jsSink = { s, _ => addToTestSink(sink, s) }
     return hub
 }
 

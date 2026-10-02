@@ -14,6 +14,31 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- **窗口注册表与 label 路由（批次 2）**：`TauriApp` 持 `WindowRegistry`（`src/window_registry.cj`：
+  `label → WindowRecord`＝宿主 + 窗口配置；**重复 label 抛异常**而非静默覆盖），`run()` / `runUrl()`
+  在启动前登记默认窗口 `"main"`。上行报文现在带发起窗口的 label：桥 JS 用**懒读**的 `labelOf()`
+  （首次用到才取 `window.__CJ_TAURI_LABEL__`、取到即缓存，缺省仍是 `"main"`；注入脚本与桥 JS 谁先执行
+  都无所谓），宿主在 start 之前把这句注入为**预执行脚本**（document-start，两平台同一通道）；
+  `InvokeRequest` / `EmitRequest` 各多一个 `window` 字段，`IpcContext.window` 随之成为发起窗口的 label
+  （此前恒为 `"main"`）。**协议是增量的**：`parseEnvelope` 只认已知字段，旧前端不受影响；上行 `window`
+  缺失 / 非字符串 / 空串一律回落 `"main"`——上行没有「广播」语义，回落错了前端那条 promise 会永久 pending。
+- **事件 / 回执按窗口投递**：`IpcHub.jsSink` 由 `(String) -> Unit` 改为 `(String, String) -> Unit`
+  （json + 目标 label；空串 = 广播）；`TauriApp` 按注册表派发，`emitToWindow(..., label)` 现在真的只投给
+  那一个窗口，**未注册的 label 打一条 stderr**（此前静默丢弃，写错 label 只能看到「前端什么都没收到」）。
+  单窗口下与旧行为逐字等价；「事件只投后端监听器、不回投页面」的原则不变。
+- **应用级宿主接口 `AppHost`**：由 `TauriApp` 实现——`quit()`（收掉注册表里所有窗口的事件循环）、
+  `waitForExit()`（阻塞到退出，由私有转公开）、`hostOf(label)`（对标 `app.get_webview_window(label)`，
+  未注册返回 `None`）；`WebViewHost` 新增 `label()`（本窗口的 label，缺省 `"main"`）。
+  `WebViewHost.quit()` / `shouldQuit()` **保留**为「本窗口循环」的低层原语（只有实现方知道怎么收尾），
+  应用级入口只有 `AppHost`。
+
+### Changed
+
+- 单测 91 → **101**：新增 `WindowRegistry` 用例（重复 label 抛异常 / 查不到返回 `None` / 空串按登记顺序广播 /
+  定向单投 / 未注册 label 不回落成广播）与测试替身 `src/tests/fake_host.cj`（不创建原生窗口就能测装配路径）。
+
 ## [0.5.0] - 2026-10-02
 
 ### Added

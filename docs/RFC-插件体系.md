@@ -175,7 +175,10 @@ WebView2 `AddScriptToExecuteOnDocumentCreated`），按注册顺序排在 `BRIDG
   fs      fs:readText, fs:writeText, fs:exists        events: fs:changed
 ```
 
-v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue` 供外部工具消费，见 §8 开放问题 7。
+v1 先做成启动日志的输出；**机器可读版本已提供**（2026-10-02）：框架函数
+`describePluginsJson(plugins): JsonValue`，形态 `[{name, commands, events, permissions, hasShim}]`，
+数组与权限键按字典序（输出稳定、可 diff）。不放进 `Plugin` 接口的理由见 §8 第 7 条；
+`cj-tauri info` 消费它仍待后续（CLI 不启动应用就拿不到装配结果）。
 
 ## 6. 兼容性与版本
 
@@ -237,6 +240,12 @@ v1 先做成 `info` 的输出；是否额外提供 `Plugin.manifest(): JsonValue
 6. 非命令类能力（托盘、全局快捷键、协议处理）以后怎么进这个模型？v1 的 `Plugin` 只覆盖「命令 + 事件 + JS」，
    这类能力需要宿主层先有对应 API——是否要把「插件可以要求宿主能力」写进接口预留位？
 7. 是否需要 `Plugin.manifest()` 这样的机器可读清单（供 CLI 打印与生成能力片段）？
+   **已决（2026-10-02，方案 C）**：不做接口方法，改给**框架侧函数** `describePluginsJson(plugins): JsonValue`
+   （形态 `[{name, commands, events, permissions, hasShim}]`，命令 / 事件 / 权限键都按字典序，输出稳定可 diff）。
+   理由：这些数据框架本就能从 `commands()` / `events()` / `permissions()` 推出来，多一个接口方法只是给插件作者
+   加负担（§7 的 v1 结论不变），而消费方（第三方工具、CI）要的是函数。单测 71 → 74。
+   遗留：`cj-tauri info` 仍不打印插件——CLI 不启动应用就拿不到装配结果，要在 CLI 里消费得先加载应用侧插件，
+   留作后续（谁有需求谁加，不影响本函数）。
 8. 执行子进程（§7.1 第 9 行 `shell:exec`）要不要**挪出 UI 线程**、要不要做**程序白名单 scope**？
    **v1（2026-10-02）的答案：都不做。** ① 同步阻塞是已知限制——IPC 处理器跑在宿主 UI 线程上，长驻 / 交互式程序
    会把窗口卡住；文档与插件注释都已写明「别这么用」，等宿主层有工作线程（或命令分发支持异步返回）再改，

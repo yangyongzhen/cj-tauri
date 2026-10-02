@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import stdx.encoding.json.*
 
 /**
  * 插件（对标 Tauri v2 的 plugin，设计见 docs/RFC-插件体系.md）
@@ -169,6 +170,69 @@ public func describePlugins(plugins: ArrayList<Plugin>): String {
         text += "\n"
     }
     return text
+}
+
+/**
+ * 机器可读的插件清单（RFC §8 第 7 条的答案 C：给工具/CI 用，**不动 Plugin 接口**）
+ *
+ * 形态 `[{name, commands, events, permissions, hasShim}, ...]`：
+ *   - `commands` / `events`：全名数组（`<插件名>:<短名>`，与 IPC 注册名、能力清单里写的名字一致）
+ *   - `permissions`：集全名 → 成员全名数组（**框架展开后**的样子，也就是清单里能引用的名字）
+ *   - `hasShim`：是否带前端 JS 片段（工具据此判断要不要等 `__CJ_TAURI__.<插件名>`）
+ * 数组与权限键都按字典序排：HashMap 迭代顺序不定，工具的输出 / diff 需要稳定。
+ *
+ * 为什么不放进 `Plugin` 接口（RFC §7 的 v1 结论）：这些数据框架本就能从 `commands()` /
+ * `events()` / `permissions()` 推出来，多一个接口方法只是给插件作者加负担；消费方要的是函数。
+ */
+public func describePluginsJson(plugins: ArrayList<Plugin>): JsonValue {
+    let arr = ArrayList<JsonValue>()
+    for (p in plugins) {
+        var obj = JsonObject()
+        obj.put("name", JsonString(p.name()))
+        obj.put("commands", jsonStringArray(pluginCommandNames(p)))
+        obj.put("events", jsonStringArray(pluginEventNames(p)))
+        obj.put("permissions", jsonPermissionSets(p))
+        obj.put("hasShim", JsonBool(p.jsShim().size > 0))
+        arr.add(obj)
+    }
+    return JsonArray(arr)
+}
+
+/** 字符串数组 → JSON 数组，元素按字典序（HashMap 来的一律先排序，保证输出稳定） */
+func jsonStringArray(items: ArrayList<String>): JsonValue {
+    let sorted = sortedStrings(items)
+    let arr = ArrayList<JsonValue>()
+    for (s in sorted) {
+        arr.add(JsonString(s))
+    }
+    return JsonArray(arr)
+}
+
+/** 命名权限集 → JSON 对象（键 = 集全名，值 = 成员全名数组）；键也按字典序 */
+func jsonPermissionSets(p: Plugin): JsonValue {
+    let sets = pluginPermissionSets(p)
+    let keys = ArrayList<String>()
+    for ((setName, _) in sets) {
+        keys.add(setName)
+    }
+    var obj = JsonObject()
+    for (setName in sortedStrings(keys)) {
+        match (sets.get(setName)) {
+            case Some(members) => obj.put(setName, jsonStringArray(members))
+            case None => ()
+        }
+    }
+    return obj
+}
+
+/** 复制一份并按字典序排序（不改动入参；元素量级只有每插件的几条命令，开销可忽略） */
+func sortedStrings(items: ArrayList<String>): ArrayList<String> {
+    let out = ArrayList<String>()
+    for (s in items) {
+        out.add(s)
+    }
+    out.sort()
+    return out
 }
 
 /**

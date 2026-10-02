@@ -383,3 +383,80 @@ func testFsReadMissingFileBecomesBusinessError(): Unit {
     let exists = cmds.get("exists").getOrThrow().handle("fs:exists", pathArgs("/tmp/cj-tauri-plugin-no-such-file.txt"), ctx)
     @Expect(exists.asBool().getValue(), false)
 }
+
+/**
+ * JsonValue → ArrayList<JsonValue>（测试助手）
+ * JsonArray 本身不支持 for-in，且 arr.get(i) 的元素类型要靠上下文推断——
+ * 统一在这儿把它转成 ArrayList，后面就能直接下标访问、也能 for-in。
+ */
+func jsonItemsOf(v: JsonValue): ArrayList<JsonValue> {
+    let out = ArrayList<JsonValue>()
+    let arr = v.asArray()
+    for (i in 0..arr.size()) {
+        out.add(arr.get(i).getOrThrow())
+    }
+    return out
+}
+
+/** 取出对象里某个键的字符串数组（describePluginsJson 的测试助手） */
+func jsonStringsOf(obj: JsonObject, key: String): ArrayList<String> {
+    let out = ArrayList<String>()
+    for (e in jsonItemsOf(obj.get(key).getOrThrow())) {
+        out.add(e.asString().getValue())
+    }
+    return out
+}
+
+/** "a|b" 形式，便于用字符串断言数组的内容与顺序 */
+func joinWithPipe(items: ArrayList<String>): String {
+    var s = ""
+    for (x in items) {
+        if (s.size > 0) {
+            s += "|"
+        }
+        s += x
+    }
+    return s
+}
+
+@Test
+func testDescribePluginsJsonShape(): Unit {
+    let plugins = ArrayList<Plugin>()
+    plugins.add(DemoPlugin())
+    plugins.add(ScopedPlugin())
+    let arr = jsonItemsOf(describePluginsJson(plugins))
+    @Expect(arr.size, 2)
+
+    // 数组顺序 = 装配顺序
+    let demo = arr[0].asObject()
+    @Expect(demo.get("name").getOrThrow().asString().getValue(), "demo")
+    @Expect(joinWithPipe(jsonStringsOf(demo, "commands")), "demo:do")
+    @Expect(joinWithPipe(jsonStringsOf(demo, "events")), "demo:changed")
+    @Expect(demo.get("permissions").getOrThrow().asObject().size(), 0)
+    @Expect(demo.get("hasShim").getOrThrow().asBool().getValue(), true)
+
+    let scoped = arr[1].asObject()
+    // 命令/事件按字典序（read 在 write 前），而不是 HashMap 的迭代顺序
+    @Expect(joinWithPipe(jsonStringsOf(scoped, "commands")), "scoped:read|scoped:write")
+    @Expect(scoped.get("hasShim").getOrThrow().asBool().getValue(), false)
+    // 权限集用「框架展开后」的全名，成员同样排序（scoped:changed < scoped:read）
+    let perms = scoped.get("permissions").getOrThrow().asObject()
+    @Expect(perms.size(), 1)
+    @Expect(joinWithPipe(jsonStringsOf(perms, "scoped:watch")), "scoped:changed|scoped:read")
+}
+
+@Test
+func testDescribePluginsJsonStableAcrossRuns(): Unit {
+    // 连续两次序列化必须逐字节相同：命令/事件/权限键都排过序，不受 HashMap 迭代顺序影响
+    let plugins = ArrayList<Plugin>()
+    plugins.add(DemoPlugin())
+    plugins.add(ScopedPlugin())
+    plugins.add(MiniPlugin())
+    @Expect(describePluginsJson(plugins).toJsonString(), describePluginsJson(plugins).toJsonString())
+}
+
+@Test
+func testDescribePluginsJsonEmptyList(): Unit {
+    let none = ArrayList<Plugin>()
+    @Expect(jsonItemsOf(describePluginsJson(none)).size, 0)
+}

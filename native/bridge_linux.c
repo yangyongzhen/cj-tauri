@@ -23,6 +23,30 @@
 #include <unistd.h>
 #include "bridge_core.h"
 
+/* ===== 菜单栏（RFC-002 §5.4 / §5.5）=====
+   core 把线路文本交下来，本文件翻译成 GTK 菜单栏。菜单栏是**每窗口**资源（GtkMenuBar 挂在
+   窗口里那层 GtkBox 上），建 / 换 / 改都必须在 GTK 线程上做——跨线程一律 g_idle_add 投过去。 */
+#define CJ_MENU_MAX_ITEMS 64
+#define CJ_MENU_MAX_DEPTH 8
+
+typedef struct menu_item_ctx {
+    cj_host *h;
+    char *app_id;      /* 应用给的稳定 id：菜单项被激活时回投仓颉侧 */
+    char kind;         /* 'n' 普通 / 'c' 勾选（勾选项靠 toggled 信号回投）*/
+    int enabled;
+    int checked;
+    int suppress;      /* 程序化改勾选时置 1：把随之而来的 toggled 当噪声挡掉 */
+} menu_item_ctx;
+
+typedef struct menu_slot {
+    char *app_id;         /* 与 menu_item_ctx 各存一份：槽会被重建复用，ctx 随 widget 存亡 */
+    GtkWidget *widget;    /* 对应的 GtkMenuItem / GtkCheckMenuItem */
+    menu_item_ctx *ctx;   /* 该 widget 的信号回调上下文（改状态要动它的 suppress）*/
+    char kind;
+    int enabled;
+    int checked;
+} menu_slot;
+
 /* ===== 每个宿主的平台私有状态 =====
    原先是一堆进程级单例（g_window / g_view / g_gtk_thread …）：多窗口一落地就互相覆盖，
    而且「哪个窗口」这件事在 ABI 上根本传不进来。现在挂在自己的 cj_host->plat 上，
@@ -30,6 +54,11 @@
 typedef struct plat_host {
     GtkWidget *window;  /* 主窗口；窗口销毁时置空（含用户关窗路径）*/
     GtkWidget *view;    /* WebKitWebView；宿主线程收尾时 unref 并置空 */
+    /* --- 菜单栏（只在 GTK 线程上建 / 换 / 改）--- */
+    GtkWidget *box;      /* window 里那层竖向 GtkBox：装菜单栏（若有）+ view */
+    GtkWidget *menubar;  /* 当前菜单栏；NULL = 没有（空菜单栏不留空条）*/
+    menu_slot menu_items[CJ_MENU_MAX_ITEMS];
+    int menu_item_count;
     pthread_t thread;   /* 跑 gtk_main 的原生线程（对话框判断「调用方是否已在 GTK 线程」用）*/
     int thread_started;
     int thread_set;
@@ -147,6 +176,11 @@ static gboolean flush_idle(gpointer d) {
 }
 
 /* ===== 宿主生命周期 ===== */
+
+/* 菜单：实现集中在文件末尾；装配路径与 g_idle 回调都要用，先声明 */
+static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire);
+static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked);
+static void menu_clear_slots(plat_host *p);
 
 void cj_plat_init(cj_host *h) {
     plat_host *p;
@@ -516,7 +550,15 @@ static void *gtk_thread_main(void *arg) {
         webkit_web_view_set_settings(WEBKIT_WEB_VIEW(p->view), settings);
     }
     g_signal_connect(p->view, "load-changed", G_CALLBACK(on_load_changed), NULL);
-    gtk_container_add(GTK_CONTAINER(p->window), p->view);
+    /* 装配：window 里套一层竖向 GtkBox（菜单栏 + view）。固定套一层而不是「有菜单才套」——
+       少一种装配分支就少一类时序坑，代价只是一个 GtkBox 的开销。 */
+    p->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_pack_start(GTK_BOX(p->box), p->view, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(p->window), p->box);
+    /* 装配期就已经 set_menu 过：这时把菜单栏建出来（运行期再改的走 g_idle_add 到本线程）*/
+    if (h->pending_menu_text && h->pending_menu_text[0]) {
+        menu_apply_wire(h, p, h->pending_menu_text);
+    }
     gtk_widget_show_all(p->window);
     cj_core_set_ready(h);
 
@@ -540,6 +582,9 @@ static void *gtk_thread_main(void *arg) {
     /* 我们从不额外持 view 的引用（那是容器的引用），所以这里没有可 unref 的东西：
        窗口一旦销毁，view 指针就已失效，只能置空。 */
     p->view = NULL;
+    p->box = NULL;      /* 随窗口一起销毁了 */
+    p->menubar = NULL;
+    menu_clear_slots(p); /* 槽里的 app_id 是我们 malloc 的，跟平台状态一起收 */
     /* 兜底：非关窗路径退出主循环时也要通知一次（幂等，正常路径已触发过） */
     cj_core_window_destroyed(h);
     /* 最后一步才立这个标记：cj_plat_fini 见到它才 free 平台状态（此刻本线程已不再碰 p）*/
@@ -563,4 +608,289 @@ void cj_plat_start(cj_host *h) {
     /* 不再 detach：cj_plat_fini 需要 join 它，确认线程收尾完毕再释放平台状态 */
     p->thread = t;
     p->thread_started = 1;
+}
+
+/* ===== 菜单栏翻译层（RFC-002 §5.4）：线路文本 → GtkMenuBar =====
+   格式解析不在这里重复实现：走 core 的 cj_core_menu_walk（两平台共用一份，桩平台已自检）。
+   本层只做三件事：把行翻译成 GTK 控件、把「用户激活」经 core 回投、维护运行期改状态的槽。 */
+
+static void menu_clear_slots(plat_host *p) {
+    int i;
+    if (!p) return;
+    for (i = 0; i < p->menu_item_count; i++) {
+        free(p->menu_items[i].app_id);
+        p->menu_items[i].app_id = NULL;
+        p->menu_items[i].widget = NULL;
+        p->menu_items[i].ctx = NULL;
+    }
+    p->menu_item_count = 0;
+}
+
+/* 普通项：activate = 用户点选（没有勾选状态可报，checked 恒 0）*/
+static void on_menu_item_activate(GtkMenuItem *item, gpointer data) {
+    menu_item_ctx *c = (menu_item_ctx *)data;
+    (void)item;
+    if (!c || !c->h || c->suppress) return;
+    cj_core_menu_clicked(c->h, c->app_id ? c->app_id : "", c->enabled, c->checked);
+}
+
+/* 勾选项：toggled 在 active 变化之后发（含用户点击与程序化设置，后者被 suppress 挡掉）*/
+static void on_menu_item_toggled(GtkCheckMenuItem *item, gpointer data) {
+    menu_item_ctx *c = (menu_item_ctx *)data;
+    if (!c || !c->h || c->suppress) return;
+    c->checked = gtk_check_menu_item_get_active(item) ? 1 : 0;
+    cj_core_menu_clicked(c->h, c->app_id ? c->app_id : "", c->enabled, c->checked);
+}
+
+/* 菜单项随菜单栏销毁：ctx 归本次构建所有，在这里释放（槽里的那份 app_id 另算）*/
+static void on_menu_item_destroy(GtkWidget *w, gpointer data) {
+    menu_item_ctx *c = (menu_item_ctx *)data;
+    (void)w;
+    if (!c) return;
+    free(c->app_id);
+    free(c);
+}
+
+static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked) {
+    int i;
+    if (!p || !id || !id[0]) return;
+    for (i = 0; i < p->menu_item_count; i++) {
+        menu_slot *s = &p->menu_items[i];
+        if (!s->widget || !s->app_id || strcmp(s->app_id, id) != 0) continue;
+        s->enabled = enabled ? 1 : 0;
+        s->checked = checked ? 1 : 0;
+        gtk_widget_set_sensitive(s->widget, s->enabled ? TRUE : FALSE);
+        if (s->ctx) {
+            s->ctx->enabled = s->enabled;
+            s->ctx->checked = s->checked;
+        }
+        if (s->kind == 'c') {
+            /* 程序化改勾选同样会发 toggled：置 suppress 把它挡掉，免得被当成一次用户点击 */
+            if (s->ctx) s->ctx->suppress = 1;
+            gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(s->widget),
+                                           s->checked ? TRUE : FALSE);
+            if (s->ctx) s->ctx->suppress = 0;
+        }
+        return;
+    }
+    fprintf(stderr, "[cj-bridge] menu item not found: %s\n", id);
+}
+
+/* 建菜单时的上下文：层级用一张 GtkMenu 栈表示（行按文档顺序来，深度只会 +1 或回退）*/
+typedef struct menu_build_ctx {
+    cj_host *h;
+    plat_host *p;
+    GtkWidget *menubar;
+    GtkWidget *stack[CJ_MENU_MAX_DEPTH]; /* stack[d]：深度 d 的行往哪个 GtkMenu 里追加 */
+    int ok[CJ_MENU_MAX_DEPTH];           /* 该层是否已有子菜单可挂（没有就退回上一层）*/
+} menu_build_ctx;
+
+static void menu_add_row(void *ctx, int depth, char kind, const char *id,
+                         const char *label, int flags, const char *accel) {
+    menu_build_ctx *c = (menu_build_ctx *)ctx;
+    plat_host *p;
+    GtkWidget *parent_menu;
+    GtkWidget *item;
+    menu_item_ctx *ic;
+    menu_slot *slot;
+    char *text;
+    int enabled = (flags & 1) ? 1 : 0;
+    int checked = (flags & 2) ? 1 : 0;
+
+    if (!c || !c->p) return;
+    p = c->p;
+    if (depth < 0) depth = 0;
+    if (depth >= CJ_MENU_MAX_DEPTH) depth = CJ_MENU_MAX_DEPTH - 1;
+    parent_menu = (depth > 0 && c->ok[depth]) ? c->stack[depth] : c->menubar;
+
+    if (kind == 's') { /* 分隔线：既没有命令 id，也没有文字 */
+        gtk_menu_shell_append(GTK_MENU_SHELL(parent_menu), gtk_separator_menu_item_new());
+        return;
+    }
+    /* 标签：accel 非空时接在文字后面（GTK3 的快捷键要走 accel_group，v1 只做提示文本；
+       这里用空格而不是制表符——GTK 的标签不像 Win32 那样把 \t 之后的部分右对齐）*/
+    {
+        size_t n = strlen(label) + (accel[0] ? strlen(accel) + 2 : 0) + 1;
+        text = (char *)malloc(n);
+        if (!text) return;
+        snprintf(text, n, "%s%s%s", label, accel[0] ? "  " : "", accel);
+    }
+
+    if (kind == 'm') { /* 子菜单：建出 GtkMenu 挂到子菜单项上，并让深一层的行知道往哪挂 */
+        GtkWidget *submenu = gtk_menu_new();
+        item = gtk_menu_item_new_with_label(text);
+        free(text);
+        gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), submenu);
+        gtk_widget_set_sensitive(item, enabled ? TRUE : FALSE);
+        gtk_menu_shell_append(GTK_MENU_SHELL(parent_menu), item);
+        if (depth + 1 < CJ_MENU_MAX_DEPTH) {
+            c->stack[depth + 1] = submenu;
+            c->ok[depth + 1] = 1;
+        }
+        return;
+    }
+
+    if (p->menu_item_count >= CJ_MENU_MAX_ITEMS) {
+        fprintf(stderr, "[cj-bridge] menu: item limit reached, dropped: %s\n", id);
+        free(text);
+        return;
+    }
+    item = (kind == 'c') ? gtk_check_menu_item_new_with_label(text)
+                         : gtk_menu_item_new_with_label(text);
+    free(text);
+    gtk_widget_set_sensitive(item, enabled ? TRUE : FALSE);
+    if (kind == 'c') {
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
+    }
+    ic = (menu_item_ctx *)calloc(1, sizeof(*ic));
+    if (ic) {
+        ic->h = c->h;
+        ic->app_id = strdup(id);
+        ic->kind = kind;
+        ic->enabled = enabled;
+        ic->checked = checked;
+        if (kind == 'c') {
+            g_signal_connect(item, "toggled", G_CALLBACK(on_menu_item_toggled), ic);
+        } else {
+            g_signal_connect(item, "activate", G_CALLBACK(on_menu_item_activate), ic);
+        }
+        g_signal_connect(item, "destroy", G_CALLBACK(on_menu_item_destroy), ic);
+    } else {
+        fprintf(stderr, "[cj-bridge] menu: out of memory for item ctx (%s)\n", id);
+    }
+    gtk_menu_shell_append(GTK_MENU_SHELL(parent_menu), item);
+
+    slot = &p->menu_items[p->menu_item_count++];
+    free(slot->app_id); /* 槽是复用的，清掉上一轮残留 */
+    slot->app_id = strdup(id);
+    slot->widget = item;
+    slot->ctx = ic;
+    slot->kind = kind;
+    slot->enabled = enabled;
+    slot->checked = checked;
+}
+
+static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
+    menu_build_ctx c;
+
+    /* p->window 为 NULL 说明窗口已销毁（on_destroy 会置空）：晚到的 idle 就别再碰 GTK 了 */
+    if (!p || !p->window || !p->box) return;
+    /* 旧菜单栏整体拆掉：子项随父销毁，各自的 ctx 由 destroy 处理器释放 */
+    if (p->menubar) {
+        gtk_widget_destroy(p->menubar);
+        p->menubar = NULL;
+    }
+    menu_clear_slots(p);
+    if (!wire || !wire[0]) { /* 空串 = 清空菜单栏（不留一条空条）*/
+        fprintf(stderr, "[cj-bridge] menu cleared\n");
+        return;
+    }
+    memset(&c, 0, sizeof(c)); /* 不用 ZeroMemory：那是 Windows 宏，本文件没有它 */
+    c.h = h;
+    c.p = p;
+    c.menubar = gtk_menu_bar_new();
+    c.stack[0] = c.menubar;
+    c.ok[0] = 1;
+    cj_core_menu_walk(wire, menu_add_row, &c);
+    p->menubar = c.menubar;
+    gtk_box_pack_start(GTK_BOX(p->box), p->menubar, FALSE, FALSE, 0);
+    gtk_box_reorder_child(GTK_BOX(p->box), p->menubar, 0); /* 菜单栏必须在 view 之上 */
+    gtk_widget_show_all(p->menubar);
+    fprintf(stderr, "[cj-bridge] menu applied: items=%d\n", p->menu_item_count);
+}
+
+/* 跨线程换菜单：线路文本进 g_idle 队列，由 GTK 线程消费（payload 谁分配谁在 idle 里释放）*/
+typedef struct menu_wire_idle {
+    cj_host *h;
+    char *wire;
+} menu_wire_idle;
+
+static gboolean menu_wire_idle_cb(gpointer data) {
+    menu_wire_idle *m = (menu_wire_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        if (p) menu_apply_wire(m->h, p, m->wire);
+    }
+    free(m->wire);
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+void cj_plat_set_menu(cj_host *h, const char *wire) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !wire) return;
+    if (!p->window) {
+        /* 未就绪：core 已把线路文本记在 h->pending_menu_text，宿主线程装配时取用 */
+        fprintf(stderr, "[cj-bridge] menu deferred: window not ready\n");
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        menu_apply_wire(h, p, wire);
+        return;
+    }
+    {
+        menu_wire_idle *m = (menu_wire_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->wire = strdup(wire);
+        if (!m->wire) {
+            free(m);
+            return;
+        }
+        g_idle_add(menu_wire_idle_cb, m);
+        fprintf(stderr, "[cj-bridge] menu posted to gtk thread (%d bytes)\n", (int)strlen(wire));
+    }
+}
+
+/* 跨线程改单项状态：同样走 g_idle（与换菜单分开一个包裹，互不阻塞）*/
+typedef struct menu_state_idle {
+    cj_host *h;
+    char *id;
+    int enabled;
+    int checked;
+} menu_state_idle;
+
+static gboolean menu_state_idle_cb(gpointer data) {
+    menu_state_idle *m = (menu_state_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        if (p) menu_apply_item_state(p, m->id, m->enabled, m->checked);
+    }
+    free(m->id);
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !id || !id[0]) return;
+    if (!p->window || !p->menubar) {
+        fprintf(stderr, "[cj-bridge] menu item state ignored: menu not ready (%s)\n", id);
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        menu_apply_item_state(p, id, enabled, checked);
+        return;
+    }
+    {
+        menu_state_idle *m = (menu_state_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->id = strdup(id);
+        m->enabled = enabled ? 1 : 0;
+        m->checked = checked ? 1 : 0;
+        if (!m->id) {
+            free(m);
+            return;
+        }
+        g_idle_add(menu_state_idle_cb, m);
+    }
+}
+
+int cj_plat_host_capabilities(cj_host *h) {
+    (void)h;
+    /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；托盘 / 拖放到 7.B / 7.C */
+    return CJ_CAP_MENU;
 }

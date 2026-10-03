@@ -60,6 +60,20 @@ typedef struct nav_handler {
     cj_host *h;
 } nav_handler;
 
+/* ===== 菜单栏（RFC-002 §5.4 / §5.5）=====
+   core 把线路文本交下来，本文件翻译成 Win32 菜单栏。菜单栏是**每窗口**资源（HMENU 挂在窗口上），
+   建 / 换 / 改都必须在 UI 线程上做——跨线程调用一律 PostMessage 到宿主线程。 */
+#define CJ_MENU_MAX_ITEMS 64
+#define CJ_MENU_MAX_DEPTH 8
+
+typedef struct menu_slot {
+    UINT cmd_id;   /* 建菜单时分配的命令 id（WM_COMMAND 带回来的那个），从 1 开始 */
+    char *app_id;  /* 应用给的稳定 id：回投仓颉侧，也是 set_menu_item_state 的查找键 */
+    char kind;     /* 'n' 普通 / 'c' 勾选（点击时由我们自己翻转勾选状态）*/
+    int enabled;
+    int checked;
+} menu_slot;
+
 /* ===== 每个宿主的平台私有状态 =====
    原先是一堆进程级单例（g_hwnd / g_controller / g_environment / g_webview / g_host_thread_id …）。
    现在挂在自己的 cj_host->plat 上，平台函数一律从入参句柄取状态。 */
@@ -78,6 +92,10 @@ typedef struct plat_host {
     ctrl_handler ctrl;
     msg_handler msg;
     nav_handler nav;
+    /* --- 菜单栏（只在 UI 线程上建 / 换 / 改）--- */
+    HMENU menu;                               /* 当前菜单栏；NULL = 没有 */
+    menu_slot menu_items[CJ_MENU_MAX_ITEMS];  /* 命令 id ↔ 应用 id 映射：WM_COMMAND 靠它回投 */
+    int menu_item_count;
 } plat_host;
 
 /* ===== 同步原语（core 只用这些，绝不直接碰 Win32）=====
@@ -168,8 +186,21 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_LOAD_URL (WM_APP + 4)
 #define WM_CJT_RELOAD (WM_APP + 5)
 #define WM_CJT_DIALOG (WM_APP + 6)
+#define WM_CJT_MENU (WM_APP + 7)       /* 运行期换菜单：lParam = strdup 的线路文本（UI 线程释放）*/
+#define WM_CJT_MENU_ITEM (WM_APP + 8)  /* 运行期改单项状态：lParam = menu_state_msg*（UI 线程释放）*/
+
+/* 运行期改单项状态：跨线程传递的小包裹（谁 post 谁分配，UI 线程处理完释放）*/
+typedef struct menu_state_msg {
+    char *id;
+    int enabled;
+    int checked;
+} menu_state_msg;
 
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+/* 菜单实现集中在文件末尾；宿主线程与窗口过程要用，先声明 */
+static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire);
+static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked);
+static void menu_clear_slots(plat_host *p);
 
 /* ===== COM 回调实现（完成/事件 handler）===== */
 
@@ -576,6 +607,46 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         free(w);
         return 0;
     }
+    case WM_CJT_MENU: {
+        /* lParam 是调用方 strdup 的线路文本：宿主线程用完即释放（与 WM_CJT_LOAD_URL 同规）*/
+        char *wire = (char *)lp;
+        if (wire && h && p) {
+            menu_apply_wire(h, p, wire);
+        }
+        free(wire);
+        return 0;
+    }
+    case WM_CJT_MENU_ITEM: {
+        menu_state_msg *m = (menu_state_msg *)lp;
+        if (m) {
+            if (p) {
+                menu_apply_item_state(p, m->id, m->enabled, m->checked);
+            }
+            free(m->id);
+            free(m);
+        }
+        return 0;
+    }
+    case WM_COMMAND: {
+        /* 菜单项：LOWORD(wp) 是建菜单时分配的命令 id；0 = 没有命令（分隔线 / 子菜单标题）*/
+        UINT cmd = (UINT)LOWORD(wp);
+        if (h && p && cmd) {
+            int i;
+            for (i = 0; i < p->menu_item_count; i++) {
+                menu_slot *s = &p->menu_items[i];
+                if (s->cmd_id != cmd) continue;
+                if (s->kind == 'c') {
+                    /* Win32 不会替我们翻转勾选：自己翻，并同步菜单上的勾 */
+                    s->checked = s->checked ? 0 : 1;
+                    CheckMenuItem(p->menu, cmd,
+                                  MF_BYCOMMAND | (s->checked ? MF_CHECKED : MF_UNCHECKED));
+                }
+                cj_core_menu_clicked(h, s->app_id, s->enabled, s->checked);
+                break;
+            }
+        }
+        return 0;
+    }
     case WM_CJT_DIALOG:
         /* lParam 是调用方（仓颉线程）堆上的请求：宿主线程只填结果，释放仍归调用方 */
         if (lp) {
@@ -706,6 +777,11 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     if (icon_small) {
         SendMessageW(p->hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon_small);
     }
+    /* 菜单栏：装配期就先建好（仓颉侧可能在 start() 之前就 set_menu 了）；
+       运行期再改的走 WM_CJT_MENU 到本线程重建。 */
+    if (h->pending_menu_text && h->pending_menu_text[0]) {
+        menu_apply_wire(h, p, h->pending_menu_text);
+    }
     /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理） */
     fprintf(stderr, "[cj-bridge] window created, requesting WebView2 environment\n");
     log_hr("CreateCoreWebView2EnvironmentWithOptions",
@@ -719,6 +795,11 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
 done:
     if (title_w) free(title_w);
     if (icon_w) free(icon_w);
+    if (p->menu) { /* 窗口没了，菜单栏也要回收（HMENU 归本线程建、也归本线程销毁）*/
+        DestroyMenu(p->menu);
+        p->menu = NULL;
+    }
+    menu_clear_slots(p);
     if (p->controller) {
         p->controller->lpVtbl->Close(p->controller);
         p->controller = NULL;
@@ -867,4 +948,224 @@ void cj_plat_reload(cj_host *h) {
         return;
     }
     PostMessageW(p->hwnd, WM_CJT_RELOAD, 0, 0);
+}
+
+/* ===== 菜单栏翻译层（RFC-002 §5.4）：线路文本 → HMENU =====
+   格式解析不在这里重复实现：走 core 的 cj_core_menu_walk（两平台共用一份，桩平台已自检）。
+   本层只做三件事：把行翻译成 Win32 项、维护「命令 id ↔ 应用 id」映射、把点击经 core 回投。 */
+
+static void menu_clear_slots(plat_host *p) {
+    int i;
+    if (!p) return;
+    for (i = 0; i < p->menu_item_count; i++) {
+        free(p->menu_items[i].app_id);
+        p->menu_items[i].app_id = NULL;
+    }
+    p->menu_item_count = 0;
+}
+
+static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked) {
+    int i;
+    if (!p || !id || !id[0] || !p->menu) return;
+    for (i = 0; i < p->menu_item_count; i++) {
+        menu_slot *s = &p->menu_items[i];
+        if (!s->app_id || strcmp(s->app_id, id) != 0) continue;
+        s->enabled = enabled ? 1 : 0;
+        s->checked = checked ? 1 : 0;
+        EnableMenuItem(p->menu, s->cmd_id, MF_BYCOMMAND | (s->enabled ? MF_ENABLED : MF_GRAYED));
+        CheckMenuItem(p->menu, s->cmd_id,
+                      MF_BYCOMMAND | (s->checked ? MF_CHECKED : MF_UNCHECKED));
+        DrawMenuBar(p->hwnd);
+        return;
+    }
+    fprintf(stderr, "[cj-bridge] menu item not found: %s\n", id);
+}
+
+/* 建菜单时的上下文：层级用一张 HMENU 栈表示（行按文档顺序来，深度只会 +1 或回退）*/
+typedef struct menu_build_ctx {
+    plat_host *p;
+    HMENU bar;
+    HMENU stack[CJ_MENU_MAX_DEPTH]; /* stack[d]：深度 d 的行往哪个菜单里追加 */
+    int ok[CJ_MENU_MAX_DEPTH];      /* 该层是否已经有子菜单可挂（没有就退回上一层）*/
+} menu_build_ctx;
+
+static void menu_add_row(void *ctx, int depth, char kind, const char *id,
+                         const char *label, int flags, const char *accel) {
+    menu_build_ctx *c = (menu_build_ctx *)ctx;
+    plat_host *p;
+    HMENU target;
+    wchar_t *wlabel = NULL;
+    int enabled = (flags & 1) ? 1 : 0;
+    int checked = (flags & 2) ? 1 : 0;
+
+    if (!c || !c->p) return;
+    p = c->p;
+    if (depth < 0) depth = 0;
+    if (depth >= CJ_MENU_MAX_DEPTH) depth = CJ_MENU_MAX_DEPTH - 1;
+    target = (depth > 0 && c->ok[depth]) ? c->stack[depth] : c->bar;
+
+    if (kind == 's') { /* 分隔线：既没有命令 id，也没有文字 */
+        AppendMenuW(target, MF_SEPARATOR, 0, NULL);
+        return;
+    }
+
+    /* 标签：accel 非空时用制表符并进去——Win32 会把 \t 之后的部分右对齐，正是快捷键栏的位置 */
+    {
+        size_t n = strlen(label) + (accel[0] ? strlen(accel) + 1 : 0) + 1;
+        char *tmp = (char *)malloc(n);
+        if (!tmp) return;
+        snprintf(tmp, n, "%s%s%s", label, accel[0] ? "\t" : "", accel);
+        wlabel = utf8_to_wide(tmp);
+        free(tmp);
+    }
+    if (!wlabel) return;
+
+    if (kind == 'm') { /* 子菜单：建出 HMENU 挂进父项，并让深一层的行知道往哪挂 */
+        HMENU sub = CreatePopupMenu();
+        if (!sub) {
+            free(wlabel);
+            return;
+        }
+        if (!AppendMenuW(target, MF_POPUP | (enabled ? 0 : MF_GRAYED), (UINT_PTR)sub, wlabel)) {
+            fprintf(stderr, "[cj-bridge] menu: append submenu failed: %lu\n",
+                    (unsigned long)GetLastError());
+            DestroyMenu(sub);
+            free(wlabel);
+            return;
+        }
+        free(wlabel);
+        if (depth + 1 < CJ_MENU_MAX_DEPTH) {
+            c->stack[depth + 1] = sub;
+            c->ok[depth + 1] = 1;
+        }
+        return;
+    }
+
+    if (p->menu_item_count >= CJ_MENU_MAX_ITEMS) {
+        fprintf(stderr, "[cj-bridge] menu: item limit reached, dropped: %s\n", id);
+        free(wlabel);
+        return;
+    }
+    {
+        UINT item_flags = MF_STRING;
+        UINT cmd_id = (UINT)(p->menu_item_count + 1); /* 0 保留给「没有命令」*/
+        menu_slot *s = &p->menu_items[p->menu_item_count];
+        if (!enabled) item_flags |= MF_GRAYED;
+        if (kind == 'c' && checked) item_flags |= MF_CHECKED;
+        if (!AppendMenuW(target, item_flags, cmd_id, wlabel)) {
+            fprintf(stderr, "[cj-bridge] menu: append item failed: %lu (id=%s)\n",
+                    (unsigned long)GetLastError(), id);
+            free(wlabel);
+            return;
+        }
+        free(wlabel);
+        ZeroMemory(s, sizeof(*s));
+        s->cmd_id = cmd_id;
+        s->app_id = strdup(id);
+        s->kind = kind;
+        s->enabled = enabled;
+        s->checked = checked;
+        p->menu_item_count++;
+    }
+}
+
+static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
+    menu_build_ctx c;
+    HMENU old;
+
+    if (!p) return;
+    if (!wire || !wire[0]) {
+        /* 空串 = 清空菜单栏：SetMenu(hwnd, NULL) 才是真的没有菜单栏（空 popup 会留一条空条）*/
+        menu_clear_slots(p);
+        if (p->menu) {
+            SetMenu(p->hwnd, NULL);
+            DestroyMenu(p->menu);
+            p->menu = NULL;
+        }
+        DrawMenuBar(p->hwnd);
+        fprintf(stderr, "[cj-bridge] menu cleared\n");
+        return;
+    }
+    ZeroMemory(&c, sizeof(c));
+    c.p = p;
+    /* 顶层必须是「菜单栏」：SetMenu 只接受 CreateMenu 出来的句柄，塞一个 CreatePopupMenu
+       的 popup 句柄进去会以 ERROR_INVALID_PARAMETER(87) **静默失败**——实测就是这样：
+       menu applied 照打、窗口上却查不到菜单（GetMenu 一直是 NULL）。子菜单才用 popup。 */
+    c.bar = CreateMenu();
+    if (!c.bar) {
+        fprintf(stderr, "[cj-bridge] menu: CreateMenu failed: %lu\n",
+                (unsigned long)GetLastError());
+        return;
+    }
+    c.stack[0] = c.bar;
+    c.ok[0] = 1;
+    menu_clear_slots(p); /* 旧映射整体作废：新菜单的命令 id 从 1 重新分配 */
+    cj_core_menu_walk(wire, menu_add_row, &c);
+    old = p->menu;
+    p->menu = c.bar;
+    /* SetMenu 会静默失败（返回 FALSE），此时日志照样说「已应用」而窗口上什么都没有——
+       Windows 上「真挂上了」的唯一凭证就是这两行：返回值 + 事后 GetMenu 复核。 */
+    if (!SetMenu(p->hwnd, p->menu)) {
+        fprintf(stderr, "[cj-bridge] menu: SetMenu failed: %lu\n", (unsigned long)GetLastError());
+    }
+    DrawMenuBar(p->hwnd);
+    if (old) DestroyMenu(old);
+    fprintf(stderr, "[cj-bridge] menu applied: items=%d hwnd=%p bar=%p GetMenu=%p\n",
+            p->menu_item_count, (void *)p->hwnd, (void *)p->menu, (void *)GetMenu(p->hwnd));
+}
+
+void cj_plat_set_menu(cj_host *h, const char *wire) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !wire) return;
+    if (!p->hwnd) {
+        /* 未就绪：core 已把线路文本记在 h->pending_menu_text，宿主线程建窗时取用 */
+        fprintf(stderr, "[cj-bridge] menu deferred: window not ready\n");
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        menu_apply_wire(h, p, wire);
+        return;
+    }
+    {
+        char *copy = strdup(wire); /* 跨线程：谁 post 谁分配，UI 线程在 WM_CJT_MENU 分支里释放 */
+        if (!copy) return;
+        if (!PostMessageW(p->hwnd, WM_CJT_MENU, 0, (LPARAM)copy)) {
+            fprintf(stderr, "[cj-bridge] menu post failed: %lu\n", (unsigned long)GetLastError());
+            free(copy);
+            return;
+        }
+        fprintf(stderr, "[cj-bridge] menu posted to ui thread (%d bytes)\n", (int)strlen(wire));
+    }
+}
+
+void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !id || !id[0]) return;
+    if (!p->hwnd || !p->menu) {
+        fprintf(stderr, "[cj-bridge] menu item state ignored: menu not ready (%s)\n", id);
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        menu_apply_item_state(p, id, enabled, checked);
+        return;
+    }
+    {
+        menu_state_msg *m = (menu_state_msg *)malloc(sizeof(*m));
+        if (!m) return;
+        m->id = strdup(id);
+        m->enabled = enabled ? 1 : 0;
+        m->checked = checked ? 1 : 0;
+        if (!m->id || !PostMessageW(p->hwnd, WM_CJT_MENU_ITEM, 0, (LPARAM)m)) {
+            fprintf(stderr, "[cj-bridge] menu item state post failed: %lu\n",
+                    (unsigned long)GetLastError());
+            free(m->id);
+            free(m);
+        }
+    }
+}
+
+int cj_plat_host_capabilities(cj_host *h) {
+    (void)h;
+    /* 本平台的静态能力：菜单栏已落地；托盘 / 拖放到 7.B / 7.C 做完再把对应的位置打开 */
+    return CJ_CAP_MENU;
 }

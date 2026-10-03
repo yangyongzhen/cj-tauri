@@ -40,6 +40,28 @@ typedef void (*cj_on_message_fn)(const char *json); /* JS 消息到达（UTF-8 J
 typedef void (*cj_on_destroy_fn)(void);             /* 窗口销毁 / 退出（每个宿主恰好一次）*/
 typedef void (*cj_on_dialog_fn)(const char *path);  /* 原生对话框选中的路径（取消 = 空串）*/
 
+/* 前向声明：下面的 shell 回调签名要用到宿主句柄，而 cj_host 结构体还在后面才定义。
+   必须是**文件作用域**的前向声明——只在参数列表里写 struct cj_host，clang 会把它当成
+   「仅本原型内可见」的另一个类型（-Wvisibility），赋函数指针时就报类型不兼容。 */
+struct cj_host;
+
+/* 宿主级 shell 事件回调：**菜单 / 托盘 / 拖放共用一个入口**（RFC-002 §5.5），
+   第一个参数回传宿主句柄，第二个是 JSON 载荷（与 on_message 同一载体，仓颉侧已有 JSON 解析）。
+
+       {"kind":"menu","id":"file.save","enabled":true,"checked":false}
+       {"kind":"tray","id":"toggle"}                     ← 7.C
+       {"kind":"drop","paths":["C:\\a.png"]}             ← 7.C
+
+   **为什么首参必须是宿主**：仓颉的 @C 函数是模块级函数，每个宿主注册的是同一个函数指针，
+   不把 h 传回去就分不清是哪个窗口点的——这正是多窗口把静态单槽回调逼出来的那个坑
+   （docs/架构演进-多平台与多窗口.md §7.5）的根治办法。**新增回调一律照此带宿主身份**；
+   老的 cj_on_destroy / cj_on_dialog 无此参数，属已知真缺口，留待一起改。
+
+   **签名这里必须写 `struct cj_host *`（不能用 `cj_host *`）**：本 typedef 要出现在 cj_host
+   结构体定义之前（结构体里有 on_shell 字段），此时那个 typedef 名字还不存在，只有上面刚做的
+   结构体前向声明可用。同一类型，Cangjie 侧看不出来——它只拿到一个不透明指针。 */
+typedef void (*cj_on_shell_fn)(struct cj_host *host, const char *json);
+
 /* 前端 __CJ_TAURI__.reload() 的控制消息：宿主级操作，不进 IPC hub
    （与 native/bridge_js.h 里的字面量必须一致） */
 #define CJT_RELOAD_MSG "__cj_tauri_reload__"
@@ -47,6 +69,13 @@ typedef void (*cj_on_dialog_fn)(const char *path);  /* 原生对话框选中的�
 /* 单批上限：一次 UI 空闲窗口最多合并多少条回投。写成常量而不是「取空为止」，
    是为了长队列也肯让出 UI 线程（剩下的由自续唤醒接手）。 */
 #define CJ_JS_BATCH_MAX 64
+
+/* 宿主能力位（cj_bridge_host_capabilities 的返回值，RFC-002 §5.4）：
+   纯静态事实，由平台在 cj_plat_init 时给出（例：Linux 侧托盘没编进来 → 不置 CJ_CAP_TRAY），
+   仓颉侧据此构造 HostCapabilities，`system:host` 如实上报，不许猜。 */
+#define CJ_CAP_MENU      1
+#define CJ_CAP_TRAY      2
+#define CJ_CAP_DRAG_DROP 4
 
 /* ===== 回投队列节点（core 拥有；UTF-8 存储，宽字符转换由平台在 cj_plat_post_js 里做）===== */
 typedef struct js_node {
@@ -74,6 +103,7 @@ typedef struct cj_host {
     cj_on_message_fn on_message;
     cj_on_destroy_fn on_destroy;
     cj_on_dialog_fn  on_dialog;
+    cj_on_shell_fn   on_shell;  /* cj_bridge_set_shell_callback 注入；未注册 = 事件只留日志 */
 
     /* --- JS 回投队列（FIFO：每条 JS 独立执行，防止覆盖）--- */
     cj_sync *js_lock;
@@ -103,6 +133,12 @@ typedef struct cj_host {
     char *pending_html;
     char *pending_url;
 
+    /* --- 菜单线路文本（cj_bridge_set_menu 存入；平台建窗时读它，运行期改则由平台重建）--- */
+    char *pending_menu_text;
+
+    /* --- 能力位（cj_plat_init 时由 cj_plat_host_capabilities 填，此后只读）--- */
+    int capabilities;
+
     /* --- 生命周期 --- */
     volatile int ready;       /* 宿主 UI 就绪（平台在窗口 + WebView 建好后置 1）*/
     volatile int should_quit; /* 事件循环已退出 / 要求退出（平台在启动失败等路径可直接置 1）*/
@@ -114,7 +150,7 @@ typedef struct cj_host {
 } cj_host;
 
 /* =========================================================================
- *  平台原语清单（每个平台实现一份，共 18 个）
+ *  平台原语清单（每个平台实现一份，共 21 个）
  * ========================================================================= */
 
 /* ---- 同步（Linux: pthread_mutex + pthread_cond / Windows: CS + CONDITION_VARIABLE）---- */
@@ -146,6 +182,16 @@ void cj_plat_open_devtools(cj_host *h);
 void cj_plat_load_url(cj_host *h, const char *url);
 void cj_plat_reload(cj_host *h);
 
+/* ---- 菜单 / 能力位（RFC-002；7.A 只做菜单栏，托盘 / 拖放在 7.B / 7.C）----
+   wire 是 `MenuModel.toWire()` 的线路文本（格式见 cj_core_menu_walk 的注释），空串 = 清空菜单栏。
+   调用时机两头都要支持：**未就绪**时只记下（平台建窗时读 h->pending_menu_text）；**已就绪**时由平台
+   投到 UI 线程重建菜单。cj_plat_menu_item_state 只改运行期状态（可用 / 勾选），要快、可能频繁。 */
+void cj_plat_set_menu(cj_host *h, const char *wire);
+void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
+
+/* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
+int cj_plat_host_capabilities(cj_host *h);
+
 /* =========================================================================
  *  core 提供给平台的状态迁移（平台的事件循环里调用）
  * ========================================================================= */
@@ -154,6 +200,24 @@ void cj_core_flush_js(cj_host *h);        /* UI 线程：取队列拼批回投�
 void cj_core_dialog_tick(cj_host *h, dlg_req *req); /* UI 线程：弹对话框 → 回调 → 唤醒等待方 */
 void cj_core_dialog_abort(cj_host *h);    /* 作废进行中的对话框并唤醒等待方（ok=0，幂等）*/
 void cj_core_window_destroyed(cj_host *h);/* 窗口销毁：置标志 + 通知 onDestroy（一次）+ 作废对话框 */
+
+/* ---- 菜单线路格式的共享解析（两平台翻译层共用，避免各写一遍前缀/分割逻辑）----
+   格式（RFC-002 §5.4，与仓颉侧 `MenuModel.toWire()` 逐字对应）：
+
+       <行首制表符 = 层级><kind>\t<id>\t<label>\t<flags>\t<accel>\n
+
+   kind：`n` 普通 / `c` 勾选 / `s` 分隔线 / `m` 子菜单；
+   flags：十进制，bit0 = 可用、bit1 = 勾选（`3` = 又可用又勾选）。
+   容错口径：字段缺失按空串 / 0 处理，kind 为空的行整行跳过——**不崩**优先于报错，
+   真正的结构错误在仓颉侧就该被丢弃（toWire 不出口含制表符/换行的字段）。
+
+   回调期间字段指针指向 core 内部的副本，**回调返回后失效**（需要留存请自行拷贝）。 */
+typedef void (*cj_menu_row_fn)(void *ctx, int depth, char kind, const char *id,
+                               const char *label, int flags, const char *accel);
+void cj_core_menu_walk(const char *wire, cj_menu_row_fn fn, void *ctx);
+
+/* 平台把「菜单项被点了」交回 core：core 记日志 + 经 h->on_menu 回调仓颉侧（带宿主身份）。 */
+void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked);
 
 /* =========================================================================
  *  仓颉 → C 桥：导出（全部实现在 bridge_core.c，两平台同一份）
@@ -215,5 +279,26 @@ CJ_BRIDGE_API void cj_bridge_set_dialog_callback(cj_host *h, cj_on_dialog_fn cb)
    已有对话框在进行中。调用方已站在 UI 线程时内部走直接弹的快路径（投递 + 等待会自锁）。 */
 CJ_BRIDGE_API int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
                                         const char *message, const char *filter);
+
+/* 菜单栏：wire 是 MenuModel.toWire() 的线路文本（空串 = 移除菜单栏）。
+   未 start 时只记下、建窗时生效；start 之后调用＝运行期换菜单（平台投到 UI 线程重建）。 */
+CJ_BRIDGE_API void cj_bridge_set_menu(cj_host *h, const char *wire);
+
+/* 运行期改单个菜单项的状态（按 id 找；找不到只记日志不报错）。 */
+CJ_BRIDGE_API void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
+
+/* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
+CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);
+
+/* 宿主能力位（CJ_CAP_* 的按位或）：cj_plat_init 时填好，供仓颉侧 HostCapabilities /
+   `system:host` 如实上报。未 init 返回 0。 */
+CJ_BRIDGE_API int cj_bridge_host_capabilities(cj_host *h);
+
+/* 句柄同一性判定（返回 1 = 同一个宿主，任一方为 NULL 返回 0）。
+   为什么要有它：shell 事件回调首参是**发生事件的宿主句柄**，仓颉侧得判断「是不是我这个窗口」，
+   但仓颉的 `CPointer<Unit>` 不支持 `==`（实测编译器直接报 invalid binary operator），
+   也没有可靠的指针→整数转换。句柄本来就归 core 所有，判定交回 C 侧最省事、也最不会猜错。
+   纯 core 函数：不需要任何平台原语。 */
+CJ_BRIDGE_API int cj_bridge_host_eq(cj_host *a, cj_host *b);
 
 #endif /* CJ_BRIDGE_CORE_H */

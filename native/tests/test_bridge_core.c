@@ -2,8 +2,8 @@
  * bridge_core.c 自检：不依赖仓颉 SDK，也不依赖 GTK / WebKit / WebView2。
  *
  * 被测的是「两平台逐字相同」的公共核心（回投队列与批处理、对话框单槽状态机、窗口配置存储、
- * 生命周期标志、以及全部 cj_bridge_* 导出）。做法：用一个「只记录调用」的桩平台实现
- * bridge_core.h 里的 18 个 cj_plat_* 原语，再把 core 与桩一起编译成单文件可执行程序——
+ * 生命周期标志、菜单线路格式解析、以及全部 cj_bridge_* 导出）。做法：用一个「只记录调用」的桩平台实现
+ * bridge_core.h 里的 21 个 cj_plat_* 原语，再把 core 与桩一起编译成单文件可执行程序——
  * 链接期就能证明 core 只经 cj_plat_* 触达平台、不 include 任何平台头。
  *
  * 跑法：bash scripts/test-bridge-core.sh
@@ -60,13 +60,24 @@ static int g_devtools_calls;
 static int g_is_ui_thread = 1; /* 默认假装调用方就站在 UI 线程上 */
 static int g_dialog_ok = 1;    /* cj_plat_run_dialog 的返回值 */
 static const char *g_dialog_path = "/tmp/picked.txt";
+static int g_set_menu_calls;
+static char *g_last_menu_text;
+static int g_menu_state_calls;
+static char g_last_menu_state_id[256];
+static int g_last_menu_state_enabled;
+static int g_last_menu_state_checked;
+static int g_caps_calls;
+static int g_caps_value = CJ_CAP_MENU; /* 桩平台自称的能力位（用例里改它，验证 core 只是如实缓存） */
 
 static void reset_counters(void) {
     g_post_js_calls = g_wake_calls = g_quit_calls = g_start_calls = 0;
     g_fini_calls = g_run_dialog_calls = g_post_dialog_calls = 0;
     g_load_url_calls = g_reload_calls = g_devtools_calls = 0;
+    g_set_menu_calls = g_menu_state_calls = g_caps_calls = 0;
     free(g_last_js);
     g_last_js = NULL;
+    free(g_last_menu_text);
+    g_last_menu_text = NULL;
 }
 
 /* 数一段脚本里有几个换行：批处理按「每条一段 + 换行」拼接，用它反推条数 */
@@ -133,6 +144,57 @@ void cj_plat_open_devtools(cj_host *h) { (void)h; g_devtools_calls++; }
 void cj_plat_load_url(cj_host *h, const char *url) { (void)h; (void)url; g_load_url_calls++; }
 void cj_plat_reload(cj_host *h) { (void)h; g_reload_calls++; }
 
+void cj_plat_set_menu(cj_host *h, const char *wire) {
+    (void)h;
+    g_set_menu_calls++;
+    free(g_last_menu_text);
+    g_last_menu_text = wire ? strdup(wire) : NULL;
+}
+
+void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
+    (void)h;
+    g_menu_state_calls++;
+    snprintf(g_last_menu_state_id, sizeof(g_last_menu_state_id), "%s", id ? id : "");
+    g_last_menu_state_enabled = enabled;
+    g_last_menu_state_checked = checked;
+}
+
+int cj_plat_host_capabilities(cj_host *h) {
+    (void)h;
+    g_caps_calls++;
+    return g_caps_value;
+}
+
+/* ===== 线路解析的回调收集器（菜单是树，桩侧用一张表记录 core 走出来的每一行）===== */
+
+typedef struct row_rec {
+    int depth;
+    char kind;
+    char id[64];
+    char label[64];
+    int flags;
+    char accel[64];
+} row_rec;
+
+typedef struct row_log {
+    row_rec rows[32];
+    int n;
+} row_log;
+
+static void collect_row(void *ctx, int depth, char kind, const char *id,
+                        const char *label, int flags, const char *accel) {
+    row_log *log = (row_log *)ctx;
+    row_rec *r;
+    if (!log || log->n >= 32) return;
+    r = &log->rows[log->n++];
+    r->depth = depth;
+    r->kind = kind;
+    snprintf(r->id, sizeof(r->id), "%s", id ? id : "");
+    snprintf(r->label, sizeof(r->label), "%s", label ? label : "");
+    r->flags = flags;
+    snprintf(r->accel, sizeof(r->accel), "%s", accel ? accel : "");
+}
+
 /* ===== 仓颉侧回调（桩）===== */
 
 static int g_msg_calls;
@@ -145,6 +207,17 @@ static void on_destroy(void) { g_destroy_calls++; }
 static void on_dialog(const char *path) {
     g_dialog_cb_calls++;
     snprintf(g_dialog_cb_path, sizeof(g_dialog_cb_path), "%s", path ? path : "");
+}
+
+/* shell 事件回调：**首参必须是宿主句柄**，桩侧把句柄与 JSON 载荷原样记下供断言比对 */
+static int g_shell_cb_calls;
+static cj_host *g_shell_cb_host;
+static char g_shell_cb_json[512];
+
+static void on_shell(cj_host *host, const char *json) {
+    g_shell_cb_calls++;
+    g_shell_cb_host = host;
+    snprintf(g_shell_cb_json, sizeof(g_shell_cb_json), "%s", json ? json : "");
 }
 
 /* ===== 用例 ===== */
@@ -319,7 +392,125 @@ int main(void) {
     cj_core_dialog_abort(h2);
     CHECK(h2->dlg_cur == NULL, "无进行中对话框时 abort 是空操作");
 
-    /* --- 13. 销毁：先走平台 fini，再回收句柄 --- */
+    /* --- 13. 菜单线路解析（两平台翻译层共用这一份）--- */
+    case_begin("menu_walk：线路格式解析（层级 / 字段 / flags）");
+    {
+        static const char *wire =
+            "m\t\t视图\t1\t\n"
+            "\tc\tview.sidebar\t侧栏\t3\t\n"
+            "\tn\tview.zoom\t放大\t1\tCtrl+=\n"
+            "s\t\t\t1\t\n"
+            "n\tfile.open\t打开\t1\t\n";
+        row_log log;
+        log.n = 0;
+        cj_core_menu_walk(wire, collect_row, &log);
+        CHECK(log.n == 5, "5 行全部解析出来");
+        CHECK(log.n == 5 && log.rows[0].depth == 0 && log.rows[0].kind == 'm' &&
+              log.rows[0].id[0] == '\0' && strcmp(log.rows[0].label, "视图") == 0,
+              "子菜单：层级 0、id 为空、label 保留");
+        CHECK(log.n == 5 && log.rows[1].depth == 1 && log.rows[1].kind == 'c' &&
+              strcmp(log.rows[1].id, "view.sidebar") == 0 && log.rows[1].flags == 3,
+              "勾选项：行首制表符 = 层级 1、flags=3（可用 + 勾选）");
+        CHECK(log.n == 5 && log.rows[2].kind == 'n' && strcmp(log.rows[2].label, "放大") == 0 &&
+              strcmp(log.rows[2].accel, "Ctrl+=") == 0,
+              "普通项：accel 原样带出（Windows 侧要并进标签右对齐）");
+        CHECK(log.n == 5 && log.rows[3].kind == 's' && log.rows[3].id[0] == '\0' &&
+              log.rows[3].label[0] == '\0',
+              "分隔线：id / label 为空但仍是完整一行");
+        CHECK(log.n == 5 && strcmp(log.rows[4].id, "file.open") == 0 && log.rows[4].flags == 1,
+              "顶层普通项");
+    }
+    {
+        /* 容错：缺字段按空串 / 0；kind 空的行整行跳过；末行不带换行也要出 */
+        row_log log2;
+        log2.n = 0;
+        cj_core_menu_walk("n\tonly-id\n\t\t\nn\ttail\t尾\t1", collect_row, &log2);
+        CHECK(log2.n == 2, "kind 为空的行被跳过（容错优于崩溃）");
+        CHECK(log2.n == 2 && strcmp(log2.rows[0].id, "only-id") == 0 &&
+              log2.rows[0].label[0] == '\0' && log2.rows[0].flags == 0 &&
+              log2.rows[0].accel[0] == '\0',
+              "缺字段按空串 / 0");
+        CHECK(log2.n == 2 && strcmp(log2.rows[1].id, "tail") == 0 &&
+              log2.rows[1].accel[0] == '\0', "末行不带换行也解析");
+        cj_core_menu_walk(NULL, collect_row, &log2);
+        cj_core_menu_walk("n\tx\tX\t1\t\n", NULL, NULL);
+        CHECK(1, "walk 对 NULL 参数安全（未崩）");
+    }
+
+    /* --- 14. set_menu：core 存下 + 立即透传平台 --- */
+    case_begin("set_menu 存下线路文本并透传平台");
+    reset_counters();
+    cj_bridge_set_menu(h, "n\tfile.open\t打开\t1\t\n");
+    CHECK(h->pending_menu_text && strcmp(h->pending_menu_text, "n\tfile.open\t打开\t1\t\n") == 0,
+          "线路文本由 core 存下（平台建窗时读它）");
+    CHECK(g_set_menu_calls == 1 && g_last_menu_text &&
+          strcmp(g_last_menu_text, h->pending_menu_text) == 0, "同时透传平台（未就绪时平台只记下）");
+    cj_bridge_set_menu(h, "n\tfile.save\t保存\t0\t\n");
+    CHECK(h->pending_menu_text && strcmp(h->pending_menu_text, "n\tfile.save\t保存\t0\t\n") == 0,
+          "再次 set：替换并释放旧文本");
+    cj_bridge_set_menu(h, "");
+    CHECK(h->pending_menu_text && h->pending_menu_text[0] == '\0', "空串 = 清空菜单栏（仍然记下并透传）");
+    cj_bridge_set_menu(h, NULL);
+    CHECK(h->pending_menu_text && h->pending_menu_text[0] == '\0', "NULL 忽略（不误清）");
+    cj_bridge_set_menu(NULL, "x");
+    CHECK(1, "set_menu 对 NULL 宿主安全");
+
+    /* --- 15. 菜单点击：shell 回调带回宿主身份 + JSON 载荷 --- */
+    case_begin("menu 点击回调带宿主句柄 + JSON 载荷（多窗口不串台）");
+    reset_counters();
+    g_shell_cb_calls = 0;
+    cj_bridge_set_shell_callback(h, on_shell);
+    cj_core_menu_clicked(h, "view.sidebar", 1, 1);
+    CHECK(g_shell_cb_calls == 1, "点击回调触发一次");
+    CHECK(g_shell_cb_host == h, "首参就是该宿主句柄");
+    CHECK(strstr(g_shell_cb_json, "\"kind\":\"menu\"") != NULL &&
+          strstr(g_shell_cb_json, "\"id\":\"view.sidebar\"") != NULL &&
+          strstr(g_shell_cb_json, "\"enabled\":true") != NULL &&
+          strstr(g_shell_cb_json, "\"checked\":true") != NULL,
+          "载荷是 §5.5 的 JSON（kind / id / enabled / checked）");
+    cj_core_menu_clicked(h, "quote\"and\\back", 0, 0);
+    CHECK(g_shell_cb_calls == 2 &&
+          strstr(g_shell_cb_json, "\"id\":\"quote\\\"and\\\\back\"") != NULL,
+          "id 里的 \\ 与 \" 被转义（JSON 不被弄坏）");
+    cj_core_menu_clicked(h, "", 1, 0);
+    CHECK(g_shell_cb_calls == 2, "空 id 不回调（分隔线 / 子菜单走不到这里）");
+    cj_bridge_set_shell_callback(h2, on_shell);
+    cj_core_menu_clicked(h2, "panel.reload", 0, 0);
+    CHECK(g_shell_cb_calls == 3 && g_shell_cb_host == h2,
+          "第二个宿主的点击带回的是它自己的句柄");
+    cj_core_menu_clicked(NULL, "x", 1, 1);
+    CHECK(1, "clicked 对 NULL 宿主安全");
+
+    /* --- 16. menu_item_state：透传平台 --- */
+    case_begin("menu_item_state 透传平台");
+    reset_counters();
+    cj_bridge_set_menu_item_state(h, "view.sidebar", 1, 0);
+    CHECK(g_menu_state_calls == 1 && strcmp(g_last_menu_state_id, "view.sidebar") == 0 &&
+          g_last_menu_state_enabled == 1 && g_last_menu_state_checked == 0,
+          "id 与状态透传到平台");
+    cj_bridge_set_menu_item_state(h, "", 0, 0);
+    CHECK(g_menu_state_calls == 1, "空 id 忽略");
+    cj_bridge_set_menu_item_state(NULL, "x", 1, 1);
+    CHECK(1, "对 NULL 宿主安全");
+
+    /* --- 17. 能力位：cj_plat_init 时问一次，此后只读 --- */
+    case_begin("host capabilities 透传（system:host 的依据）");
+    {
+        cj_host *h3 = cj_bridge_create();
+        reset_counters();
+        g_caps_value = CJ_CAP_MENU | CJ_CAP_DRAG_DROP;
+        cj_bridge_init(h3, on_message, on_destroy);
+        CHECK(g_caps_calls == 1, "cj_plat_init 时问平台一次");
+        CHECK(h3 && cj_bridge_host_capabilities(h3) == (CJ_CAP_MENU | CJ_CAP_DRAG_DROP) &&
+              h3->capabilities == (CJ_CAP_MENU | CJ_CAP_DRAG_DROP),
+              "能力位由平台给出并被 core 缓存（托盘没编进来 → 不置位）");
+        CHECK(cj_bridge_host_capabilities(NULL) == 0, "NULL 宿主返回 0");
+        CHECK(h->capabilities == CJ_CAP_MENU, "先建的宿主保留自己那次 init 的结果");
+        g_caps_value = CJ_CAP_MENU;
+        cj_bridge_destroy(h3);
+    }
+
+    /* --- 18. 销毁：先走平台 fini，再回收句柄 --- */
     case_begin("destroy 先走 cj_plat_fini 再回收");
     reset_counters();
     cj_bridge_destroy(h2);
@@ -329,6 +520,7 @@ int main(void) {
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,
             g_pass, g_fail);
     free(g_last_js);
+    free(g_last_menu_text);
     if (g_fail) {
         fprintf(stderr, "[FAIL] bridge_core 自检未通过\n");
         return 1;

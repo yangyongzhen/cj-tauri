@@ -74,6 +74,7 @@ void cj_bridge_destroy(cj_host *h) {
     /* dlg_cur 此时应为空：窗口销毁路径已作废并交了槽位；故意不碰，免得与等待方抢 free */
     free(h->win_title);
     free(h->win_icon);
+    free(h->pending_menu_text);
     for (i = 0; i < h->init_script_count; i++) {
         free(h->init_scripts[i]);
     }
@@ -89,6 +90,13 @@ void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d) {
     h->on_message = m;
     h->on_destroy = d;
     cj_plat_init(h); /* 平台一次性初始化（Windows 在这里装 COM vtbl 并打 init 日志） */
+    /* 能力位：平台给静态事实（有没有菜单 / 托盘 / 拖放），core 只缓存——仓颉侧 system:host 如实上报 */
+    h->capabilities = cj_plat_host_capabilities(h);
+    fprintf(stderr, "[cj-bridge] host capabilities: 0x%x (menu=%d tray=%d dragDrop=%d)\n",
+            (unsigned)h->capabilities,
+            (h->capabilities & CJ_CAP_MENU) ? 1 : 0,
+            (h->capabilities & CJ_CAP_TRAY) ? 1 : 0,
+            (h->capabilities & CJ_CAP_DRAG_DROP) ? 1 : 0);
 }
 
 /* ===== 窗口配置 / 预执行脚本（必须在 cj_bridge_start 之前注入）===== */
@@ -144,6 +152,29 @@ void cj_bridge_add_init_script(cj_host *h, const char *js) {
     h->init_script_count++;
     fprintf(stderr, "[cj-bridge] init script queued: %d bytes (total %d)\n",
             (int)strlen(js), h->init_script_count);
+}
+
+/* ===== 菜单栏（RFC-002；v1 只做菜单栏，托盘 / 拖放在后续档期）===== */
+
+void cj_bridge_set_menu(cj_host *h, const char *wire) {
+    int rows = 0;
+    const char *p;
+    if (!h || !wire) return;
+    for (p = wire; *p; p++) {
+        if (*p == '\n') rows++;
+    }
+    fprintf(stderr, "[cj-bridge] set menu: %d bytes, %d row(s)\n", (int)strlen(wire), rows);
+    free(h->pending_menu_text);
+    h->pending_menu_text = cj_strdup(wire);
+    /* 两头都要能用：未就绪时平台只记下（建窗时读 h->pending_menu_text），就绪后平台投到 UI 线程重建 */
+    cj_plat_set_menu(h, h->pending_menu_text ? h->pending_menu_text : "");
+}
+
+void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
+    if (!h || !id || !id[0]) return;
+    fprintf(stderr, "[cj-bridge] set menu item: id=%s enabled=%d checked=%d\n",
+            id, enabled ? 1 : 0, checked ? 1 : 0);
+    cj_plat_menu_item_state(h, id, enabled ? 1 : 0, checked ? 1 : 0);
 }
 
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */
@@ -241,6 +272,105 @@ void cj_core_window_destroyed(cj_host *h) {
     }
     /* 有对话框开着时先作废并唤醒等待方：事件循环退出后挂起的回调不再执行，等待方会永远挂住 */
     cj_core_dialog_abort(h);
+}
+
+/* 线路格式的共享解析（契约见 bridge_core.h 的 cj_menu_row_fn 注释）。
+   就地切分一份副本：字段指针只在回调期间有效，拷贝与释放都在这里管，平台不用操心。 */
+void cj_core_menu_walk(const char *wire, cj_menu_row_fn fn, void *ctx) {
+    char *copy;
+    char *line;
+
+    if (!wire || !fn) return;
+    copy = cj_strdup(wire);
+    if (!copy) return;
+
+    line = copy;
+    while (*line) {
+        char *nl = strchr(line, '\n');
+        char *cur;
+        int depth = 0;
+        char *t1, *t2, *t3, *t4;
+        char *kind_s, *id_s, *label_s, *flags_s, *accel_s;
+
+        if (nl) {
+            *nl = '\0';
+        }
+        while (line[depth] == '\t') {
+            depth++;
+        }
+        cur = line + depth;
+        kind_s = cur;
+        id_s = NULL;
+        label_s = NULL;
+        flags_s = NULL;
+        accel_s = NULL;
+        t1 = strchr(kind_s, '\t');
+        if (t1) {
+            *t1 = '\0';
+            id_s = t1 + 1;
+            t2 = strchr(id_s, '\t');
+            if (t2) {
+                *t2 = '\0';
+                label_s = t2 + 1;
+                t3 = strchr(label_s, '\t');
+                if (t3) {
+                    *t3 = '\0';
+                    flags_s = t3 + 1;
+                    t4 = strchr(flags_s, '\t');
+                    if (t4) {
+                        *t4 = '\0';
+                        accel_s = t4 + 1;
+                    }
+                }
+            }
+        }
+        if (kind_s[0]) { /* kind 为空的行整行跳过；缺字段按空串 / 0——容错优于崩溃 */
+            fn(ctx, depth, kind_s[0], id_s ? id_s : "", label_s ? label_s : "",
+               flags_s ? atoi(flags_s) : 0, accel_s ? accel_s : "");
+        }
+
+        if (!nl) {
+            break;
+        }
+        line = nl + 1;
+    }
+    free(copy);
+}
+
+/* shell 事件编成 JSON（RFC-002 §5.5）：id 做最小转义——应用给的标识里出现 \ 或 " 时
+   不至于把载荷弄坏。（拖放的 paths 到 7.C 才落地，届时照此扩一份路径转义。） */
+static void cj_json_escape_into(char *dst, size_t cap, const char *src) {
+    size_t o = 0;
+    const char *p;
+    if (!dst || cap == 0) return;
+    for (p = src ? src : ""; *p; p++) {
+        if (o + 2 >= cap) break;
+        if (*p == '\\' || *p == '"') {
+            dst[o++] = '\\';
+        }
+        dst[o++] = *p;
+    }
+    dst[o] = '\0';
+}
+
+void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked) {
+    char idbuf[256];
+    char payload[384];
+    if (!h) return;
+    if (!id || !id[0]) {
+        return; /* 没有 id 就没有「被点的项」（分隔线与子菜单不会走到这里）*/
+    }
+    fprintf(stderr, "[cj-bridge] menu clicked: id=%s enabled=%d checked=%d\n",
+            id, enabled ? 1 : 0, checked ? 1 : 0);
+    if (!h->on_shell) {
+        return; /* 未注册回调：上面那行日志已经落盘，够诊断了 */
+    }
+    cj_json_escape_into(idbuf, sizeof(idbuf), id);
+    snprintf(payload, sizeof(payload),
+             "{\"kind\":\"menu\",\"id\":\"%s\",\"enabled\":%s,\"checked\":%s}",
+             idbuf, enabled ? "true" : "false", checked ? "true" : "false");
+    /* 带上宿主句柄：仓颉侧按句柄分发到对应窗口，不再依赖进程级静态槽 */
+    h->on_shell(h, payload);
 }
 
 void cj_core_dialog_abort(cj_host *h) {
@@ -369,6 +499,20 @@ static void cj_dlg_log_closed(const dlg_req *r) {
 void cj_bridge_set_dialog_callback(cj_host *h, cj_on_dialog_fn cb) {
     if (!h) return;
     h->on_dialog = cb;
+}
+
+void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb) {
+    if (!h) return;
+    h->on_shell = cb;
+}
+
+int cj_bridge_host_capabilities(cj_host *h) {
+    return h ? h->capabilities : 0;
+}
+
+int cj_bridge_host_eq(cj_host *a, cj_host *b) {
+    /* 只比指针本身：句柄由 core 分配、生命周期也归 core，仓颉侧只当不透明凭据使 */
+    return (a && b && a == b) ? 1 : 0;
 }
 
 int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,

@@ -1,0 +1,7 @@
+{
+  "identifier": "menu-probe",
+  "windows": ["main", "second"],
+  "commands": [],
+  "permissions": [],
+  "events": []
+}

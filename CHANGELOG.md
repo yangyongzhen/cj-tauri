@@ -16,6 +16,32 @@
 
 ### Added
 
+- **菜单栏能力位（RFC-002 §5 先落「菜单」，托盘 / 拖放仍未做）**：`WebViewHost` 新增四个方法——
+  `setMenu(wire)`（线路文本，空串 = 清空；`start()` 前后都能调，未就绪的文本由桥记着、建窗时一次建好）、
+  `setMenuItemState(id, enabled, checked)`（运行期改单项状态，按 id 找）、`hostCapabilities()`
+  （`CJ_CAP_MENU` / `CJ_CAP_TRAY` / `CJ_CAP_DRAG_DROP` 位掩码，未建宿主返回 0）与
+  `setShellHandler(handler)`（菜单点击等 shell 事件，载荷是桥的 JSON 信封）。
+  **两平台都实现**：Windows 走 `HMENU` + `SetMenu` + `WM_COMMAND`，Linux 走 `GtkMenuBar` 并把窗口内容
+  改成「竖向 `GtkBox`：菜单栏 + view」；跨线程一律投递到宿主 UI 线程（Windows `PostMessage`，
+  Linux `g_idle_add`）。C 桥侧共 5 个导出：`cj_bridge_set_menu` / `cj_bridge_set_menu_item_state` /
+  `cj_bridge_set_shell_callback`（**单一 `cj_on_shell_fn(host, json)`，kind 分派**） /
+  `cj_bridge_host_capabilities` / `cj_bridge_host_eq`。最后一个是为了**按窗口路由**：仓颉的
+  `CPointer<Unit>` 不支持 `==`（编译器直接报 invalid binary operator），也没有可靠的指针→整数转换，
+  多窗口下「这个回调属于哪个窗口」只能交回拥有句柄的 C 侧判定——这是「回调一开始就带宿主身份」
+  真正落地的那一步。
+  证据：`scripts/test-bridge-core.sh` 91/91（桩平台，含 `set menu` 透传与 `menu clicked` 带宿主）、
+  `scripts/test.sh` 108/108、`cjpm build` 通过、Windows 桥 `native/build_win.bat` 重建通过。
+  **Windows 实机点选已通过（2026-10-03，`examples/menu/run.bat` 14/14 断言、`exit=0`）**：菜单栏在宿主
+  UI 线程建好、`WM_COMMAND` 点选走通全链、`setMenuItemState` 的运行期改状态由 Win32 侧 `GetMenuState`
+  读回确认（`sidebar disabled=True checked=True`），且**事件只到被点的那一扇窗**（`window=second shell`
+  3 条 / `window=main shell` 0 条）。
+  ⚠️ **仍未验证**：Linux 侧本机没有 GTK / WebKitGTK 工具链，`bridge_linux.c` **未编译、未实跑**；
+  托盘与文件拖入尚未实现（能力位不含），前端也还没有 `setMenu` 的调用点——应用侧装配只到宿主接口层。
+- **菜单能力位的实机探针（入库的复现器）**：`examples/menu/`——两个窗口各装一份同样的菜单模型
+  （同一份线路文本、各自独立的 `HMENU`），应用侧只做「把事件原样打进 stderr + 点击某一项后回手
+  `setMenuItemState`」；真正点菜单的是 **Win32 驱动脚本** `click-menu.ps1`：从窗口的 `HMENU` 里读命令 id、
+  `PostMessage(WM_COMMAND)`，再用 `GetMenuState` **读回**状态——「应用说自己设好了」不算证据，平台必须同意。
+  `run.bat` 逐字断言 14 条，其中包含路由断言：三下点击**只**打在第二个窗口，第一个窗口 **0** 条 shell 事件。
 - **多窗口缝（label 化 + 第二窗口登记；本轮只到缝，未上窗口 UI）**：`WebViewHost` 的 label 改由
   **构造参数**给定（`WebKitHost(label)` / `WebView2Host(label)`；无参构造仍回落 `"main"`，
   `createHost(label)` 跟随），`TauriApp` 新增 `addWindow(label, config, html)`
@@ -54,6 +80,20 @@
   `findstr … | find /c /v ""`，而 `find` 在 MSYS 的 PATH 里命中 **GNU find**（Windows 的 `find.exe` 被排在
   后面），它把 `/c` 当路径去遍历整个盘（实测跑满 300s 超时，输出里全是 `Permission denied`）。
   改为 `findstr` + `for /f` 计数；文件末尾那条 `pause` 守卫也从 `find` 换成 `findstr`。
+- **Windows 菜单栏根本挂不上窗口（实机点选第一轮暴露的四个真 bug）**：
+  ① `native/bridge_win.c` 的顶层菜单栏用 `CreatePopupMenu()` 建，而 `SetMenu` **只接受 `CreateMenu()`
+  的菜单栏句柄**——塞 popup 句柄进去会以 `ERROR_INVALID_PARAMETER(87)` **静默失败**：`SetMenu` 返回
+  FALSE、平台日志照样打 `menu applied: items=4`，窗口上却一直没有菜单（`GetMenu` 恒为 NULL）。已改用
+  `CreateMenu()`，并把 **`SetMenu` 返回值检查 + 事后 `GetMenu` 复核**打进同一行日志（Windows 上
+  「真挂上了」的唯一凭证）。
+  ② `HostGlobals.onShell` 是**静态单槽**，两窗各自在 `prepareHost` 里覆盖它 → 后装配的窗口把前一个的
+  回调挤掉，先装配的窗口再也收不到自己的菜单点击（两窗探针一跑就露）。改为**路由表**
+  （`ShellRoute` + `HostGlobals.registerShellRoute`，按句柄认领；同一句柄重复登记＝替换，不叠加）。
+  ③ `TauriApp.hostOf(label)` 在 `run()` 之前查默认窗返回 `None`（默认窗的注册表登记发生在 `prepare()`），
+  而 RFC-002 §5.2 要求 `setMenu` / 拖放策略必须在 `start()` 之前调 → **默认窗这条通路等于不存在**。
+  已让 `hostOf` 对 `DEFAULT_WINDOW_LABEL` 回落 `Some(this.host)`。
+  ④ 探针驱动脚本一次性 `GetMenu()` 是竞态（窗口标题先出现、菜单随后才挂上），改为有界轮询。
+  证据：`examples/menu/run.bat` 14/14 断言、`exit=0`（驱动侧 Win32 读回 + 应用侧按窗口计数）。
 
 ### Changed
 

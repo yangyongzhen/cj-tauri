@@ -34,6 +34,12 @@
   IPC、能力校验、命令分发必须跨平台共用，禁止在上层散落运行期平台分支。
 - **新增宿主能力**：先扩 `WebViewHost` 接口（`src/host.cj`），再改各平台实现，最后在 C 桥加**同名同签名**的导出函数
   （`cj_bridge_*`）。两平台导出名必须一致，避免上层出现平台分叉的调用点。
+- **预置类宿主能力**（窗口菜单、拖放策略这类「必须赶在页面加载前定稿」的）：一律在 `start()` / `startUrl()`
+  之前调；默认窗经 `app.hostOf(DEFAULT_WINDOW_LABEL)` 拿宿主——实现对默认 label 有回落，`run()` 之前
+  也拿得到（注册表里的正式登记发生在 `prepare()`）。运行期再改菜单状态走 `setMenuItemState`（按 id 找，
+  找不到静默忽略）。**shell 事件在仓颉侧按句柄路由**（`HostGlobals.shellRoutes` + `cj_bridge_host_eq`），
+  不要用静态单槽——多窗口下后装配的窗口会覆盖先装配的，先装配的窗口从此收不到自己的事件。
+  当前能力位：菜单已完成（Windows 实机点选通过），托盘 / 文件拖入未实现。
 - **插件 JS 的注入通道**：`Plugin.jsShim()` 由 `pluginInitScripts()` 收成「一个插件一段」，
   经 `WebViewHost.addInitScript()` 交给宿主，桥在 document-start 注入（排在 `BRIDGE_JS` 之后）。
   必须在 `start()` / `startUrl()` 之前注册；**不要再往 HTML 字符串里拼 `<script>` 注入 shim**——
@@ -128,6 +134,18 @@
   Windows = 跑 WebView2 消息循环的那个线程），所以「把弹窗投递到 UI 线程 + 阻塞等结果」会自锁——
   现象是日志停在 `[cj-bridge] dialog: kind=…`、对话框永不出现（第一次实机就是如此）。C 桥按调用线程分流：
   已在 UI 线程就直接弹，在别的线程才投递 + 等待；新增同类宿主能力（菜单、文件拖放等）照此办理。
+- Windows 宿主**菜单栏必须用 `CreateMenu()` 建**：`SetMenu` 只接受「菜单栏」句柄，把 `CreatePopupMenu()`
+  的 popup 句柄塞进去会以 `ERROR_INVALID_PARAMETER(87)` **静默失败**——`SetMenu` 返回 FALSE、平台日志
+  照打 `menu applied`、窗口上却一直没有菜单（`GetMenu` 恒为 NULL；实机第一轮就是这么被坑的，排查中还
+  因为过滤词带空格把失败行滤没了）。子菜单才用 popup。凡是「设了但没生效」的宿主调用，一律按这个模板
+  收口：**检查 API 返回值 + 事后查询复核**打进同一行日志（`menu applied: … GetMenu=0x…`），
+  否则日志只会说「我调过了」，等于没有凭证。
+- 诊断日志的**过滤器本身也会骗人**：`findstr /C:"menu "`（带空格）一条都匹配不上
+  `menu: … SetMenu failed: 87`，于是「没有失败日志」被误读成「没失败」。按前缀取证据时用 `[cj-bridge]`
+  这样的**整行前缀**，不要用会在正文里撞词的中缀；改日志格式时一并核对断言用的 needle。
+- 多窗口下**任何「静态单槽回调」都会丢事件**：C 侧只有一个函数指针入口，仓颉侧若把「本窗回调」写进同一个
+  静态变量，后装配的窗口就覆盖先装配的——先装配的窗口从此收不到自己的事件（`HostGlobals.onShell` 实测如此）。
+  改成「句柄 → 回调」的路由表（`ShellRoute` / `registerShellRoute`；同一句柄重复登记＝替换而非叠加）。
 - 执行子进程（`shell` 插件）：一律 **argv 直传**（`launch` / `executeWithOutput` 收参数数组），
   不要为省事拼 `bash -c "<一整串命令>"`——那等于把页面可控的字符串塞进 shell 解析，自己开后门。
   这类调用本身仍是**同步阻塞**的：它跑在命令 worker 线程上（命令分发已异步，见 §2），所以不再冻窗口，

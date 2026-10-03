@@ -593,6 +593,12 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     default:
         return DefWindowProcW(hwnd, msg, wp, lp);
     }
+    /* Cases above that break instead of returning (currently WM_NCCREATE) land
+       here. Returning DefWindowProcW is mandatory: it is the one that answers
+       TRUE to WM_NCCREATE. Falling off the end leaves the return value
+       indeterminate, CreateWindowExW reads it as FALSE and the window creation
+       fails with GetLastError() == 0 -- which is exactly what it looks like. */
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 /* ===== 宿主线程（对标 tao 的事件循环线程）===== */

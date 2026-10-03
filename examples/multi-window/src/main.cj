@@ -55,6 +55,34 @@ class BootLog {
     }
 }
 
+/**
+ * 观察窗的上报计数
+ *
+ * 驱动窗退出前要确认「观察窗已经自报」——抢在它前面把窗口收掉，`COUNTS role=observer`
+ * 这条证据就永远拿不到（Windows 实测 second 可能比 main 先 boot，固定的时序假设必翻车）。
+ */
+class ReportLog {
+    private let lock: Mutex = Mutex()
+    private var observers: Int64 = 0
+
+    func markObserver(): Int64 {
+        var n: Int64 = 0
+        synchronized(this.lock) {
+            this.observers = this.observers + 1
+            n = this.observers
+        }
+        return n
+    }
+
+    func observerCount(): Int64 {
+        var n: Int64 = 0
+        synchronized(this.lock) {
+            n = this.observers
+        }
+        return n
+    }
+}
+
 /** 取顶层字符串参数（缺失 / 类型不对用缺省值） */
 func stringArg(args: JsonObject, key: String, dflt: String): String {
     if (let Some(v) <- args.get(key)) {
@@ -70,7 +98,11 @@ func stringArg(args: JsonObject, key: String, dflt: String): String {
  * 把页面结论打回 stderr，并盖上**路由侧**看到的窗口身份：每行都是「窗口 + 结论」两段证据。
  */
 public class ReportCommand <: CommandHandler {
-    public init() {}
+    private let log: ReportLog
+
+    init(log: ReportLog) {
+        this.log = log
+    }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
         if (let Some(line) <- args.get("line")) {
@@ -79,7 +111,24 @@ public class ReportCommand <: CommandHandler {
                 case _ => ()
             }
         }
+        // 非驱动窗的上报计数：驱动窗据此确认「观察窗已自报」再退出
+        if (ipc.window != "main") {
+            eprintln("[mwprobe] window=${ipc.window} observer-reports=${this.log.markObserver()}")
+        }
         return JsonBool(true)
+    }
+}
+
+/** 观察窗已自报的次数（驱动窗轮询它，避免抢跑） */
+public class ObserverReportsCommand <: CommandHandler {
+    private let log: ReportLog
+
+    init(log: ReportLog) {
+        this.log = log
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        return JsonInt(this.log.observerCount())
     }
 }
 
@@ -191,6 +240,19 @@ function counts() {
 function paint() { document.getElementById('hits').textContent = counts(); }
 function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+// 有界轮询：等到 pred() 为真或超时（返回是否等到了）。两个窗口的 boot 先后由运行时决定
+// （Windows 实测 second 可能先起来），所以两边都不能用固定 sleep 赌时序。
+function waitUntil(pred, ms) {
+  return new Promise(function (res) {
+    var t0 = Date.now();
+    (function poll() {
+      if (pred()) { res(true); return; }
+      if (Date.now() - t0 > ms) { res(false); return; }
+      setTimeout(poll, 50);
+    })();
+  });
+}
+
 async function main() {
   var tauri = window.__CJ_TAURI__;
   document.getElementById('role').textContent =
@@ -208,9 +270,11 @@ async function main() {
   await tauri.invoke('boot', { label: LABEL });
 
   if (!DRIVER) {
-    // 观察窗：fire 在两端都 boot 之后发生，这里等它落地再自报
-    await delay(600);
-    await report('COUNTS role=observer label=' + LABEL + ' ' + counts());
+    // 观察窗：不等固定延迟，按「自己那两条事件是否到齐」有界等待（最多 8s）后自报。
+    var got = await waitUntil(function () {
+      return hits.broadcast >= 1 && hits.target_second >= 1;
+    }, 8000);
+    await report('COUNTS role=observer label=' + LABEL + ' ' + counts() + ' settled=' + got);
     return;
   }
 
@@ -229,9 +293,16 @@ async function main() {
   }
 
   await tauri.invoke('fire', {});
-  await delay(900);
-  await report('COUNTS role=driver label=' + LABEL + ' ' + counts());
-  await delay(300);
+  // 自己的两条事件到齐再自报（有界等待，不用固定 sleep 赌）
+  await waitUntil(function () { return hits.broadcast >= 1 && hits.target_main >= 1; }, 8000);
+  // 再等观察窗自报：抢在它前面退出，second 的 COUNTS 就永远缺证（有界，最多 8s）
+  var seen = 0;
+  for (var j = 0; j < 160; j++) {
+    seen = await tauri.invoke('observer-reports', {});
+    if (seen >= 1) { break; }
+    await delay(50);
+  }
+  await report('COUNTS role=driver label=' + LABEL + ' ' + counts() + ' observer_reports=' + seen);
   await tauri.invoke('quit', {});
 }
 
@@ -263,6 +334,7 @@ func extraWindowEnabled(): Bool {
 main(): Int64 {
     eprintln("[mwprobe] main start")
     let log = BootLog()
+    let reports = ReportLog()
     var app = TauriApp()
         .window(WindowConfig("cj-tauri 多窗口 PoC（main）", 620, 400))
     if (extraWindowEnabled()) {
@@ -270,9 +342,10 @@ main(): Int64 {
     } else {
         eprintln("[mwprobe] MW_MODE=single：只起主窗（对照组）")
     }
-    app.register("report", ReportCommand())
+    app.register("report", ReportCommand(reports))
     app.register("boot", BootCommand(log))
     app.register("boots", BootsCommand(log))
+    app.register("observer-reports", ObserverReportsCommand(reports))
     // 这两个要拿 app 本体（一个收全部窗口、一个定向投递），所以放在 app 构造之后注册
     app.register("fire", FireCommand(app))
     app.register("quit", QuitCommand(app))

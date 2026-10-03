@@ -50,7 +50,9 @@ REM The app reads capabilities\ by relative path -> run it from the project root
 cd /d "%SCRIPT_DIR%"
 
 if not exist "%APP%" (
-    echo [run] building (cjpm build) ...
+    REM No parentheses here: this echo sits inside an "if ... (" block and an
+    REM unescaped "(" makes cmd report a confusing parse error instead.
+    echo [run] building the probe: cjpm build ...
     call cjpm build
     if errorlevel 1 (
         echo [ERROR] cjpm build failed -- check PATH / CANGJIE_HOME.
@@ -75,8 +77,13 @@ if /i "%MW_MODE%"=="single" goto :assert_single
 
 call :check "[probe] main start"   "[mwprobe] main start"
 call :check "second host started"  "label=.second." re
-call :check "driver booted"        "BOOT jsLabel=main booted=1"
-call :check "observer booted"      "BOOT jsLabel=second booted=2"
+REM Do NOT pin the boot order: which host boots first is up to the runtime
+REM (on Windows the "second" host was seen booting first). What hypothesis B
+REM actually claims is that each window's routed identity equals the label it
+REM read back from the injected window.__CJ_TAURI_LABEL__ -- and "GATE boots=2"
+REM below proves both labels did register.
+call :check "main labelled"        "window=main BOOT jsLabel=main booted="
+call :check "second labelled"      "window=second BOOT jsLabel=second booted="
 call :check "gate saw 2 windows"   "GATE boots=2"
 call :check "driver counts"        "COUNTS role=driver label=main broadcast=1 target_main=1 target_second=0"
 call :check "observer counts"      "COUNTS role=observer label=second broadcast=1 target_main=0 target_second=1"

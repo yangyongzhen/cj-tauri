@@ -32,6 +32,10 @@
   `MW_MODE=single` 是单窗对照开关，`run.sh` 自带断言）、最小对照
   `native/tests/gtk_threading_probe.c` + `scripts/test-gtk-threading.sh`（纯 C，**不需要仓颉 SDK**，
   跑纯 GTK / GTK+WebKit 的 N=1 / N=2 四组并与 §8 的结论对齐；缺 gcc / GTK / WebKit / xvfb 时自行跳过）。
+- **多窗口探针的原生框自动确认脚本**：`examples/multi-window/dismiss-dialogs.ps1`——按「窗口类 `#32770`
+  **且**属于目标进程」双重筛选后 Post `WM_COMMAND/IDOK`（不注入全局键盘、不碰其他进程的窗口），并在看到
+  第一个框后**等 4 秒**再作答，好让两个窗口的框真正重叠（`run.bat` 的双窗模式自动起它，单窗对照不启）。
+  日志按状态变更记 `POLL pids=… dialogs=…`，答不上时能直接区分「没进程 / 有进程没框 / 出错」。
 
 ### Fixed
 
@@ -46,6 +50,10 @@
   （`bridge_win.c:596`）所指。
 - **`examples/multi-window/run.bat` 直接解析失败**：`if` 块里 `echo … (cjpm build) …` 的括号未转义，
   cmd 把括号当块边界，报「此时不应有 ...」后退出。
+- **`examples/multi-window/run.bat` 在 Git Bash 的 PATH 下会挂到超时**：行数统计写成
+  `findstr … | find /c /v ""`，而 `find` 在 MSYS 的 PATH 里命中 **GNU find**（Windows 的 `find.exe` 被排在
+  后面），它把 `/c` 当路径去遍历整个盘（实测跑满 300s 超时，输出里全是 `Permission denied`）。
+  改为 `findstr` + `for /f` 计数；文件末尾那条 `pause` 守卫也从 `find` 换成 `findstr`。
 
 ### Changed
 
@@ -58,6 +66,15 @@
   一消息循环」的装配在 Windows 上支持多窗口**，Linux 那条「WebKitGTK 不能被两条线程各自使用」的约束
   **不跨平台**。据此 `docs/架构演进-多平台与多窗口.md` §8 补了平台修正：多窗口 UI 的「单主循环」
   重构是 **Linux 专属前置**，Windows 不需要。
+- **多窗口探针补齐「两窗回调并发」用例**（`examples/multi-window/`，2026-10-03 Windows 实机）：
+  `run.bat` 默认模式在原 8 条断言之后新增两个阶段——阶段 2 两窗**同时**向各自宿主开原生消息框
+  （硬证据 `window=main ASK … inflight=2`：第二条 ask 进栈时第一条尚未出栈；自动确认脚本日志
+  `FIRST batch: 2 dialog(s) open` 独立佐证），阶段 3 **只关 `second`** 并证明应用不跟着返回
+  （`CLOSE-WINDOW which=second requested` → `ALIVE second=1 main=0`）。双窗 **18/18 断言全过、`exit=0`**
+  （单窗对照 **6/6、`CONTROL PASS`**）。对话框状态在 C 核里是 per-host（跨宿主本就不互斥）、退出是
+  逐窗判的——这两条由「潜在」变实测事实；`HostGlobals.onDestroy`（静态单槽，且不在 `WebViewHost`
+  接口上、应用侧装不进去）与文件框结果槽 `HostGlobals.dialogResult` 的共享缺陷**仍未清**，
+  留待与「回调带宿主 id」一起做，见架构文档 §8.3 第 4 条。
 
 ## [0.6.0] - 2026-10-02
 

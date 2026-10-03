@@ -21,6 +21,14 @@ REM Usage:
 REM   run.bat                             -> two windows (the PoC itself)
 REM   set MW_MODE=single, then run.bat     -> single-window control group
 REM
+REM Two-window mode also covers the two-window callback concurrency case:
+REM   phase 2  asks for one native message box from EACH window at the same
+REM            time (the hard evidence is "inflight=2", see src\main.cj), and
+REM   phase 3  closes only "second" and proves run() does not return while
+REM            "main" is still alive ("ALIVE second=1 main=0").
+REM Those boxes need clicking, so this script starts dismiss-dialogs.ps1 in the
+REM background first. The control run never reaches phase 2 and does not start it.
+REM
 REM Override CANGJIE_HOME / CANGJIE_STDX if your install paths differ.
 REM NOTE: keep this file pure ASCII -- cmd.exe reads .bat in the OEM codepage
 REM       and non-ASCII bytes can swallow the following lines.
@@ -63,6 +71,22 @@ if not exist "%APP%" (
 echo [run] mode=%MW_MODE%
 echo [run] app =%APP%
 echo [run] log =%LOG%
+
+REM Phase 2 opens one native message box from EACH window at once and only continues
+REM after both are answered, so the run needs an auto-answerer. It is deliberately
+REM not started for the control run: a single window bails out at the boots gate.
+set "DISMISS=%SCRIPT_DIR%dismiss-dialogs.ps1"
+set "DLOG=%TEMP%\cj-multi-window-dismiss-%MW_MODE%.log"
+if /i "%MW_MODE%"=="single" goto :skip_dismiss
+if exist "%DISMISS%" (
+    echo [run] dismisser =%DISMISS%
+    echo [run] dismiss log=%DLOG%
+    start "mwdismiss" /min powershell -NoProfile -ExecutionPolicy Bypass -File "%DISMISS%" -Seconds 60 -ProcName main -LogPath "%DLOG%"
+) else (
+    echo [WARN] %DISMISS% is missing -- phase 2 will hang until the boxes are clicked.
+)
+:skip_dismiss
+
 "%APP%" > "%LOG%" 2>&1
 set "RC=%ERRORLEVEL%"
 echo [run] exit=%RC%
@@ -87,6 +111,20 @@ call :check "second labelled"      "window=second BOOT jsLabel=second booted="
 call :check "gate saw 2 windows"   "GATE boots=2"
 call :check "driver counts"        "COUNTS role=driver label=main broadcast=1 target_main=1 target_second=0"
 call :check "observer counts"      "COUNTS role=observer label=second broadcast=1 target_main=0 target_second=1"
+REM Phase 2 (two-window callback concurrency). Which window enters its box first is up
+REM to the scheduler, so nothing is pinned to a window: only "inflight=2" -- the second
+REM ask reading 2, i.e. the first box was still open -- proves the two boxes coexisted.
+call :check "main asked a box"     "window=main ASK which=main kind=info"
+call :check "second asked a box"   "window=second ASK which=second kind=info"
+call :check "both boxes open"      "inflight=2"
+call :check "main box answered"    "ASK-DONE which=main ok=true"
+call :check "second box answered"  "ASK-DONE which=second ok=true"
+call :check "observer reported"    "DIALOG-PHASE observer_asks=1"
+REM Phase 3: closing one window must not return from run() while the other is alive.
+call :check "closed only second"   "CLOSE-WINDOW which=second requested"
+call :check "main still up"        "ALIVE second=1 main=0"
+call :check "close phase done"     "CLOSE-PHASE alive=second=1 main=0"
+call :count "both hosts released"  "host destroyed:" 2
 call :check "run returned"         "[mwprobe] after run"
 goto :verdict
 
@@ -108,7 +146,8 @@ if "%FAIL%"=="0" (
     if /i "%MW_MODE%"=="single" (
         echo [run] CONTROL PASS -- single-window path is intact on Windows.
     ) else (
-        echo [run] PASS -- two windows ran together on Windows: A/B/C all hold.
+        echo [run] PASS -- two windows ran together on Windows: A/B/C hold, plus the
+        echo [run]        phase-2 concurrency ^(inflight=2^) and the phase-3 per-window exit.
         echo [run] NOTE: exit=%RC% is reported separately; a non-zero exit
         echo [run]       after the assertions may be the known flaky
         echo [run]       libwebkit2gtk exit-time abort seen on Linux.
@@ -122,7 +161,8 @@ if "%FAIL%"=="0" (
     )
 )
 echo [run] full log: %LOG%
-echo %CMDCMDLINE% | find /i "%~nx0" >nul && pause
+REM findstr, not find: under a Git Bash PATH `find` is MSYS's GNU find (see :count).
+echo %CMDCMDLINE% | findstr /I "%~nx0" >nul && pause
 exit /b %FAIL%
 
 :check
@@ -145,6 +185,22 @@ if errorlevel 1 (
     echo   ok    %~1
 ) else (
     echo   FAIL  %~1  ^(unexpected: %~2^)
+    set "FAIL=1"
+)
+goto :eof
+
+:count
+REM :count "label" "needle" expected  -- "expected" is exact, because a missing line
+REM must be distinguishable from a duplicated one (e.g. a leaked host at exit).
+REM Count with cmd builtins + findstr ONLY. Do not pipe into `find /c /v ""`: when this
+REM script is launched from Git Bash, PATH puts MSYS's GNU find first, which reads "/c"
+REM as a path and walks the whole disk (observed: the run hung until its 300s timeout).
+set /a CNT=0
+for /f %%L in ('findstr /C:"%~2" "%LOG%"') do set /a CNT+=1
+if "%CNT%"=="%~3" (
+    echo   ok    %~1  ^(count=%~3^)
+) else (
+    echo   FAIL  %~1  ^(expected %~3 lines of "%~2", got %CNT%^)
     set "FAIL=1"
 )
 goto :eof

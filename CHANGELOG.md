@@ -23,14 +23,41 @@
   `emitToWindow(event, payload, label)`（应用级定向投递，空串 = 广播）；`run()` / `runUrl()`
   改为按注册表逐个启动宿主。**单窗口行为不变**：`examples/multi-window` 的单窗对照 7/7 断言通过、
   `scripts/test.sh` 101/101。⚠️ **本机 Linux 实测：现有装配起不了第二个窗口**（双窗 3/3 次 `exit=134`；
-  根因是 **WebKitGTK 不能被两条线程各自使用**，纯 GTK 双主循环则干净通过），多窗口 UI 需先做
+  根因是 **WebKitGTK 不能被两条线程各自使用**，纯 GTK 双主循环则干净通过），Linux 的多窗口 UI 需先做
   「单主循环 + 多窗口」重构；判定与证据见 `docs/架构演进-多平台与多窗口.md` §8。
-  Windows 侧本特性**未实机验证**。
+  **Windows 侧已实机验证（2026-10-03）：同一份装配双窗通过**——这条约束只对 WebKitGTK 成立，属平台分叉，
+  Windows 不需要单主循环重构（见下方 Changed 段）。
 - **多窗口可行性探针（入库的复现器）**：`examples/multi-window/`（同一份 HTML 起两窗、角色由自己的
   label 推出；驱动窗等两窗都 boot 后触发 1 条广播 + 2 条定向，两窗各自把收到的条数报回；
   `MW_MODE=single` 是单窗对照开关，`run.sh` 自带断言）、最小对照
   `native/tests/gtk_threading_probe.c` + `scripts/test-gtk-threading.sh`（纯 C，**不需要仓颉 SDK**，
   跑纯 GTK / GTK+WebKit 的 N=1 / N=2 四组并与 §8 的结论对齐；缺 gcc / GTK / WebKit / xvfb 时自行跳过）。
+
+### Fixed
+
+- **Windows 桥构建漏编译 `native/bridge_core.c`**：批次 1 把平台无关部分抽进 core 后只改了
+  `native/build_linux.sh`，`native/build_win.bat` 仍只编 `bridge_win.c`——Windows 桥里 `cj_core_*`
+  符号一个都没有（本机跑的是批次 1 之前的旧 DLL，所以一直「看起来能用」）。已补进编译行；重建后
+  `libcjtbridge.dll` 导出 17 个，与源码一致。
+- **Windows 建窗失败（`CreateWindowExW failed: 0`、`GetLastError()` 也是 0）**：`native/bridge_win.c`
+  的 `wnd_proc` 在 `switch` 之后缺 `return DefWindowProcW(...)`；批次 1 新加的 `WM_NCCREATE` 分支
+  `break` 后落到函数末尾，返回值不确定，Win32 据此判窗口创建失败**且不设错误码**（症状是窗口根本不出现、
+  页面从不 boot，几乎无从定位）。补上 return 后建窗正常——该处正是 mingw `-Wreturn-type` 警告
+  （`bridge_win.c:596`）所指。
+- **`examples/multi-window/run.bat` 直接解析失败**：`if` 块里 `echo … (cjpm build) …` 的括号未转义，
+  cmd 把括号当块边界，报「此时不应有 ...」后退出。
+
+### Changed
+
+- **多窗口探针改为顺序无关**：原判定依赖「两窗都上报 `boots=2`」，对启动顺序与各窗耗时敏感；现改为
+  页面一 boot 就上报、驱动窗**有界等待**对端（超时才判失败），判定不再依赖固定延迟与启动顺序
+  （`examples/multi-window/src/main.cj`、内联页面 JS、`capabilities/default.json`、`run.bat`）。
+- **Windows 多窗口 PoC 实测通过 → 平台分叉结论成立**：`examples/multi-window/run.bat` 双窗
+  **8/8 断言全过、`exit=0`**（两窗各自 `BOOT jsLabel=<自己的 label>`、`GATE boots=2`、两条 `COUNTS`
+  的广播 1 条 / 定向只到目标窗逐条正确），单窗对照 **7/7 通过**（`exit=0`）。即**同一份「一宿主一 UI 线程
+  一消息循环」的装配在 Windows 上支持多窗口**，Linux 那条「WebKitGTK 不能被两条线程各自使用」的约束
+  **不跨平台**。据此 `docs/架构演进-多平台与多窗口.md` §8 补了平台修正：多窗口 UI 的「单主循环」
+  重构是 **Linux 专属前置**，Windows 不需要。
 
 ## [0.6.0] - 2026-10-02
 

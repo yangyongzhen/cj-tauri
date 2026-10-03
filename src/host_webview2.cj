@@ -92,6 +92,43 @@ foreign func cj_bridge_is_ready(h: CPointer<Unit>): Int32
 foreign func cj_bridge_should_quit(h: CPointer<Unit>): Int32
 
 /**
+ * 菜单栏（RFC-002 §5.4 的线路文本）：空串 = 清空。未就绪时桥只记下，建窗时一次建好。
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_menu(h: CPointer<Unit>, wire: CString): Unit
+
+/**
+ * 运行期改单个菜单项的状态（按 id 找；找不到只记日志）
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabled: Int32,
+                                           checked: Int32): Unit
+
+/**
+ * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_shell_callback(h: CPointer<Unit>,
+                                          cb: CFunc<(CPointer<Unit>, CString) -> Unit>): Unit
+
+/**
+ * 宿主能力位（CJ_CAP_* 的按位或）：未 init 返回 0
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_host_capabilities(h: CPointer<Unit>): Int32
+
+/**
+ * 句柄同一性判定（返回 1 = 同一个宿主）：仓颉侧 CPointer 不能比较，判定交回 C 侧
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_host_eq(a: CPointer<Unit>, b: CPointer<Unit>): Int32
+
+/**
  * Windows WebView2 宿主实现：通过 C 桥驱动
  */
 @When[os == "Windows"]
@@ -100,6 +137,11 @@ public class WebView2Host <: WebViewHost {
     public var onMessage: (String) -> Unit = { _ => }
     // 销毁回调
     public var onDestroy: () -> Unit = { => }
+    // 本窗口的 shell 事件（菜单点击等）回调：TauriApp 装配时经 setShellHandler 覆盖它做分发，
+    // 未覆盖时只留一行 stderr——菜单点了没人管，至少能在日志里看见。
+    public var shellHandler: (String) -> Unit = { json =>
+        eprintln("[cj-tauri] shell event (no handler): ${json}")
+    }
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
     // 预执行脚本（插件 jsShim 等）：start 前收集，prepareHost 一次性交给桥，桥在 document-start 注入
@@ -151,6 +193,47 @@ public class WebView2Host <: WebViewHost {
         }
     }
 
+    public func setMenu(wire: String): Unit {
+        // 句柄先建出来：setMenu 允许在 start() 之前调——文本由桥记着，建窗时一次建好
+        this.ensureHandle()
+        unsafe {
+            cj_bridge_set_menu(this.handle, LibC.mallocCString(wire))
+        }
+    }
+
+    public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
+        if (this.handle.isNull()) {
+            // 还没建宿主就谈不上「改状态」：静默返回，不拿空句柄去 FFI
+            return
+        }
+        var e: Int32 = 0
+        var c: Int32 = 0
+        if (enabled) {
+            e = 1
+        }
+        if (checked) {
+            c = 1
+        }
+        unsafe {
+            cj_bridge_set_menu_item_state(this.handle, LibC.mallocCString(id), e, c)
+        }
+    }
+
+    public func hostCapabilities(): Int32 {
+        if (this.handle.isNull()) {
+            return 0
+        }
+        var caps: Int32 = 0
+        unsafe {
+            caps = cj_bridge_host_capabilities(this.handle)
+        }
+        return caps
+    }
+
+    public func setShellHandler(handler: (String) -> Unit): Unit {
+        this.shellHandler = handler
+    }
+
     public func showFileDialog(save: Bool, title: String, filter: String): String {
         var kind: Int32 = 0
         if (save) {
@@ -195,12 +278,16 @@ public class WebView2Host <: WebViewHost {
         this.ensureHandle()
         HostGlobals.onMessage = this.onMessage
         HostGlobals.onDestroy = this.onDestroy
+        // shell 事件路由：登记「本句柄 → 本实例的处理函数」一条（表式，不覆盖别的窗口）
+        HostGlobals.registerShellRoute(this.handle, { json => this.shellHandler(json) })
         var devTools: Int32 = 0
         if (this.config.devTools) {
             devTools = 1
         }
         unsafe {
             cj_bridge_init(this.handle, hostOnMessage, hostOnDestroy)
+            // shell 事件回调（菜单点击等）：与消息回调同一套路，多一个首参用来分辨窗口
+            cj_bridge_set_shell_callback(this.handle, shellOnEvent)
             // 原生对话框的结果回调：与消息回调同一套路（C 桥宿主线程 → 仓颉全局槽位）
             cj_bridge_set_dialog_callback(this.handle, dialogOnResult)
             cj_bridge_set_window(this.handle, LibC.mallocCString(this.config.title),

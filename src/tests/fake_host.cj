@@ -25,6 +25,13 @@ class FakeHost <: WebViewHost {
     // 对话框入参按「调一次记一次」存成字符串：桩不真弹窗，用例要断言的是「谁被调了、带了什么」
     public var fileDialogArgs: String = ""
     public var messageDialogArgs: String = ""
+    // 菜单：线路文本 / 单项状态按原样记下（桩不建真菜单，用例断言的是投下来的内容）
+    public var menuWire: String = ""
+    public var menuItemStateArgs: String = ""
+    // shell 事件回调（菜单点击等）：用例可以自己调它，模拟「桥把事件送进来了」
+    public var shellHandler: (String) -> Unit = { _ => }
+    // 能力位：桩给「有菜单」，用例要测「平台没这个本事」时自行覆盖它
+    public var caps: Int32 = CJ_CAP_MENU
 
     public init(windowLabel: String) {
         this.windowLabel = windowLabel
@@ -59,6 +66,22 @@ class FakeHost <: WebViewHost {
     }
 
     public func openDevTools(): Unit {}
+
+    public func setMenu(wire: String): Unit {
+        this.menuWire = wire
+    }
+
+    public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
+        this.menuItemStateArgs = "${id}|${enabled}|${checked}"
+    }
+
+    public func hostCapabilities(): Int32 {
+        return this.caps
+    }
+
+    public func setShellHandler(handler: (String) -> Unit): Unit {
+        this.shellHandler = handler
+    }
 
     public func showFileDialog(save: Bool, title: String, filter: String): String {
         this.fileDialogArgs = "${save}|${title}|${filter}"

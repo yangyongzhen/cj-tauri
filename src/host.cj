@@ -1,5 +1,7 @@
 package cjTauri
 
+import std.collection.*
+
 /**
  * WebView 宿主层（对标 Tauri 2 的 tao + wry 抽象）
  *
@@ -9,6 +11,23 @@ package cjTauri
  *   - 鸿蒙       ：ArkWeb（架构预留，条件编译位）
  * IPC 桥（ipc_hub.cj）与能力安全模型（capability.cj）跨平台复用。
  */
+
+/**
+ * 宿主能力位（与 native/bridge_core.h 的 `CJ_CAP_*` **逐位对齐**，两侧不许各写各的）
+ *
+ * 由平台在 C 侧 `cj_plat_init` 时填好，经 `WebViewHost.hostCapabilities()` 取回。
+ * 「这台机器上的框架支持什么」是**静态事实**（编出来的桥有没有那块），不是运行期探测：
+ * 应用据此决定要不要建菜单 / 托盘，拿不到就别骗自己。
+ *
+ * 与能力安全模型（capability.cj）的 `Capability` 不是一回事：那个管「页面能不能调某个命令」，
+ * 这个管「宿主有没有这个本事」——所以名字里带 host 前缀，别混。
+ */
+public const CJ_CAP_MENU: Int32 = 1
+
+public const CJ_CAP_TRAY: Int32 = 2
+
+public const CJ_CAP_DRAG_DROP: Int32 = 4
+
 public interface WebViewHost {
     /**
      * 本窗口的 label（单窗口阶段恒为 "main"）
@@ -62,6 +81,41 @@ public interface WebViewHost {
      * 运行时打开开发者工具（WebView2 DevTools / WebKit Inspector）
      */
     public func openDevTools(): Unit
+
+    /**
+     * 设置本窗口的菜单栏（RFC-002 §5.2 的线路文本；空串 = 清空菜单栏）
+     *
+     * 调用时机两头都行：`start()` 之前调用会在建窗时一次建好（未就绪的文本由 C 桥记着）；
+     * 之后就投到宿主 UI 线程重建整棵菜单。
+     * 平台没有菜单能力（`hostCapabilities()` 不含 `CJ_CAP_MENU`）时不影响其它功能——
+     * 「能力位为 0 就别建菜单」是调用方的约定，宿主不替应用猜。
+     */
+    public func setMenu(wire: String): Unit
+
+    /**
+     * 运行期改单个菜单项的状态（按 id 找；找不到只记一行日志，不报错）
+     *
+     * 只改状态、不改结构：结构变化走 `setMenu` 整棵重建。状态的真身在平台对象上
+     * （Windows 的 HMENU、GTK 的 GtkCheckMenuItem），模型本身是只读的——理由见 src/menu.cj。
+     */
+    public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit
+
+    /**
+     * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
+     *
+     * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。
+     * 注意与命令级的能力安全模型无关：这里说的是宿主本事，不是页面权限。
+     */
+    public func hostCapabilities(): Int32
+
+    /**
+     * 装配本窗口的 shell 事件回调（菜单点击等；载荷是 C 桥的 JSON 信封）
+     *
+     * 与 `setMessageHandler` 同一套路，区别是事件源在宿主侧（应用菜单）而不是页面。
+     * **多窗口下必须按宿主身份路由**：C 侧回调首参是句柄，只有本窗口的句柄才转给本实例的
+     * 这个回调——这正是「回调带宿主身份」的落地方式（见 docs/RFC-菜单-托盘-拖放.md §5.5）。
+     */
+    public func setShellHandler(handler: (String) -> Unit): Unit
 
     /**
      * 原生文件选择对话框（阻塞到用户关闭）：返回选中的路径，取消 / 失败返回空串。
@@ -147,9 +201,53 @@ public interface AppHost {
  * C 桥原生线程 → 仓颉回调的全局槽位。
  * 各平台宿主在 start() 时把自己的回调装配到这里，C 侧的 @C 函数经此转入仓颉闭包。
  */
+/**
+ * 一条 shell 事件路由：C 侧句柄 → 本窗口的派发闭包
+ *
+ * `dispatch` 是可变的：闭包读的是宿主实例的 `shellHandler` 字段（不是快照），
+ * 所以应用在 `start()` 之后再调 `setShellHandler` 同样生效。
+ */
+class ShellRoute {
+    let handle: CPointer<Unit>
+    var dispatch: (String) -> Unit
+
+    init(handle: CPointer<Unit>, dispatch: (String) -> Unit) {
+        this.handle = handle
+        this.dispatch = dispatch
+    }
+}
+
 class HostGlobals {
     static var onMessage: (String) -> Unit = { _ => }
     static var onDestroy: () -> Unit = { => }
+    // shell 事件（菜单点击等）的**路由表**：各宿主在装配时登记自己一条（句柄 + 派发闭包）。
+    //
+    // 为什么不是单槽：C 侧对所有窗口只有一个回调入口（`cj_on_shell_fn` 就是一个函数指针），
+    // 「事件属于哪个窗口」只能在仓颉侧判；单槽会被后装配的窗口覆盖——先装的那个从此收不到自己的
+    // 菜单点击（两窗探针一跑就露）。表里每条只认领自己的句柄。
+    // 登记发生在 prepareHost（run() 之前、宿主线程还没起），派发时才读表 → 登记期没有并发。
+    static var shellRoutes: ArrayList<ShellRoute> = ArrayList<ShellRoute>()
+
+    /**
+     * 登记（或更新）一条 shell 事件路由
+     *
+     * 同一句柄重复登记＝换掉旧闭包（宿主被重新 prepare 时不叠加、事件也不会派发两次）；
+     * 句柄比较走 C 侧 `cj_bridge_host_eq`（仓颉的 `CPointer` 不支持 `==`）。
+     * 顺带解决「旧宿主销毁、新宿主复用同一地址」：新宿主登记时就覆盖了那条陈旧路由。
+     */
+    static func registerShellRoute(handle: CPointer<Unit>, dispatch: (String) -> Unit): Unit {
+        for (r in HostGlobals.shellRoutes) {
+            var same: Int32 = 0
+            unsafe {
+                same = cj_bridge_host_eq(r.handle, handle)
+            }
+            if (same != 0) {
+                r.dispatch = dispatch
+                return
+            }
+        }
+        HostGlobals.shellRoutes.add(ShellRoute(handle, dispatch))
+    }
     // 文件类对话框的结果：C 桥在 GTK / 宿主线程上经 dialogOnResult 写入，
     // 阻塞等待的调用方醒来后读取。同一时刻只允许一个对话框（桥侧有互斥），单槽位够用。
     static var dialogResult: String = ""
@@ -177,6 +275,31 @@ func dialogOnResult(path: CString): Unit {
         HostGlobals.dialogResult = path.toString()
     } catch (e: Exception) {
         eprintln("[cj-tauri] dialog callback error: ${e}")
+    }
+}
+
+/**
+ * shell 事件回调（C 桥 → 仓颉）：菜单点击等经它送回，首参是**发生事件的宿主句柄**。
+ *
+ * 由 C 桥在宿主 UI 线程上调用（与 hostOnMessage 同一套路）；句柄→实例的解引用交给
+ * 各宿主在 `setShellHandler` 时注册的筛选闭包，本函数只做「别抛穿 FFI 边界」这一件事。
+ * 非 @When：两平台的 C 侧都调它（签名一致，首参不透明）。
+ */
+@C
+func shellOnEvent(host: CPointer<Unit>, json: CString): Unit {
+    try {
+        // 逐条认领：句柄对得上的那条派发，其余静默跳过（C 侧只有一个入口，区分就在这里）
+        for (r in HostGlobals.shellRoutes) {
+            var mine: Int32 = 0
+            unsafe {
+                mine = cj_bridge_host_eq(r.handle, host)
+            }
+            if (mine != 0) {
+                r.dispatch(json.toString())
+            }
+        }
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] shell callback error: ${e}")
     }
 }
 

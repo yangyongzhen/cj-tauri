@@ -112,7 +112,16 @@ public class TauriApp <: AppHost {
     public func hostOf(label: String): Option<WebViewHost> {
         match (this.windows.get(label)) {
             case Some(rec) => return Some(rec.host)
-            case None => return None
+            case None =>
+                // 默认窗口的注册表登记发生在 prepare()（那时窗口配置才定稿），所以 run() 之前
+                // 查 "main" 会落空——但宿主对象在 TauriApp 构造时就已经存在。
+                // 这里按 label 兜住，让「run() 之前 hostOf(label) 可用」对默认窗与 addWindow
+                // 登记的窗一致：预置菜单 / 拖放策略都必须在 start() 之前调（RFC-菜单-托盘-拖放 §5.2），
+                // 默认窗拿不到宿主就等于这条通路对最常见的用法直接不存在。
+                if (label == DEFAULT_WINDOW_LABEL) {
+                    return Some(this.host)
+                }
+                return None
         }
     }
 

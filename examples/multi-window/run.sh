@@ -8,7 +8,13 @@
 #                成功通过反而要报警（说明约束可能已消失，该把它改成验收用例）。
 #   single       只起主窗（对照组）：验多窗口缝没弄坏原有单窗路径——这一档**应当干净通过**。
 #
-# 前置：桥已构建（bash native/build_linux.sh）。Linux 桌面 / Xvfb 均可；Windows 未验证。
+# 与 Windows 面（run.bat）的差别：run.bat 已于 2026-10-03 实机通过，且**多两个阶段**——阶段 2
+# 两窗同时开原生消息框、阶段 3 只关一个窗口（§7.5 残余项的判据，断言 18 条）。那两个阶段在 Linux 上
+# **不会被走到**：full 模式在「假设 A 起不了第二个窗口」这一步就判失败退出，所以本脚本不覆盖它们
+# ——想在 Linux 上验，得等「单主循环 + 多窗口」重构落地后另加。
+#
+# 前置：桥已构建（bash native/build_linux.sh）。Linux 桌面 / Xvfb 均可；Windows 侧用 run.bat
+#（本脚本是 Linux 侧探针，不适用于 Windows）。
 # 用法：bash run.sh [日志路径]（默认 /tmp/multi-window-poc.log）
 set -euo pipefail
 

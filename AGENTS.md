@@ -96,11 +96,16 @@
 - 迭代 `String` 得到的是 `UInt32` 码点（不是 `Rune`），需要时用 `Rune(cp)` 还原。
 - `cjc-version` 是最低要求而非精确版本：写 `1.0.5` 时用 1.2.0 的 cjc 也能编译。
 - 条件编译函数按平台各写一份时，**不要发明未验证的平台标识**（例如未用过 macOS 就别加 `@When[os == "macOS"]`）。
+- 字符串插值 `${名字}` 会撞同名函数：局部变量叫 `main` 时写 `"${main}"` 会报
+  `unexpected main function in string interpolation`（`main` 被当函数解析）——换个变量名即可（实测：多窗口探针）。
 
 **平台与工具链**
 
 - Windows 脚本编码：`.bat` 由 cmd.exe 按 OEM 码页读取、`.ps1` 被 PowerShell 5.1 按 ANSI 读取——
   **保持纯 ASCII**，UTF-8 中文注释会吞掉后续行/导致解析崩溃（本项目已实际踩过）。
+- **`.bat` 里别用 `find` 做计数或判断**：从 Git Bash 起 `cmd //c run.bat` 时，`PATH` 里 MSYS 的
+  **GNU find** 排在 Windows `find.exe` 前面，`find /c /v ""` 会被它当成路径去遍历整个盘（实测把脚本
+  挂到 300s 超时，输出满屏 `Permission denied`）。计数用 `findstr` + `for /f`，判断同样用 `findstr`。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。

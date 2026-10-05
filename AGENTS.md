@@ -1,7 +1,7 @@
 # cj-tauri 项目开发规范（AGENTS.md）
 
 > 本文件是本项目的**开发契约**：人类开发者与 AI 助手共同遵守，由 agent 自动加载注入。
-> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.6.0**（2026-10-02），与 `CHANGELOG.md` 同步维护。
+> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.7.0**（2026-10-05），与 `CHANGELOG.md` 同步维护。
 > 当前进度、未完成项与本机环境坑见 `docs/进度记录.md`；会话上下文导出（含换到 Linux 机器怎么接）见 `docs/会话交接.md`。
 
 ## 0. 项目定位
@@ -23,8 +23,8 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 101 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，61 项断言，不依赖 SDK / 图形栈），入口是
+   当前 108 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，91 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
@@ -115,6 +115,12 @@
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。
+- **拉取「改了 C 桥导出」的提交后，先重建桥再跑测试/构建**：`native/libcjtbridge.so`（Windows 侧
+  `libcjtbridge.dll`）是**本地产物、不入库**。菜单能力位那次 C 桥加了 5 个 `cj_bridge_*` 导出，
+  没重建桥就直接 `cjpm test`/`cjpm build` 会在**链接期**炸出一串
+  `undefined reference to cj_bridge_set_menu…`（实测 2026-10-05：漏 5 个符号、88 个错误，不是代码错）。
+  重建：Linux `bash native/build_linux.sh`、Windows `native\build_win.bat`；
+  数导出 `nm -D --defined-only native/libcjtbridge.so | grep -c cj_bridge_`（0.7.0 为 22 个）。
 - WebView2 版本规则：**SDK 不得高于本机 Runtime**（本机 Runtime 122.0.2365.106 → 用 SDK 1.0.2365.46）；
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
@@ -198,7 +204,7 @@
 
 ## 6. 版本与发版
 
-- 语义化版本。0.x 阶段：新增能力进中间位（0.5.0 → 0.6.0），修复进末位（0.6.0 → 0.6.1）。当前 **0.6.0**。
+- 语义化版本。0.x 阶段：新增能力进中间位（0.6.0 → 0.7.0），修复进末位（0.7.0 → 0.7.1）。当前 **0.7.0**。
 - 必须同步的**五个位置**（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
   1. `cjpm.toml` 的 `version`（框架包）
   2. `cli/cjpm.toml` 的 `version` 与 `cli/src/project.cj` 的 `cliVersion()`（`--version` / `info` 打印它）

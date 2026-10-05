@@ -10,7 +10,7 @@ import std.collection.*
 
 /** CLI 版本：须与 cli/cjpm.toml 的 version、CHANGELOG 顶部版本一致（scripts/check-version.sh 校验） */
 func cliVersion(): String {
-    return "0.6.0"
+    return "0.7.0"
 }
 
 /** 一次命令所需的路径上下文 */

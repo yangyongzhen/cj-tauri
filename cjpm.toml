@@ -2,7 +2,7 @@
   cjc-version = "1.0.5"
   name = "cjTauri"
   description = "仓颉版 Tauri：轻量跨端混合开发框架（WebView 宿主 + IPC 桥 + 能力安全模型）"
-  version = "0.6.0"
+  version = "0.7.0"
   target-dir = ""
   output-type = "static"
   compile-option = ""

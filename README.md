@@ -75,6 +75,15 @@
 
 ![plugin-shell 示例运行截图：shell:open 与 shell:exec 的实机自检输出](docs/images/example-plugin-shell.png)
 
+`movie`：业务向示例——影视数据（榜单 / 搜索 / 详情 / 播放源）全部走**仓颉侧** `stdx.net.http` 取回，
+前端只走 `invoke`（连封面图都经宿主取，页面里没有一处 `fetch`）。首页榜单：
+
+![movie 示例运行截图：首页榜单，主角位大图与封面卡片网格](docs/images/example-movie.png)
+
+播放页——HLS 经 hls.js 真在播，下方是集数按钮与「播放源」胶囊（点一下即切源、保留当前集数）：
+
+![movie 示例运行截图：播放页视频在播，含集数按钮与播放源切换](docs/images/example-movie-play.png)
+
 ### 前端工程模板
 
 | 模板 | 说明 |

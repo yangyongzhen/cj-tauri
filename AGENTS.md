@@ -39,7 +39,12 @@
   也拿得到（注册表里的正式登记发生在 `prepare()`）。运行期再改菜单状态走 `setMenuItemState`（按 id 找，
   找不到静默忽略）。**shell 事件在仓颉侧按句柄路由**（`HostGlobals.shellRoutes` + `cj_bridge_host_eq`），
   不要用静态单槽——多窗口下后装配的窗口会覆盖先装配的，先装配的窗口从此收不到自己的事件。
-  当前能力位：菜单已完成（Windows 实机点选通过），托盘 / 文件拖入未实现。
+  当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过），
+  托盘 / 文件拖入未实现。事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
+  应用侧一律挂**可叠加**的 `app.onShellEvent((json, label) => …)`，并自动投前端事件
+  （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；
+  菜单/状态改动走应用层 API（`setMenu(To)` / `setMenuItemState*`），别再直接调宿主——应用层要用
+  留存的模型补齐「另一维状态」。
 - **插件 JS 的注入通道**：`Plugin.jsShim()` 由 `pluginInitScripts()` 收成「一个插件一段」，
   经 `WebViewHost.addInitScript()` 交给宿主，桥在 document-start 注入（排在 `BRIDGE_JS` 之后）。
   必须在 `start()` / `startUrl()` 之前注册；**不要再往 HTML 字符串里拼 `<script>` 注入 shim**——
@@ -104,6 +109,9 @@
 - 条件编译函数按平台各写一份时，**不要发明未验证的平台标识**（例如未用过 macOS 就别加 `@When[os == "macOS"]`）。
 - 字符串插值 `${名字}` 会撞同名函数：局部变量叫 `main` 时写 `"${main}"` 会报
   `unexpected main function in string interpolation`（`main` 被当函数解析）——换个变量名即可（实测：多窗口探针）。
+- **lambda 不能捕获可变的局部变量**：`var x = ""` 后写 `sink = { _ => x = "y" }` 编译不过
+  （提示无法捕获可变局部变量）。要在闭包里把数据带出来就用容器装——`let seen = ArrayList<String>()` 再
+  `seen.add(...)`（实测：`system:host` 的单测想记下询问过的窗口 label）。
 
 - **`stdx.net.http` 的 `ClientBuilder` 不带默认 TLS**：发 https 请求直接抛
   `HttpException: TLS must be configured when HTTPS requests are sent.`，必须显式

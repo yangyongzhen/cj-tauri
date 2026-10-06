@@ -49,6 +49,29 @@
   **HTTP 200 + `code:404` + `message:"source not found"`**（不是 4xx），页面因此判 `code` 而不是
   只看 invoke 是否被拒。离机自检（跑页面真函数 + DOM 桩）58 项全过；实机日志见
   `examples/movie/README.md` 的验收表。
+- **文档：新增《`docs/cj-tauri-介绍与movie实战.md`》（666 行）**：面向「第一次听说 cj-tauri」的读者，
+  按「它是什么 → 装环境 → 起一个工程 → 拿 `examples/movie` 当案例」的顺序讲，`movie` 那一半逐块拆
+  命令层 / HTTP 层 / 前端（含防盗链取图、HLS 按源可播性、剧集与切源三个设计点），末尾给「看日志验收」
+  的办法与三个真踩过的坑；根 `README.md` 的文档入口已挂链接。
+- **应用层菜单 API（`TauriApp`）**：`setMenu` / `setMenuTo`（默认窗 / 指定窗）、`setMenuItemState(To)`、
+  `setMenuItemEnabled(To)` / `setMenuItemChecked(To)`——菜单从「只能直接摸宿主」变成应用层可配。
+  应用层留一份菜单模型，所以「只改启用 / 只改勾选」能拿**另一维**补齐：平台侧一次调用会同时写两维，
+  补齐不到就会把用户刚点出来的勾选抹掉；id 在模型里找不到时抛 `CommandException`（不静默按 false 写）。
+  宿主层接口（`WebViewHost.setMenu` / `setMenuItemState` / `setShellHandler`）一行未改。
+- **shell 事件分发到应用与前端**：应用层新增**可叠加**钩子 `app.onShellEvent((json, label) => …)`
+  （宿主层 `setShellHandler` 仍是单槽，由框架装一次做分发，取代「应用自己抢宿主槽位」），
+  并按事件类型把事件投给前端：`menu` → `menu:click`、`tray` → `tray:click`、`drop` → `dragdrop:files`
+  （需在能力清单的 `events` 里声明）。信封解析抽成纯函数模块（`src/shell_event.cj`）并补单测：
+  坏报文只在 stderr 提示一次，不抛异常穿 FFI 边界。
+- **内置命令 `system:host`**：返回宿主能力位 JSON `{platform, menu, tray, dragDrop}`——页面/CLI 可以先进
+  它再决定要不要显示菜单入口，而不是「调了报错才知道平台不支持」。三处联动齐全（`src/api_system.cj`
+  实现 + `TauriApp.run()` 注册 + 能力清单声明）。
+- **官方插件 `menu`**：`menu:setEnabled` / `menu:setChecked` 两个命令 + 事件 `menu:click` +
+  命名权限集 `menu:state`（集声明 ≠ 放行）；前端 shim 挂 `window.__CJ_TAURI__.menu.setEnabled / setChecked`，
+  经 document-start 注入通道交付（`runUrl` 与内联 HTML 时序一致）。
+- **脚手架模板带菜单示范**：`app` / `app-vue` / `app-react` 三个模板都装配 `MenuPlugin` + `setMenu()`，
+  页面里给出两个调用点——`listen("menu:click")`（菜单 → 页面）与 `menu.setChecked(...)`（页面 → 菜单）；
+  能力清单同步加 `"permissions": ["menu:state"]` 与 `"events": [..., "menu:click"]`。
 
 ### Changed
 
@@ -57,12 +80,16 @@
   拿到 20:07 的 manifest 并出画面、可切集），失败的源里既有域名解析不了的（`cdn.wlcdn99.com`
   无 A/AAAA 记录）也有源站失效的。现在只给方向「原因可能是域名解析、跨域限制或源站失效」，
   保留「地址已列在下方，可复制到 VLC 等播放器」的可操作指引。
-- **文档：`examples/movie/README.md` 重写为新手教程 + 5 张实机截图**：截图入
-  `docs/images/example-movie{,-search,-detail,-play,-episodes}.png`；README 按
+- **文档：`examples/movie/README.md` 重写为新手教程 + 3 张实机截图**：截图入
+  `docs/images/example-movie{,-search,-detail}.png`（首页榜单 / 搜索 / 详情；播放页与剧集区两张
+  后续按「不宜展示」撤下，`git rm` 并清掉两处 README 的引用）；README 按
   「三件套定位 → 5 分钟跑起来 → 一步步搭出来（命令三处联动 / 参数白名单 / 前端只走 invoke）→
   三个设计要点（防盗链取图 / HLS 与按源可播性 / 剧集分流与切源）→ 实机验收 → 踩坑 → 文件」组织，
   根 `README.md` 的示例区同步补 movie 入口与截图。顺带更正此前文档里「画面出不来」的旧结论
   （**播放链路是通的**，失败只是个别源）。
+- **观影示例补「用途与免责声明」**：`examples/movie/README.md` 新增置顶声明（**仅用于技术学习与研究，
+  请勿用于其他用途**；影视数据与播放地址均取自第三方公开接口、本示例不提供也不存储任何影视资源，
+  请勿批量抓取或二次传播），根 `README.md` 的示例表条目与该小节前各加一条同样的提示并链过去。
 
 ## [0.7.0] - 2026-10-05
 

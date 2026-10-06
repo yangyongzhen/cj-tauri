@@ -82,8 +82,6 @@ examples\movie\run.bat
 | 首页榜单：6 个 tab + 主角位大图 + 卡片网格 + 加载更多 | ![首页](../../docs/images/example-movie.png) |
 | 搜索：关键词进、结果出 | ![搜索](../../docs/images/example-movie-search.png) |
 | 详情：海报 / 评分 / 简介 / 演员 | ![详情](../../docs/images/example-movie-detail.png) |
-| 播放：`<video>` 真在播（HLS 经 hls.js） | ![播放](../../docs/images/example-movie-play.png) |
-| 剧集：集数按钮（下标即集数）+ 当前集地址 + 复制 | ![剧集](../../docs/images/example-movie-episodes.png) |
 
 封面取不到的卡片会显示**生成式占位**（标题首字 + 按标题散列的色相渐变）——这是设计内的降级，不是破图。
 

@@ -84,9 +84,7 @@
 
 ![movie 示例运行截图：首页榜单，主角位大图与封面卡片网格](docs/images/example-movie.png)
 
-播放页——HLS 经 hls.js 真在播，下方是集数按钮与「播放源」胶囊（点一下即切源、保留当前集数）：
-
-![movie 示例运行截图：播放页视频在播，含集数按钮与播放源切换](docs/images/example-movie-play.png)
+播放页——HLS 经 hls.js 真在播，下方是集数按钮与「播放源」胶囊（点一下即切源、保留当前集数）。
 
 ### 前端工程模板
 

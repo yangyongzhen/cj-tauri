@@ -105,6 +105,21 @@
 - 字符串插值 `${名字}` 会撞同名函数：局部变量叫 `main` 时写 `"${main}"` 会报
   `unexpected main function in string interpolation`（`main` 被当函数解析）——换个变量名即可（实测：多窗口探针）。
 
+- **`stdx.net.http` 的 `ClientBuilder` 不带默认 TLS**：发 https 请求直接抛
+  `HttpException: TLS must be configured when HTTPS requests are sent.`，必须显式
+  `ClientBuilder().tlsConfig(TlsClientConfig())`（默认走系统证书库校验，不要图省事关校验）。
+  只跑 http 的代码完全看不出来，一旦加个 https 调用就全灭（实测 2026-10-05：`examples/movie` 封面
+  是 https，54 次取图全败，而后台 `http://` 接口一直正常）。
+- `stdx.net.http` 的两个签名坑（都在 `examples/movie` 里实测）：① `readToEnd(resp.body)` **编译不过**——
+  它要求 `T <: InputStream & Seekable`，而 `resp.body` 的静态类型只有 `InputStream`，得自己按块读到
+  EOF（`ByteBuffer.write` + `body.read(chunk)`）；② 取响应头用 `resp.headers.getFirst("Content-Type")`
+  （**没有 `get`**，写成 `get` 会得到「enum pattern is not matched」这种指向不明的报错）。
+- **防盗链图片只能在宿主侧取**：图源常按 `Referer` 放行，失败形状是「**HTTP 200 + 0 字节**」——
+  页面侧 `<img src>` 直连必然全灭，且**没有页面侧解法**（`Referrer-Policy` 只能减少 Referer、
+  不能替换，何况内联页来源是 opaque）。办法是把地址交给一个宿主命令，由仓颉侧带正确 `Referer`
+  取回再以 `data:` URL 交还（`examples/movie` 的 `movie:image`）；这类命令的参数是页面可控字符串，
+  必须对地址做白名单，否则等于开放 SSRF。
+
 **平台与工具链**
 
 - Windows 脚本编码：`.bat` 由 cmd.exe 按 OEM 码页读取、`.ps1` 被 PowerShell 5.1 按 ANSI 读取——

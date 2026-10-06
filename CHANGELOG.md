@@ -14,6 +14,42 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- **观影应用示例 `examples/movie`**：仓颉后端 + WebView 前端的完整业务样例（榜单 6 个 tab / 搜索 /
+  详情 / 播放四个视图），`movie:list` / `movie:search` / `movie:detail` / `movie:source` / `movie:image`
+  五命令与 `capabilities/default.json` 三处联动齐全，`run.bat` 一键跑并把 `[movie]` / `[frontend]` 留证。
+  Windows 实机（2026-10-05）验证：桥 + 榜单 20 条 + 详情 + **未授权对照组被拒** + 53 次封面取图 40 次成功，
+  stderr 无 `hr=` 非 0。
+- **`movie:image`：宿主侧取图（`{url} → data:image/…;base64,…`）**：上游封面是防盗链资源——
+  `image.baidu.com/search/down` 只在 `Referer: https://image.baidu.com/` 时给图，其它情况回
+  **HTTP 200 + 0 字节**（不是 4xx），而 WebView 页面无法伪造 Referer（来源 opaque，且浏览器只允许
+  *减少* Referer），故封面只能由仓颉侧带正确 Referer 取回。命令对地址做白名单（SSRF 防护）；
+  页面侧以「并发 4 / 同址去重 / 失败不留缓存」的队列填充，取不到则回落到**生成式占位**
+  （标题首字 + 按标题散列的色相渐变）。踩坑与实测数据见 `examples/movie/README.md`。
+- **观影示例支持剧集（`tvurls`）**：后台 `mvsource` 对电视剧返回 `urls:[""]`（占位空串）+ `tvurls:[…]`，
+  `urls` 有内容的才是电影。页面据此分流——`tvurls` 有值时播放器下方出「第一集 / 第二集 …」集数按钮
+  （**下标即集数**，0 = 第一集），点集数切集并留 `[frontend] 切集：第 N 集` 日志，下面一行跟着显示
+  当前集地址 + 复制；`tvurls` 为空、`urls` 有值仍走原线路列表。空串按位置占位丢弃。
+  顺带修掉 `#source-list` 漏了 `class="source-list"`、导致该容器的行样式一直是死规则的问题
+  （`markActiveSource` 改为按「电影 / 剧集」两种下标分别高亮）。
+  Windows 实机（2026-10-06）验证：`凡人修仙传` 详情 → `movie:source(35861087) 剧集模式：112 集，
+  从第一集起播` → 连续切集至第 112 集，`hr=` 全 0。
+- **观影示例支持切换播放源（新命令 `movie:sourceitem`）**：后台 2026-10-06 改版把「一部片的全部播放源」
+  与「某个源的剧集」拆成两个接口——`mvsource/{sid}` 只回**主源**的 `tvurls` / `urls`，另附全 20 个源的
+  元信息（`items[]` 全字段 / `sources[]` 精简版，`primary` 标出主源），非主源的剧集要按 `note` + `aid`
+  单独取 `mvsourceitem/{sid}?note=&aid=`（同一片实测 18738 字符 vs 改版前 ~139KB，主源 194 集）。
+  示例据此在播放页剧集按钮**上方**新增「播放源」胶囊区（源名 + 分类 + 集数，当前源高亮，同名不同版本
+  如「优酷 动漫 194 集」与「优酷 国产剧 30 集」靠分类区分；只有 1 个源时整区不显示），点源即切：
+  `movie:sourceitem` 取回该源 `tvurls` 后**保留当前集数**重渲染集数按钮并从同一集起播（新源集数不够
+  则落到它最后一集），播放页标题也跟着换（切到极速那个源会变成《凡人修仙传 重制版》）。
+  命令按项目契约三处联动（`src/commands.cj` + `src/main.cj` + `capabilities/default.json`）；
+  `note` / `aid` 是页面可控串，命令层做白名单（`note` 限 `[a-z0-9_-]` 且 ≤32，收窄到无需百分号转义；
+  `aid` 只许数字、允许空串——单文件源的 `aid` 实测就是空）。真实失败形状：源不存在时后台回
+  **HTTP 200 + `code:404` + `message:"source not found"`**（不是 4xx），页面因此判 `code` 而不是
+  只看 invoke 是否被拒。离机自检（跑页面真函数 + DOM 桩）58 项全过；实机日志见
+  `examples/movie/README.md` 的验收表。
+
 ## [0.7.0] - 2026-10-05
 
 ### Added

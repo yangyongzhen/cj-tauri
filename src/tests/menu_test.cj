@@ -78,3 +78,31 @@ func testMenuWireNestedSubmenuGoesTwoLevels(): Unit {
         "\tm\t\t二层\t1\t\n" +
         "\t\tn\ta.b.c\t三层\t1\t\n")
 }
+
+@Test
+func testMenuModelFindByIdWalksSubmenus(): Unit {
+    // 运行期改状态按 id 定位（app.setMenuItemEnabled 还要靠它反查「另一维状态」），
+    // 所以子菜单里的项也必须找得到——不然「只改启用」会把勾选抹掉（见 TauriApp.applyMenuState）
+    let inner = ArrayList<MenuItem>()
+    inner.add(MenuItem.checkbox("view.sidebar", "侧栏", false))
+    let items = ArrayList<MenuItem>()
+    items.add(MenuItem.submenu("视图", inner))
+    items.add(MenuItem.normal("file.save", "保存"))
+    let model = MenuModel(items)
+    @Expect(model.findById("file.save").isSome(), true)
+    let sidebar = model.findById("view.sidebar")
+    @Expect(sidebar.isSome(), true)
+    @Expect(sidebar.getOrThrow().checked, false)
+    @Expect(model.findById("ghost").isNone(), true)
+}
+
+@Test
+func testMenuModelFindByIdReturnsMutableItem(): Unit {
+    // 应用层模型要靠「改对象」同步状态：findById 必须给出同一实例，而不是副本
+    let item = MenuItem.checkbox("view.sidebar", "侧栏", false)
+    let items = ArrayList<MenuItem>()
+    items.add(item)
+    let model = MenuModel(items)
+    model.findById("view.sidebar").getOrThrow().checked = true
+    @Expect(item.checked, true)
+}

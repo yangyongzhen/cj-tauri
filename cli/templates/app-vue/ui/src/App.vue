@@ -4,6 +4,8 @@ import { onMounted, ref } from 'vue';
 const name = ref('world');
 const result = ref('等待 invoke…');
 const tick = ref('');
+const menuMsg = ref('');
+const sidebar = ref(true);
 const href = ref('');
 const bridgeOk = ref(false);
 
@@ -35,6 +37,10 @@ onMounted(async () => {
   bridge.listen('tick', (payload) => {
     tick.value = '事件 tick #' + payload.n + ' 来自仓颉后端';
   });
+  // 原生菜单 → 页面（capabilities 里要声明 menu:click）
+  bridge.listen('menu:click', (p) => {
+    menuMsg.value = '菜单被点: ' + p.id + '（enabled=' + p.enabled + ', checked=' + p.checked + '）';
+  });
 });
 
 async function greet() {
@@ -57,6 +63,21 @@ async function startTimer() {
 function reload() {
   if (bridge) bridge.reload();
 }
+
+// 页面 → 原生菜单：menu 插件的前端 shim（window.__CJ_TAURI__.menu，注入在 document start）
+async function toggleSidebar(e) {
+  const checked = e.target.checked;
+  if (!bridge || !bridge.menu) {
+    result.value = '未注入 menu 插件 shim（页面来自 runUrl 时插件 JS 不在本进程）';
+    return;
+  }
+  try {
+    await bridge.menu.setChecked({ id: 'view.sidebar', checked });
+    result.value = '原生菜单「侧边栏」已同步为 ' + checked;
+  } catch (err) {
+    result.value = 'menu.setChecked FAIL: ' + err.message;
+  }
+}
 </script>
 
 <template>
@@ -75,6 +96,11 @@ function reload() {
     </div>
     <div class="out">{{ result }}</div>
     <div class="tick">{{ tick }}</div>
+    <div class="tick">{{ menuMsg }}</div>
+    <div class="chk">
+      <input type="checkbox" :checked="sidebar" @change="toggleSidebar" />
+      <span>侧边栏（对应原生菜单「视图 → 侧边栏」）</span>
+    </div>
     <p class="tip">
       改这个文件（<code>ui/src/App.vue</code>）保存，页面会在不重启应用的情况下更新。
     </p>
@@ -130,6 +156,17 @@ button:hover {
   margin-top: 6px;
   font-size: 13px;
   color: #8be9fd;
+}
+.chk {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chk input {
+  flex: none;
 }
 .tip {
   margin-top: 14px;

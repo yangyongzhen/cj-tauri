@@ -22,6 +22,9 @@
   button.ghost { background: #2b3040; }
   .result { margin-top: 6px; min-height: 24px; font-size: 15px; color: #50fa7b; word-break: break-all; }
   .tick { margin-top: 10px; font-size: 13px; color: #8be9fd; min-height: 18px; }
+  .chk { margin-top: 12px; font-size: 13px; color: #9aa0b4;
+         display: flex; align-items: center; gap: 6px; }
+  .chk input { flex: none; }
   .foot { margin-top: 18px; font-size: 12px; color: #6b7186; }
 </style>
 </head>
@@ -39,8 +42,14 @@
       <button id="version" class="ghost">system:version</button>
     </div>
 
+    <div class="chk">
+      <input type="checkbox" id="sidebar" checked>
+      <label for="sidebar">侧边栏（对应原生菜单「视图 → 侧边栏」）</label>
+    </div>
+
     <div id="result" class="result">等待 invoke…</div>
     <div id="tick" class="tick"></div>
+    <div id="menu" class="tick"></div>
     <div class="foot">越权命令（未在 capabilities/default.json 声明）会被后端拒绝</div>
   </div>
 
@@ -84,6 +93,25 @@
       tauri.listen('tick', function (payload) {
         tick.textContent = '收到后端事件 tick #' + payload.n;
       });
+
+      // 原生菜单 → 页面：菜单被点后宿主推事件过来（capabilities 里要声明 menu:click）
+      var menuLine = document.getElementById('menu');
+      tauri.listen('menu:click', function (payload) {
+        menuLine.textContent = '菜单被点: ' + payload.id +
+          '（enabled=' + payload.enabled + ', checked=' + payload.checked + '）';
+      });
+
+      // 页面 → 原生菜单：menu 插件的前端 shim（window.__CJ_TAURI__.menu，注入在 document start）
+      document.getElementById('sidebar').onchange = function (e) {
+        if (!tauri.menu) {
+          show('未注入 menu 插件 shim（页面来自 runUrl 时插件 JS 不在本进程）', false);
+          return;
+        }
+        var checked = e.target.checked;
+        tauri.menu.setChecked({ id: 'view.sidebar', checked: checked })
+          .then(function () { show('原生菜单「侧边栏」已同步为 ' + checked); })
+          .catch(function (err) { show('menu.setChecked FAIL: ' + err.message, false); });
+      };
     });
   </script>
 </body>

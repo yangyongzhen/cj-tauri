@@ -61,6 +61,17 @@ public class IpcContext {
     public func openDevTools(): Unit {
         this.hub.openDevTools()
     }
+
+    /**
+     * 本窗口的宿主能力位（`CJ_CAP_*` 按位或），供内置 system:host 使用
+     *
+     * 取的是**发起命令那个窗口**的位域：能力位是宿主级事实，多窗口下可能不同（如 Linux 托盘
+     * 取决于桥怎么编的）。窗口没登记 / 宿主还没建句柄时返回 0——后者不代表「平台没这本事」，
+     * 所以页面自检应在窗口起来之后做（与 examples/menu 探针的口径一致）。
+     */
+    public func hostCapabilities(): Int32 {
+        return this.hub.hostCapabilities(this.window)
+    }
 }
 
 /**
@@ -75,6 +86,10 @@ public class IpcHub {
     public var jsSink: (String, String) -> Unit = { _, _ => }
     // 开发者工具通道：由 TauriApp 注入宿主实现
     public var devToolsSink: () -> Unit = { => }
+    // 宿主能力位通道：由 TauriApp 注入（window label → CJ_CAP_* 位域），供 system:host 用。
+    // 为什么走注入而不是让 IpcHub 自己拿窗口注册表：注册表归 TauriApp（AppHost 契约），
+    // hub 只认「label → 位域」这一个函数——依赖方向保持 app → ipc_hub 单向。
+    public var hostCapabilitiesSink: (String) -> Int32 = { _ => 0 }
     // 后端事件监听器（对标 Tauri 的 Rust 侧 Listener）：事件名 → 处理函数。
     // 只在前端 emit 时被调用；后端自己 emit 给前端的事件**不**回流到这里（否则「后端广播 → 监听器再广播」会自激）。
     private var eventListeners: HashMap<String, ArrayList<(JsonValue) -> Unit>> =
@@ -91,6 +106,13 @@ public class IpcHub {
      */
     public func openDevTools(): Unit {
         this.devToolsSink()
+    }
+
+    /**
+     * 宿主能力位（宿主注入的实现；未注入 / 窗口未知时返回 0）
+     */
+    public func hostCapabilities(window: String): Int32 {
+        return this.hostCapabilitiesSink(window)
     }
 
     public func register(cmd: String, handler: CommandHandler): Unit {

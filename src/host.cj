@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import stdx.encoding.json.*
 
 /**
  * WebView 宿主层（对标 Tauri 2 的 tao + wry 抽象）
@@ -27,6 +28,50 @@ public const CJ_CAP_MENU: Int32 = 1
 public const CJ_CAP_TRAY: Int32 = 2
 
 public const CJ_CAP_DRAG_DROP: Int32 = 4
+
+/**
+ * 宿主能力位的**可读形态**（RFC-002 §5.3）：`CJ_CAP_*` 位域 → 具名布尔 + `toJson`。
+ *
+ * 为什么要有它：`hostCapabilities()` 给的是位域，应用与 `system:host` 的调用方要的是
+ * 「menu 有没有」这种具名答案；位域 ↔ 名字的对应只留在这一个地方，
+ * 免得每个消费点各写各的 `(caps & CJ_CAP_MENU) != 0`（写错一位就是一个静默的假答案）。
+ *
+ * `platform` 不在位域里，由调用方（`currentPlatform()`）单独给——位域来自 C 桥，平台标识来自
+ * 仓颉侧的条件编译，两者本就是两个来源。
+ */
+public class HostCapabilities {
+    public let platform: String
+    public let menu: Bool
+    public let tray: Bool
+    public let dragDrop: Bool
+
+    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool) {
+        this.platform = platform
+        this.menu = menu
+        this.tray = tray
+        this.dragDrop = dragDrop
+    }
+
+    /** 位域 → 具名布尔（`platform` 由调用方给，见类注释） */
+    public static func fromBits(platform: String, caps: Int32): HostCapabilities {
+        return HostCapabilities(
+            platform,
+            (caps & CJ_CAP_MENU) != 0,
+            (caps & CJ_CAP_TRAY) != 0,
+            (caps & CJ_CAP_DRAG_DROP) != 0
+        )
+    }
+
+    /** `system:host` 的返回形状：`{"platform":"windows","menu":true,"tray":true,"dragDrop":true}` */
+    public func toJson(): JsonValue {
+        var obj = JsonObject()
+        obj.put("platform", JsonString(this.platform))
+        obj.put("menu", JsonBool(this.menu))
+        obj.put("tray", JsonBool(this.tray))
+        obj.put("dragDrop", JsonBool(this.dragDrop))
+        return obj
+    }
+}
 
 public interface WebViewHost {
     /**

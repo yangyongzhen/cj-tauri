@@ -44,6 +44,10 @@ public class TauriApp <: AppHost {
     private var windows: WindowRegistry = WindowRegistry()
     // 附加窗口（批次 3 多窗口 UI 的最小切片，试验性）：addWindow() 登记、run() / runUrl() 统一启动
     private var extraWindows: ArrayList<ExtraWindowSpec> = ArrayList<ExtraWindowSpec>()
+    // 应用层留存的菜单模型（label → 模型）：setMenu() 记一份，供「只改某一维状态」反查另一维
+    private var menus: HashMap<String, MenuModel> = HashMap<String, MenuModel>()
+    // 应用层的 shell 事件钩子（对标 Tauri 的 on_menu_event）：框架分发时先跑钩子、再投前端事件
+    private var shellHooks: ArrayList<(String, String) -> Unit> = ArrayList<(String, String) -> Unit>()
     private var started: Bool = false
     private var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
     // 各插件 jsShim() 收集成的「预执行脚本」列表，prepare() 时定稿，run / runUrl 时交给宿主
@@ -134,6 +138,148 @@ public class TauriApp <: AppHost {
     public func quit(): Unit {
         for (rec in this.windows.targets("")) {
             rec.host.quit()
+        }
+    }
+
+    /**
+     * 设置**默认窗口**的菜单栏（对标 Tauri 的 `Menu::set_as_app_menu` / `Window::set_menu`）
+     *
+     * 建议在 `run()` / `runUrl()` **之前**调用：预置类宿主能力要赶在页面加载前定稿
+     * （RFC-002 §5.2）。之后调用也能用（宿主会把整棵树重建到 UI 线程上），只是页面上会看到
+     * 菜单「晚一步」出现。
+     *
+     * 应用层会把模型留一份（见 `setMenuTo`），这样「只改某一维状态」的 API 才有
+     * 「另一维现在是什么」可查——平台侧一次调用会同时写 enabled 与 checked。
+     */
+    public func setMenu(menu: MenuModel): TauriApp {
+        return this.setMenuTo(DEFAULT_WINDOW_LABEL, menu)
+    }
+
+    /**
+     * 设置**指定窗口**的菜单栏（多窗口）
+     *
+     * 同一个 `MenuModel` 实例给多个窗口时，两窗留存的「模型状态」是**同一个对象**——运行期改
+     * 一个窗口的勾选会顺带改到另一个窗口的模型（平台上两份菜单仍是独立的）。要各自独立，
+     * 就每个窗口各建一份模型。
+     */
+    public func setMenuTo(label: String, menu: MenuModel): TauriApp {
+        match (this.hostOf(label)) {
+            case Some(host) =>
+                this.menus.add(label, menu)
+                host.setMenu(menu.toWire())
+            case None =>
+                eprintln("[cj-tauri] setMenu: 未注册的窗口 label \"${label}\"（菜单未设置）")
+        }
+        return this
+    }
+
+    /**
+     * 运行期改默认窗口某个菜单项的状态（enabled 与 checked 一起写）
+     *
+     * 只想改其中一维就用 `setMenuItemEnabled` / `setMenuItemChecked`——它们会拿模型里的
+     * 另一维补齐，免得把用户刚点出来的勾选抹掉。
+     */
+    public func setMenuItemState(id: String, enabled: Bool, checked: Bool): TauriApp {
+        return this.setMenuItemStateTo(DEFAULT_WINDOW_LABEL, id, enabled, checked)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setMenuItemState`，作用于 `label` 那个窗口 */
+    public func setMenuItemStateTo(label: String, id: String, enabled: Bool, checked: Bool): TauriApp {
+        this.applyMenuState(label, id, enabled, checked)
+        return this
+    }
+
+    /**
+     * 只改默认窗口某个菜单项的**启用**状态；勾选态取自应用层留存的模型
+     *
+     * 模型里没有这个 id 时抛 `CommandException`（**不**静默拿 false 顶上）：静默写会抹掉
+     * 用户看到的勾选，报错至少说得清「哪个 id 在哪个窗口找不到」。
+     */
+    public func setMenuItemEnabled(id: String, enabled: Bool): TauriApp {
+        return this.setMenuItemEnabledTo(DEFAULT_WINDOW_LABEL, id, enabled)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setMenuItemEnabled` */
+    public func setMenuItemEnabledTo(label: String, id: String, enabled: Bool): TauriApp {
+        let cur = this.requireMenuItem(label, id)
+        this.applyMenuState(label, id, enabled, cur.checked)
+        return this
+    }
+
+    /** 只改默认窗口某个菜单项的**勾选**状态；启用态取自应用层留存的模型 */
+    public func setMenuItemChecked(id: String, checked: Bool): TauriApp {
+        return this.setMenuItemCheckedTo(DEFAULT_WINDOW_LABEL, id, checked)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setMenuItemChecked` */
+    public func setMenuItemCheckedTo(label: String, id: String, checked: Bool): TauriApp {
+        let cur = this.requireMenuItem(label, id)
+        this.applyMenuState(label, id, cur.enabled, checked)
+        return this
+    }
+
+    /**
+     * 取「另一维状态」的当前值（从应用层留存的模型里查）
+     *
+     * 模型不存在通常意味着应用用 `WebViewHost.setMenu()` 直设了菜单、绕过了应用层——
+     * 报错里点名这条出路，比让人对着「状态怎么被抹了」猜要好。
+     */
+    private func requireMenuItem(label: String, id: String): MenuItem {
+        match (this.menus.get(label)) {
+            case None =>
+                throw CommandException(
+                    "菜单模型不存在：窗口 \"${label}\" 的菜单是用 app.setMenu() 设的吗？" +
+                    "（用 WebViewHost.setMenu 直设的菜单应用层没有模型，改单项状态请用 setMenuItemStateTo）"
+                )
+            case Some(model) =>
+                match (model.findById(id)) {
+                    case Some(item) => return item
+                    case None => throw CommandException("菜单项不存在：\"${id}\"（窗口 \"${label}\"）")
+                }
+        }
+    }
+
+    /**
+     * 写菜单项状态：平台侧 + 应用层模型同步（模型里的 item 是可变对象，见 src/menu.cj）
+     *
+     * 模型不跟上会出错：勾选项在平台上一被点就自己翻了 checked，模型若还记旧值，
+     * 下一次「只改启用」就会拿旧值去写，把刚点出来的勾选抹回去。
+     * 模型缺失只提示、不拦——平台侧照写（与 `WebViewHost.setMenuItemState` 的「找不到静默忽略」一致）。
+     */
+    private func applyMenuState(label: String, id: String, enabled: Bool, checked: Bool): Unit {
+        match (this.menus.get(label)) {
+            case Some(model) =>
+                match (model.findById(id)) {
+                    case Some(item) =>
+                        item.enabled = enabled
+                        item.checked = checked
+                    case None => eprintln("[cj-tauri] setMenuItemState: 模型里没有 \"${id}\"（只改平台侧）")
+                }
+            case None => eprintln("[cj-tauri] setMenuItemState: 窗口 \"${label}\" 无应用层菜单模型（只改平台侧）")
+        }
+        match (this.hostOf(label)) {
+            case Some(host) => host.setMenuItemState(id, enabled, checked)
+            case None => eprintln("[cj-tauri] setMenuItemState: 未注册的窗口 label \"${label}\"（未生效）")
+        }
+    }
+
+    /**
+     * 把 shell 事件里的**平台真值**回写到应用层模型（kind=menu、id 命中时）
+     *
+     * 为什么必须做：勾选项在平台上一被点就自己翻了 checked，模型还记着旧值——之后一次
+     * 「只改启用」拿着旧值去写，就把用户刚点出来的勾选抹回去了。
+     * 模型 / 项不存在时静默：事件也可能来自没用应用层菜单的窗口（宿主层直设菜单的老路径）。
+     */
+    private func syncMenuStateFromShell(label: String, id: String, enabled: Bool, checked: Bool): Unit {
+        match (this.menus.get(label)) {
+            case Some(model) =>
+                match (model.findById(id)) {
+                    case Some(item) =>
+                        item.enabled = enabled
+                        item.checked = checked
+                    case None => ()
+                }
+            case None => ()
         }
     }
 
@@ -340,6 +486,7 @@ public class TauriApp <: AppHost {
         this.hub.register("system:ping", SystemCommands())
         this.hub.register("system:echo", SystemCommands())
         this.hub.register("system:devtools", SystemCommands())
+        this.hub.register("system:host", SystemCommands())
 
         // 未显式挂载 capability 时，自动扫描 capabilities/ 目录（对标 Tauri）
         autoLoadCapabilities(this.capabilities)
@@ -375,8 +522,25 @@ public class TauriApp <: AppHost {
         this.hub.devToolsSink = { =>
             this.host.openDevTools()
         }
+        // system:host 的取值通道：按发起命令的窗口 label 取该宿主的能力位
+        this.hub.hostCapabilitiesSink = { label => this.windowCapabilities(label) }
 
         this.host.setWindowConfig(this.config)
+    }
+
+    /**
+     * 某个窗口的宿主能力位（`system:host` 的取值实现）
+     *
+     * 未登记的 label 给 0 **并出声**：写错 label 的表现会是「能力位全 false」，看起来像
+     * 「这个平台不支持菜单」，比一条日志难查得多。
+     */
+    private func windowCapabilities(label: String): Int32 {
+        match (this.hostOf(label)) {
+            case Some(h) => return h.hostCapabilities()
+            case None =>
+                eprintln("[cj-tauri] system:host: 未注册的窗口 label \"${label}\"（能力位按 0 返回）")
+                return 0
+        }
     }
 
     /**
@@ -393,6 +557,8 @@ public class TauriApp <: AppHost {
         this.windows.add(WindowRecord(label, this.host, this.config))
         // JSON 字符串字面量与 JS 字符串字面量同构（双引号、同样的转义），拼进赋值语句是安全的
         this.host.addInitScript("window.__CJ_TAURI_LABEL__ = ${JsonString(label)};")
+        // shell 事件分发要在 start 之前装（菜单点击随时可能来，装晚了就漏）
+        this.wireShellEvents(this.host, label)
     }
 
     /**
@@ -466,6 +632,90 @@ public class TauriApp <: AppHost {
      * 多窗口下每个宿主都挂**同一只**派发器：报文自带发起窗口的 label（架构文档 §7.3），
      * 路由不需要按句柄分表——所以这里传的是同一个闭包，不是每窗口一份。
      */
+    /**
+     * 应用层的 shell 事件钩子（对标 Tauri 的 `on_menu_event`）
+     *
+     * 回调参数是 `(信封 JSON, 发生事件的窗口 label)`。给原始 JSON 而不是解析后的对象：钩子多半
+     * 是应用自己写的诊断 / 日志（探针就靠它断言），原样透传最不容易丢信息。label 是必需的——
+     * 钩子是应用级的，一份回调要能分辨事件来自哪个窗口。
+     *
+     * 与前端事件**两条路都走**：先按注册顺序跑钩子（应用侧决策，例如改菜单项状态），再投前端
+     * 事件（页面自己 `listen("menu:click", …)`）。钩子里抛异常只留一行 stderr，不挡后面的钩子
+     * 与前端事件。
+     */
+    public func onShellEvent(handler: (String, String) -> Unit): TauriApp {
+        this.shellHooks.add(handler)
+        return this
+    }
+
+    /**
+     * 装配本窗口的 shell 事件分发（应用层是唯一安装者）
+     *
+     * 必须在宿主 `start()` / `startUrl()` **之前**装：窗口一建出来菜单点击就可能来，装晚了会漏。
+     * 宿主层的 `setShellHandler` 是**可变槽位**（后装覆盖先装），所以应用要处理 shell 事件请用
+     * `onShellEvent()`（应用级钩子，可叠加多条），不要和框架抢宿主槽位——抢赢的那个会让框架的
+     * 前端事件分发失效。
+     */
+    private func wireShellEvents(host: WebViewHost, label: String): Unit {
+        host.setShellHandler({ json => this.dispatchShellEvent(label, json) })
+    }
+
+    /**
+     * shell 事件 → 应用层钩子 + 前端事件（按窗口投递）
+     *
+     * 路由靠**闭包捕获的 label**：C 侧已按宿主句柄把事件分给了本窗口的回调（见 host.cj 的
+     * `ShellRoute`），这里再按 label 投前端事件，多窗口下不会串。事件放不放行由 capability 清单
+     * 决定——没在清单里声明 `menu:click` 就是静默丢弃（最小权限不破）。
+     *
+     * 本函数跑在**宿主 UI 线程**上（C 桥的 shell 回调就在那儿），所以中途不碰 GTK / WebKit 之外
+     * 的东西：投递走 `emitToWindow` → `jsSink`，与其它事件同一条路。
+     */
+    private func dispatchShellEvent(label: String, json: String): Unit {
+        for (hook in this.shellHooks) {
+            try {
+                hook(json, label)
+            } catch (e: Exception) {
+                eprintln("[cj-tauri] shell hook 抛出异常（已忽略）：${e}")
+            }
+        }
+        match (parseShellEnvelope(json)) {
+            case None => eprintln("[cj-tauri] shell event 信封解析失败（已丢弃）：${json}")
+            case Some(obj) =>
+                var kind = ""
+                if (let Some(k) <- shellString(obj, "kind")) {
+                    kind = k
+                }
+                match (shellEventNameFor(kind)) {
+                    case None => eprintln("[cj-tauri] shell event: 未知 kind \"${kind}\"（未投递）：${json}")
+                    case Some(event) =>
+                        if (kind == "menu") {
+                            this.syncMenuStateFromShellObj(label, obj)
+                        }
+                        try {
+                            this.hub.emitToWindow(event, obj, label)
+                        } catch (e: Exception) {
+                            eprintln("[cj-tauri] shell event 投递失败（已忽略）：${e}")
+                        }
+                }
+        }
+    }
+
+    /**
+     * 菜单事件里的平台真值 → 应用层模型：id / enabled / checked 三者齐了才写
+     *
+     * 缺字段不拿默认值顶（见 shellBool 的注释）——这条路径写错的表现是「勾选莫名回退」，
+     * 比少同步一次难查得多。
+     */
+    private func syncMenuStateFromShellObj(label: String, obj: JsonObject): Unit {
+        if (let Some(id) <- shellString(obj, "id")) {
+            if (let Some(enabled) <- shellBool(obj, "enabled")) {
+                if (let Some(checked) <- shellBool(obj, "checked")) {
+                    this.syncMenuStateFromShell(label, id, enabled, checked)
+                }
+            }
+        }
+    }
+
     private func wireHostCallbacks(host: WebViewHost): Unit {
         host.setMessageHandler({ raw =>
             this.hub.handleRawMessage(raw)
@@ -481,6 +731,8 @@ public class TauriApp <: AppHost {
     private func startExtraWindows(): Unit {
         for (w in this.extraWindows) {
             this.wireHostCallbacks(w.host)
+            // shell 事件分发要在 start 之前装（菜单点击随时可能来，装晚了就漏）
+            this.wireShellEvents(w.host, w.label)
             w.host.start(w.html)
             eprintln("[cj-tauri] 附加窗口已启动：label=\"${w.label}\"")
         }

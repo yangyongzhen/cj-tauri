@@ -49,6 +49,17 @@ button:hover {
   font-size: 13px;
   color: #8be9fd;
 }
+.chk {
+  margin-top: 12px;
+  font-size: 13px;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.chk input {
+  flex: none;
+}
 .tip {
   margin-top: 14px;
   font-size: 12px;

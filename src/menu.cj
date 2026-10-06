@@ -79,6 +79,30 @@ public class MenuModel {
     }
 
     /**
+     * 按 id 找菜单项（本层优先，再下钻子菜单）；找不到返回 None
+     *
+     * 为什么要它：运行期改状态按 id 定位（`setMenuItemState`），而**应用层的模型状态**必须
+     * 能反查出「这个 id 现在是什么状态」——平台侧一次写两位（enabled + checked，见
+     * `WebViewHost.setMenuItemState`），拿不到另一维就会把用户刚点出来的勾选抹掉。
+     */
+    public func findById(id: String): Option<MenuItem> {
+        return MenuModel.lookup(this.items, id)
+    }
+
+    private static func lookup(items: ArrayList<MenuItem>, id: String): Option<MenuItem> {
+        for (item in items) {
+            if (item.id == id) {
+                return Some(item)
+            }
+            match (MenuModel.lookup(item.children, id)) {
+                case Some(found) => return Some(found)
+                case None => ()
+            }
+        }
+        return None
+    }
+
+    /**
      * 线路格式（RFC-002 §5.4）：一行一项，字段用制表符分隔，**行首制表符数 = 层级**。
      *
      *     <tabs><kind>\t<id>\t<label>\t<flags>\t<accel>\n

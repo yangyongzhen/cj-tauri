@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "movie:list",
+    "movie:search",
+    "movie:detail",
+    "movie:source",
+    "movie:sourceitem",
+    "movie:image",
+    "report",
+    "system:version"
+  ],
+  "events": []
+}

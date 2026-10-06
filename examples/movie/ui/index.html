@@ -1,0 +1,1789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>仓颉观影 · cj-tauri</title>
+<style>
+/* ============================================================
+   仓颉观影（cj-tauri 示例）——暗色影院风
+   前端只经 window.__CJ_TAURI__ 的 invoke / listen / emit：
+   所有后台请求都由仓颉侧发起（命令 movie:list / movie:search /
+   movie:detail / movie:source），页面里没有一处 fetch。
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0b0e14;
+  --bg-soft: #131823;
+  --bg-card: #1a2130;
+  --line: #263041;
+  --fg: #e8edf5;
+  --fg-dim: #93a0b5;
+  --accent: #f5c451;
+  --accent-2: #e0574f;
+  --ok: #4ec9a0;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  font-size: 14px;
+  overflow-x: hidden;
+}
+
+/* 顶栏 ------------------------------------------------------ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  height: 58px;
+  background: rgba(11, 14, 20, .82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  white-space: nowrap;
+}
+.brand em {
+  color: var(--accent);
+  font-style: normal;
+}
+
+.nav { display: flex; gap: 4px; }
+.nav button {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 14px;
+  font-family: inherit;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.nav button:hover { color: var(--fg); background: var(--bg-soft); }
+.nav button.active { color: #14181f; background: var(--accent); font-weight: 700; }
+
+.searchbox {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.searchbox input {
+  width: 220px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--fg);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.searchbox input:focus { border-color: var(--accent); }
+.searchbox button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #14181f;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.searchbox button:hover { filter: brightness(1.08); }
+
+/* 主区 ------------------------------------------------------ */
+main { padding: 22px; }
+
+.view { display: none; }
+.view.active { display: block; }
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+.section-title h2 { font-size: 19px; }
+.section-title .hint { color: var(--fg-dim); font-size: 12px; }
+
+/* 榜单 tab -------------------------------------------------- */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.tabs button {
+  padding: 7px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--fg-dim);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.tabs button:hover { color: var(--fg); border-color: #3a4657; }
+.tabs button.active {
+  color: #14181f;
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+/* 主角位（首页头部大图） ------------------------------------ */
+.hero {
+  position: relative;
+  height: 300px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 24px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+}
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center 28%;
+  filter: saturate(.85) brightness(.55);
+  transform: scale(1.04);
+}
+.hero-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(11,14,20,.95) 0%, rgba(11,14,20,.72) 40%, rgba(11,14,20,.15) 100%);
+}
+.hero-body {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 26px 30px;
+  max-width: 660px;
+}
+.hero-body h1 { font-size: 27px; line-height: 1.25; }
+.hero-meta { display: flex; align-items: center; gap: 12px; color: var(--fg-dim); font-size: 13px; }
+.hero-summary {
+  color: #c3cddc;
+  font-size: 13px;
+  line-height: 1.7;
+  max-height: 66px;
+  overflow: hidden;
+}
+.hero-actions { display: flex; gap: 10px; margin-top: 4px; }
+
+.btn {
+  padding: 9px 20px;
+  border: none;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-primary { background: var(--accent); color: #14181f; }
+.btn-primary:hover { filter: brightness(1.08); }
+.btn-ghost {
+  background: rgba(255,255,255,.09);
+  color: var(--fg);
+  border: 1px solid rgba(255,255,255,.16);
+}
+.btn-ghost:hover { background: rgba(255,255,255,.16); }
+
+/* 卡片网格 -------------------------------------------------- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 18px 14px;
+}
+
+.card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, .45);
+}
+
+/* 评分徽标：浮在封面上方（.card 定位，不受 .poster 的 overflow 影响） */
+.card-rate {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 3;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(245, 196, 81, .95), rgba(224, 87, 79, .92));
+  color: #1a1408;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+}
+
+.poster {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  /* 生成式占位：色相 --h 由 JS 按标题散列写入，同一部片子每次都同色 */
+  background: linear-gradient(150deg, hsl(var(--h, 215) 30% 24%), hsl(var(--h, 215) 34% 11%));
+}
+
+/* 占位层：标题首字（大、淡）——比干巴巴的「无封面」好看得多，也不至于像加载失败 */
+.poster .ph {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, .16);
+  user-select: none;
+  z-index: 0;
+}
+.poster .ph.tiny { font-size: 12px; font-weight: 400; letter-spacing: 0; color: #3d4a60; }
+
+/* 取图期间的微光扫过 */
+.poster.fetching::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, .08) 50%, transparent 68%);
+  background-size: 220% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 140% 0; }
+  to { background-position: -40% 0; }
+}
+
+/* 海报底部压暗 + 悬停时浮出来（给卡片一点「可点」的暗示） */
+.poster::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 58%, rgba(0, 0, 0, .5) 100%);
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+}
+.card:hover .poster::before { opacity: 1; }
+
+.poster img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity .35s ease;
+}
+.poster img.loaded { opacity: 1; }
+
+.rate {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: rgba(11,14,20,.78);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-body { padding: 9px 10px 11px; }
+.card-title {
+  font-size: 13px;
+  line-height: 1.4;
+  height: 2.8em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.card-sub { color: var(--fg-dim); font-size: 11.5px; margin-top: 5px; height: 1.4em; overflow: hidden; }
+
+/* 加载 / 空 / 错误态 ---------------------------------------- */
+.state {
+  padding: 42px 0;
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 13.5px;
+  line-height: 1.9;
+}
+.state .big { font-size: 16px; color: var(--fg); margin-bottom: 6px; }
+.state .err { color: var(--accent-2); font-weight: 700; }
+.state button { margin-top: 14px; }
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 12px;
+  border: 2.5px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.more { text-align: center; padding: 26px 0 8px; }
+
+/* 详情页 ---------------------------------------------------- */
+.detail-head { display: flex; gap: 24px; margin-bottom: 26px; }
+.detail-poster {
+  flex: 0 0 216px;
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+}
+/* 里面的 .poster 撑满外层（外层已定好长宽比） */
+.detail-poster .poster { height: 100%; aspect-ratio: auto; }
+.detail-info { flex: 1; min-width: 0; }
+.detail-info h1 { font-size: 25px; line-height: 1.3; margin-bottom: 6px; }
+.detail-aka { color: var(--fg-dim); font-size: 13px; margin-bottom: 14px; }
+
+.score { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+.score .num { color: var(--accent); font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.score .lbl { color: var(--fg-dim); font-size: 12px; }
+
+.meta-line { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--fg-dim); font-size: 13px; margin-bottom: 8px; }
+.meta-line b { color: var(--fg); font-weight: 600; }
+
+.summary {
+  color: #c3cddc;
+  font-size: 13.5px;
+  line-height: 1.85;
+  margin: 16px 0 4px;
+  max-height: 8.4em;
+  overflow: hidden;
+}
+.summary.open { max-height: none; }
+.linkish { color: var(--accent); cursor: pointer; font-size: 12.5px; }
+
+.sub-title { font-size: 15px; margin: 26px 0 12px; }
+
+.cast-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.cast {
+  width: 88px;
+  text-align: center;
+}
+.cast .av {
+  width: 88px;
+  height: 118px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+}
+/* 演员头像框也是定好尺寸的外层，里面的 .poster 撑满 */
+.cast .av .poster { height: 100%; aspect-ratio: auto; }
+.cast .nm { font-size: 12px; color: var(--fg-dim); margin-top: 6px; line-height: 1.4; }
+
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.gallery img { width: 100%; border-radius: 9px; border: 1px solid var(--line); display: block; }
+
+/* 播放页 ---------------------------------------------------- */
+.player-wrap {
+  position: relative;
+  background: #000;
+  border-radius: 13px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  aspect-ratio: 16 / 9;
+}
+.player-wrap video { width: 100%; height: 100%; display: block; background: #000; }
+
+.player-msg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 30px;
+  text-align: center;
+  background: rgba(8, 10, 15, .93);
+  color: var(--fg-dim);
+  font-size: 13.5px;
+  line-height: 1.9;
+}
+.player-msg .big { font-size: 16px; color: var(--fg); }
+.player-msg.hidden { display: none; }
+
+.source-list { margin-top: 18px; }
+.source-list .row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card);
+  margin-bottom: 9px;
+  font-size: 12.5px;
+}
+.source-list .row.active { border-color: var(--accent); }
+.source-list .idx { color: var(--accent); font-weight: 700; width: 54px; }
+.source-list .url { flex: 1; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
+.source-list .row button { flex: 0 0 auto; }
+
+/* 剧集模式（urls 是占位空串、tvurls 有值的那些）：播放器下方的集数按钮 */
+.ep-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.ep {
+  min-width: 72px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--fg-dim);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ep:hover { color: var(--fg); border-color: #3a4657; }
+.ep.active { background: var(--accent); border-color: var(--accent); color: #14181f; font-weight: 700; }
+.source-list .row.cur { background: var(--bg-soft); }
+
+/* 播放源切换：一个片子有多个源（不同站点 / 不同版本），比「剧集」更外层的一层选择 */
+.source-picker { margin-top: 20px; }
+.src-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--fg-dim);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.src:hover { color: var(--fg); border-color: #3a4657; }
+.src.active { border-color: var(--accent); color: var(--fg); }
+.src .src-type { color: var(--fg-dim); font-size: 12px; }
+.src .src-count { color: var(--accent); font-size: 12px; }
+.src .src-flag { border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 10.5px; }
+.player-title { font-size: 17px; margin-bottom: 14px; }
+.player-title .back { color: var(--fg-dim); font-size: 13px; cursor: pointer; margin-right: 10px; }
+.player-title .back:hover { color: var(--accent); }
+
+/* 提示条 / 自检面板 ----------------------------------------- */
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%) translateY(20px);
+  background: #202a3a;
+  border: 1px solid var(--line);
+  color: var(--fg);
+  padding: 11px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 99;
+  max-width: 70vw;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+#selfcheck {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 320px;
+  max-height: 46vh;
+  overflow: auto;
+  background: rgba(19, 24, 35, .96);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  display: none;
+}
+#selfcheck.show { display: block; }
+#selfcheck header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-dim);
+}
+#selfcheck header span { cursor: pointer; }
+#selfcheck .lines { padding: 9px 12px; line-height: 1.75; }
+#selfcheck .ok { color: var(--ok); }
+#selfcheck .bad { color: var(--accent-2); }
+#selfcheck .info { color: var(--fg-dim); }
+
+.chip {
+  margin-left: 4px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--fg-dim);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.chip:hover { color: var(--fg); }
+
+/* 视图入场、主角位小胶囊、滚动条、版本胶囊 --------------- */
+.view.active { animation: fadeUp .3s ease both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 主角位元信息做成小胶囊，比一行裸文字清爽 */
+.hero-meta span {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .09);
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+/* 版本胶囊：system:version 的返回值，顺带一眼看出桥通没通 */
+.chip .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--fg-dim);
+  vertical-align: middle;
+}
+.chip .dot.ok { background: var(--ok); box-shadow: 0 0 8px rgba(78, 201, 160, .75); }
+
+/* 暗色滚动条 */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: #2b3446;
+  border-radius: 8px;
+  border: 3px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: #3a4659; }
+
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .searchbox input { width: 130px; }
+  .detail-head { flex-direction: column; }
+  .detail-poster { flex: 0 0 auto; width: 180px; }
+}
+
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">仓颉<em>观影</em></div>
+  <nav class="nav">
+    <button id="nav-home" class="active">首页</button>
+    <button id="nav-search">搜索</button>
+  </nav>
+  <div class="searchbox">
+    <input id="q" type="text" placeholder="搜片名 / 演员，回车搜索" autocomplete="off">
+    <button id="btn-search">搜索</button>
+  </div>
+  <button class="chip" id="btn-version" title="框架版本（system:version 的返回值），点开自检面板"><span class="dot" id="ver-dot"></span><span id="ver-text">连接中…</span></button>
+  <button class="chip" id="btn-selfcheck" title="页面侧自检结果（同时打进后端 stderr）">自检</button>
+</header>
+
+<main>
+  <!-- 首页：榜单 -------------------------------------------------- -->
+  <section class="view active" id="view-home">
+    <div class="hero" id="hero" style="display:none">
+      <div class="hero-bg" id="hero-bg"></div>
+      <div class="hero-veil"></div>
+      <div class="hero-body">
+        <h1 id="hero-title"></h1>
+        <div class="hero-meta" id="hero-meta"></div>
+        <div class="hero-summary" id="hero-summary"></div>
+        <div class="hero-actions">
+          <button class="btn btn-primary" id="hero-play">立即播放</button>
+          <button class="btn btn-ghost" id="hero-detail">查看详情</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div class="section-title">
+      <h2 id="list-title">热门影视</h2>
+      <span class="hint" id="list-hint"></span>
+    </div>
+    <div id="list-area"></div>
+  </section>
+
+  <!-- 搜索 -------------------------------------------------------- -->
+  <section class="view" id="view-search">
+    <div class="section-title">
+      <h2>搜索结果</h2>
+      <span class="hint" id="search-hint"></span>
+    </div>
+    <div id="search-area"></div>
+  </section>
+
+  <!-- 详情 -------------------------------------------------------- -->
+  <section class="view" id="view-detail">
+    <div id="detail-area"></div>
+  </section>
+
+  <!-- 播放 -------------------------------------------------------- -->
+  <section class="view" id="view-player">
+    <div id="player-area"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<div id="selfcheck">
+  <header>
+    <b>页面侧自检（已同步到后端 stderr）</b>
+    <span id="selfcheck-close" title="关闭">✕</span>
+  </header>
+  <div class="lines" id="selfcheck-lines"></div>
+</div>
+
+<script>
+/* ============================================================
+   页面侧逻辑（仓颉观影 · cj-tauri 示例）
+
+   这里只经 window.__CJ_TAURI__ 说话：全文没有一处 fetch / XMLHttpRequest。
+   后台请求一律由仓颉侧发起（src/api.cj + src/commands.cj），页面拿到的是
+   已经解析好的 JSON；失败时 invoke 的 reject 会带着仓颉侧写的中文原因。
+   ============================================================ */
+
+var api = null;
+
+/**
+ * 等桥出现再启动
+ *
+ * 宿主在 document-start 注入桥 JS，但「页面脚本」与「注入脚本」的执行先后两平台并不一致
+ * （Linux 宿主必须用 document-start 注入、Windows 的 AddScriptToExecuteOnDocumentCreated
+ * 同样早于页面脚本）。在模块作用域直接读 window.__CJ_TAURI__ 有拿到 undefined 的风险，
+ * 所以统一等它出现（框架模板里的 waitForBridge 是同一套做法）。
+ */
+function waitForBridge() {
+  return new Promise(function (resolve) {
+    (function poll() {
+      if (window.__CJ_TAURI__) { resolve(window.__CJ_TAURI__); return; }
+      setTimeout(poll, 30);
+    })();
+  });
+}
+
+/* 榜单：kind 与仓颉侧 MovieListCommand 的取值一一对应 */
+var LIST_TABS = [
+  { kind: 'hot',  label: '热门影视' },
+  { kind: 'soon', label: '即将上映' },
+  { kind: 'top',  label: 'Top 250' },
+  { kind: 'us',   label: '北美票房' },
+  { kind: 'new',  label: '最新上映' },
+  { kind: 'week', label: '本周口碑' }
+];
+
+var PAGE_SIZE = 20;
+
+var state = {
+  kind: 'hot',
+  items: [],
+  start: 0,
+  total: 0,
+  busy: false,
+  hero: null,
+  detail: null,
+  query: ''
+};
+
+function $(id) { return document.getElementById(id); }
+
+/** 转义：标题 / 简介 / 演员名都来自后台，进 innerHTML 前一律转义 */
+function esc(s) {
+  if (s === null || s === undefined) { return ''; }
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function toast(msg) {
+  var el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function () { el.classList.remove('show'); }, 2600);
+}
+
+/* 自检面板 + 后端 stderr：本项目的实机取证以 stderr 为准（println 的 stdout 有缓冲，
+   进程被强杀时会丢），所以页面侧每条结论都经 report 命令回传仓颉侧。 */
+var checkLines = [];
+function report(line, bad) {
+  checkLines.push(line);
+  var cls = bad ? 'bad' : (line.indexOf('·') === 0 ? 'info' : 'ok');
+  var box = $('selfcheck-lines');
+  var div = document.createElement('div');
+  div.className = cls;
+  div.textContent = (bad ? '✗ ' : '✓ ') + line;
+  box.appendChild(div);
+  if (api) { api.invoke('report', { line: line }); }
+  return line;
+}
+
+function showView(name) {
+  var views = document.querySelectorAll('.view');
+  for (var i = 0; i < views.length; i++) { views[i].classList.remove('active'); }
+  var el = $('view-' + name);
+  if (el) { el.classList.add('active'); }
+  $('nav-home').classList.toggle('active', name === 'home' || name === 'detail' || name === 'player');
+  $('nav-search').classList.toggle('active', name === 'search');
+  if (name !== 'player') { stopPlayback(); }
+  window.scrollTo(0, 0);
+}
+
+/* ============================================================
+   封面：**必须绕仓颉侧取**（`movie:image`）
+
+   后台给的封面是防盗链资源：`image.baidu.com/search/down?url=…` 只在
+   `Referer: https://image.baidu.com/` 时才给图，其它情况回 **200 + 0 字节**；
+   豆瓣原图要豆瓣的 Referer。而浏览器**不允许页面伪造 Referer**（Referrer-Policy
+   只能减少不能替换），页面来源又是 opaque 的（NavigateToString 载入），
+   所以 <img src="封面地址"> 直连必然全灭——实测就是这个现象（标题都在、图全是空）。
+
+   于是：页面只把地址交给 `movie:image`，由仓颉侧带着正确的 Referer 取回图，
+   转成 data URL 还回来。顺带把「前端只走 invoke」贯彻到图片上。
+   ============================================================ */
+
+var coverCache = {};       /* url -> Promise<dataUrl>：存 Promise，同一张图并发只取一次 */
+var coverQueue = [];
+var coverActive = 0;
+var coverErrorReported = false;   /* 首次失败要出声，见下面 pumpCovers 的说明 */
+var coverOkReported = false;
+var COVER_PARALLEL = 4;    /* 一次最多 4 张：每个 invoke 会占一个 worker 线程，别一次扔 20 个 */
+
+/** 按标题散出色相（同一部片子每次同色，占位不至于一片死板） */
+function hueOf(seed) {
+  var s = String(seed || '?');
+  var h = 0;
+  for (var i = 0; i < s.length; i++) { h = (h * 31 + s.charCodeAt(i)) % 360; }
+  return h;
+}
+
+/** 取首字：跳过空白与常见标点（《》、引号、顿号…），中文一个字就够 */
+function initialOf(seed) {
+  var m = String(seed || '').match(/[^\s\-—_《》「」『』"'·,，。.:：;；!！?？/\[\]()（）]/);
+  return m ? m[0] : '?';
+}
+
+/**
+ * 封面容器
+ *
+ * 结构：容器（生成式渐变 + 首字占位）+ 一张**没有 src** 的 img。
+ * img 的地址放在 data-cover 里，由取图管线稍后填 data URL——不给 src，
+ * 就不会出现「直连失败闪一下」的观感。取不到图就干净地留在占位上。
+ */
+function posterHtml(url, seed, extraCls) {
+  var cls = 'poster' + (extraCls ? ' ' + extraCls : '');
+  var head = '<div class="' + cls + '" style="--h:' + hueOf(seed) + '">';
+  if (!url) {
+    return head + '<div class="ph tiny">无封面</div></div>';
+  }
+  return head + '<div class="ph">' + esc(initialOf(seed)) + '</div>' +
+    '<img data-cover="' + esc(url) + '" alt="' + esc(seed) + '"></div>';
+}
+
+/** 取一张封面（同一地址复用同一个 Promise） */
+function fetchCover(url) {
+  if (!coverCache[url]) {
+    coverCache[url] = api.invoke('movie:image', { url: url }).then(function (d) {
+      if (typeof d !== 'string' || d.indexOf('data:') !== 0) {
+        throw new Error('后端返回的不是 data URL');
+      }
+      return d;
+    });
+    /* 失败不进缓存：留个机会重试（图源偶发抽风）；这里吞掉 rejection 是为了
+       不让它变成 unhandled rejection——真正的处理在下面的 then 里 */
+    coverCache[url].catch(function () { delete coverCache[url]; });
+  }
+  return coverCache[url];
+}
+
+function queueCover(img) {
+  var url = img.getAttribute('data-cover');
+  if (!url) { return; }
+  coverQueue.push({ img: img, url: url });
+  pumpCovers();
+}
+
+function pumpCovers() {
+  while (coverActive < COVER_PARALLEL && coverQueue.length > 0) {
+    var job = coverQueue.shift();
+    coverActive++;
+    var box = job.img.parentNode;
+    if (box) { box.classList.add('fetching'); }
+    fetchCover(job.url).then(function (dataUrl) {
+      job.img.src = dataUrl;
+      job.img.classList.add('loaded');
+      if (!coverOkReported) {
+        coverOkReported = true;
+        report('封面取图成功（首个）：data URL ' + Math.round(dataUrl.length / 1024) + ' KB');
+      }
+      finishCover(box);
+    }, function (err) {
+      /* 取不到就留在生成式占位上；图源被拒是确定性的，不原地重试。
+         但**首条失败必须出声**——否则「一张图都没取到」在 stderr 里完全看不出来。
+         （这次就吃过亏：movie:image 漏注册，页面静默吞掉，日志只剩一片「正常」。） */
+      if (!coverErrorReported) {
+        coverErrorReported = true;
+        report('封面取图失败（首个）：' + ((err && err.message) ? err.message : err), true);
+      }
+      job.img.removeAttribute('data-cover');
+      finishCover(box);
+    });
+  }
+}
+
+function finishCover(box) {
+  if (box) { box.classList.remove('fetching'); }
+  coverActive--;
+  pumpCovers();
+}
+
+/** 渲染完一块 DOM 后调用：把里面的 img[data-cover] 全部排上队 */
+function wireCovers(root) {
+  var imgs = root.querySelectorAll('img[data-cover]');
+  for (var i = 0; i < imgs.length; i++) { queueCover(imgs[i]); }
+}
+
+/** 背景图（主角位大图）走同一条路；取不到就留渐变 */
+function setCoverBackground(el, url, seed) {
+  el.style.backgroundImage = 'none';
+  if (!url) { return; }
+  fetchCover(url).then(function (d) {
+    el.style.backgroundImage = 'url("' + d + '")';
+  }, function () { /* 留渐变底 */ });
+}
+
+function rateText(rate) {
+  var r = Number(rate);
+  if (!r) { return ''; }
+  return r.toFixed(1);
+}
+
+function cardHtml(item) {
+  var rate = rateText(item.rate);
+  return '<div class="card" data-id="' + esc(item.id) + '">' +
+    posterHtml(item.cover, item.title) +
+    (rate ? '<div class="card-rate">' + rate + '</div>' : '') +
+    '<div class="card-body">' +
+      '<div class="card-title">' + esc(item.title) + '</div>' +
+      '<div class="card-sub">' + esc(item.genre || item.pubdate || (item.year || '')) + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* 状态块：加载 / 空 / 错误三种都用它，保证观感一致 */
+function stateHtml(kind, big, small, actionLabel, actionId) {
+  var html = '<div class="state">';
+  if (kind === 'loading') { html += '<div class="spinner"></div>'; }
+  if (big) { html += '<div class="' + (kind === 'error' ? 'err big' : 'big') + '">' + esc(big) + '</div>'; }
+  if (small) { html += '<div>' + esc(small) + '</div>'; }
+  if (actionLabel) { html += '<button class="btn btn-primary" id="' + actionId + '">' + esc(actionLabel) + '</button>'; }
+  return html + '</div>';
+}
+
+/* ============================================================
+   首页：榜单 tab + 主角位 + 卡片网格 + 加载更多
+   ============================================================ */
+
+function renderTabs() {
+  var box = $('tabs');
+  box.innerHTML = '';
+  for (var i = 0; i < LIST_TABS.length; i++) {
+    (function (t) {
+      var b = document.createElement('button');
+      b.textContent = t.label;
+      if (t.kind === state.kind) { b.className = 'active'; }
+      b.onclick = function () { switchKind(t.kind); };
+      box.appendChild(b);
+    })(LIST_TABS[i]);
+  }
+}
+
+function switchKind(kind) {
+  if (state.kind === kind && state.items.length) { return; }
+  state.kind = kind;
+  state.items = [];
+  state.start = 0;
+  state.total = 0;
+  state.hero = null;
+  $('hero').style.display = 'none';
+  var title = '榜 单';
+  for (var i = 0; i < LIST_TABS.length; i++) {
+    if (LIST_TABS[i].kind === kind) { title = LIST_TABS[i].label; }
+  }
+  $('list-title').textContent = title;
+  $('list-hint').textContent = '';
+  renderTabs();
+  loadList(true);
+}
+
+function loadList(reset) {
+  if (state.busy) { return; }
+  state.busy = true;
+  var area = $('list-area');
+  if (reset) {
+    state.items = [];
+    state.start = 0;
+    area.innerHTML = stateHtml('loading', '正在拉取榜单…', 'invoke movie:list { kind: "' + state.kind + '" }');
+  }
+  var start = state.start;
+  api.invoke('movie:list', { kind: state.kind, start: start, count: PAGE_SIZE })
+    .then(function (res) { state.busy = false; onList(res, start, area); })
+    .catch(function (err) {
+      state.busy = false;
+      showRetry(area, '拉取失败', err.message, function () { loadList(true); });
+      report('movie:list(' + state.kind + ') 调用失败：' + err.message, true);
+    });
+}
+
+/** 榜单返回：区分「传输成功」与「业务失败」（后者是 HTTP 200 + data:null + message） */
+function onList(res, start, area) {
+  var msg = (res && res.message) ? res.message : '';
+  if (!res || res.data === null || res.data === undefined) {
+    showRetry(area, '后台没有返回片单', msg, function () { loadList(true); });
+    $('list-hint').textContent = '';
+    report('movie:list(' + state.kind + ') 业务失败：message=' + (msg || '(空)'), true);
+    return;
+  }
+  var list = res.data;
+  if (start === 0) { state.items = []; }
+  state.items = state.items.concat(list);
+  state.total = Number(res.total || 0) || state.items.length;
+  state.start = state.items.length;
+  $('list-hint').textContent = state.items.length + ' / ' + state.total + ' 部';
+  renderList(area);
+  if (start === 0) { pickHero(); }
+  report('movie:list(' + state.kind + ') 返回 ' + list.length + ' 条，total=' + state.total);
+}
+
+function renderList(area) {
+  var html = '<div class="grid">';
+  for (var i = 0; i < state.items.length; i++) { html += cardHtml(state.items[i]); }
+  html += '</div>';
+  if (state.items.length < state.total) {
+    html += '<div class="more"><button class="btn btn-ghost" id="list-more">加载更多</button></div>';
+  }
+  area.innerHTML = html;
+  wireCovers(area);
+  wireCards(area);
+  var more = $('list-more');
+  if (more) {
+    more.onclick = function () { more.disabled = true; loadList(false); };
+  }
+}
+
+function showRetry(area, big, small, retry) {
+  area.innerHTML = stateHtml('error', big, small, '重试', 'btn-retry');
+  var b = $('btn-retry');
+  if (b) { b.onclick = retry; }
+}
+
+/** 卡片点击 → 详情（事件委托，重渲染后不用重新挂） */
+function wireCards(root) {
+  var cards = root.querySelectorAll('.card');
+  for (var i = 0; i < cards.length; i++) {
+    cards[i].onclick = function () { openDetail(this.getAttribute('data-id')); };
+  }
+}
+
+function bindHeroActions(it) {
+  $('hero-play').onclick = function () { openPlayer(it.id, it.title); };
+  $('hero-detail').onclick = function () { openDetail(it.id); };
+}
+
+/**
+ * 主角位：从首页榜单里挑评分最高的一部放上去
+ *
+ * 榜单接口本身不带简介（hotmovie 只给 id/cover/title/rate/genre），所以这里再补一发
+ * movie:detail 把简介与高清封面填上——这一发失败不影响榜单展示，只在自检里记一行。
+ */
+function pickHero() {
+  if (!state.items.length) { return; }
+  var it = state.items[0];
+  var n = Math.min(state.items.length, 8);
+  for (var i = 0; i < n; i++) {
+    if (Number(state.items[i].rate) > Number(it.rate)) { it = state.items[i]; }
+  }
+  state.hero = it;
+  $('hero').style.display = '';
+  setCoverBackground($('hero-bg'), it.cover, it.title);
+  $('hero-title').textContent = it.title || '';
+  var meta = [];
+  if (rateText(it.rate)) { meta.push('★ ' + rateText(it.rate)); }
+  if (it.genre) { meta.push(it.genre); }
+  if (it.pubdate) { meta.push(it.pubdate); }
+  $('hero-meta').innerHTML = meta.map(function (m) { return '<span>' + esc(m) + '</span>'; }).join('');
+  $('hero-summary').textContent = '';
+  bindHeroActions(it);
+
+  api.invoke('movie:detail', { id: it.id }).then(function (res) {
+    if (res && res.summary) { $('hero-summary').textContent = res.summary; }
+    if (res && res.images) { setCoverBackground($('hero-bg'), res.images, it.title); }
+    report('movie:detail(' + it.id + ') 简介 ' + ((res && res.summary) ? res.summary.length : 0) + ' 字');
+  }).catch(function (err) {
+    report('movie:detail(' + it.id + ') 失败：' + err.message, true);
+  });
+}
+
+/* ============================================================
+   搜索
+   ============================================================ */
+
+function doSearch() {
+  var q = $('q').value.trim();
+  if (!q) { toast('请输入关键词'); return; }
+  state.query = q;
+  showView('search');
+  $('search-hint').textContent = '关键词：' + q;
+  var area = $('search-area');
+  area.innerHTML = stateHtml('loading', '正在搜索…', 'invoke movie:search { q: "' + q + '" }');
+
+  api.invoke('movie:search', { q: q, start: 0, count: PAGE_SIZE })
+    .then(function (res) {
+      var msg = (res && res.message) ? res.message : '';
+      var list = (res && res.data) ? res.data : null;
+      if (!list || !list.length) {
+        // 后端搜索的上游目前一律回 total:0（不是报错），所以这里按「没找到」显示，
+        // 并把后台的 message 一并露出来，免得看起来像页面卡住。
+        area.innerHTML = stateHtml('empty', '没有找到相关影片',
+          '后台 total=' + ((res && res.total) || 0) + (msg ? '，message=' + msg : ''));
+        report('movie:search("' + q + '") 返回 0 条（total=' + ((res && res.total) || 0) + '）');
+        return;
+      }
+      var html = '<div class="grid">';
+      for (var i = 0; i < list.length; i++) { html += cardHtml(list[i]); }
+      area.innerHTML = html + '</div>';
+      wireCovers(area);
+      wireCards(area);
+      $('search-hint').textContent = '关键词：' + q + '，共 ' + ((res.total || list.length)) + ' 条';
+      report('movie:search("' + q + '") 返回 ' + list.length + ' 条');
+    })
+    .catch(function (err) {
+      showRetry(area, '搜索失败', err.message, function () { doSearch(); });
+      report('movie:search("' + q + '") 调用失败：' + err.message, true);
+    });
+}
+
+/* ============================================================
+   详情
+   ============================================================ */
+
+function openDetail(id) {
+  if (!id) { toast('缺少影视 id'); return; }
+  showView('detail');
+  var area = $('detail-area');
+  area.innerHTML = stateHtml('loading', '正在加载详情…', 'invoke movie:detail { id: "' + id + '" }');
+  api.invoke('movie:detail', { id: id })
+    .then(function (res) { renderDetail(res, id, area); })
+    .catch(function (err) {
+      showRetry(area, '详情加载失败', err.message, function () { openDetail(id); });
+      report('movie:detail(' + id + ') 调用失败：' + err.message, true);
+    });
+}
+
+function renderDetail(res, id, area) {
+  if (!res || !res.title) {
+    var msg = (res && res.message) ? res.message : '后台没有返回这部片子的资料';
+    showRetry(area, '没有拿到详情', msg, function () { openDetail(id); });
+    report('movie:detail(' + id + ') 业务失败：' + msg, true);
+    return;
+  }
+
+  var rate = rateText(res.rate);
+  var meta = [];
+  if (res.year) { meta.push(['年份', res.year]); }
+  if (res.countries) { meta.push(['国家/地区', res.countries]); }
+  if (res.genre) { meta.push(['类型', res.genre]); }
+
+  var html = '<div class="detail-head">';
+  html += '<div class="detail-poster">' + posterHtml(res.images, res.title) + '</div>';
+  html += '<div class="detail-info">';
+  html += '<h1>' + esc(res.title) + '</h1>';
+  if (res.aka) { html += '<div class="detail-aka">又名：' + esc(res.aka) + '</div>'; }
+  html += '<div class="score"><span class="num">' + (rate || '—') + '</span>' +
+          '<span class="lbl">评分 · ' + (Number(res.ratings_count || 0)) + ' 人评价</span></div>';
+
+  for (var i = 0; i < meta.length; i++) {
+    html += '<div class="meta-line"><b>' + esc(meta[i][0]) + '</b><span>' + esc(meta[i][1]) + '</span></div>';
+  }
+  html += '<div class="meta-line">' +
+    '<span><b>收藏</b> ' + Number(res.collect_count || 0) + '</span>' +
+    '<span><b>短评</b> ' + Number(res.comments_count || 0) + '</span>' +
+    '<span><b>影评</b> ' + Number(res.reviews_count || 0) + '</span>' +
+  '</div>';
+
+  html += '<div class="hero-actions">' +
+    '<button class="btn btn-primary" id="d-play">立即播放</button>' +
+    '<button class="btn btn-ghost" id="d-back">返回首页</button>' +
+  '</div>';
+
+  if (res.summary) {
+    html += '<div class="summary" id="d-summary">' + esc(res.summary) + '</div>' +
+            '<div class="linkish" id="d-more">展开全部简介</div>';
+  }
+  html += '</div></div>';
+
+  var cast = res.cast || [];
+  if (cast.length) {
+    html += '<div class="sub-title">主要演员</div><div class="cast-row">';
+    for (var j = 0; j < cast.length; j++) {
+      html += '<div class="cast"><div class="av">' + posterHtml(cast[j].cover, cast[j].name) + '</div>' +
+              '<div class="nm">' + esc(cast[j].name) + '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  area.innerHTML = html;
+  wireCovers(area);
+
+  $('d-play').onclick = function () { openPlayer(id, res.title); };
+  $('d-back').onclick = function () { showView('home'); };
+  var more = $('d-more');
+  if (more) {
+    more.onclick = function () {
+      var s = $('d-summary');
+      var open = s.classList.toggle('open');
+      more.textContent = open ? '收起简介' : '展开全部简介';
+    };
+  }
+
+  report('movie:detail(' + id + ') ok title=' + res.title + ' 演员 ' + cast.length + ' 位');
+}
+
+/* ============================================================
+   播放
+
+   播放源由仓颉侧向后台取（movie:source → /api/v1/mvsource/<sid>），后台是「现抓上游解析」
+   的接口，上游不通时它自己回 503——所以这条通路**本来就可能失败**，页面必须把失败讲清楚：
+   给出后台的原话 + 把拿到的地址列出来，而不是让播放器一直转圈。
+   ============================================================ */
+
+var hlsReady = null;   /* hls.js 的加载 Promise（只加载一次） */
+var hlsInst = null;    /* 当前 Hls 实例 */
+
+/* hls.js 走 CDN：Chromium/WebView2 不原生支持 HLS，而这个后台解析出来的地址以 m3u8 为主。
+   直链（mp4 这类）不需要它，所以只在真要播 m3u8 时才去取——离线环境下首页/详情/搜索照常可用。 */
+var HLS_CDNS = [
+  'https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js',
+  'https://unpkg.com/hls.js@1.5.17/dist/hls.min.js'
+];
+
+function ensureHls() {
+  if (window.Hls) { return Promise.resolve(window.Hls); }
+  if (hlsReady) { return hlsReady; }
+  hlsReady = new Promise(function (resolve, reject) {
+    var i = 0;
+    (function next() {
+      if (i >= HLS_CDNS.length) {
+        hlsReady = null;
+        reject(new Error('CDN 上取不到 hls.js（离线环境？）'));
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = HLS_CDNS[i];
+      i++;
+      s.onload = function () { if (window.Hls) { resolve(window.Hls); } else { next(); } };
+      s.onerror = function () { next(); };
+      document.head.appendChild(s);
+    })();
+  });
+  return hlsReady;
+}
+
+/** 停掉一切播放状态（离开播放页 / 换地址时都要走它，否则声音会留着） */
+function stopPlayback() {
+  if (hlsInst) {
+    try { hlsInst.destroy(); } catch (e) { /* 实例已销毁则忽略 */ }
+    hlsInst = null;
+  }
+  var v = $('player-video');
+  if (v) {
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) { /* 元素可能已随视图重建 */ }
+  }
+}
+
+function setPlayerMsg(kind, text) {
+  var box = $('player-msg');
+  if (!box) { return; }
+  if (kind === 'none') { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = (kind === 'loading' ? '<div class="spinner"></div>' : '') +
+    '<div class="big">' + (kind === 'error' ? '播放源不可用' : '请稍候') + '</div>' +
+    '<div>' + esc(text) + '</div>';
+}
+
+function openPlayer(sid, title) {
+  if (!sid) { toast('缺少播放源 id'); return; }
+  showView('player');
+  /* 换片要清掉上一部的源状态，否则「播放源」区会残留上一个片子的胶囊 */
+  sourceItems = [];
+  currentSourceKey = '';
+  currentSid = sid;
+  currentTitle = title || '';
+  var area = $('player-area');
+  area.innerHTML =
+    '<div class="player-title"><span class="back" id="p-back">‹ 返回</span>' +
+      '<span id="p-title">' + esc(title || '') + '</span></div>' +
+    '<div class="player-wrap">' +
+      '<video id="player-video" controls playsinline></video>' +
+      '<div class="player-msg" id="player-msg">' +
+        '<div class="spinner"></div><div class="big">请稍候</div>' +
+        '<div>正在向后端取播放源…</div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="source-picker" class="source-picker"></div>' +
+    '<div id="source-list" class="source-list"></div>';
+  $('p-back').onclick = function () { showView('home'); };
+  loadSource(sid, title);
+}
+
+function loadSource(sid, title) {
+  api.invoke('movie:source', { sid: sid })
+    .then(function (res) { onSource(res, sid, title); })
+    .catch(function (err) {
+      setPlayerMsg('error', '取播放源失败：' + err.message + '。后台这个接口要现抓上游解析，上游不通时它自己会回 503。');
+      report('movie:source(' + sid + ') 调用失败：' + err.message, true);
+    });
+}
+
+/**
+ * 播放源返回
+ *
+ * 形状（实测样本，电视剧）：
+ *   { "code":0, "urls":["", …20 条线路…], "tvurls":[…194 集…],
+ *     "items":[{"note":"uku","name":"优酷","type":"动漫","aid":"348","count":194,"cover":"…"}, …20 条],
+ *     "sources":[{"note":"uku","name":"优酷","type":"动漫","aid":"348","count":194,"primary":true}, …] }
+ * 契约（后台 2026-10-06 改版）：**urls 与 tvurls 是「主源」那一条的**，`items[]` / `sources[]`
+ * 才是这部片的全 20 个源（`sources[].primary = true` 标出哪个是主源）；别的源要用
+ * `movie:sourceitem` + note/aid 单独取（见 switchSource）。
+ * 分流规则：**tvurls 有值就是剧集**，urls 是占位空串（`[""]`，实测也会夹几条线路地址，一并忽略）；
+ * tvurls 为空、urls 有值才是电影，走下面的「线路」列表。集数一律按 tvurls 的下标排（0 → 第一集）。
+ * 另外还兼容「内容塞在 data 里」的形状：后台多数接口是扁平的，多认一层不吃亏。
+ */
+function onSource(res, sid, title) {
+  var r = null;
+  if (res && (res.urls !== undefined || res.tvurls !== undefined)) { r = res; }
+  else if (res && res.data) { r = res.data; }
+
+  /* 源列表与当前源：这一次拿到的 tvurls / urls 就是主源那一份，所以高亮主源 */
+  sourceItems = normalizeSources(r);
+  currentSourceKey = sourceKeyOf(primarySourceIndex());
+  renderSourcePicker();
+
+  var movieUrls = [];
+  var tvUrls = [];
+  if (r) {
+    var u = r.urls || [];
+    var tv = r.tvurls || [];
+    /* 空串是后台的位置占位（剧集时 urls 就是 [""]），不要当成可播地址 */
+    for (var i = 0; i < u.length; i++) { if (u[i]) { movieUrls.push(String(u[i])); } }
+    for (var j = 0; j < tv.length; j++) { if (tv[j]) { tvUrls.push(String(tv[j])); } }
+  }
+
+  if (tvUrls.length) {
+    renderEpisodes(tvUrls, title);
+    playUrl(tvUrls[0], 0, 'tv');
+    report('movie:source(' + sid + ') 剧集模式：' + tvUrls.length + ' 集，从第一集起播');
+    return;
+  }
+  if (movieUrls.length) {
+    renderSourceList(movieUrls, title);
+    playUrl(movieUrls[0], 0);
+    report('movie:source(' + sid + ') 电影模式：' + movieUrls.length + ' 条线路');
+    return;
+  }
+  var msg = (res && res.message) ? res.message : '后台没有返回可播放的地址';
+  setPlayerMsg('error', msg + '。');
+  renderSourceList([], title);
+  report('movie:source(' + sid + ') 无可用地址：message=' + msg, true);
+}
+
+function renderSourceList(urls, title) {
+  var box = $('source-list');
+  if (!box) { return; }
+  if (!urls.length) { box.innerHTML = ''; return; }
+  var html = '<div class="section-title" style="margin-top:22px"><h2>播放地址</h2>' +
+             '<span class="hint">m3u8 走 hls.js，直链走原生播放器</span></div>';
+  for (var i = 0; i < urls.length; i++) {
+    html += '<div class="row">' +
+      '<span class="idx">线路 ' + (i + 1) + '</span>' +
+      '<span class="url" title="' + esc(urls[i]) + '">' + esc(urls[i]) + '</span>' +
+      '<button class="btn btn-primary" data-play="' + i + '">播放</button>' +
+      '<button class="btn btn-ghost" data-copy="' + i + '">复制</button>' +
+    '</div>';
+  }
+  box.innerHTML = html;
+
+  var rows = box.querySelectorAll('.row');
+  for (var k = 0; k < rows.length; k++) {
+    (function (k, row) {
+      var playBtn = row.querySelector('[data-play]');
+      if (playBtn) { playBtn.onclick = function () { playUrl(urls[k], k); }; }
+      var copyBtn = row.querySelector('[data-copy]');
+      if (copyBtn) { copyBtn.onclick = function () { copyText(urls[k]); }; }
+    })(k, rows[k]);
+  }
+}
+
+/* ---- 播放源切换（一个片子的多个源）---------------------------------------
+   后台 2026-10-06 改版：`mvsource/<sid>` 只回**主源**的 tvurls，全 20 个源的元信息在同一次返回的
+   `items[]`（字段全）与 `sources[]`（精简）里；非主源的集地址要按 note + aid 单独取
+   （`movie:sourceitem`，见 commands.cj 的 MovieSourceItemCommand）。
+   所以「播放源」是比「剧集」更外层的一层选择，界面上排在剧集按钮上方；同一部片换源接着看
+   是主场景，切源时**保留当前集数**（新源集数不够就落到它最后一集）。
+   -------------------------------------------------------------------- */
+
+/**
+ * 归一化后台的源列表
+ *
+ * `items[]` 优先（字段更全：name / type / count / cover），退回 `sources[]` 精简版。
+ * 没有 note 的条目直接丢——note 是切源接口的必填参数，留着也点不动。
+ * `aid` 可能是空串（单文件源实测如此），空就空着，切源时不拼这个参数。
+ */
+function normalizeSources(r) {
+  var raw = [];
+  if (r && r.items && r.items.length) { raw = r.items; }
+  else if (r && r.sources && r.sources.length) { raw = r.sources; }
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var it = raw[i] || {};
+    var note = it.note ? String(it.note) : '';
+    if (!note) { continue; }
+    out.push({
+      note: note,
+      name: it.name ? String(it.name) : note,
+      type: it.type ? String(it.type) : '',
+      aid: (it.aid === undefined || it.aid === null) ? '' : String(it.aid),
+      count: Number(it.count) > 0 ? Number(it.count) : 0,
+      primary: it.primary === true,
+      url: it.url ? String(it.url) : ''
+    });
+  }
+  return out;
+}
+
+/** 源的唯一键：同名不同版本（uku/348 与 uku/58817）靠 aid 区分 */
+function sourceKeyOf(i) {
+  if (i < 0 || i >= sourceItems.length) { return ''; }
+  return sourceItems[i].note + '|' + sourceItems[i].aid;
+}
+
+/** 主源下标：这一次拿到的 tvurls / urls 就是它的；后台没标 primary 就认第一个 */
+function primarySourceIndex() {
+  for (var i = 0; i < sourceItems.length; i++) {
+    if (sourceItems[i].primary) { return i; }
+  }
+  return sourceItems.length ? 0 : -1;
+}
+
+/**
+ * 「播放源」区：每个源一个胶囊（源名 + 分类 + 集数），当前源高亮
+ *
+ * 只有一个源时整个区不显示——那是电影那种单源形状（实测 阿甘正传 只有 1 条），没得选。
+ * 源名会重名（uku 底下就挂着 动漫 194 集与 国产剧 30 集两条），所以分类必须一起显示。
+ */
+function renderSourcePicker() {
+  var box = $('source-picker');
+  if (!box) { return; }
+  if (sourceItems.length < 2) { box.innerHTML = ''; return; }
+  var html = '<div class="section-title" style="margin-top:22px"><h2>播放源</h2>' +
+             '<span class="hint">' + sourceItems.length + ' 个源 · 点源名切换（同一部片的不同站点/版本）</span></div>' +
+             '<div class="src-list">';
+  for (var i = 0; i < sourceItems.length; i++) {
+    var s = sourceItems[i];
+    var tail = s.count > 0 ? (s.count + ' 集') : '单文件';
+    html += '<button class="src" data-src="' + i + '" title="' +
+      esc(s.note + (s.aid ? '/' + s.aid : '') + ' ' + s.name + ' ' + (s.type || '') + ' ' + tail) + '">' +
+      '<span class="src-name">' + esc(s.name) + '</span>' +
+      (s.type ? '<span class="src-type">' + esc(s.type) + '</span>' : '') +
+      '<span class="src-count">' + esc(tail) + '</span>' +
+      (s.primary ? '<span class="src-flag">主源</span>' : '') +
+      '</button>';
+  }
+  html += '</div>';
+  box.innerHTML = html;
+
+  var chips = box.querySelectorAll('.src');
+  for (var k = 0; k < chips.length; k++) {
+    (function (k, chip) {
+      chip.onclick = function () { switchSource(k); };
+    })(k, chips[k]);
+  }
+  markActiveSourceChip();
+}
+
+/** 源胶囊高亮：当前正在播的那个源 */
+function markActiveSourceChip() {
+  var chips = document.querySelectorAll('#source-picker .src');
+  for (var i = 0; i < chips.length; i++) {
+    var key = sourceItems[i] ? (sourceItems[i].note + '|' + sourceItems[i].aid) : '';
+    chips[i].classList.toggle('active', key !== '' && key === currentSourceKey);
+  }
+}
+
+/** 播放页标题：切到别的版本时标题会变（实测 极速 那个源是《凡人修仙传 重制版》） */
+function setPlayerTitle(t) {
+  var el = $('p-title');
+  if (el && t) { el.textContent = t; }
+}
+
+/**
+ * 切播放源
+ *
+ * 同源再点一次直接返回（不重复取）；取流失败 / 后台回 `code: 404` 都把话留在播放器上，
+ * 不做静默回退——切源是用户主动动作，失败必须看得见。
+ */
+function switchSource(i) {
+  var s = sourceItems[i];
+  if (!s) { return; }
+  var key = s.note + '|' + s.aid;
+  if (key === currentSourceKey) { return; }
+  var keep = (currentSource.kind === 'tv') ? currentSource.idx : 0;
+  var label = s.name + (s.type ? '（' + s.type + '）' : '');
+  currentSourceKey = key;
+  markActiveSourceChip();
+  setPlayerMsg('loading', '正在取「' + label + '」的剧集…');
+  report('切源请求：' + s.note + (s.aid ? '/' + s.aid : '') + ' 保留第 ' + (keep + 1) + ' 集');
+  api.invoke('movie:sourceitem', { sid: currentSid, note: s.note, aid: s.aid })
+    .then(function (res) { onSourceItem(res, s, keep, label); })
+    .catch(function (err) {
+      setPlayerMsg('error', '取「' + label + '」失败：' + err.message + '。');
+      report('切源失败：' + s.note + (s.aid ? '/' + s.aid : '') + ' 调用失败 ' + err.message, true);
+    });
+}
+
+/**
+ * 切源返回
+ *
+ * 形状：`{code:0, note, name, title, url:"", tvurls:[…]}`。源不存在时后台回
+ * **HTTP 200 + `code:404` + `message:"source not found"`**（实测）——所以 code 必须判，
+ * 只看 catch 是抓不到的。单文件源（电影）没有 tvurls 时退回 `url`，当一条线路播。
+ */
+function onSourceItem(res, s, keep, label) {
+  var src = (res && res.data) ? res.data : res;
+  var tag = s.note + (s.aid ? '/' + s.aid : '');
+  if (!src || Number(src.code) !== 0) {
+    var msg = (src && src.message) ? src.message : '后台没回该源的地址';
+    setPlayerMsg('error', '「' + label + '」取不到地址：' + msg + '。');
+    report('切源被拒：' + tag + ' code=' + (src ? src.code : '?') + ' message=' + msg, true);
+    return;
+  }
+
+  var title = src.title ? String(src.title) : currentTitle;
+  currentTitle = title;
+  setPlayerTitle(title);
+
+  var tv = [];
+  var rawTv = src.tvurls || [];
+  for (var i = 0; i < rawTv.length; i++) { if (rawTv[i]) { tv.push(String(rawTv[i])); } }
+  if (tv.length) {
+    var idx = keep;
+    if (idx > tv.length - 1) { idx = tv.length - 1; }
+    if (idx < 0) { idx = 0; }
+    renderEpisodes(tv, title);
+    playUrl(tv[idx], idx, 'tv');
+    report('切源成功：' + tag + ' -> ' + tv.length + ' 集，起第 ' + (idx + 1) + ' 集（标题 ' + title + '）');
+    return;
+  }
+
+  var single = src.url ? String(src.url) : (s.url ? s.url : '');
+  if (single) {
+    renderSourceList([single], title);
+    playUrl(single, 0);
+    report('切源成功：' + tag + ' -> 单文件直链');
+    return;
+  }
+  setPlayerMsg('error', '「' + label + '」没有可用地址。');
+  report('切源成功但无地址：' + tag + ' tvurls=0 且 url 为空', true);
+}
+
+/* ---- 剧集（tvurls）----------------------------------------------------
+   后台实测形状：剧集的 urls 是占位空串 `[""]`，真正的集地址全在 tvurls 里（分流见 onSource）。
+   集数一律按 tvurls 的下标排（0 → 第一集），点集数即切集；播放器下方留「本集地址 + 复制」一行，
+   复制拿的是**当前正在播的那一集**，不是第一集。
+   -------------------------------------------------------------------- */
+
+/* 当前播放条目：电影 = 线路下标，剧集 = 集数下标。playUrl 记下它，markActiveSource 只负责高亮 */
+var currentSource = { url: '', idx: 0, kind: 'movie' };
+var currentEpisodeTotal = 0;
+
+/* 播放源状态：sourceItems = 后台给的源列表（mvsource 的 items[] / sources[]），
+   currentSourceKey = 当前源的「note|aid」，currentSid / currentTitle 给切源与标题用 */
+var sourceItems = [];
+var currentSourceKey = '';
+var currentSid = '';
+var currentTitle = '';
+
+/**
+ * 阿拉伯数字 → 中文数字（集数标签用：第一集、第十二集、第一百零三集）
+ *
+ * 传统读法：10 写「十」而不是「一十」，中间的零只补一个、末尾的零不写。
+ * 上万集不现实，超过四位直接回阿拉伯数字，免得这里再编一套「万」的规则。
+ */
+function cnNum(n) {
+  var v = Number(n);
+  var s = String(v);
+  if (!(v > 0) || s.indexOf('.') >= 0 || s.length > 4) { return String(n); }
+  var digits = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+  var units = ['', '十', '百', '千'];
+  var out = '';
+  var zeroPending = false;
+  for (var i = 0; i < s.length; i++) {
+    var d = Number(s.charAt(i));
+    var pos = s.length - i - 1;
+    if (d === 0) {
+      if (out !== '') { zeroPending = true; }
+      continue;
+    }
+    if (zeroPending) { out += '零'; zeroPending = false; }
+    if (!(d === 1 && pos === 1 && out === '')) { out += digits[d]; }
+    out += units[pos];
+  }
+  return out;
+}
+
+/** 剧集列表：集数按钮组 + 「本集地址 + 复制」一行（集数总数在这里落定，切源后也走它） */
+function renderEpisodes(tvUrls, title) {
+  currentEpisodeTotal = tvUrls.length;
+  var box = $('source-list');
+  if (!box) { return; }
+  var html = '<div class="section-title" style="margin-top:22px"><h2>剧集</h2>' +
+             '<span class="hint">共 ' + tvUrls.length + ' 集 · 点集数切换</span></div>' +
+             '<div class="ep-list">';
+  for (var i = 0; i < tvUrls.length; i++) {
+    html += '<button class="ep" data-ep="' + i + '" title="第 ' + (i + 1) + ' 集">' +
+      '第' + esc(cnNum(i + 1)) + '集</button>';
+  }
+  html += '</div>' +
+    '<div class="row cur">' +
+      '<span class="idx"></span>' +
+      '<span class="url"></span>' +
+      '<button class="btn btn-ghost" data-copy="cur">复制</button>' +
+    '</div>';
+  box.innerHTML = html;
+
+  var chips = box.querySelectorAll('.ep');
+  for (var k = 0; k < chips.length; k++) {
+    (function (k, chip) {
+      chip.onclick = function () {
+        report('切集：第 ' + (k + 1) + ' 集 -> ' + tvUrls[k].slice(0, 70));
+        playUrl(tvUrls[k], k, 'tv');
+      };
+    })(k, chips[k]);
+  }
+  var copyBtn = box.querySelector('.cur [data-copy]');
+  if (copyBtn) { copyBtn.onclick = function () { copyText(currentSource.url); }; }
+}
+
+/** 把「本集」那一行换成当前集（第 N/M 集 + 地址）；切集时由 playUrl 调 */
+function syncCurrentSourceRow(url, idx, total) {
+  var box = $('source-list');
+  if (!box) { return; }
+  var row = box.querySelector('.cur');
+  if (!row) { return; }
+  var idxEl = row.querySelector('.idx');
+  if (idxEl) { idxEl.textContent = (idx + 1) + '/' + total; }
+  var urlEl = row.querySelector('.url');
+  if (urlEl) { urlEl.textContent = url; urlEl.title = url; }
+}
+
+/** 高亮当前条目：电影高亮线路行，剧集高亮集数按钮（`.cur` 那行不算线路） */
+function markActiveSource() {
+  var rows = document.querySelectorAll('#source-list .row:not(.cur)');
+  for (var i = 0; i < rows.length; i++) {
+    rows[i].classList.toggle('active', currentSource.kind === 'movie' && i === currentSource.idx);
+  }
+  var eps = document.querySelectorAll('#source-list .ep');
+  for (var j = 0; j < eps.length; j++) {
+    eps[j].classList.toggle('active', currentSource.kind === 'tv' && j === currentSource.idx);
+  }
+}
+
+/** 复制：about:blank 来源下 navigator.clipboard 常被判非安全上下文，回退到 execCommand */
+function copyText(text) {
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    toast(ok ? '地址已复制' : '复制失败，请手动选中地址');
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { toast('地址已复制'); }, fallback);
+    return;
+  }
+  fallback();
+}
+
+function playUrl(url, idx, kind) {
+  currentSource = { url: url, idx: idx || 0, kind: kind === 'tv' ? 'tv' : 'movie' };
+  stopPlayback();
+  markActiveSource();
+  /* 剧集模式下「本集」那一行要跟着当前集走（地址 + 第 N/M 集） */
+  if (currentSource.kind === 'tv') {
+    syncCurrentSourceRow(url, currentSource.idx, currentEpisodeTotal);
+  }
+  var v = $('player-video');
+  if (!v) { return; }
+  var lower = String(url).toLowerCase();
+  var isHls = lower.indexOf('.m3u8') >= 0;
+
+  if (!isHls) {
+    setPlayerMsg('none');
+    v.src = url;
+    v.play().catch(function (e) {
+      setPlayerMsg('error', '播放失败：' + ((e && e.message) ? e.message : e) + '。可复制地址到系统播放器播放。');
+    });
+    report('播放直链：' + url.slice(0, 90));
+    return;
+  }
+
+  /* WebView2（Chromium）不原生支持 HLS，canPlayType 只是给 Safari 那条路留个门 */
+  if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    setPlayerMsg('none');
+    v.src = url;
+    v.play().catch(function (e) {
+      setPlayerMsg('error', '播放失败：' + ((e && e.message) ? e.message : e));
+    });
+    report('原生 HLS 播放：' + url.slice(0, 90));
+    return;
+  }
+
+  setPlayerMsg('loading', '正在加载 HLS 播放器（首次从 CDN 取 hls.js）…');
+  ensureHls().then(function (Hls) {
+    setPlayerMsg('none');
+    hlsInst = new Hls({ enableWorker: false });
+    hlsInst.on(Hls.Events.MANIFEST_PARSED, function () {
+      v.play().catch(function () { /* 自动播放被拦时用户点一下即可 */ });
+    });
+    hlsInst.on(Hls.Events.ERROR, function (evt, data) {
+      if (!data || !data.fatal) { return; }
+      /* 源站不给 CORS 头时就是这里先报：hls.js 取流走 XHR，跨域比 <video> 直链严 */
+      setPlayerMsg('error', 'HLS 播放出错：' + (data.details || data.type) +
+        '。源站可能不允许跨域取流，可复制地址到 VLC 等播放器。');
+      report('HLS 播放出错：' + (data.details || data.type), true);
+    });
+    hlsInst.loadSource(url);
+    hlsInst.attachMedia(v);
+    report('HLS 交给 hls.js：' + url.slice(0, 90));
+  }).catch(function (e) {
+    setPlayerMsg('error', 'HLS 播放器加载失败：' + ((e && e.message) ? e.message : e) +
+      '。地址已列在下方，可复制到系统播放器。');
+    report('HLS 库加载失败：' + ((e && e.message) ? e.message : e), true);
+  });
+}
+
+/* ============================================================
+   页面侧自检 + 启动
+
+   每条结论都经 report 命令回传仓颉侧 stderr：本项目的端到端取证以 stderr 为准，
+   页面跑在 WebView 里，不开 devtools 就看不见它的结论。
+   ============================================================ */
+
+function runSelfCheck() {
+  api.invoke('system:version').then(function (v) {
+    var ver = (v && v.version) ? v.version : (typeof v === 'string' ? v : '');
+    $('ver-text').textContent = ver ? ('cj-tauri ' + ver) : 'cj-tauri';
+    $('ver-dot').classList.add('ok');
+    report('system:version = ' + JSON.stringify(v));
+  }).catch(function (e) {
+    $('ver-text').textContent = '桥异常';
+    report('system:version 失败：' + e.message, true);
+  });
+
+  /* 未授权对照组：movie:nope 没写进 capabilities/default.json，
+     期望被「能力校验」在调用线程上同步拒掉（command not allowed） */
+  api.invoke('movie:nope').then(function () {
+    report('未授权对照组 movie:nope 竟然通过了（能力清单失效？）', true);
+  }).catch(function (e) {
+    report('未授权对照组 movie:nope 被拒：' + e.message);
+  });
+}
+
+function init() {
+  $('btn-search').onclick = doSearch;
+  $('q').onkeydown = function (e) { if (e.key === 'Enter') { doSearch(); } };
+  $('nav-home').onclick = function () { showView('home'); };
+  $('nav-search').onclick = function () { showView('search'); };
+  $('btn-selfcheck').onclick = function () { $('selfcheck').classList.toggle('show'); };
+  $('btn-version').onclick = function () { $('selfcheck').classList.toggle('show'); };
+  $('selfcheck-close').onclick = function () { $('selfcheck').classList.remove('show'); };
+
+  renderTabs();
+  loadList(true);
+  runSelfCheck();
+}
+
+waitForBridge().then(function (t) {
+  api = t;
+  report('· 桥已就绪，开始拉首页榜单');
+  init();
+});
+
+
+
+
+</script>
+
+</body>
+</html>

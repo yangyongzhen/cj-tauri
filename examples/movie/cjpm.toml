@@ -1,0 +1,26 @@
+[package]
+  cjc-version = "1.0.5"
+  name = "movie_app"
+  description = "cj-tauri 观影应用示例（Windows PC）：仓颉后端经 stdx.net.http 调后台影视接口，WebView2 前端做首页榜单 / 搜索 / 详情 / 播放"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  cjTauri = { path = "../.." }
+
+[target.x86_64-unknown-linux-gnu]
+  link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
+
+[target.x86_64-w64-mingw32]
+  link-option = "-L../../native -lcjtbridge"
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]

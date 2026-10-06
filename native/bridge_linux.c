@@ -181,6 +181,9 @@ static gboolean flush_idle(gpointer d) {
 static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire);
 static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked);
 static void menu_clear_slots(plat_host *p);
+/* 菜单几何的「事后读回」（低优先级 idle 里读 GTK 的分配值）：建完菜单、以及每次用户点击之后
+   各投一次，实机驱动脚本按它把鼠标点到项的中心——见函数定义处的注释 */
+static void menu_post_layout(cj_host *h);
 
 void cj_plat_init(cj_host *h) {
     plat_host *p;
@@ -631,6 +634,8 @@ static void on_menu_item_activate(GtkMenuItem *item, gpointer data) {
     menu_item_ctx *c = (menu_item_ctx *)data;
     (void)item;
     if (!c || !c->h || c->suppress) return;
+    /* 勾选项改状态会挪动菜单栏里的位置，所以每次点击后重投一次几何读回（见 menu_post_layout） */
+    menu_post_layout(c->h);
     cj_core_menu_clicked(c->h, c->app_id ? c->app_id : "", c->enabled, c->checked);
 }
 
@@ -639,6 +644,7 @@ static void on_menu_item_toggled(GtkCheckMenuItem *item, gpointer data) {
     menu_item_ctx *c = (menu_item_ctx *)data;
     if (!c || !c->h || c->suppress) return;
     c->checked = gtk_check_menu_item_get_active(item) ? 1 : 0;
+    menu_post_layout(c->h); /* 同上：勾选指示器状态变了，重读一次几何 */
     cj_core_menu_clicked(c->h, c->app_id ? c->app_id : "", c->enabled, c->checked);
 }
 
@@ -671,6 +677,13 @@ static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int
                                            s->checked ? TRUE : FALSE);
             if (s->ctx) s->ctx->suppress = 0;
         }
+        /* 同上：core 那句 `set menu item:` 只说明「我调过」，这里从 GTK 侧读回真正生效的值。
+           两者不一致（例如 widget 已随菜单栏销毁）就说明这条改动没落到菜单上。 */
+        fprintf(stderr, "[cj-bridge] menu item readback: id=%s sensitive=%d active=%d\n", s->app_id,
+                gtk_widget_get_sensitive(s->widget) ? 1 : 0,
+                (s->kind == 'c')
+                    ? (gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(s->widget)) ? 1 : 0)
+                    : 0);
         return;
     }
     fprintf(stderr, "[cj-bridge] menu item not found: %s\n", id);
@@ -770,6 +783,59 @@ static void menu_add_row(void *ctx, int depth, char kind, const char *id,
     slot->checked = checked;
 }
 
+/* ===== 菜单几何的事后读回（实机驱动用） =====
+   为什么需要：鼠标驱动的探针要把点击落在「项的几何中心」，而**像素偏移是写不住的**——
+   窗口位置每轮都可能不同（实测同一份脚本两轮：一轮窗口在 0,0，一轮在 60,83），
+   写死 +45/+135 这类偏移会点到隔壁项（菜单轮实机第一版就是这么点歪的）。
+   所以让 GTK 自己说：id=x+w+h，按菜单栏顺序打一行；分隔线与子菜单项没有应用 id，打 '-'。
+   为什么走**低优先级** idle：刚 pack 上去那一刻还没走完分配，读到的可能是 0；排到低优先级
+   就等于「当前待处理的事件与重绘先做完」，这时拿到的才是最终值。每次用户点击后再投一次，
+   这样驱动脚本每次点击前都能从日志里取到**最新**几何（勾选指示器一类的状态变化会挪位置）。 */
+typedef struct menu_layout_idle {
+    cj_host *h;
+} menu_layout_idle;
+
+static gboolean menu_layout_idle_cb(gpointer data) {
+    menu_layout_idle *m = (menu_layout_idle *)data;
+    GString *s;
+    if (!m) return G_SOURCE_REMOVE;
+    s = g_string_new(NULL);
+    if (m->h) {
+        plat_host *p = (plat_host *)m->h->plat;
+        /* 窗口可能已经销毁（销毁后 p->menubar 为 NULL）：这里不再碰 GTK */
+        if (p && p->window && p->menubar) {
+            GList *kids = gtk_container_get_children(GTK_CONTAINER(p->menubar));
+            GList *it;
+            for (it = kids; it; it = it->next) {
+                GtkWidget *w = GTK_WIDGET(it->data);
+                GtkAllocation a;
+                const char *id = "-";
+                int i;
+                for (i = 0; i < p->menu_item_count; i++) {
+                    if (p->menu_items[i].widget == w) {
+                        id = p->menu_items[i].app_id;
+                        break;
+                    }
+                }
+                gtk_widget_get_allocation(w, &a);
+                g_string_append_printf(s, "%s=%d+%d+%d ", id, a.x, a.width, a.height);
+            }
+            g_list_free(kids);
+        }
+    }
+    fprintf(stderr, "[cj-bridge] menu layout: %s\n", s->str);
+    g_string_free(s, TRUE);
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+static void menu_post_layout(cj_host *h) {
+    menu_layout_idle *m = (menu_layout_idle *)calloc(1, sizeof(*m));
+    if (!m) return;
+    m->h = h;
+    g_idle_add_full(G_PRIORITY_LOW, menu_layout_idle_cb, m, NULL);
+}
+
 static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
     menu_build_ctx c;
 
@@ -796,7 +862,19 @@ static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
     gtk_box_pack_start(GTK_BOX(p->box), p->menubar, FALSE, FALSE, 0);
     gtk_box_reorder_child(GTK_BOX(p->box), p->menubar, 0); /* 菜单栏必须在 view 之上 */
     gtk_widget_show_all(p->menubar);
-    fprintf(stderr, "[cj-bridge] menu applied: items=%d\n", p->menu_item_count);
+    /* 凭证是「事后从 GTK 侧读回来」，不是「我调过 gtk_menu_bar_new 了」：菜单栏没挂进 box、
+       或条目一个都没建出来时，光打一句 applied 会把人骗过去（Windows 侧 SetMenu 静默失败
+       正是这么踩的，见 bridge_win.c 的 GetMenu 复核）。bar_children 是菜单栏的顶层项数
+       （含分隔线），items 是全部槽位（含子菜单里的项），两者不等是正常的。 */
+    {
+        GList *kids = gtk_container_get_children(GTK_CONTAINER(p->menubar));
+        fprintf(stderr,
+                "[cj-bridge] menu applied: items=%d bar=%p parent=%p bar_children=%u visible=%d\n",
+                p->menu_item_count, (void *)p->menubar, (void *)gtk_widget_get_parent(p->menubar),
+                (unsigned)g_list_length(kids), gtk_widget_get_visible(p->menubar) ? 1 : 0);
+        g_list_free(kids);
+    }
+    menu_post_layout(h); /* 布局走完再读一次几何（低优先级 idle），驱动脚本据此定位 */
 }
 
 /* 跨线程换菜单：线路文本进 g_idle 队列，由 GTK 线程消费（payload 谁分配谁在 idle 里释放）*/

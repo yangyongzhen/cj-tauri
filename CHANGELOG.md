@@ -79,6 +79,26 @@
   `WebView2Loader.dll` 与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（缺后者时 http 正常、https 全灭）。
   `examples/movie` 已实测：干净目录 + 只留 `C:\Windows` 的 `PATH` 下窗口 / 页面 / 封面取图全部正常
   （`TlsException` 0 次），产物 16 MB（zip 7.9 MB）。`.gitignore` 增 `dist-win/` 与 `*.zip`。
+- **菜单能力位补上 Linux 实机验证（新增 `examples/menu/run.sh`）**：此前只有 Windows 的验收
+  （`run.bat` 14/14），Linux 侧 `native/bridge_linux.c` 一直是「写了、没跑过」。本轮在 GTK 3.24.41 +
+  WebKitGTK 2.52.3 上补齐：`run.sh` 用 `xvfb-run` 隔离显示 → 起单窗探针 → 用 **`xdotool` 在原生
+  `GtkMenuBar` 上发真实 X 鼠标事件**（对应 Windows 侧 `click-menu.ps1` 的 `PostMessage WM_COMMAND`）→
+  判据全部取自桥的 stderr 日志，**三轮连跑同 21 条断言全绿、`exit=0`**。取证行：
+  `menu applied: items=4 … bar_children=5 visible=1`（菜单栏真挂进竖向 `GtkBox`，5 个子件含分隔线）、
+  `menu clicked: id=file.new` / `id=view.sidebar enabled=1 checked=1` / `id=edit.toggle`（鼠标事件走通
+  GTK → core → 仓颉回调，`window=main shell {…}` 每下一条）、`set menu item: id=view.sidebar enabled=0
+  checked=1` 紧跟 `menu item readback: id=view.sidebar sensitive=0 active=1`（应用回手改状态后由
+  **GTK 侧读回**，与 Windows 的 `GetMenuState` 同口径），收尾 `single mode: quit requested` →
+  `host destroyed` → `exit=0`。
+  Linux 桥同时补了两处**可观测性**（Windows 侧已有对应物）：`menu item readback:` 读回真生效值；
+  菜单几何**事后读回**——建完菜单、以及每次点击之后再从 GTK 读一次 `id=x+w+h` 打进日志，
+  供驱动脚本把点击落在项中心。为什么要读而不是写死偏移：窗口位置每轮都不同（实测三轮分别
+  0,0 / 34,57 / 216,239），写死像素偏移会点到隔壁项（第一版实机就点歪了）。
+  **两窗路由这一维仍留在 Windows**：GTK/WebKitGTK 不能被两条线程各自使用，第二宿主一装配就 segv
+  （见 `docs/架构演进-多平台与多窗口.md` §8），故 Linux 侧跑单窗模式。
+- **探针 `examples/menu` 支持单窗模式**：`MENU_MODE=single` 只装配主窗，收尾由探针自己走
+  `app.quit()`（应用级退出路径），因而 Linux 也能一并断言 `exit=0` 与 `host destroyed`；
+  清单同时补上 `"events": ["menu:click"]`（菜单事件要投前端就必须声明）。Windows 侧双窗行为不变。
 
 ### Changed
 
@@ -121,8 +141,10 @@
   UI 线程建好、`WM_COMMAND` 点选走通全链、`setMenuItemState` 的运行期改状态由 Win32 侧 `GetMenuState`
   读回确认（`sidebar disabled=True checked=True`），且**事件只到被点的那一扇窗**（`window=second shell`
   3 条 / `window=main shell` 0 条）。
-  ⚠️ **仍未验证**：Linux 侧本机没有 GTK / WebKitGTK 工具链，`bridge_linux.c` **未编译、未实跑**；
-  托盘与文件拖入尚未实现（能力位不含），前端也还没有 `setMenu` 的调用点——应用侧装配只到宿主接口层。
+  ⚠️ **仍未验证（截至本版发布时）**：Linux 侧本机没有 GTK / WebKitGTK 工具链，`bridge_linux.c`
+  **未编译、未实跑**；托盘与文件拖入尚未实现（能力位不含），前端也还没有 `setMenu` 的调用点——应用侧装配只到宿主接口层。
+  （**后续已补齐**：前端 `setMenu` 调用点与应用层菜单 API 见本节 `setMenuTo` / 模板两条；
+  Linux 侧 2026-10-06 换机编译并实机跑通，见 `[Unreleased]` 的「菜单能力位补上 Linux 实机验证」。）
 - **菜单能力位的实机探针（入库的复现器）**：`examples/menu/`——两个窗口各装一份同样的菜单模型
   （同一份线路文本、各自独立的 `HMENU`），应用侧只做「把事件原样打进 stderr + 点击某一项后回手
   `setMenuItemState`」；真正点菜单的是 **Win32 驱动脚本** `click-menu.ps1`：从窗口的 `HMENU` 里读命令 id、

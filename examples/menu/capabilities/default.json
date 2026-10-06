@@ -3,5 +3,5 @@
   "windows": ["main", "second"],
   "commands": [],
   "permissions": [],
-  "events": []
+  "events": ["menu:click"]
 }

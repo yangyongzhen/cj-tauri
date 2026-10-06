@@ -372,6 +372,11 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   `emitToWindow` 真正按窗口投递（未注册 label 打 stderr，不静默）；新增应用级 `AppHost`
   （`quit()` / `waitForExit()` / `hostOf(label)`）与 `WebViewHost.label()`。单窗口行为与旧版等价，
   多窗口 UI 与回调身份（架构文档 §7.5）留批次 3
+- ✅ 原生菜单能力位（RFC-002 §5）：宿主层 `setMenu` / `setMenuItemState` / `setShellHandler` + 应用层
+  `app.setMenu(To)` / `setMenuItemEnabled(To)` / `setMenuItemChecked(To)` + **可叠加**的 `app.onShellEvent`
+  与前端事件回投（`menu:click`）+ 官方 `menu` 插件（`menu:setEnabled` / `menu:setChecked`）；
+  **Windows 与 Linux 两侧都有实机证据**（`examples/menu/run.bat` 14/14、`run.sh` 21/21，
+  后者用 `xdotool` 点原生 `GtkMenuBar`，状态改动由平台侧读回），托盘 / 文件拖入待做
 - 🔜 更多官方插件（托盘、全局快捷键等需要宿主层先有对应 API）
 
 ## 验证结果
@@ -417,6 +422,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | 示例工程构建 | ✅ `examples/hello` / `examples/todo_check` / `examples/vue_todo` 均 `cjpm build success` |
 | `examples/ipc-bench`（IPC 基准，Xvfb） | ✅ 6 组基准全部出数：顺序往返 390.5 µs/次、未授权拒绝 349 µs/次、管线化 11905 ops/s、1 MB 回显 19.3 ms（51.8 MB/s）、事件 0.04 ms/条，末行 `BENCH done`；**回投直派 + 批处理**前后对照（同机、同一份应用二进制只换 C 桥，各 3 轮取中位）：吞吐 6024 → 11905 ops/s、事件 0.105 → 0.04 ms/条、顺序往返 386.5 → 390.5 µs（噪声内）；对照 `scripts/bench-ws-vs-tcp.js` 同机 WebSocket 0.151 ms / 裸 TCP 0.077 ms |
 | `cj-tauri info` 取插件清单（`DISPLAY` 故意 unset） | ✅ `examples/plugin-shell`：末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；直跑应用 stderr `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0；陈旧产物 / 非项目目录均明确跳过 |
+| 菜单栏能力位（`examples/menu`，Xvfb + xdotool） | ✅ 原生 `GtkMenuBar` 真挂进竖向 `GtkBox`（`menu applied: items=4 … bar_children=5 visible=1`）；`xdotool` 发**真实鼠标事件**点中三项，各回投一条 `menu clicked: id=file.new|view.sidebar|edit.toggle` 且各带一条 `window=main shell {…}`；勾选项由 GTK 自己翻成选中（`enabled=1 checked=1`），应用层 `setMenuItemStateTo` 改状态后由 **GTK 侧读回**（`menu item readback: id=view.sidebar sensitive=0 active=1`）；收尾走应用级退出（`single mode: quit requested` → `host destroyed` → `exit=0`）。跑法 `bash examples/menu/run.sh`，三轮 21/21 断言全绿 |
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、
 > Linux 端用 GTK 的 `gtk_window_set_icon_from_file`，两端均已实机验证（见上两节末行）。

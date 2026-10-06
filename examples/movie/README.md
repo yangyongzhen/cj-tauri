@@ -70,13 +70,39 @@ examples\movie\run.bat
 
 ## 3. 本例是怎么一步步做出来的
 
-### 3.1 起工程：一个 `cjpm.toml` + 一个 `main()`
+### 3.1 起工程：**先让脚手架生成骨架**，别手搓
 
-应用就是一个普通仓颉可执行包，只多一条对框架的依赖（`examples/movie/cjpm.toml`）：
+起工程这件事不该手写——用框架自带的 CLI 生成骨架，它会连本机 SDK / stdx 路径一起写对：
+
+```bat
+:: Windows（Linux 同理，把 .bat 换成 cli/cj-tauri.sh）
+D:\path\to\cj-tauri\cli\cj-tauri.bat create movie
+cd movie
+```
+
+生成的工程长这样（`--template app` 为缺省，另有 `vue` / `react` 两个带 `ui/` 前端工程的模板）：
+
+| 生成物 | 内容 |
+| --- | --- |
+| `cjpm.toml` | 构建配置：依赖框架 + 桥链接参数 + **本机 stdx 路径**（写入的是绝对路径） |
+| `src/main.cj` | 入口：`WindowConfig` + 注册两个示范命令 + `run()` |
+| `ui/index.html` | 前端页面（任意 Web 技术栈） |
+| `capabilities/default.json` | 能力白名单骨架 |
+| `README.md` / `.gitignore` | 工程说明 + 忽略 `target/` 等 |
+
+两点要记住：
+
+- **骨架是「本机绑定」的**：`create` 会把框架与本机 stdx 的**绝对路径**写进 `cjpm.toml`。
+  换机器、换目录就要重跑 `create`，或手改 `cjTauri` 依赖路径——本例为了入仓，把它改成了
+  相对路径 `../..`，这样克隆到任何机器都能直接编。
+- **骨架自带两个示范命令**：`greet`（一问一答，演示返回值）和 `timer`（`ipc.emit` 定时推事件，
+  演示后端主动推）。这两条正好覆盖 IPC 的两个方向，本例把它们换成了七个 `movie:*` 命令。
+
+本例在这两处的位置长这样（`main()` 里那串 `movie:*` 注册，就是骨架里 `greet` / `timer` 的替换）：
 
 ```toml
 [dependencies]
-  cjTauri = { path = "../.." }
+  cjTauri = { path = "../.." }        # 脚手架写的是绝对路径；本例入仓后改成相对路径
 
 [target.x86_64-w64-mingw32]
   link-option = "-L../../native -lcjtbridge"          # Windows：链 C 桥
@@ -106,6 +132,22 @@ main(): Int64 {
 
 诊断一律走 **stderr**（`eprintln`）：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢，
 所以本项目的实机取证以 stderr 为准——`run.bat` 也正是把 stderr 落盘后再摘 `[movie]` / `[frontend]` 行。
+
+#### 本例在骨架上的五处改造
+
+`examples/movie` 与 `create` 生成的骨架**同构**（`cjpm.toml` / `src/` / `ui/index.html` /
+`capabilities/default.json` 四个位置一一对应），业务代码是在它上面改出来的：
+
+| 改造 | 从骨架的什么 → 变成什么 | 为什么 |
+| --- | --- | --- |
+| 1. 依赖路径 | 框架绝对路径 → `path = "../.."` | 入仓后任何人克隆都能编 |
+| 2. 拆 `src/` | 单个 `main.cj` → `main.cj`（装配）/ `api.cj`（HTTP 层）/ `commands.cj`（七个命令） | 单一职责：业务一多，全塞 `main.cj` 会失控 |
+| 3. 换前端 | 骨架的演示页 → 整页观影 UI（`ui/index.html`，无构建） | 前端是独立文件，才能 `node --check` 验语法（见 §3.4） |
+| 4. 改能力清单 | 骨架的命令名 → 只留本例真的用到的 `movie:*` + `report` + `system:version` | 最小权限：清单里没声明的命令一律被拒 |
+| 5. 加 `run.bat` | 骨架不带启动脚本（只有 `cjpm` 与 CLI 的 `dev` / `run`） | 仓内示例要能一键跑：拼 SDK 的 `PATH` + 切到项目根 + stderr 落盘 |
+
+> 一句话记住顺序：**`create` 起骨架 → 拆 `src/` → 换页面 → 收窄能力清单 → 加启动脚本**。
+> 这四个动作是所有 cj-tauri 应用共通的，只有第 2、3 步的深度不同。
 
 ### 3.2 加一个命令要动三处（漏一处就用不了）
 

@@ -10,6 +10,8 @@
 > 可行性论证见 `docs/技术方案.md`；开发过程踩坑与已验证成果见 `docs/踩坑与实施记录.md`。
 > **IPC 通信机制：[docs/IPC-通信机制.md](docs/IPC-通信机制.md)**——协议报文 → 完整时序 → 实测性能
 > （含与 WebSocket / 裸 TCP 的同机对照）→ 已知限制与优化空间。
+> **介绍与实战：[docs/cj-tauri-介绍与movie实战.md](docs/cj-tauri-介绍与movie实战.md)**——它是什么 → 装环境 → 起一个工程
+> → 拿 `examples/movie`（观影应用）当案例，把命令层 / HTTP 层 / 前端逐块拆开讲；含踩坑与看日志验收的办法。
 >
 > **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
 > ——同主题文档：[docs/仓颉版Tauri-介绍与使用指南.md](docs/仓颉版Tauri-介绍与使用指南.md)（指南体）、`docs/仓颉版Tauri-博客稿.md`（博客体）。

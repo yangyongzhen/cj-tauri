@@ -1718,9 +1718,10 @@ function playUrl(url, idx, kind) {
     });
     hlsInst.on(Hls.Events.ERROR, function (evt, data) {
       if (!data || !data.fatal) { return; }
-      /* 源站不给 CORS 头时就是这里先报：hls.js 取流走 XHR，跨域比 <video> 直链严 */
+      /* 源站不给 CORS 头时就是这里先报：hls.js 取流走 XHR，跨域比 <video> 直链严。
+         但别把话说死——实测失败源里既有域名解析不了的，也有源站失效的，文案只给方向不判因 */
       setPlayerMsg('error', 'HLS 播放出错：' + (data.details || data.type) +
-        '。源站可能不允许跨域取流，可复制地址到 VLC 等播放器。');
+        '。原因可能是域名解析、跨域限制或源站失效；地址已列在下方，可复制到 VLC 等播放器。');
       report('HLS 播放出错：' + (data.details || data.type), true);
     });
     hlsInst.loadSource(url);

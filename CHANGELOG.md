@@ -72,6 +72,13 @@
 - **脚手架模板带菜单示范**：`app` / `app-vue` / `app-react` 三个模板都装配 `MenuPlugin` + `setMenu()`，
   页面里给出两个调用点——`listen("menu:click")`（菜单 → 页面）与 `menu.setChecked(...)`（页面 → 菜单）；
   能力清单同步加 `"permissions": ["menu:state"]` 与 `"events": [..., "menu:click"]`。
+- **Windows 便携包脚本 `scripts/pack-win.sh`**：`bash scripts/pack-win.sh [示例] [输出目录]` 把示例打成
+  「解压即用」的目录 + zip（改名后的 exe、递归收集的运行期 DLL、`ui/`、`capabilities/`、
+  自动生成的纯 ASCII `run.bat` 与面向最终用户的 `README.txt`）。依赖清单不手工维护：从 `main.exe`
+  出发递归解析 PE 导入表取闭包，再补两个**导入表里没有**、运行期按名字 `LoadLibrary` 的组件——
+  `WebView2Loader.dll` 与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（缺后者时 http 正常、https 全灭）。
+  `examples/movie` 已实测：干净目录 + 只留 `C:\Windows` 的 `PATH` 下窗口 / 页面 / 封面取图全部正常
+  （`TlsException` 0 次），产物 16 MB（zip 7.9 MB）。`.gitignore` 增 `dist-win/` 与 `*.zip`。
 
 ### Changed
 

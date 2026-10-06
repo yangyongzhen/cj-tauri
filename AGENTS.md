@@ -146,6 +146,13 @@
   数导出 `nm -D --defined-only native/libcjtbridge.so | grep -c cj_bridge_`（0.7.0 为 22 个）。
 - WebView2 版本规则：**SDK 不得高于本机 Runtime**（本机 Runtime 122.0.2365.106 → 用 SDK 1.0.2365.46）；
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
+- **便携包（免 SDK 的 exe 包）必须自带两个「按名字 LoadLibrary」的组件**：`WebView2Loader.dll`（C 桥）
+  与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（仓颉运行时的 TLS 加载器，**SDK 与 stdx 都不带**）。
+  这两类依赖**不在 PE 导入表里**，所以「递归解析导入表收 DLL」会漏掉——漏 OpenSSL 的症状极像网络问题
+  （窗口照起、页面照加载、`http://` 照 200，**只有 https 全灭**：
+  `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`）。
+  打包用 `scripts/pack-win.sh`（已覆盖这两个），别手工抄 DLL 清单（实测 2026-10-06：`examples/movie`
+  的便携包第一版就是这么挂的）。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
 - Linux 宿主：桥接脚本必须**在 document start 注入**（`WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`）——

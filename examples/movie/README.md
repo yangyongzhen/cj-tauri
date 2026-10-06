@@ -75,6 +75,9 @@ examples\movie\run.bat
 
 `run.bat` 按项目规范保持**纯 ASCII**（cmd.exe 以 OEM 码页读 `.bat`，非 ASCII 字节会吞掉后续行）。
 
+> 要把程序交给**没装仓颉 SDK** 的人？见 §10——`bash scripts/pack-win.sh` 直接产出解压即用的
+> `movie-win-x64/` 目录与 zip。
+
 ### 应该看到什么
 
 | 画面 | 截图 |
@@ -475,6 +478,7 @@ examples/movie/
   cjpm.toml                  # 应用包（依赖框架 + stdx，各平台 link-option）
   capabilities/default.json  # 能力白名单：commands 与 §5 表格一一对应
   run.bat                    # Windows 启动脚本（纯 ASCII）
+  dist-win/                  # 便携包产物（不入库；bash scripts/pack-win.sh 生成）
   src/main.cj                # 装配：窗口配置 → 注册命令 → 读页面 → run()
   src/api.cj                 # HTTP 传输层（TLS / Referer / 按块读流）+ 榜单路径映射 + 图源白名单
   src/commands.cj            # 七个命令 + 参数读取/校验助手
@@ -485,3 +489,44 @@ examples/movie/
 想从零起一个自己的应用（而不是改本例），可以用脚手架：
 `cli\cj-tauri.bat create <名字> --template app|vue|react`，
 生成的工程自带内联页面的最小样板（`app`）或 `ui/` 前端工程（`vue` / `react`）。
+
+## 10. 打成 Windows 便携包（目标机器不需要 SDK）
+
+`run.bat` 是「开发者本机跑」的姿势——它依赖 `PATH` 上的仓颉 SDK 与 stdx。要把应用交给没装 SDK 的人，
+用打包脚本：
+
+```bash
+bash scripts/pack-win.sh                        # 缺省打 examples/movie
+bash scripts/pack-win.sh examples/hello /tmp/out  # 别的示例 / 别的输出目录
+```
+
+产物：
+
+```
+examples/movie/dist-win/
+  movie-win-x64/                    # 解压即用的目录
+    movie.exe                       # 由 target/release/bin/main.exe 改名而来
+    *.dll                           # 48 个运行期依赖（仓颉运行时 + stdx + C 桥 + WebView2Loader + OpenSSL）
+    ui/index.html                   # 页面
+    capabilities/default.json       # 能力白名单
+    run.bat                         # 双击启动：先切工作目录，再把 stderr 落盘
+    README.txt                      # 给最终用户看的说明
+  movie-win-x64.zip                 # 分发用（约 8 MB）
+```
+
+两条要记住的事实：
+
+- **DLL 清单不是手写的**：脚本从 `main.exe` 出发递归解析 PE 导入表拿闭包（`objdump -p`），
+  再补两个「导入表里没有、运行期按名字 `LoadLibrary`」的加载器——`WebView2Loader.dll`（C 桥要用）
+  与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（仓颉运行时的 TLS 要用）。**漏掉后两个的症状很隐蔽**：
+  窗口照起、页面照加载、`http://` 接口照 200，只有 https 全灭
+  （`TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`）。
+- **工作目录仍是包根**：`run.bat` 先 `cd /d %~dp0` 再启动——`ui\` 与 `capabilities\` 是相对路径读的。
+
+实测（2026-10-06）：把 zip 解到干净目录，`PATH` 只留 `C:\Windows\System32;C:\Windows`（没有 SDK / stdx /
+`native`，也没设任何 `STDX_*`），启动后 stderr 依次给出窗口创建（WebView2 `hr=0x00000000`）、
+`ui/index.html (63810 字节)`、封面 `200 ok bytes=29204 image/jpeg`，`TlsException` **0 次**——
+即这台机器上不需要任何开发环境。
+
+前置条件只剩一条：**目标机器要有 WebView2 Runtime**（Win11 与装了补丁的 Win10 自带）。它是 OS 组件，
+打不进 zip；没有的话装微软的 Evergreen Runtime 即可。

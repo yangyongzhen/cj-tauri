@@ -1,11 +1,13 @@
 # 构建产物
 target/
 dist-npm/
+dist-win/
 *.o
 *.a
 *.so
 *.dll
 *.log
+*.zip
 
 # 本地环境
 cjpm.lock

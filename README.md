@@ -47,7 +47,7 @@
 | [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-shell`](examples/plugin-shell) | 插件体系示例：一行 `.plugin(ShellPlugin())` 接入官方 `shell` 插件（`shell:open` / `shell:exec`）——用系统默认程序打开链接、执行子进程取回退出码与输出；**argv 直传不过 shell**（页面拼不出注入），命名集 `shell:allow-open` 只放行打开，另带未授权对照组。 | `cd examples/plugin-shell && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/ipc-bench`](examples/ipc-bench) | **IPC 性能探针**：4 组基准（顺序往返延迟 / 管线化吞吐 / payload 放大 / 事件推送成本），前端算完经 `report` 命令回传仓颉侧 stderr；配套 `scripts/bench-ws-vs-tcp.js` 量同机 localhost WebSocket 与裸 TCP 的回环往返做对照。数字与解读见 [docs/IPC-通信机制.md](docs/IPC-通信机制.md)。 | `cd examples/ipc-bench && cjpm build`，再按上方「运行仓内示例」启动（结果在 stderr，以 `BENCH` 开头） |
-| [`examples/movie`](examples/movie) | **观影应用**（业务向示例）：后台影视数据（`hotmovie` / `detailmovie` / `mvsource`）全部由**仓颉侧**经 `stdx.net.http` 取回，前端只走 `invoke`——榜单浏览 / 搜索 / 详情 / 播放四个视图，页面是独立 `ui/index.html`（无 Node、无构建）。含页面侧自检（经 `report` 回传 stderr）与 `movie:nope` 未授权对照组。 | `cd examples/movie && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat` |
+| [`examples/movie`](examples/movie) | **观影应用**（业务向示例）：后台影视数据（`hotmovie` / `detailmovie` / `mvsource`）全部由**仓颉侧**经 `stdx.net.http` 取回，前端只走 `invoke`——榜单浏览 / 搜索 / 详情 / 播放四个视图，页面是独立 `ui/index.html`（无 Node、无构建）。含页面侧自检（经 `report` 回传 stderr）与 `movie:nope` 未授权对照组。**仅用于学习研究**：影视数据取自第三方公开接口，请先读[用途与免责声明](examples/movie/README.md#用途与免责声明)。 | `cd examples/movie && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat` |
 
 `hello`：输入名字点 `greet` → 仓颉返回问候，底部持续显示后端推送的事件（此处 `tick #21`）：
 
@@ -74,6 +74,10 @@
 参数里的 `&&` 原样输出（argv 直传、不经过 shell）；未授权的 `system:devtools` 仍被拒：
 
 ![plugin-shell 示例运行截图：shell:open 与 shell:exec 的实机自检输出](docs/images/example-plugin-shell.png)
+
+> **`movie` 仅供学习研究**：它只演示「宿主侧取数 + 系统 WebView 前端」这条链路，自身**不提供任何影视资源**；
+> 片名、封面、剧集与播放地址均来自互联网上的第三方公开接口，版权归原权利人所有。请勿用于商业用途、
+> 批量抓取或二次传播影视内容。完整声明见 [`examples/movie` 的用途与免责声明](examples/movie/README.md#用途与免责声明)。
 
 `movie`：业务向示例——影视数据（榜单 / 搜索 / 详情 / 播放源）全部走**仓颉侧** `stdx.net.http` 取回，
 前端只走 `invoke`（连封面图都经宿主取，页面里没有一处 `fetch`）。首页榜单：

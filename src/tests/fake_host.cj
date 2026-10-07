@@ -30,6 +30,8 @@ class FakeHost <: WebViewHost {
     public var menuItemStateArgs: String = ""
     // shell 事件回调（菜单点击等）：用例可以自己调它，模拟「桥把事件送进来了」
     public var shellHandler: (String) -> Unit = { _ => }
+    // 销毁回调：用例可以自己调它，模拟「桥通知本窗销毁了」
+    public var destroyHandler: () -> Unit = { => }
     // 能力位：桩给「有菜单」，用例要测「平台没这个本事」时自行覆盖它
     public var caps: Int32 = CJ_CAP_MENU
 
@@ -81,6 +83,10 @@ class FakeHost <: WebViewHost {
 
     public func setShellHandler(handler: (String) -> Unit): Unit {
         this.shellHandler = handler
+    }
+
+    public func setDestroyHandler(handler: () -> Unit): Unit {
+        this.destroyHandler = handler
     }
 
     public func showFileDialog(save: Bool, title: String, filter: String): String {

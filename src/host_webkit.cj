@@ -24,7 +24,7 @@ foreign func cj_bridge_destroy(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_init(h: CPointer<Unit>, m: CFunc<(CString) -> Unit>, d: CFunc<() -> Unit>): Unit
+foreign func cj_bridge_init(h: CPointer<Unit>, m: CFunc<(CString) -> Unit>, d: CFunc<(CPointer<Unit>) -> Unit>): Unit
 
 @When[os == "Linux"]
 @C
@@ -63,7 +63,7 @@ foreign func cj_bridge_open_devtools(h: CPointer<Unit>): Unit
 
 @When[os == "Linux"]
 @C
-foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CString) -> Unit>): Unit
+foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CPointer<Unit>, CString) -> Unit>): Unit
 
 /**
  * 原生对话框（阻塞式）：kind 0=打开文件 1=保存文件 2=info 3=warning 4=error 5=confirm。
@@ -134,8 +134,10 @@ foreign func cj_bridge_host_eq(a: CPointer<Unit>, b: CPointer<Unit>): Int32
 public class WebKitHost <: WebViewHost {
     // 消息回调：GTK 线程（原生 pthread）→ 仓颉
     public var onMessage: (String) -> Unit = { _ => }
-    // 销毁回调
+    // 销毁回调（应用经 setDestroyHandler 装配；由 C 桥按句柄认领，多窗口不串）
     public var onDestroy: () -> Unit = { => }
+    // 本窗口文件对话框的结果：C 桥按句柄经路由回调写入（两窗各写各的，不许串台）
+    private var dialogResult: String = ""
     // 本窗口的 shell 事件（菜单点击等）回调：TauriApp 装配时经 setShellHandler 覆盖它做分发，
     // 未覆盖时只留一行 stderr——菜单点了没人管，至少能在日志里看见。
     public var shellHandler: (String) -> Unit = { json =>
@@ -233,6 +235,10 @@ public class WebKitHost <: WebViewHost {
         this.shellHandler = handler
     }
 
+    public func setDestroyHandler(handler: () -> Unit): Unit {
+        this.onDestroy = handler
+    }
+
     public func showFileDialog(save: Bool, title: String, filter: String): String {
         var kind: Int32 = 0
         if (save) {
@@ -244,10 +250,10 @@ public class WebKitHost <: WebViewHost {
                                        LibC.mallocCString(""), LibC.mallocCString(filter))
         }
         if (ok == 0) {
-            // 取消 / 宿主未就绪：上游按「空路径」处理，不再读结果槽位
+            // 取消 / 宿主未就绪：上游按「空路径」处理，不再读结果位
             return ""
         }
-        return HostGlobals.dialogResult
+        return this.dialogResult
     }
 
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
@@ -276,9 +282,10 @@ public class WebKitHost <: WebViewHost {
     private func prepareHost(): Unit {
         this.ensureHandle()
         HostGlobals.onMessage = this.onMessage
-        HostGlobals.onDestroy = this.onDestroy
-        // shell 事件路由：登记「本句柄 → 本实例的处理函数」一条（表式，不覆盖别的窗口）
-        HostGlobals.registerShellRoute(this.handle, { json => this.shellHandler(json) })
+        // 宿主级路由：「本句柄 → 本实例的三个回调」登记一条（表式，不覆盖别的窗口）
+        HostGlobals.registerHostRoute(this.handle, { json => this.shellHandler(json) },
+                                      { => this.onDestroy() },
+                                      { path => this.dialogResult = path })
         var devTools: Int32 = 0
         if (this.config.devTools) {
             devTools = 1
@@ -287,7 +294,7 @@ public class WebKitHost <: WebViewHost {
             cj_bridge_init(this.handle, hostOnMessage, hostOnDestroy)
             // shell 事件回调（菜单点击等）：与消息回调同一套路，多一个首参用来分辨窗口
             cj_bridge_set_shell_callback(this.handle, shellOnEvent)
-            // 原生对话框的结果回调：与消息回调同一套路（C 桥 UI 线程 → 仓颉全局槽位）
+            // 原生对话框的结果回调：与消息回调同一套路，多一个首参（结果只落发起这次对话框的窗口）
             cj_bridge_set_dialog_callback(this.handle, dialogOnResult)
             cj_bridge_set_window(this.handle, LibC.mallocCString(this.config.title),
                                  Int32(this.config.width), Int32(this.config.height))
@@ -363,15 +370,5 @@ func hostOnMessage(json: CString): Unit {
         HostGlobals.onMessage(json.toString())
     } catch (e: Exception) {
         eprintln("[cj-tauri] host callback error: ${e}")
-    }
-}
-
-@When[os == "Linux"]
-@C
-func hostOnDestroy(): Unit {
-    try {
-        HostGlobals.onDestroy()
-    } catch (e: Exception) {
-        eprintln("[cj-tauri] destroy callback error: ${e}")
     }
 }

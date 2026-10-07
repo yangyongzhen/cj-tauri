@@ -23,8 +23,8 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 108 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，91 项断言，不依赖 SDK / 图形栈），入口是
+   当前 132 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，99 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
 
@@ -37,8 +37,10 @@
 - **预置类宿主能力**（窗口菜单、拖放策略这类「必须赶在页面加载前定稿」的）：一律在 `start()` / `startUrl()`
   之前调；默认窗经 `app.hostOf(DEFAULT_WINDOW_LABEL)` 拿宿主——实现对默认 label 有回落，`run()` 之前
   也拿得到（注册表里的正式登记发生在 `prepare()`）。运行期再改菜单状态走 `setMenuItemState`（按 id 找，
-  找不到静默忽略）。**shell 事件在仓颉侧按句柄路由**（`HostGlobals.shellRoutes` + `cj_bridge_host_eq`），
-  不要用静态单槽——多窗口下后装配的窗口会覆盖先装配的，先装配的窗口从此收不到自己的事件。
+  找不到静默忽略）。**宿主级回调一律在仓颉侧按句柄路由**（`HostGlobals.hostRoutes` +
+  `registerHostRoute` / `hostRouteOf` + `cj_bridge_host_eq`），不要用静态单槽——多窗口下后装配的窗口
+  会覆盖先装配的，先装配的窗口从此收不到自己的事件。按句柄认领的三类是 shell 事件 / 窗口销毁 /
+  对话框结果；**唯一例外是消息回调**（报文自带 window label，框架给所有窗装同一只派发器，有意保留单槽）。
   当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过），
   托盘 / 文件拖入未实现。事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
   应用侧一律挂**可叠加**的 `app.onShellEvent((json, label) => …)`，并自动投前端事件
@@ -112,6 +114,10 @@
 - **lambda 不能捕获可变的局部变量**：`var x = ""` 后写 `sink = { _ => x = "y" }` 编译不过
   （提示无法捕获可变局部变量）。要在闭包里把数据带出来就用容器装——`let seen = ArrayList<String>()` 再
   `seen.add(...)`（实测：`system:host` 的单测想记下询问过的窗口 label）。
+- **子包（单测）调不了框架的 `foreign func`**：`foreign func` 没有函数体、也就没有跨包符号，`src/tests/`
+  的 `cjTauri.tests` 直接调 `cj_bridge_create()` 会在**链接期**炸
+  （`ld.lld: error: undefined symbol: cjTauri:cj_bridge_create`，编译期不报）。办法是**框架包内包一层**
+  （如 `host.cj` 的 `createBareHostHandle()`——子包可见、不算对外 API）；`@C` 函数相反，有函数体就能跨包调。
 
 - **`stdx.net.http` 的 `ClientBuilder` 不带默认 TLS**：发 https 请求直接抛
   `HttpException: TLS must be configured when HTTPS requests are sent.`，必须显式
@@ -179,9 +185,13 @@
 - 诊断日志的**过滤器本身也会骗人**：`findstr /C:"menu "`（带空格）一条都匹配不上
   `menu: … SetMenu failed: 87`，于是「没有失败日志」被误读成「没失败」。按前缀取证据时用 `[cj-bridge]`
   这样的**整行前缀**，不要用会在正文里撞词的中缀；改日志格式时一并核对断言用的 needle。
-- 多窗口下**任何「静态单槽回调」都会丢事件**：C 侧只有一个函数指针入口，仓颉侧若把「本窗回调」写进同一个
-  静态变量，后装配的窗口就覆盖先装配的——先装配的窗口从此收不到自己的事件（`HostGlobals.onShell` 实测如此）。
-  改成「句柄 → 回调」的路由表（`ShellRoute` / `registerShellRoute`；同一句柄重复登记＝替换而非叠加）。
+- 多窗口下**任何「静态单槽回调」都会丢事件 / 串台**：C 侧只有一个函数指针入口（每个宿主注册的是**同一个**
+  函数指针，实机日志里两窗的 `on_destroy=` 同址可证），仓颉侧若把「本窗回调」写进同一个静态变量，后装配的
+  窗口就覆盖先装配的——先装配的窗口从此收不到自己的事件（`HostGlobals.onShell` 最早实测如此）。**判据是
+  「回调有没有自带身份」**：报文自带 label 的消息回调可以用单槽，其余（销毁 / shell 事件 / 对话框结果）
+  一律走「句柄 → 回调」路由表（`HostRoute` / `registerHostRoute`；同一句柄重复登记＝替换而非叠加）。
+  对应的 C 侧签名要求：`cj_on_shell_fn` / `cj_on_destroy_fn` / `cj_on_dialog_fn` 首参都是 `struct cj_host *`
+  ——**新增宿主回调一律带头参**，别再造一个不带身份的单槽（2026-10-07 已把销毁与对话框结果两处补齐）。
 - 执行子进程（`shell` 插件）：一律 **argv 直传**（`launch` / `executeWithOutput` 收参数数组），
   不要为省事拼 `bash -c "<一整串命令>"`——那等于把页面可控的字符串塞进 shell 解析，自己开后门。
   这类调用本身仍是**同步阻塞**的：它跑在命令 worker 线程上（命令分发已异步，见 §2），所以不再冻窗口，

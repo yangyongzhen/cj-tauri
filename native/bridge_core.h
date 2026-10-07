@@ -37,13 +37,21 @@
 
 /* ===== 仓颉侧回调（@C 函数）===== */
 typedef void (*cj_on_message_fn)(const char *json); /* JS 消息到达（UTF-8 JSON）*/
-typedef void (*cj_on_destroy_fn)(void);             /* 窗口销毁 / 退出（每个宿主恰好一次）*/
-typedef void (*cj_on_dialog_fn)(const char *path);  /* 原生对话框选中的路径（取消 = 空串）*/
 
-/* 前向声明：下面的 shell 回调签名要用到宿主句柄，而 cj_host 结构体还在后面才定义。
+/* 前向声明：下面三个回调签名都要用到宿主句柄，而 cj_host 结构体还在后面才定义。
    必须是**文件作用域**的前向声明——只在参数列表里写 struct cj_host，clang 会把它当成
    「仅本原型内可见」的另一个类型（-Wvisibility），赋函数指针时就报类型不兼容。 */
 struct cj_host;
+
+/* **为什么这些回调的首参是宿主句柄**：仓颉的 @C 函数是模块级函数，每个宿主注册的是同一个
+   函数指针，不把 h 传回去就分不清是哪个窗口触发的——多窗口下就是「后装配的窗口覆盖先装配的」
+   那个静态单槽坑（docs/架构演进-多平台与多窗口.md §7.5）的根治办法。**新增回调一律照此带宿主身份。**
+
+   cj_on_message_fn 是唯一的例外，且是**有意**的：报文自带发起窗口的 window label
+   （架构文档 §7.3），仓颉侧给所有窗口装的是同一只派发器，不需要按句柄分表
+   （见 src/app.cj 的 wireHostCallbacks）。其余回调没有这种自带身份的载荷，只能靠句柄。 */
+typedef void (*cj_on_destroy_fn)(struct cj_host *host); /* 窗口销毁 / 退出（每个宿主恰好一次）*/
+typedef void (*cj_on_dialog_fn)(struct cj_host *host, const char *path); /* 原生对话框选中的路径（取消 = 空串）*/
 
 /* 宿主级 shell 事件回调：**菜单 / 托盘 / 拖放共用一个入口**（RFC-002 §5.5），
    第一个参数回传宿主句柄，第二个是 JSON 载荷（与 on_message 同一载体，仓颉侧已有 JSON 解析）。
@@ -51,11 +59,6 @@ struct cj_host;
        {"kind":"menu","id":"file.save","enabled":true,"checked":false}
        {"kind":"tray","id":"toggle"}                     ← 7.C
        {"kind":"drop","paths":["C:\\a.png"]}             ← 7.C
-
-   **为什么首参必须是宿主**：仓颉的 @C 函数是模块级函数，每个宿主注册的是同一个函数指针，
-   不把 h 传回去就分不清是哪个窗口点的——这正是多窗口把静态单槽回调逼出来的那个坑
-   （docs/架构演进-多平台与多窗口.md §7.5）的根治办法。**新增回调一律照此带宿主身份**；
-   老的 cj_on_destroy / cj_on_dialog 无此参数，属已知真缺口，留待一起改。
 
    **签名这里必须写 `struct cj_host *`（不能用 `cj_host *`）**：本 typedef 要出现在 cj_host
    结构体定义之前（结构体里有 on_shell 字段），此时那个 typedef 名字还不存在，只有上面刚做的

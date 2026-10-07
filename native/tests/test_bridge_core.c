@@ -199,13 +199,19 @@ static void collect_row(void *ctx, int depth, char kind, const char *id,
 
 static int g_msg_calls;
 static int g_destroy_calls;
+static cj_host *g_destroy_cb_host; /* 销毁回调收到的句柄（多窗口下这是唯一能分辨「哪扇窗没了」的凭据）*/
 static int g_dialog_cb_calls;
+static cj_host *g_dialog_cb_host; /* 结果回调收到的句柄：必须等于**发起这次对话框**的那个宿主 */
 static char g_dialog_cb_path[256];
 
 static void on_message(const char *json) { (void)json; g_msg_calls++; }
-static void on_destroy(void) { g_destroy_calls++; }
-static void on_dialog(const char *path) {
+static void on_destroy(cj_host *host) {
+    g_destroy_calls++;
+    g_destroy_cb_host = host;
+}
+static void on_dialog(cj_host *host, const char *path) {
     g_dialog_cb_calls++;
+    g_dialog_cb_host = host;
     snprintf(g_dialog_cb_path, sizeof(g_dialog_cb_path), "%s", path ? path : "");
 }
 
@@ -358,9 +364,26 @@ int main(void) {
     cj_core_window_destroyed(h);
     CHECK(h->window_gone == 1 && h->should_quit == 1, "置 window_gone + should_quit");
     CHECK(g_destroy_calls == 1, "onDestroy 触发一次");
+    CHECK(g_destroy_cb_host == h, "销毁回调带回的是这个宿主的句柄");
     CHECK(g_msg_calls == 0, "on_message 不该被碰");
     cj_core_window_destroyed(h);
     CHECK(g_destroy_calls == 1, "重复通知不再触发 onDestroy");
+
+    /* --- 9b. 句柄身份：销毁另一个宿主时，回调收到的是它自己 --- */
+    case_begin("window_destroyed 两宿主不串（回调带回被销毁者的句柄）");
+    {
+        cj_host *hb = cj_bridge_create();
+        int before;
+        CHECK(hb != NULL, "另建一个宿主可独立创建");
+        if (hb) {
+            before = g_destroy_calls;
+            cj_bridge_init(hb, on_message, on_destroy);
+            cj_core_window_destroyed(hb);
+            CHECK(g_destroy_calls == before + 1 && g_destroy_cb_host == hb,
+                  "回调收到 hb（先 init 的 h 不会被误报）");
+            cj_bridge_destroy(hb);
+        }
+    }
 
     /* --- 10. 对话框：宿主未就绪直接拒绝 --- */
     case_begin("dialog：宿主未就绪返回 0");
@@ -391,6 +414,26 @@ int main(void) {
     cj_core_dialog_abort(h2);
     cj_core_dialog_abort(h2);
     CHECK(h2->dlg_cur == NULL, "无进行中对话框时 abort 是空操作");
+
+    /* --- 12b. 句柄身份：结果回调必须落回**发起这次对话框**的宿主 --- */
+    case_begin("dialog 结果回调带回发起窗口的句柄（两宿主不串）");
+    {
+        cj_host *hd = cj_bridge_create();
+        int before;
+        CHECK(hd != NULL, "另建宿主用于对照");
+        if (hd) {
+            cj_bridge_set_dialog_callback(hd, on_dialog);
+            cj_core_set_ready(hd);
+            before = g_dialog_cb_calls;
+            CHECK(cj_bridge_show_dialog(h2, 0, "open", "p", "") == 1, "h2 弹框成功");
+            CHECK(g_dialog_cb_calls == before + 1 && g_dialog_cb_host == h2,
+                  "h2 的结果回调收到 h2");
+            CHECK(cj_bridge_show_dialog(hd, 0, "open", "p", "") == 1, "hd 弹框成功");
+            CHECK(g_dialog_cb_calls == before + 2 && g_dialog_cb_host == hd,
+                  "hd 的结果回调收到 hd（不是上一条的 h2）");
+            cj_bridge_destroy(hd);
+        }
+    }
 
     /* --- 13. 菜单线路解析（两平台翻译层共用这一份）--- */
     case_begin("menu_walk：线路格式解析（层级 / 字段 / flags）");

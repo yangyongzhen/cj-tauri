@@ -99,6 +99,10 @@
 - **探针 `examples/menu` 支持单窗模式**：`MENU_MODE=single` 只装配主窗，收尾由探针自己走
   `app.quit()`（应用级退出路径），因而 Linux 也能一并断言 `exit=0` 与 `host destroyed`；
   清单同时补上 `"events": ["menu:click"]`（菜单事件要投前端就必须声明）。Windows 侧双窗行为不变。
+- **`WebViewHost.setDestroyHandler(handler)`：宿主级窗口销毁钩子**（每扇窗各装各的，回调不带参数
+  ——「是哪扇窗」在装配时就已确定，应用可经 `app.hostOf(label)` 逐窗安装）。此前 `onDestroy`
+  只是两个宿主实现的 `public var`、不在接口上，框架与示例都没装过，是个恒 no-op 的死钩子
+  （框架退出靠轮询 `shouldQuit()`）；现在与 `setShellHandler` 一样可装配、且按宿主句柄派发。
 
 ### Changed
 
@@ -117,6 +121,23 @@
 - **观影示例补「用途与免责声明」**：`examples/movie/README.md` 新增置顶声明（**仅用于技术学习与研究，
   请勿用于其他用途**；影视数据与播放地址均取自第三方公开接口、本示例不提供也不存储任何影视资源，
   请勿批量抓取或二次传播），根 `README.md` 的示例表条目与该小节前各加一条同样的提示并链过去。
+
+### Fixed
+
+- **窗口销毁 / 文件对话框结果回调改按宿主句柄路由（多窗口下不再串台）**：三个宿主级回调里，
+  消息回调的报文自带 window label，**销毁与对话框结果却不带宿主身份**，仓颉侧只能写进静态单槽
+  （`HostGlobals.onDestroy` / `HostGlobals.dialogResult`）——后装配的窗口覆盖先装配的，于是
+  「哪扇窗关了」认错、两扇窗同时开文件框时结果串台（单窗口下看不出）。现在与 shell 事件同一套
+  按句柄认领：C 侧 `cj_on_destroy_fn` / `cj_on_dialog_fn` 首参加 `cj_host *`（`cj_on_message_fn`
+  **有意不动**），仓颉侧三张单槽合并成一张宿主级路由表（`HostRoute` / `HostGlobals.registerHostRoute`
+  / `hostRouteOf`，逐条认领自己的句柄）。单窗口行为不变。
+  ⚠️ **FFI 签名变了：拉取本提交后必须先重建两平台 C 桥**（`native/build_win.bat` /
+  `native/build_linux.sh`），否则链接期报 `undefined reference`（与 AGENTS §4 那条同源）。
+- **路由与回调身份补齐用例**：新增 `src/tests/host_route_test.cj` 5 条（两宿主销毁不串 /
+  对话框结果落发起窗口 / shell 事件按句柄认领 / 未登记句柄静默且不改表 / 同句柄重复登记＝替换），
+  用例数 127 → 132；`native/tests/test_bridge_core.c` 加 8 条断言（回调带回被销毁者自己的句柄），
+  91 → 99 项。Windows 双窗实机（2026-10-07，`examples/multi-window/run.bat`）18/18 断言、`exit=0`，
+  桥 stderr 两宿主各 `created` / `destroyed` 一次、无「未登记宿主句柄」、`hr=` 全 `0x00000000`。
 
 ## [0.7.0] - 2026-10-05
 

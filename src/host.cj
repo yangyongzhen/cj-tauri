@@ -163,6 +163,15 @@ public interface WebViewHost {
     public func setShellHandler(handler: (String) -> Unit): Unit
 
     /**
+     * 装配本窗口的销毁回调（窗口关闭 / 退出收尾时恰好触发一次）
+     *
+     * 多窗口下按宿主身份路由（C 侧回调首参是句柄），所以每扇窗口装自己的——回调不带参数，
+     * 因为「是哪扇窗」在装配时就已确定（应用可经 `app.hostOf(label)` 逐窗安装）。
+     * 与 `setShellHandler` 同为**可变槽位**：在 `start()` 之后再装同样生效（路由闭包读字段，不是快照）。
+     */
+    public func setDestroyHandler(handler: () -> Unit): Unit
+
+    /**
      * 原生文件选择对话框（阻塞到用户关闭）：返回选中的路径，取消 / 失败返回空串。
      *
      * filter 是「描述|模式|描述|模式」拼串（Windows 惯例；GTK 端按同一格式解析），
@@ -243,59 +252,83 @@ public interface AppHost {
 }
 
 /**
- * C 桥原生线程 → 仓颉回调的全局槽位。
- * 各平台宿主在 start() 时把自己的回调装配到这里，C 侧的 @C 函数经此转入仓颉闭包。
+ * C 桥原生线程 → 仓颉回调的中转。
+ * 各平台宿主在 prepareHost() 时把「本句柄 → 本实例的回调」登记进路由表，C 侧的 @C 函数按句柄取用。
  */
 /**
- * 一条 shell 事件路由：C 侧句柄 → 本窗口的派发闭包
+ * 一条**宿主级回调路由**：C 侧句柄 → 本窗口的三个回调
  *
- * `dispatch` 是可变的：闭包读的是宿主实例的 `shellHandler` 字段（不是快照），
- * 所以应用在 `start()` 之后再调 `setShellHandler` 同样生效。
+ * C 侧所有回调的入口都是模块级 @C 函数（每个宿主注册的是同一个函数指针），句柄是唯一能分辨
+ * 「哪个窗口」的凭据——三类回调都按句柄查表，查到谁就派发给谁。
+ *
+ * 闭包都是可变的：读的是宿主实例的字段（不是快照），所以应用在 `start()` 之后再调
+ * `setShellHandler` / `setDestroyHandler` 同样生效。
  */
-class ShellRoute {
+class HostRoute {
     let handle: CPointer<Unit>
-    var dispatch: (String) -> Unit
+    var onShell: (String) -> Unit
+    var onDestroy: () -> Unit
+    var onDialog: (String) -> Unit
 
-    init(handle: CPointer<Unit>, dispatch: (String) -> Unit) {
+    init(handle: CPointer<Unit>, onShell: (String) -> Unit, onDestroy: () -> Unit,
+         onDialog: (String) -> Unit) {
         this.handle = handle
-        this.dispatch = dispatch
+        this.onShell = onShell
+        this.onDestroy = onDestroy
+        this.onDialog = onDialog
     }
 }
 
 class HostGlobals {
+    // 前端消息：**有意保留单槽**。报文自带发起窗口的 window label（架构文档 §7.3），
+    // TauriApp 给所有窗口装的是同一只派发器，路由不靠句柄（见 src/app.cj 的 wireHostCallbacks）。
     static var onMessage: (String) -> Unit = { _ => }
-    static var onDestroy: () -> Unit = { => }
-    // shell 事件（菜单点击等）的**路由表**：各宿主在装配时登记自己一条（句柄 + 派发闭包）。
-    //
-    // 为什么不是单槽：C 侧对所有窗口只有一个回调入口（`cj_on_shell_fn` 就是一个函数指针），
-    // 「事件属于哪个窗口」只能在仓颉侧判；单槽会被后装配的窗口覆盖——先装的那个从此收不到自己的
-    // 菜单点击（两窗探针一跑就露）。表里每条只认领自己的句柄。
+    // 其余三类回调没有「自带身份」的载荷（销毁无载荷、文件框结果只有路径、shell 事件只有信封），
+    // 只能让 C 侧把句柄带回来。表里每条只认领自己的句柄。
+    // 单槽时代的症状：后装配的窗口覆盖先装配的——「哪扇窗关了」认错、两窗同时开文件框时结果串台
+    // （见 docs/架构演进-多平台与多窗口.md §7.5）。
     // 登记发生在 prepareHost（run() 之前、宿主线程还没起），派发时才读表 → 登记期没有并发。
-    static var shellRoutes: ArrayList<ShellRoute> = ArrayList<ShellRoute>()
+    static var hostRoutes: ArrayList<HostRoute> = ArrayList<HostRoute>()
 
     /**
-     * 登记（或更新）一条 shell 事件路由
+     * 登记（或更新）一条宿主级路由
      *
      * 同一句柄重复登记＝换掉旧闭包（宿主被重新 prepare 时不叠加、事件也不会派发两次）；
      * 句柄比较走 C 侧 `cj_bridge_host_eq`（仓颉的 `CPointer` 不支持 `==`）。
      * 顺带解决「旧宿主销毁、新宿主复用同一地址」：新宿主登记时就覆盖了那条陈旧路由。
      */
-    static func registerShellRoute(handle: CPointer<Unit>, dispatch: (String) -> Unit): Unit {
-        for (r in HostGlobals.shellRoutes) {
+    static func registerHostRoute(handle: CPointer<Unit>, onShell: (String) -> Unit,
+                                  onDestroy: () -> Unit, onDialog: (String) -> Unit): Unit {
+        for (r in HostGlobals.hostRoutes) {
             var same: Int32 = 0
             unsafe {
                 same = cj_bridge_host_eq(r.handle, handle)
             }
             if (same != 0) {
-                r.dispatch = dispatch
+                r.onShell = onShell
+                r.onDestroy = onDestroy
+                r.onDialog = onDialog
                 return
             }
         }
-        HostGlobals.shellRoutes.add(ShellRoute(handle, dispatch))
+        HostGlobals.hostRoutes.add(HostRoute(handle, onShell, onDestroy, onDialog))
     }
-    // 文件类对话框的结果：C 桥在 GTK / 宿主线程上经 dialogOnResult 写入，
-    // 阻塞等待的调用方醒来后读取。同一时刻只允许一个对话框（桥侧有互斥），单槽位够用。
-    static var dialogResult: String = ""
+
+    /**
+     * 按句柄取路由；查不到返回 None（句柄不属于本进程，或该宿主已注销）
+     */
+    static func hostRouteOf(handle: CPointer<Unit>): Option<HostRoute> {
+        for (r in HostGlobals.hostRoutes) {
+            var same: Int32 = 0
+            unsafe {
+                same = cj_bridge_host_eq(r.handle, handle)
+            }
+            if (same != 0) {
+                return Some(r)
+            }
+        }
+        return None
+    }
 }
 
 /**
@@ -311,37 +344,56 @@ func dialogKindCode(kind: String): Int32 {
 }
 
 /**
- * 对话框结果回调（C 桥 → 仓颉）：文件类对话框选中的路径经它送回。
- * 由 C 桥在自己的 UI 线程上调用，与 hostOnMessage 同一套路；先写槽位再由桥唤醒调用方。
+ * 对话框结果回调（C 桥 → 仓颉）：文件类对话框选中的路径经它送回，首参是**发起这次对话框的宿主句柄**。
+ *
+ * 由 C 桥在自己的 UI 线程上调用，与 hostOnMessage 同一套路；按句柄写进对应宿主的结果位，
+ * 再由桥唤醒阻塞的调用方去读。多窗口下两扇窗可以各自开着文件框，结果不许串台。
+ * 非 @When：两平台的 C 侧都调它（签名一致，首参不透明）。
  */
 @C
-func dialogOnResult(path: CString): Unit {
+func dialogOnResult(host: CPointer<Unit>, path: CString): Unit {
     try {
-        HostGlobals.dialogResult = path.toString()
+        match (HostGlobals.hostRouteOf(host)) {
+            case Some(r) => r.onDialog(path.toString())
+            case None => eprintln("[cj-tauri] dialog callback: 未登记的宿主句柄（已丢弃）")
+        }
     } catch (e: Exception) {
         eprintln("[cj-tauri] dialog callback error: ${e}")
     }
 }
 
 /**
+ * 窗口销毁回调（C 桥 → 仓颉）：首参是**被销毁的宿主句柄**（每个宿主恰好触发一次）。
+ *
+ * 曾经写进全局单槽 → 多窗口下「哪扇窗关了」认错（后装配的窗口覆盖先装配的）；
+ * 现在与 shell / 对话框一样按句柄认领。非 @When：两平台的 C 侧都调它。
+ */
+@C
+func hostOnDestroy(host: CPointer<Unit>): Unit {
+    try {
+        match (HostGlobals.hostRouteOf(host)) {
+            case Some(r) => r.onDestroy()
+            case None => eprintln("[cj-tauri] destroy callback: 未登记的宿主句柄（已忽略）")
+        }
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] destroy callback error: ${e}")
+    }
+}
+
+/**
  * shell 事件回调（C 桥 → 仓颉）：菜单点击等经它送回，首参是**发生事件的宿主句柄**。
  *
- * 由 C 桥在宿主 UI 线程上调用（与 hostOnMessage 同一套路）；句柄→实例的解引用交给
- * 各宿主在 `setShellHandler` 时注册的筛选闭包，本函数只做「别抛穿 FFI 边界」这一件事。
+ * 由 C 桥在宿主 UI 线程上调用（与 hostOnMessage 同一套路）；句柄→实例的解引用走宿主级路由表，
+ * 本函数只做「别抛穿 FFI 边界」这一件事。
  * 非 @When：两平台的 C 侧都调它（签名一致，首参不透明）。
  */
 @C
 func shellOnEvent(host: CPointer<Unit>, json: CString): Unit {
     try {
-        // 逐条认领：句柄对得上的那条派发，其余静默跳过（C 侧只有一个入口，区分就在这里）
-        for (r in HostGlobals.shellRoutes) {
-            var mine: Int32 = 0
-            unsafe {
-                mine = cj_bridge_host_eq(r.handle, host)
-            }
-            if (mine != 0) {
-                r.dispatch(json.toString())
-            }
+        // 认领自己那条：句柄对不上就静默跳过（C 侧只有一个入口，区分就在这里）
+        match (HostGlobals.hostRouteOf(host)) {
+            case Some(r) => r.onShell(json.toString())
+            case None => () // 未登记（旧宿主已注销 / 非本进程句柄）：静默，别在热路径上刷屏
         }
     } catch (e: Exception) {
         eprintln("[cj-tauri] shell callback error: ${e}")
@@ -363,4 +415,19 @@ func createHost(label: String): WebViewHost {
 @When[os == "Windows"]
 func createHost(label: String): WebViewHost {
     return WebView2Host(label)
+}
+
+/**
+ * 造一个「裸宿主句柄」：只分配 C 侧宿主对象（不 init / 不 start、不碰图形栈）
+ *
+ * 只给单元测试用（子包可见，不算对外 API）。为什么需要这层包皮：`cj_bridge_create` 是
+ * `foreign func`——没有函数体、也就没有跨包符号，子包 `cjTauri.tests` 直接调会在**链接期**炸
+ * （实测 `ld.lld: error: undefined symbol: cjTauri:cj_bridge_create`）；框架包内包一层就有实体符号了。
+ */
+func createBareHostHandle(): CPointer<Unit> {
+    var h: CPointer<Unit> = CPointer<Unit>()
+    unsafe {
+        h = cj_bridge_create()
+    }
+    return h
 }

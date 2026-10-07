@@ -267,7 +267,7 @@ void cj_core_window_destroyed(cj_host *h) {
     if (!h->destroy_notified) {
         h->destroy_notified = 1;
         if (h->on_destroy) {
-            h->on_destroy();
+            h->on_destroy(h); /* 带上句柄：仓颉侧据此认领「是哪扇窗没了」（多窗口不许再走静态槽） */
         }
     }
     /* 有对话框开着时先作废并唤醒等待方：事件循环退出后挂起的回调不再执行，等待方会永远挂住 */
@@ -553,7 +553,7 @@ int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
         ok = r->ok;
         cj_dlg_log_closed(r);
         if (h->on_dialog) {
-            h->on_dialog(r->path ? r->path : "");
+            h->on_dialog(h, r->path ? r->path : ""); /* 带上句柄：结果只落发起这次对话框的窗口 */
         }
         cj_dlg_req_free(r);
         cj_plat_sync_lock(h->dlg_lock);
@@ -601,7 +601,7 @@ void cj_core_dialog_tick(cj_host *h, dlg_req *req) {
     req->ok = cj_plat_run_dialog(h, req);
     cj_dlg_log_closed(req);
     if (h->on_dialog) {
-        h->on_dialog(req->path ? req->path : "");
+        h->on_dialog(h, req->path ? req->path : "");
     }
 
     cj_plat_sync_lock(h->dlg_lock);

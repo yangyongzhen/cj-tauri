@@ -371,7 +371,9 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   桥 JS **懒读**宿主注入的 `window.__CJ_TAURI_LABEL__`，上行报文带 `window` 字段（协议增量，旧前端不受影响），
   `emitToWindow` 真正按窗口投递（未注册 label 打 stderr，不静默）；新增应用级 `AppHost`
   （`quit()` / `waitForExit()` / `hostOf(label)`）与 `WebViewHost.label()`。单窗口行为与旧版等价，
-  多窗口 UI 与回调身份（架构文档 §7.5）留批次 3
+  多窗口 UI 留批次 3；**回调身份已于 2026-10-07 收口**——shell 事件 / 窗口销毁 / 文件框结果三处
+  一律按宿主句柄路由（不再有静态单槽串台），`WebViewHost.setDestroyHandler` 补上安装点
+  （架构文档 §7.5）
 - ✅ 原生菜单能力位（RFC-002 §5）：宿主层 `setMenu` / `setMenuItemState` / `setShellHandler` + 应用层
   `app.setMenu(To)` / `setMenuItemEnabled(To)` / `setMenuItemChecked(To)` + **可叠加**的 `app.onShellEvent`
   与前端事件回投（`menu:click`）+ 官方 `menu` 插件（`menu:setEnabled` / `menu:setChecked`）；

@@ -155,6 +155,12 @@
   数导出 `nm -D --defined-only native/libcjtbridge.so | grep -c cj_bridge_`（0.7.0 为 22 个）。
 - WebView2 版本规则：**SDK 不得高于本机 Runtime**（本机 Runtime 122.0.2365.106 → 用 SDK 1.0.2365.46）；
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
+- **Windows 宿主：页面的视口尺寸必须每帧自检，不能只等 `resize` 事件**——WebView2 建 WebView 时视口
+  还是**临时尺寸**（实测 2026-10-07：初始化读到 961x1032，随后窗口才定到 1164x741），而那次变化**没有
+  `resize` 事件送到页面**：只按 `resize` 更新画布（或只调一次 `renderer.setSize`）的页面会停在旧尺寸，
+  3D 场景整幅走样。做法是把「`innerWidth/Height` 与上次应用值比一次」放进 `requestAnimationFrame` 循环
+  （两次比较而已，顺带覆盖 DPI / 缩放变化），并留一条「画布 == 视口」的断言——本坑就是
+  `examples/typing-poem` 的自检抓出来的（`ui/index.html` 的 `fitViewport()`）。
 - **便携包（免 SDK 的 exe 包）必须自带两个「按名字 LoadLibrary」的组件**：`WebView2Loader.dll`（C 桥）
   与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（仓颉运行时的 TLS 加载器，**SDK 与 stdx 都不带**）。
   这两类依赖**不在 PE 导入表里**，所以「递归解析导入表收 DLL」会漏掉——漏 OpenSSL 的症状极像网络问题

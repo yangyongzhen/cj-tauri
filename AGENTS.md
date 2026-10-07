@@ -136,6 +136,14 @@
   不能替换，何况内联页来源是 opaque）。办法是把地址交给一个宿主命令，由仓颉侧带正确 `Referer`
   取回再以 `data:` URL 交还（`examples/movie` 的 `movie:image`）；这类命令的参数是页面可控字符串，
   必须对地址做白名单，否则等于开放 SSRF。
+- **`Int64(x * 10.0)` 这类浮点转整数会因越界抛异常**，不像 C 那样静默截断：一个已经脏掉的数
+  （实测成绩文件里 `bestAccuracy` 涨到 `9630000000000000`）能把整条命令带走。凡是「算出来再落盘 / 回投」的量，
+  **读与写必须同一口径**（同一字段一边按百分比、一边按分数，就会每轮 ×100 复利式发散），
+  并且转换前**先夹范围**（`round1()` 现在有兜底），别指望异常会告诉你——见下一条。
+- **命令 handler 抛异常时框架只回 `reject`、仓颉侧 stderr 一行都不打**（`IpcHub.runCommand` 的两个 catch；
+  事件监听器那条路反而有 `event listener failed`，两者不对称）。所以命令「没反应」时**别把「日志里没有错误行」
+  当成「命令成功了」**——示例/插件要让页面把 reject 也回投（`report`）才能定位；本轮打字练习的自检
+  就是这么抓到「成绩再也存不下」的。想给框架补一行日志是合理的（未做）。
 
 **平台与工具链**
 
@@ -144,6 +152,12 @@
 - **`.bat` 里别用 `find` 做计数或判断**：从 Git Bash 起 `cmd //c run.bat` 时，`PATH` 里 MSYS 的
   **GNU find** 排在 Windows `find.exe` 前面，`find /c /v ""` 会被它当成路径去遍历整个盘（实测把脚本
   挂到 300s 超时，输出满屏 `Permission denied`）。计数用 `findstr` + `for /f`，判断同样用 `findstr`。
+- **`MSYS_NO_PATHCONV=1` 与 `cmd //c` 不能同时用（会出现「假成功」）**：`//c → /c` 这个改写本身就是 MSYS
+  路径转换的一部分，被 `MSYS_NO_PATHCONV=1` 关掉之后 cmd 收到的是字面量 `//c`——它不认，于是只打印
+  banner + 提示符就 EOF 退出，**批处理一行都没跑、退出码却是 0**（2026-10-07 实测：`run.bat selfcheck`
+  的日志文件 mtime 没变、`grep PASS` 计到 0 才露馅）。二选一：`cmd //c xxx.bat`（靠 MSYS 改写）
+  或 `MSYS_NO_PATHCONV=1 cmd.exe /c "xxx.bat"`。**判真假一律看副作用**（日志 mtime / 行数 / 断言计数），
+  别只看退出码——退出码 0 在这里什么都不证明。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。

@@ -19,7 +19,8 @@
 #      首次运行时释放到 %TEMP%\cj-tauri-loader\ 再按绝对路径加载（幂等，见 native/bridge_win.c）；
 #   ④ 页面 / three.js / 能力清单由本脚本生成 src/packed_assets.cj（base64），编进二进制。
 #
-# 产物：<示例>/dist-single/<示例名>.exe（可选 strip：本机 27.6 MB → 约 9 MB）
+# 产物：<示例>/dist-single/<示例名>.exe（实测 typing-poem：28.8 MB → strip 后 5.5 MB；
+#       这份 exe 随仓库分发，work/ 临时副本与 *.WebView2/ 用户数据不入库）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

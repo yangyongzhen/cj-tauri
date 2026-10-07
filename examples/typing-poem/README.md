@@ -314,7 +314,8 @@ bash scripts/pack-win-single.sh                       # 在仓根执行，默认
 bash scripts/pack-win-single.sh examples/typing-poem   # 也可以显式指定
 ```
 
-产物 `examples/typing-poem/dist-single/typing-poem.exe`（`dist-single/` 不入库）。实测（2026-10-07，Windows）：
+产物 `examples/typing-poem/dist-single/typing-poem.exe`——**这份 exe 随仓库分发**（不装 SDK 也能直接拿到），
+`work/` 临时构建副本与 `*.WebView2/` 用户数据不入库。实测（2026-10-07，Windows）：
 
 | 指标 | 值 |
 |---|---|

@@ -158,7 +158,9 @@
   28.8 MB → strip 后 **5.5 MB**，导入表只剩 msvcrt / KERNEL32 / SHELL32 / dbghelp / comdlg32 / USER32 /
   ole32 / WS2_32；实机自检 `57 passed, 0 failed`，窗口创建（`set window: … size=1180x780`）、
   `ExecuteScript -> hr=0x00000000`，内嵌资源字节数与源文件**逐字节吻合**（页面 107962 / three.js 669884）。
-  用法与两条坑见 `docs/使用文档.md` §11、`AGENTS.md` §4。
+  用法与两条坑见 `docs/使用文档.md` §11、`AGENTS.md` §4。仓库里同时跟一份打好的
+  `examples/typing-poem/dist-single/typing-poem.exe`（`work/` 临时构建副本与 WebView2 用户数据不入库），
+  不装 SDK 也能直接拿到。
 
 ### Changed
 

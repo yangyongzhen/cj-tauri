@@ -2,13 +2,18 @@
 target/
 dist-npm/
 dist-win/
-dist-single/
 *.o
 *.a
 *.so
 *.dll
 *.log
 *.zip
+
+# 单文件包：打好的 exe 随仓库分发（便于不装 SDK 的人直接拿到），
+# 其余都是本机产物——work/ 是打包用的临时构建副本，*.WebView2/ 是运行时用户数据。
+# 前缀 **/ 不能省：带中间斜杠的规则会锚定到本文件所在目录，只写 dist-single/work/ 匹配不到示例下那份
+**/dist-single/work/
+**/dist-single/*.WebView2/
 
 # 本地环境
 cjpm.lock

@@ -275,7 +275,8 @@
   唯一例外是功能必需的两处：`.github/workflows/` 下的 GitHub Actions workflow（npm trusted publishing 只支持
   GitHub / GitLab / CircleCI 三家）；`npm/package.json` 的 `repository.url`（必须精确等于 GitHub 仓库名，
   否则 npm 以 `E422` 拒绝发布）。
-- 不提交：`target/`、`dist-win/`、`dist-single/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
+- 不提交：`target/`、`dist-win/`、`**/dist-single/work/`、`**/dist-single/*.WebView2/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
+  `dist-single/` 下**打好的 exe 例外**——那份随仓库分发（不装 SDK 的人能直接拿到）。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。

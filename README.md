@@ -16,6 +16,9 @@
 > **延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)**
 > ——同主题文档：[docs/仓颉版Tauri-介绍与使用指南.md](docs/仓颉版Tauri-介绍与使用指南.md)（指南体）、`docs/仓颉版Tauri-博客稿.md`（博客体）。
 >
+> **实战续篇：[用 cj-tauri 开发打字游戏](docs/仓颉版Tauri-打字游戏实战.md)**——拿 `examples/typing-poem`
+> （古诗词打字练习）当案例：三件套怎么落地、给孩子用的取舍、three.js 的注入通道、自检与实机验收。
+>
 > 当前版本 **0.7.0**：变更记录见 [CHANGELOG.md](CHANGELOG.md)，开发规范见 [AGENTS.md](AGENTS.md)，
 > 贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，依赖与许可信息见 [README.OpenSource](README.OpenSource)。
 >

@@ -13,5 +13,8 @@ dist-win/
 cjpm.lock
 *.stdx.bak
 
+# 本机运行数据（示例落盘的成绩等，不进仓）
+*.local.json
+
 # 系统文件
 .DS_Store

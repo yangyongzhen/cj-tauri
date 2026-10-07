@@ -106,7 +106,10 @@
   而 stderr 毫无提示（实测踩坑：`examples/plugin-fs` 的验证脚本静默全灭，靠对照 `examples/hello` 才定位）。
   内联 JS 里避免出现反斜杠（换行用 `String.fromCharCode(10)`，正则改用 `indexOf`），改完用 `node --check` 验一遍。
 - `@When` 的平台取值**首字母大写**：`@When[os == "Windows"]` / `"Linux"`，不是 `windows`。
-- 迭代 `String` 得到的是 `UInt32` 码点（不是 `Rune`），需要时用 `Rune(cp)` 还原。
+- 迭代 `String` 得到的是 **`UInt8` 字节**（不是码点、也不是 `Rune`，本条 2026-10-07 实测更正）：
+  按码点数汉字得自己判 UTF-8 首字节（`(b & 0xC0u8) != 0x80u8` 才算一个），`String.size` 同样是**字节数**。
+  把字节当码点数，ASCII 的检查（空格、制表符）照样对，只有汉字会错成 3 倍——
+  实测 `examples/typing-poem` 的素材自检把「鹅鹅鹅」数成 9，汉字/拼音对齐检查整条失效。
 - `cjc-version` 是最低要求而非精确版本：写 `1.0.5` 时用 1.2.0 的 cjc 也能编译。
 - 条件编译函数按平台各写一份时，**不要发明未验证的平台标识**（例如未用过 macOS 就别加 `@When[os == "macOS"]`）。
 - 字符串插值 `${名字}` 会撞同名函数：局部变量叫 `main` 时写 `"${main}"` 会报
@@ -239,6 +242,11 @@
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。
 - 代码以 **MIT** 发布（根 `LICENSE`）；引入第三方代码或资源时，必须在本文件登记其来源与许可证。
+  当前已登记的第三方代码：**three.js r160**（`examples/typing-poem/ui/vendor/three.min.js`，669 884 字节，
+  取自 `three@0.160.0` 的 **UMD** 构建；许可证随文件放在 `ui/vendor/three.LICENSE.txt`，MIT）。
+  选 r160 的理由：**它是最后一个带 UMD 构建的版本**（`three@0.161+` 只剩 ESM），而这个示例的页面是
+  `run(html)` 的内联来源（Windows 下 `NavigateToString`，无真实来源），相对 `<script src>` 与 ES module
+  都不成立——只能把整份 UMD 经 `addInitScript()` 走 document-start 通道注入（AGENTS §4 有这条坑的完整形状）。
 - 仓库根保持 5 个标准文件：`README.md`（必须含运行截图）/ `LICENSE` / `README.OpenSource` / `CHANGELOG.md` /
   `CONTRIBUTING.md`；功能与依赖变更时同步受影响的文件，平台或依赖变化时 `README.OpenSource` 也要改。
 

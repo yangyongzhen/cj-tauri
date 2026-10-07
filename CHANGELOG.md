@@ -103,6 +103,25 @@
   ——「是哪扇窗」在装配时就已确定，应用可经 `app.hostOf(label)` 逐窗安装）。此前 `onDestroy`
   只是两个宿主实现的 `public var`、不在接口上，框架与示例都没装过，是个恒 no-op 的死钩子
   （框架退出靠轮询 `shouldQuit()`）；现在与 `setShellHandler` 一样可装配、且按宿主句柄派发。
+- **古诗打字练习示例 `examples/typing-poem`（小学生向）**：仓颉侧提供十首小学常背古诗（五言 / 七言共
+  18–28 字，**逐字拼音**随诗一起收在 `src/poems.cj`）与本机最好成绩落盘（`typing-scores.local.json`，
+  按首累计次数、只增记录），`poem:list` / `score:save` / `score:list` / `typing:config` / `typing:quit` /
+  `report` 六命令按项目契约三处联动齐全；前端单文件 `ui/index.html` 用 **three.js r160**（UMD，
+  连许可证收在 `ui/vendor/`，已在 AGENTS §5 登记）做 3D 星空与诗词卡片——照着拼音敲字母，
+  打对一个字点亮一个字并冒星光，整首打完放礼花 + 结算速度 / 正确率 / 星级。three.js 经宿主的
+  **预执行脚本**通道（`addInitScript`）注入：内联页面没有真实来源，相对 `<script src>` 与 ESM 都不成立
+  （完整形状见 AGENTS §4）。**Windows 实机自检 25/25、`exit=0`（2026-10-07，`run.bat selfcheck`）**：
+  页面自己把《咏鹅》打完并把逐条断言回投 stderr（`three.js 已注册为预执行脚本（669884 字节）`、
+  `WebGL 可用 [WebGL 2.0 …]`、`结算 星级 3 / 3800.2 键/分 / 正确率 96.3%`、
+  `poem:nope -> command not registered`、`25 passed, 0 failed`），桥 `hr=` 全 `0x00000000`。
+  自检当场抓出**两个真 bug**并已修：① `score:save` 的用时经 `Int64()` 截断（一秒内打完 → 用时 0 →
+  速度 0、星级被拖到最低）改按浮点算；② **画布尺寸停在初始化时的 961×1032**——WebView2 建 WebView 时
+  视口还是临时尺寸，随后窗口定到 1164×741 却没有 `resize` 事件送到页面，3D 场景因此走样，
+  改为每帧比对视口并补一条「画布 == 视口」的断言。
+- **AGENTS §4 更正「迭代 `String`」那条坑**：原文写「得到的是 `UInt32` 码点」，实测是 **`UInt8` 字节**
+  （`String.size` 同样是字节数）；按码点数汉字要自己判 UTF-8 首字节（`(b & 0xC0u8) != 0x80u8`）。
+  新示例的素材自检正是踩在这条上：3 个字的「鹅鹅鹅」被数成 9，汉字 / 拼音对齐检查整条失效
+  （ASCII 的检查——空格、制表符——照样对，所以只错汉字）。
 
 ### Changed
 

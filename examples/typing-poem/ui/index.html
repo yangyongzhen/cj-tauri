@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>古诗词打字练习 · cj-tauri</title>
+<style>
+  :root {
+    --gold: #ffd75e;
+    --jade: #7be38a;
+    --cyan: #7ce7ff;
+    --red: #ff7b7b;
+    --ink: #070b16;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 0%, #16224a 0%, #0a1020 55%, var(--ink) 100%);
+    color: #eef2ff;
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    user-select: none;
+  }
+  /* three.js 画布铺满整个窗口，UI 是浮在它上面的 DOM 层 */
+  #scene { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+
+  #hud {
+    position: fixed; left: 0; right: 0; top: 0; padding: 14px 20px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .hud-title { font-size: 20px; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
+  .hud-sub { font-size: 13px; color: #a9b6d8; margin-top: 4px; }
+  .hud-right { display: flex; gap: 10px; align-items: center; }
+  .stat {
+    min-width: 74px; padding: 6px 10px; border-radius: 10px; text-align: center;
+    background: rgba(18, 28, 56, .72); border: 1px solid rgba(124, 231, 255, .18);
+  }
+  .stat b { display: block; font-size: 19px; color: var(--cyan); font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 11px; color: #93a1c5; }
+
+  button {
+    font-family: inherit; font-size: 14px; cursor: pointer;
+    padding: 9px 16px; border-radius: 10px; border: 1px solid rgba(124, 231, 255, .3);
+    background: rgba(20, 32, 62, .85); color: #dbe6ff; transition: .16s;
+  }
+  button:hover { background: rgba(32, 50, 92, .95); border-color: var(--cyan); }
+  button.primary { background: linear-gradient(180deg, #ffd75e, #f0a72c); color: #2a1c00; border-color: #ffd75e; font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger:hover { border-color: var(--red); color: var(--red); }
+
+  .panel {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(920px, 92vw); max-height: 86vh; overflow: auto;
+    padding: 22px 26px 26px; border-radius: 18px;
+    background: rgba(9, 15, 32, .93); border: 1px solid rgba(124, 231, 255, .22);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+    backdrop-filter: blur(3px);
+  }
+  .panel h2 { margin: 0 0 6px; font-size: 22px; color: var(--gold); }
+  .hint { font-size: 13px; color: #93a1c5; line-height: 1.7; }
+  .hidden { display: none !important; }
+
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 14px 0 12px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .poem-card {
+    padding: 12px 10px; border-radius: 12px; cursor: pointer; text-align: center;
+    background: rgba(23, 35, 66, .88); border: 1px solid rgba(124, 231, 255, .16);
+  }
+  .poem-card:hover { border-color: var(--gold); transform: translateY(-2px); }
+  .poem-card .t { font-size: 17px; font-weight: 700; }
+  .poem-card .a { font-size: 11px; color: #93a1c5; margin: 3px 0 6px; }
+  .poem-card .s { font-size: 15px; color: var(--gold); letter-spacing: 2px; }
+  .poem-card .m { font-size: 11px; color: #7f8dae; margin-top: 5px; }
+  .poem-card .best { font-size: 11px; color: var(--jade); margin-top: 4px; min-height: 14px; }
+
+  #resultStars { font-size: 40px; color: var(--gold); letter-spacing: 8px; text-align: center; }
+  .result-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 12px; }
+  .cell { padding: 12px; border-radius: 12px; text-align: center; background: rgba(23, 35, 66, .85); }
+  .cell b { display: block; font-size: 26px; color: var(--cyan); font-variant-numeric: tabular-nums; }
+  .cell span { font-size: 12px; color: #93a1c5; }
+  .row { display: flex; gap: 12px; justify-content: center; margin-top: 8px; }
+
+  .banner {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    padding: 9px 18px; border-radius: 999px; font-size: 13px;
+    background: rgba(9, 15, 32, .9); border: 1px solid rgba(124, 231, 255, .25); color: #cfe0ff;
+  }
+  .banner.bad { border-color: var(--red); color: var(--red); }
+
+  /* 打对时飘起来的 +1 数字（DOM 层，和 three.js 粒子互补） */
+  .pop {
+    position: fixed; font-size: 15px; font-weight: 700; color: var(--jade);
+    pointer-events: none; animation: pop .7s ease-out forwards;
+  }
+  @keyframes pop { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-38px); } }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="hud">
+  <div>
+    <div id="poemTitle" class="hud-title">古诗词打字练习</div>
+    <div id="hudSub" class="hud-sub">选一首开始 · 照着拼音敲键盘</div>
+  </div>
+  <div class="hud-right">
+    <div class="stat"><b id="statKpm">0</b><span>键/分</span></div>
+    <div class="stat"><b id="statAcc">100</b><span>% 正确</span></div>
+    <div class="stat"><b id="statErr">0</b><span>错字</span></div>
+    <button id="btnMute" title="开关提示音">🔊 声音</button>
+    <button id="btnPick">换一首</button>
+    <button id="btnQuit" class="danger">退出</button>
+  </div>
+</div>
+
+<div id="picker" class="panel">
+  <h2>选一首开始练习</h2>
+  <p class="hint">照着每个字上面的拼音敲键盘：打对一个字就点亮一个字，打完一首放礼花。<br>
+     按 <b>Esc</b> 可以随时回到这个列表，按 <b>Enter</b> 重打当前这首。</p>
+  <div id="poemGrid" class="grid"></div>
+  <div id="scoresLine" class="hint"></div>
+</div>
+
+<div id="result" class="panel hidden">
+  <div id="resultStars">★★★</div>
+  <h2 id="resultTitle" style="text-align:center"></h2>
+  <div class="result-grid">
+    <div class="cell"><b id="rKpm">0</b><span>键/分</span></div>
+    <div class="cell"><b id="rAcc">0%</b><span>正确率</span></div>
+    <div class="cell"><b id="rTime">0s</b><span>用时</span></div>
+    <div class="cell"><b id="rErr">0</b><span>错字</span></div>
+  </div>
+  <div id="bestLine" class="hint" style="text-align:center"></div>
+  <div class="row">
+    <button id="btnAgain" class="primary">再打一次</button>
+    <button id="btnNext">换一首</button>
+  </div>
+</div>
+
+<div id="banner" class="banner">正在等待 cj-tauri 桥…</div>
+
+<script>
+/* ============================================================================
+ * 古诗词打字练习 —— 前端（单文件，零 Node、无构建）
+ *
+ * 分工：素材（诗 + 逐字拼音）与最好成绩都在仓颉侧，本页只经 invoke 取用；
+ * three.js 由仓颉侧 addInitScript() 注入，所以这里直接就能用 window.THREE。
+ *
+ * 打字单位是**音节**：一个字一个音节（「chuang」「qian」…），
+ * 敲对一串字母就点亮对应的那个字 —— 不需要输入法，纯字母练习，适合小学生上手。
+ * ========================================================================== */
+'use strict';
+
+var bridge = null;              // window.__CJ_TAURI__，等桥出现后再赋值
+var state = {
+  poems: [], records: {}, cfg: {},
+  current: null, line: 0, ch: 0, typed: '',
+  started: 0, correct: 0, errors: 0, finished: false,
+  mute: false, frames: 0, lastSave: null, mode: 'idle'   // idle | playing | done
+};
+
+function $(id) { return document.getElementById(id); }
+
+function banner(text, bad) {
+  var b = $('banner');
+  if (!text) { b.classList.add('hidden'); return; }
+  b.classList.remove('hidden');
+  b.textContent = text;
+  if (bad) { b.classList.add('bad'); } else { b.classList.remove('bad'); }
+}
+
+/* 前端不要在模块作用域直接读桥：桥是 document-start 注入的，但谁先执行都可能，
+   所以按仓内模板的写法**等桥出现**（AGENTS §4 的 Linux 注入顺序坑也是这么绕开的）。 */
+function waitForBridge(cb) {
+  if (window.__CJ_TAURI__) { bridge = window.__CJ_TAURI__; cb(); return; }
+  var tries = 0;
+  var timer = setInterval(function () {
+    tries++;
+    if (window.__CJ_TAURI__) {
+      clearInterval(timer);
+      bridge = window.__CJ_TAURI__;
+      cb();
+    } else if (tries > 200) {
+      clearInterval(timer);
+      banner('等不到 cj-tauri 桥：页面可能不是由宿主载入的', true);
+    }
+  }, 25);
+}
+
+function invoke(cmd, args) { return bridge.invoke(cmd, args || {}); }
+
+/* ---------------------------------------------------------------- 拼音工具 */
+
+/** 把一行的拼音拆成音节数组（仓颉侧保证个数 == 汉字个数，这里只拆） */
+function syllablesOf(line) { return line.pinyin.split(' '); }
+
+function poemTotal(p) {
+  var n = 0;
+  for (var i = 0; i < p.lines.length; i++) { n += syllablesOf(p.lines[i]).length; }
+  return n;
+}
+
+/** 当前正在打的音节：{char, syllable} */
+function currentSyllable() {
+  var p = state.current;
+  if (!p) { return null; }
+  var line = p.lines[state.line];
+  if (!line) { return null; }
+  return { char: line.text.charAt(state.ch), syllable: syllablesOf(line)[state.ch] };
+}
+
+function doneSyllables() {
+  var n = 0;
+  for (var i = 0; i < state.line; i++) { n += syllablesOf(state.current.lines[i]).length; }
+  return n + state.ch;
+}
+
+/* ---------------------------------------------------------------- 音效 */
+
+/* 用 WebAudio 现场合成，不引任何音频文件（示例保持零资源依赖）；
+   浏览器要求首次交互后才能出声，keydown 就是那个交互，所以懒创建 AudioContext。 */
+var actx = null;
+function beep(freq, dur, type, gain) {
+  if (state.mute) { return; }
+  try {
+    if (!actx) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      actx = new Ctx();
+    }
+    var o = actx.createOscillator();
+    var g = actx.createGain();
+    o.type = type || 'triangle';
+    o.frequency.value = freq;
+    g.gain.value = gain || 0.05;
+    o.connect(g); g.connect(actx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.stop(actx.currentTime + dur + 0.02);
+  } catch (e) { /* 没有音频设备也不该影响打字 */ }
+}
+
+/* ============================================================================
+ * 一、three.js 场景：星空背景 + 诗词卡片（CanvasTexture）+ 击键粒子 + 礼花
+ *
+ * 卡片上的字是**画在 canvas 上再贴成纹理**的（不是 DOM 文字）：这样整首诗
+ * 就真的长在 3D 平面上，能跟着镜头一起浮动、旋转，点亮的字形也随纹理一起变。
+ * 场景是纯装饰层 —— 即使 WebGL 起不来，打字玩法照样跑（见 initThree 的降级）。
+ * ========================================================================== */
+
+var three = {
+  ok: false, renderer: null, scene: null, camera: null, clock: null,
+  stars: null, card: null, cardCtx: null, cardTex: null, group: null,
+  sparks: null, confetti: null, shake: 0, flash: 0, dolly: 0, t: 0
+};
+var pointer = { x: 0, y: 0 };
+
+function makeRoundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y);
+  c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r);
+  c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  c.lineTo(x + r, y + h);
+  c.quadraticCurveTo(x, y + h, x, y + h - r);
+  c.lineTo(x, y + r);
+  c.quadraticCurveTo(x, y, x + r, y);
+  c.closePath();
+}
+
+/** 粒子场：一个 Points 顶全部粒子，靠 per-vertex 颜色 + 叠加混合做「亮起 / 淡出」 */
+function ParticleField(count, size) {
+  this.count = count;
+  this.cursor = 0;
+  this.pos = new Float32Array(count * 3);
+  this.col = new Float32Array(count * 3);
+  this.vel = new Float32Array(count * 3);
+  this.life = new Float32Array(count);
+  this.maxLife = new Float32Array(count);
+  this.base = new Float32Array(count * 3);
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
+  var mat = new THREE.PointsMaterial({
+    size: size, vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  this.points = new THREE.Points(geo, mat);
+}
+
+ParticleField.prototype.emit = function (x, y, z, hex, spread, life, up) {
+  var i = this.cursor;
+  this.cursor = (this.cursor + 1) % this.count;
+  var i3 = i * 3;
+  this.pos[i3] = x; this.pos[i3 + 1] = y; this.pos[i3 + 2] = z;
+  this.vel[i3] = (Math.random() - 0.5) * spread;
+  this.vel[i3 + 1] = (Math.random() - 0.3) * spread + (up || 0);
+  this.vel[i3 + 2] = (Math.random() - 0.5) * spread * 0.5;
+  var c = new THREE.Color(hex);
+  this.base[i3] = c.r; this.base[i3 + 1] = c.g; this.base[i3 + 2] = c.b;
+  this.col[i3] = c.r; this.col[i3 + 1] = c.g; this.col[i3 + 2] = c.b;
+  this.life[i] = life; this.maxLife[i] = life;
+};
+
+ParticleField.prototype.update = function (dt) {
+  for (var i = 0; i < this.count; i++) {
+    if (this.life[i] <= 0) { continue; }
+    var i3 = i * 3;
+    this.life[i] -= dt;
+    this.pos[i3] += this.vel[i3] * dt;
+    this.pos[i3 + 1] += this.vel[i3 + 1] * dt;
+    this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
+    this.vel[i3 + 1] -= 2.2 * dt;                       // 一点重力，粒子会落回去
+    var k = this.life[i] / this.maxLife[i];
+    if (k < 0) { k = 0; }
+    // 叠加混合下「颜色趋暗」就等于淡出，不必逐粒子改 alpha（PointsMaterial 只有一个 opacity）
+    this.col[i3] = this.base[i3] * k;
+    this.col[i3 + 1] = this.base[i3 + 1] * k;
+    this.col[i3 + 2] = this.base[i3 + 2] * k;
+    if (this.life[i] <= 0) {
+      this.col[i3] = 0; this.col[i3 + 1] = 0; this.col[i3 + 2] = 0;
+    }
+  }
+  this.points.geometry.attributes.position.needsUpdate = true;
+  this.points.geometry.attributes.color.needsUpdate = true;
+};
+
+/** 星空：一层点云，缓慢自转（不参与任何玩法逻辑，就是让背景不像 PPT） */
+function makeStarfield() {
+  var n = 1400;
+  var pos = new Float32Array(n * 3);
+  var col = new Float32Array(n * 3);
+  for (var i = 0; i < n; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 90;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * 55;
+    pos[i * 3 + 2] = -8 - Math.random() * 55;
+    var tint = Math.random();
+    col[i * 3] = 0.45 + tint * 0.4;
+    col[i * 3 + 1] = 0.62 + tint * 0.3;
+    col[i * 3 + 2] = 0.85 + tint * 0.15;
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  var mat = new THREE.PointsMaterial({
+    size: 0.22, vertexColors: true, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  });
+  return new THREE.Points(geo, mat);
+}
+
+/**
+ * 让画布跟着视口走
+ *
+ * 光靠 `resize` 事件不够：WebView2 把 WebView 创建出来时视口还是个临时尺寸（本机实测
+ * 初始化时是 961x1032，随后窗口才定到 1164x741），而那次尺寸变化没送到页面上——
+ * 结果画布停在旧尺寸、3D 场景被拉伸。所以每帧都比一次 `innerWidth/Height`：
+ * 两次比较而已，比依赖事件可靠（顺带把 DPI / 缩放变化也收进来）。
+ */
+var fitW = 0, fitH = 0;
+function fitViewport() {
+  var w = window.innerWidth, h = window.innerHeight;
+  if (w <= 0 || h <= 0 || (w === fitW && h === fitH)) { return; }
+  fitW = w; fitH = h;
+  three.renderer.setSize(w, h);
+  three.camera.aspect = w / h;
+  three.camera.updateProjectionMatrix();
+}
+
+function initThree() {
+  if (typeof THREE === 'undefined') {
+    banner('three.js 未注入：仍能照拼音打字，但没有 3D 场景', true);
+    return;
+  }
+  try {
+    three.renderer = new THREE.WebGLRenderer({ canvas: $('scene'), antialias: true, alpha: true });
+  } catch (e) {
+    banner('WebGL 起不来（' + e.message + '）：打字玩法不受影响', true);
+    return;
+  }
+  three.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+  three.scene = new THREE.Scene();
+  three.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+  three.camera.position.set(0, 0, 10.5);
+  three.clock = new THREE.Clock();
+  three.stars = makeStarfield();
+  three.scene.add(three.stars);
+  three.sparks = new ParticleField(420, 0.16);
+  three.confetti = new ParticleField(420, 0.26);
+  three.scene.add(three.sparks.points);
+  three.scene.add(three.confetti.points);
+
+  // 卡片：canvas 2400x1440 贴到 9x5.4 的平面上（2 倍超采样，缩放后字边缘干净）
+  var canvas = document.createElement('canvas');
+  canvas.width = 2400; canvas.height = 1440;
+  three.card = canvas;
+  three.cardCtx = canvas.getContext('2d');
+  three.cardTex = new THREE.CanvasTexture(canvas);
+  if (THREE.SRGBColorSpace) { three.cardTex.colorSpace = THREE.SRGBColorSpace; }
+  var mat = new THREE.MeshBasicMaterial({ map: three.cardTex, transparent: true });
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.4), mat);
+  three.group = new THREE.Group();
+  three.group.add(mesh);
+  three.scene.add(three.group);
+
+  window.addEventListener('resize', fitViewport);
+  window.addEventListener('mousemove', function (ev) {
+    pointer.x = (ev.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = (ev.clientY / window.innerHeight) * 2 - 1;
+  });
+  three.ok = true;
+  fitViewport();
+  paintCard();
+}
+
+/* ---------------------------------------------------------------- 卡面绘制 */
+
+/**
+ * 把当前进度画成卡片纹理（每次状态变化调一次）
+ *
+ * 三种状态的字各有颜色：已打完（玉绿）/ 正在打（白字 + 光标，拼音分「已敲对 / 待敲」两色）/
+ * 还没轮到（浅灰）。打错时边框转红——这是唯一能从 3D 场景里直接看出「刚才敲错了」的通道。
+ */
+function paintCard() {
+  if (!three.cardCtx) { return; }
+  var c = three.cardCtx, W = 2400, H = 1440;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, W, H);
+  makeRoundRect(c, 16, 16, W - 32, H - 32, 52);
+  c.fillStyle = 'rgba(9,15,34,0.88)';
+  c.fill();
+  c.lineWidth = 7;
+  c.strokeStyle = three.flash > 0 ? 'rgba(255,123,123,0.95)' : 'rgba(124,231,255,0.34)';
+  c.stroke();
+
+  var p = state.current;
+  c.textAlign = 'center';
+  c.textBaseline = 'alphabetic';
+  if (!p) {
+    c.font = 'bold 108px "KaiTi","STKaiti","Microsoft YaHei",serif';
+    c.fillStyle = '#ffd75e';
+    c.fillText('古诗词打字练习', W / 2, H / 2 - 30);
+    c.font = '52px "Microsoft YaHei",sans-serif';
+    c.fillStyle = '#93a1c5';
+    c.fillText('从右边列表里选一首开始', W / 2, H / 2 + 90);
+    three.cardTex.needsUpdate = true;
+    return;
+  }
+
+  c.font = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  c.fillStyle = '#ffd75e';
+  c.fillText('《' + p.title + '》', W / 2, 172);
+  c.font = '46px "Microsoft YaHei",sans-serif';
+  c.fillStyle = '#93a1c5';
+  c.fillText(p.dynasty + ' · ' + p.author, W / 2, 232);
+
+  var rows = p.lines.length;
+  var top = 340;
+  var rowH = Math.min(200, (H - top - 220) / rows);
+  var pyFont = 'bold 40px "Microsoft YaHei",sans-serif';
+  var charFont = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  for (var i = 0; i < rows; i++) {
+    var line = p.lines[i];
+    var syls = syllablesOf(line);
+    var step = 108;
+    var lineW = line.text.length * step;
+    var x0 = W / 2 - lineW / 2 + step / 2;
+    var y = top + i * rowH;
+    for (var j = 0; j < line.text.length; j++) {
+      var cx = x0 + j * step;
+      var isDone = (i < state.line) || (i === state.line && j < state.ch);
+      var isCur = (i === state.line && j === state.ch) && !state.finished;
+      var pinyin = syls[j] || '';
+
+      if (isCur) {
+        // 当前字：底下一个高亮块，拼音分两色（已敲对的字母玉绿、剩下的金色）+ 光标
+        makeRoundRect(c, cx - 60, y - 96, 120, 210, 22);
+        c.fillStyle = 'rgba(255,215,94,0.12)';
+        c.fill();
+        c.font = pyFont;
+        var fullW = c.measureText(pinyin).width;
+        var preW = c.measureText(state.typed).width;
+        var px = cx - fullW / 2;
+        c.textAlign = 'left';
+        c.fillStyle = '#7be38a';
+        c.fillText(state.typed, px, y - 26);
+        c.fillStyle = '#ffd75e';
+        c.fillText(pinyin.substring(state.typed.length), px + preW, y - 26);
+        c.fillStyle = '#ffffff';
+        c.fillRect(px + preW, y - 62, 5, 46);
+        c.textAlign = 'center';
+      } else {
+        c.font = pyFont;
+        c.fillStyle = isDone ? 'rgba(123,227,138,0.75)' : 'rgba(147,161,197,0.85)';
+        c.fillText(pinyin, cx, y - 26);
+      }
+
+      c.font = charFont;
+      c.fillStyle = isDone ? '#7be38a' : (isCur ? '#ffffff' : 'rgba(216,222,240,0.72)');
+      c.fillText(line.text.charAt(j), cx, y + 74);
+      if (isDone) {
+        // 打完的字下面画一道淡淡的横线，进度一眼可见
+        c.fillStyle = 'rgba(123,227,138,0.35)';
+        c.fillRect(cx - 34, y + 92, 68, 5);
+      }
+    }
+  }
+
+  // 底部进度条
+  var total = poemTotal(p);
+  var done = doneSyllables();
+  var bw = W - 320, bx = 160, by = H - 120;
+  makeRoundRect(c, bx, by, bw, 26, 13);
+  c.fillStyle = 'rgba(147,161,197,0.22)';
+  c.fill();
+  var frac = total > 0 ? done / total : 0;
+  if (frac > 0) {
+    makeRoundRect(c, bx, by, Math.max(26, bw * frac), 26, 13);
+    c.fillStyle = '#7be38a';
+    c.fill();
+  }
+  c.font = '38px "Microsoft YaHei",sans-serif';
+  c.fillStyle = '#a9b6d8';
+  c.fillText(done + ' / ' + total + ' 字', W / 2, by - 24);
+
+  three.cardTex.needsUpdate = true;
+}
+
+/**
+ * 第 i 句第 j 个字在**卡片局部坐标**里的位置
+ *
+ * 卡片是 9 x 5.4 的平面，行列位置按卡面的排版反推（与 paintCard 的 top/rowH 同一套算法）。
+ * 只求粒子 / 「+1」飘字出现在差不多对的地方，所以不引入任何投影矩阵反算。
+ */
+function cardPoint(i, j, cols, rows) {
+  var step = 9 / Math.max(1, cols);
+  var x = -4.5 + (j + 0.5) * step;
+  var y = rows <= 1 ? 0 : 1.55 - i * (3.1 / (rows - 1));
+  return { x: x, y: y };
+}
+
+/** 打对一个音节：在那个字的位置撒一点星光，并在屏幕上飘一个「+1」 */
+function burstAt(i, j, text) {
+  if (!three.ok || !state.current) { return; }
+  var line = state.current.lines[i];
+  var cols = line.text.length;
+  var rows = state.current.lines.length;
+  var pt = cardPoint(i, j, cols, rows);
+  for (var k = 0; k < 7; k++) {
+    three.sparks.emit(pt.x, pt.y + 0.3, 0.35, 0x7be38a, 2.2, 0.85, 1.1);
+  }
+  popAt(projectToScreen(pt.x, pt.y + 0.5, 0.35), text, '#7be38a');
+}
+
+/** 打完一首：礼花 + 镜头微微一推 */
+function celebrate() {
+  if (!three.ok) { return; }
+  var palette = [0xffd75e, 0x7be38a, 0x7ce7ff, 0xff9de2, 0xffffff];
+  for (var i = 0; i < 320; i++) {
+    three.confetti.emit(
+      (Math.random() - 0.5) * 7, 1.2 + Math.random() * 1.4, 0.6,
+      palette[i % palette.length], 5.5, 2.0 + Math.random() * 1.2, 2.6
+    );
+  }
+  three.dolly = 1.0;
+  beep(880, 0.18, 'triangle', 0.06);
+  setTimeout(function () { beep(1174, 0.22, 'triangle', 0.05); }, 140);
+  setTimeout(function () { beep(1568, 0.32, 'sine', 0.05); }, 300);
+}
+
+/** 3D → 屏幕坐标：给 DOM 层的「+1」用（投影只能这么算） */
+function projectToScreen(x, y, z) {
+  if (!three.ok) { return null; }
+  var v = new THREE.Vector3(x, y, z).project(three.camera);
+  return {
+    x: (v.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-v.y * 0.5 + 0.5) * window.innerHeight
+  };
+}
+
+function popAt(screen, text, color) {
+  if (!screen) { return; }
+  var d = document.createElement('div');
+  d.className = 'pop';
+  d.textContent = text;
+  d.style.left = (screen.x - 8) + 'px';
+  d.style.top = (screen.y - 10) + 'px';
+  if (color) { d.style.color = color; }
+  document.body.appendChild(d);
+  setTimeout(function () { if (d.parentNode) { d.parentNode.removeChild(d); } }, 720);
+}
+
+/** 每帧的场景更新（打字玩法一帧都没跑也不影响：这里只读状态） */
+function tickScene(dt) {
+  if (!three.ok) { return; }
+  three.t += dt;
+  three.stars.rotation.z += dt * 0.012;
+  three.stars.rotation.y += dt * 0.006;
+  three.sparks.update(dt);
+  three.confetti.update(dt);
+
+  three.shake = Math.max(0, three.shake - dt * 4.5);
+  three.flash = Math.max(0, three.flash - dt * 3.2);
+  three.dolly = Math.max(0, three.dolly - dt * 0.8);
+
+  var g = three.group;
+  g.position.y = 0.16 * Math.sin(three.t * 0.9);
+  g.rotation.y = 0.1 * Math.sin(three.t * 0.55) + pointer.x * 0.05;
+  g.rotation.z = 0.035 * Math.sin(three.t * 1.7) + three.shake * 0.05 * (Math.random() - 0.5);
+
+  // 镜头：跟着鼠标轻微视差，打完一首时往前推一点
+  var cam = three.camera;
+  cam.position.x += (pointer.x * 0.55 - cam.position.x) * Math.min(1, dt * 2.2);
+  cam.position.y += (-pointer.y * 0.35 - cam.position.y) * Math.min(1, dt * 2.2);
+  cam.position.z += ((10.5 - three.dolly * 1.1) - cam.position.z) * Math.min(1, dt * 2.5);
+  cam.lookAt(0, 0, 0);
+}
+/* ============================================================================
+ * 二、玩法与 UI 层
+ *
+ * 打字单位是音节：`typeLetter()` 只吃字母，不需要输入法（页面上没有 input 元素，
+ * 也就不会被输入法候选框抢走按键）。规则类的东西（星级门槛、成绩落盘）在仓颉侧，
+ * 页面只负责「量」：用时、键/分、正确率——这些是测量值，不是政策。
+ * ========================================================================== */
+
+function starText(n) {
+  var s = '';
+  for (var i = 0; i < 3; i++) { s += (i < n ? '★' : '☆'); }
+  return s;
+}
+
+function elapsedSeconds() {
+  if (!state.started) { return 0; }
+  return (Date.now() - state.started) / 1000;
+}
+
+/* ---------------------------------------------------------------- 选诗面板 */
+
+function renderPicker() {
+  var grid = $('poemGrid');
+  grid.innerHTML = '';
+  if (!state.poems.length) {
+    grid.innerHTML = '<div class="hint">诗库为空：检查仓颉侧 poem:list 的返回</div>';
+    return;
+  }
+  for (var i = 0; i < state.poems.length; i++) {
+    (function (p) {
+      var rec = state.records[p.id];
+      var card = document.createElement('div');
+      card.className = 'poem-card';
+      card.innerHTML =
+        '<div class="t">' + p.title + '</div>' +
+        '<div class="a">' + p.dynasty + ' ' + p.author + '</div>' +
+        '<div class="s">' + starText(p.stars) + '</div>' +
+        '<div class="m">' + p.syllables + ' 字</div>' +
+        '<div class="best">' + (rec ? ('最好 ★' + rec.bestStars + ' · ' + rec.bestKpm + ' 键/分') : '') + '</div>';
+      card.title = '点击开始《' + p.title + '》';
+      card.onclick = function () { startPoem(p); };
+      grid.appendChild(card);
+    })(state.poems[i]);
+  }
+  var trained = 0;
+  for (var k in state.records) { if (Object.prototype.hasOwnProperty.call(state.records, k)) { trained += 1; } }
+  $('scoresLine').textContent = trained > 0
+    ? ('已练过 ' + trained + ' 首。成绩由仓颉侧写在本机 ' + (state.cfg.scoresPath || 'typing-scores.local.json'))
+    : '还没有成绩：打完一首就会出现在这里（成绩由仓颉侧落盘，关了窗口也还在）';
+}
+
+/** 重新拉一次成绩（打完一首 / 回到选诗面板时） */
+function refreshScores() {
+  invoke('score:list').then(function (data) {
+    state.records = data || {};
+    renderPicker();
+  }).catch(function () { renderPicker(); });
+}
+
+/* ---------------------------------------------------------------- 流程 */
+
+function startPoem(p) {
+  state.current = p;
+  state.line = 0; state.ch = 0; state.typed = '';
+  state.started = 0; state.correct = 0; state.errors = 0;
+  state.finished = false; state.mode = 'playing';
+  $('picker').classList.add('hidden');
+  $('result').classList.add('hidden');
+  $('poemTitle').textContent = '《' + p.title + '》' + p.dynasty + '·' + p.author;
+  $('hudSub').textContent = p.syllables + ' 个字 · 照着拼音敲键盘';
+  banner('Enter 重打这首，Esc 换一首');
+  updateHud();
+  paintCard();
+  beep(520, 0.1, 'sine', 0.04);
+}
+
+function showPicker() {
+  state.mode = 'idle';
+  $('picker').classList.remove('hidden');
+  $('result').classList.add('hidden');
+  banner('');
+  $('banner').classList.add('hidden');
+  $('poemTitle').textContent = '古诗词打字练习';
+  $('hudSub').textContent = '选一首开始 · 照着拼音敲键盘';
+  paintCard();
+  refreshScores();
+}
+
+function restartCurrent() {
+  if (state.current) { startPoem(state.current); } else { showPicker(); }
+}
+
+/** 打完一首：礼花 → 结算面板；星级与「破纪录」由仓颉侧算（规则只有一处） */
+function finish() {
+  state.finished = true;
+  state.mode = 'done';
+  var p = state.current;
+  var seconds = elapsedSeconds();
+  var typed = state.correct + state.errors;
+  var acc = typed > 0 ? state.correct / typed : 1;
+  var kpm = seconds > 0 ? state.correct * 60 / seconds : 0;
+  celebrate();
+
+  $('resultStars').textContent = '···';
+  $('resultTitle').textContent = '《' + p.title + '》' + p.dynasty + '·' + p.author;
+  $('rKpm').textContent = Math.round(kpm);
+  $('rAcc').textContent = Math.round(acc * 100) + '%';
+  $('rTime').textContent = seconds.toFixed(1) + 's';
+  $('rErr').textContent = state.errors;
+  $('bestLine').textContent = '正在把成绩交给仓颉侧保存…';
+  $('result').classList.remove('hidden');
+
+  state.lastSave = invoke('score:save', {
+    id: p.id, title: p.title, seconds: seconds,
+    correct: state.correct, errors: state.errors, syllables: p.syllables
+  }).then(function (r) {
+    $('resultStars').textContent = starText(r.stars);
+    $('bestLine').textContent = (r.updated ? '🎉 新纪录！' : '这次没超过最好成绩（再打一次试试）') +
+      ' 最好成绩 ★' + r.bestStars + ' · ' + r.bestKpm + ' 键/分 · 第 ' + r.attempts + ' 次练习' +
+      (r.persisted ? '' : '（写盘失败，本轮成绩只在内存里）');
+    state.records[p.id] = r;
+    return r;
+  }).catch(function (e) {
+    $('resultStars').textContent = '';
+    $('bestLine').textContent = '成绩没能保存：' + e.message;
+    throw e;
+  });
+  return state.lastSave;
+}
+
+/* ---------------------------------------------------------------- 打字 */
+
+function currentSyllable() {
+  var p = state.current;
+  if (!p || state.line >= p.lines.length) { return null; }
+  var line = p.lines[state.line];
+  var syls = syllablesOf(line);
+  if (state.ch >= syls.length) { return null; }
+  return { char: line.text.charAt(state.ch), syllable: syls[state.ch] };
+}
+
+function updateHud() {
+  var typed = state.correct + state.errors;
+  var seconds = elapsedSeconds();
+  $('statKpm').textContent = Math.round(seconds > 0 ? state.correct * 60 / seconds : 0);
+  $('statAcc').textContent = typed > 0 ? Math.round(state.correct * 100 / typed) : 100;
+  $('statErr').textContent = state.errors;
+  if (state.mode === 'playing' && state.current) {
+    $('hudSub').textContent = '第 ' + (state.line + 1) + '/' + state.current.lines.length + ' 句 · 已打对 '
+      + state.correct + ' 字 · 当前音节 ' + (currentSyllable() ? currentSyllable().syllable : '—');
+  }
+}
+
+function typeLetter(ch) {
+  var cur = currentSyllable();
+  if (!cur) { return; }
+  if (!state.started) { state.started = Date.now(); }
+  var expect = cur.syllable.charAt(state.typed.length);
+  if (ch === expect) {
+    state.typed += ch;
+    state.correct += 1;
+    beep(600 + state.typed.length * 45, 0.05, 'triangle', 0.03);
+    if (state.typed.length >= cur.syllable.length) {
+      // 一个字打完：撒星光 + 飘字，然后推进（行末就换行，全诗完就结算）
+      burstAt(state.line, state.ch, cur.char);
+      beep(980, 0.09, 'sine', 0.045);
+      state.typed = '';
+      state.ch += 1;
+      var syls = syllablesOf(state.current.lines[state.line]);
+      if (state.ch >= syls.length) {
+        state.line += 1;
+        state.ch = 0;
+        if (state.line >= state.current.lines.length) {
+          paintCard();
+          updateHud();
+          finish();
+          return;
+        }
+      }
+    }
+    paintCard();
+  } else {
+    state.errors += 1;
+    three.flash = 1;
+    three.shake = 1;
+    beep(170, 0.1, 'square', 0.035);
+    paintCard();
+  }
+  updateHud();
+}
+
+/** 键盘入口：只吃字母键（数字 / 标点 / 空格不参与，避免小朋友误触被记错） */
+function onKeyDown(ev) {
+  if (ev.ctrlKey || ev.altKey || ev.metaKey) { return; }
+  var k = ev.key;
+  if (k === 'Escape') { showPicker(); ev.preventDefault(); return; }
+  if (k === 'Enter') {
+    if (state.mode === 'done' || state.mode === 'playing') { restartCurrent(); }
+    ev.preventDefault();
+    return;
+  }
+  if (state.mode !== 'playing' || state.finished) { return; }
+  if (!/^[a-zA-Z]$/.test(k)) { return; }
+  ev.preventDefault();
+  typeLetter(k.toLowerCase());
+}
+
+/* ---------------------------------------------------------------- 装配与主循环 */
+
+function wireButtons() {
+  $('btnPick').onclick = showPicker;
+  $('btnAgain').onclick = restartCurrent;
+  $('btnNext').onclick = showPicker;
+  $('btnQuit').onclick = function () { invoke('typing:quit'); };
+  $('btnMute').onclick = function () {
+    state.mute = !state.mute;
+    $('btnMute').textContent = state.mute ? '🔇 静音' : '🔊 声音';
+  };
+}
+
+var hudTick = 0;
+function startLoop() {
+  function frame() {
+    requestAnimationFrame(frame);
+    var dt = three.clock ? Math.min(0.05, three.clock.getDelta()) : 0.016;
+    state.frames += 1;
+    tickScene(dt);
+    if (three.ok) {
+      fitViewport();
+      three.renderer.render(three.scene, three.camera);
+    }
+    hudTick += 1;
+    if (hudTick % 6 === 0 && state.mode === 'playing' && !state.finished) { updateHud(); }
+  }
+  requestAnimationFrame(frame);
+}
+
+function boot() {
+  waitForBridge(function () {
+    initThree();
+    wireButtons();
+    window.addEventListener('keydown', onKeyDown);
+    invoke('typing:config').then(function (cfg) {
+      state.cfg = cfg || {};
+      return Promise.all([invoke('poem:list'), invoke('score:list')]);
+    }).then(function (res) {
+      state.poems = res[0] || [];
+      state.records = res[1] || {};
+      $('banner').classList.add('hidden');
+      renderPicker();
+      startLoop();
+      if (state.cfg.selfCheck) { runSelfCheck(); }
+    }).catch(function (e) {
+      banner('初始化失败（' + e.message + '）', true);
+    });
+  });
+}
+
+/* ============================================================================
+ * 三、自检通道（`run.bat selfcheck` → CJ_TYPING_SELFCHECK=1）
+ *
+ * 为什么值得占这么一段：这个示例的取证不能靠「人盯着窗口看」，得让**进程自己**把
+ * 关键通路跑一遍并回传断言结果——三条通道各有各的翻车方式（three.js 注入、打字与结算、
+ * 能力校验），跑一遍就知道是哪一环坏了，不必在 GUI 上猜。
+ *
+ * 每条断言经 `report` 命令回传，由仓颉侧原样打 stderr（stderr 是即时落盘的，见 AGENTS §4）；
+ * 按键一律用 `dispatchEvent` 走**真实的 keydown 通路**，不另写一条「测试专用」的输入路径。
+ * 这段用了 async/await（读起来是顺序的），页面其余部分是 ES5 风格；两个引擎都支持，不冲突。
+ * ========================================================================== */
+
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+/** 读卡面纹理上的一个像素：用来断言「卡片真的画上去了、并且真的在变」，不靠肉眼看窗口 */
+function cardPixel(x, y) {
+  if (!three.cardCtx) { return null; }
+  var d = three.cardCtx.getImageData(x, y, 1, 1).data;
+  return [d[0], d[1], d[2], d[3]];
+}
+
+/** 合成一次真实按键（走 window 上的 keydown 监听，与小朋友敲键盘同一条路径） */
+function pressKey(key) {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }));
+}
+
+/** 把一首诗的每个音节逐字母敲出来（返回敲了多少个字母） */
+async function typePoem(p, delayMs) {
+  var keys = 0;
+  for (var i = 0; i < p.lines.length; i++) {
+    var syls = syllablesOf(p.lines[i]);
+    for (var j = 0; j < syls.length; j++) {
+      for (var k = 0; k < syls[j].length; k++) {
+        pressKey(syls[j].charAt(k));
+        keys += 1;
+        await sleep(delayMs);
+      }
+    }
+  }
+  return keys;
+}
+
+/** 期望被拒的命令：返回错误文本（没被拒就返回 '(no error)'，本身就是 FAIL 证据） */
+async function expectReject(cmd) {
+  try {
+    await invoke(cmd, {});
+    return '(no error)';
+  } catch (e) {
+    return (e && e.message) ? e.message : String(e);
+  }
+}
+
+async function runSelfCheck() {
+  var pass = 0, fail = 0, started = Date.now();
+  state.mute = true;                              // 自检不发声（不建 AudioContext）
+
+  async function check(name, cond, extra) {
+    var line = (cond ? 'PASS ' : 'FAIL ') + name + (extra ? ('  [' + extra + ']') : '');
+    if (cond) { pass += 1; } else { fail += 1; }
+    try { await invoke('report', { line: line }); } catch (e) { /* 报告本身失败也要继续跑 */ }
+    return cond;
+  }
+  async function info(text) {
+    try { await invoke('report', { line: text }); } catch (e) { /* 同上 */ }
+  }
+
+  try {
+    await info('自检开始：three.js 注入 → 素材 → 打字 → 结算 → 能力校验');
+
+    // ---- 1. 预执行脚本通道：three.js 真的在页面上 ----
+    var hasThree = (typeof THREE === 'object');
+    await check('three.js 经 addInitScript 注入', hasThree && THREE.REVISION === '160',
+      'REVISION=' + (hasThree ? THREE.REVISION : 'undefined'));
+    await check('WebGL 渲染器已建立', three.ok,
+      three.ok ? 'canvas=' + $('scene').width + 'x' + $('scene').height : '未建立（场景降级）');
+
+    // ---- 2. 素材：仓颉侧发来的诗库，页面对照汉字与音节 ----
+    var poems = await invoke('poem:list');
+    await check('poem:list 返回 10 首', Array.isArray(poems) && poems.length === 10, 'count=' + (poems ? poems.length : 'n/a'));
+    var mismatch = [];
+    var totalChars = 0, totalLetters = 0;
+    for (var i = 0; i < poems.length; i++) {
+      var p = poems[i];
+      var chars = 0, letters = 0;
+      for (var li = 0; li < p.lines.length; li++) {
+        var syls = syllablesOf(p.lines[li]);
+        if (syls.length !== p.lines[li].text.length) {
+          mismatch.push(p.id + ':' + (li + 1) + ' 句 ' + p.lines[li].text.length + ' 字 / ' + syls.length + ' 音节');
+        }
+        chars += p.lines[li].text.length;
+        for (var sj = 0; sj < syls.length; sj++) { letters += syls[sj].length; }
+      }
+      totalChars += chars;
+      totalLetters += letters;
+      if (chars !== p.syllables) { mismatch.push(p.id + ' 字数 ' + chars + ' != 声明 ' + p.syllables); }
+    }
+    await check('每句的汉字数与音节数一一对齐', mismatch.length === 0,
+      mismatch.length === 0 ? (totalChars + ' 字 / ' + totalLetters + ' 个字母') : mismatch.join('; '));
+    var bad = poems[0].title !== '咏鹅' || poems[0].stars < 1 || poems[0].stars > 3;
+    await check('第一首是《咏鹅》，星级在 1..3', !bad, poems[0].title + ' ★' + poems[0].stars);
+
+    // ---- 3. 成绩与运行模式 ----
+    var scores = await invoke('score:list');
+    await check('score:list 返回 JSON 对象', scores && typeof scores === 'object' && !Array.isArray(scores));
+    await check('typing:config 报出 selfCheck=true 与成绩路径',
+      state.cfg.selfCheck === true && !!state.cfg.scoresPath && state.cfg.poems === 10,
+      'scoresPath=' + state.cfg.scoresPath + ' poems=' + state.cfg.poems);
+
+    // ---- 4. 渲染循环在跑（帧数只增不减） ----
+    // 门槛故意放得很低：窗口被遮住 / 不在前台时 WebView2 会把 rAF 节流（实测 500ms 只有 19 帧），
+    // 这条断言要证明的是「循环活着」，不是「跑到 60fps」——帧数原样报出来即可。
+    await info('视口：inner=' + window.innerWidth + 'x' + window.innerHeight
+      + ' dpr=' + window.devicePixelRatio + ' screen=' + screen.width + 'x' + screen.height
+      + ' canvasCSS=' + $('scene').clientWidth + 'x' + $('scene').clientHeight
+      + ' canvasBuf=' + $('scene').width + 'x' + $('scene').height);
+    var f0 = state.frames;
+    await sleep(1000);
+    await check('requestAnimationFrame 循环在推进', state.frames - f0 >= 5,
+      '1s 内 ' + (state.frames - f0) + ' 帧');
+    await check('画布尺寸跟窗口一致（不靠 resize 事件也不会走样）',
+      $('scene').clientWidth === window.innerWidth && $('scene').clientHeight === window.innerHeight,
+      'viewport=' + window.innerWidth + 'x' + window.innerHeight
+        + ' canvas=' + $('scene').clientWidth + 'x' + $('scene').clientHeight);
+
+    // ---- 5. 打字：先故意敲错两下，再照拼音打完《咏鹅》 ----
+    var poem = poems[0];
+    startPoem(poem);
+    await sleep(60);
+    await check('结算面板在开始时收起', $('result').classList.contains('hidden') && $('picker').classList.contains('hidden'));
+    var barBefore = cardPixel(400, 1332);
+    await check('卡面纹理真的画上了（进度条底色不透明）',
+      !!barBefore && barBefore[3] > 0, barBefore ? ('rgba(' + barBefore.join(',') + ')') : 'n/a');
+
+    var firstSyl = syllablesOf(poem.lines[0])[0];
+    var wrongKey = (firstSyl.charAt(0) === 'z') ? 'x' : 'z';
+    pressKey(wrongKey);        // 错键 1
+    await sleep(20);
+    pressKey(wrongKey);        // 错键 2
+    await sleep(20);
+    await check('敲错两次被记为 2 个错字、0 个对字',
+      state.errors === 2 && state.correct === 0 && state.started > 0,
+      'errors=' + state.errors + ' correct=' + state.correct);
+    await check('敲错时卡片边框转红（3D 反馈）', three.flash > 0, 'flash=' + three.flash.toFixed(2));
+
+    var letters = await typePoem(poem, 14);
+    await sleep(120);
+    await check('整首打完：正确数 == 字母总数', state.correct === letters,
+      'correct=' + state.correct + ' 期望 ' + letters);
+    await check('错字仍为 2（不因后续正确而漂移）', state.errors === 2, 'errors=' + state.errors);
+    await check('进度推进到末行之后（触发结算）',
+      state.finished === true && state.line >= poem.lines.length,
+      'finished=' + state.finished + ' line=' + state.line + '/' + poem.lines.length);
+    var barAfter = cardPixel(400, 1332);
+    await check('打完一首后进度条由灰转绿（纹理确实在更新）',
+      !!barAfter && !!barBefore && barAfter[1] > barBefore[1] + 20,
+      'before=g' + (barBefore ? barBefore[1] : 'n/a') + ' after=g' + (barAfter ? barAfter[1] : 'n/a'));
+
+    // ---- 6. 结算：成绩经 IPC 交给仓颉侧，再读回来 ----
+    var saved = null;
+    try { saved = await state.lastSave; } catch (e) { saved = null; }
+    await check('score:save 回投了星级与成绩', !!saved && typeof saved.stars === 'number' && saved.stars >= 1 && saved.stars <= 3,
+      saved ? ('★' + saved.stars + ' ' + saved.kpm + ' 键/分 ' + saved.accuracy + '% 破纪录=' + saved.updated) : '无回投');
+    await check('成绩已落盘（persisted=true）', !!saved && saved.persisted === true,
+      saved ? ('attempts=' + saved.attempts) : 'n/a');
+    var after = await invoke('score:list');
+    var rec = after ? after[poem.id] : null;
+    await check('score:list 复查：《咏鹅》已有纪录', !!rec && rec.attempts >= 1 && rec.bestKpm > 0,
+      rec ? ('attempts=' + rec.attempts + ' bestKpm=' + rec.bestKpm + ' bestStars=' + rec.bestStars) : '无纪录');
+
+    // ---- 7. 能力校验与命令注册（负面对照：没声明的必须被拒） ----
+    var version = await invoke('system:version');
+    await check('system:version 可调用（能力清单里已声明）',
+      !!version && typeof version === 'object' && typeof version.version === 'string' && version.version.length > 0,
+      'name=' + version.name + ' version=' + version.version + ' platform=' + version.platform);
+    var notAllowed = await expectReject('system:devtools');
+    await check('未声明能力位的命令被拒（command not allowed）', notAllowed.indexOf('not allowed') >= 0, notAllowed);
+    // 两条闸门是有顺序的：先能力、后注册——下面两条各自咬住其中一条
+    var notDeclared = await expectReject('typing:nope');
+    await check('既没声明也没注册的，先被能力闸门拦下', notDeclared.indexOf('not allowed') >= 0, notDeclared);
+    var notReg = await expectReject('poem:nope');
+    await check('清单里声明了但没注册的，报 command not registered', notReg.indexOf('not registered') >= 0, notReg);
+    var badSave = '(no error)';
+    try { await invoke('score:save', { id: '', correct: 0 }); } catch (e) { badSave = e.message; }
+    await check('score:save 参数不合法时明确报错', badSave.indexOf('id') >= 0 || badSave.indexOf('correct') >= 0, badSave);
+
+    var secs = ((Date.now() - started) / 1000).toFixed(1);
+    await info('自检结束：' + pass + ' passed, ' + fail + ' failed, 用时 ' + secs + 's');
+  } catch (e) {
+    await check('自检过程本身没有抛异常', false, (e && e.message) ? e.message : String(e));
+  }
+
+  await sleep(100);
+  await invoke('typing:quit');     // 自检跑完自己收尾（有人值守时也能看到汇总行已落盘）
+}
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "poem:list",
+    "score:save",
+    "score:list",
+    "typing:config",
+    "typing:quit",
+    "report",
+    "system:version",
+    "poem:nope"
+  ],
+  "events": []
+}

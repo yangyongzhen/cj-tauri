@@ -149,6 +149,16 @@
   （`String.size` 同样是字节数）；按码点数汉字要自己判 UTF-8 首字节（`(b & 0xC0u8) != 0x80u8`）。
   新示例的素材自检正是踩在这条上：3 个字的「鹅鹅鹅」被数成 9，汉字 / 拼音对齐检查整条失效
   （ASCII 的检查——空格、制表符——照样对，所以只错汉字）。
+- **示例可打成单文件包（`scripts/pack-win-single.sh`）**：把示例编译成**一个 exe**——仓颉运行时 / std / stdx
+  静态链接（`--static --static-std --static-libs` + stdx 的 static 包）、C 桥编成静态归档 `libcjtbridge.a`
+  直接链进去、`WebView2Loader.dll` 的字节编进桥（首次运行释放到 `%TEMP%\cj-tauri-loader\` 再加载）、
+  页面 / three.js / 能力清单 base64 内嵌（打包脚本生成 `src/packed_assets.cj`，仓库里那份是空存根，
+  正常构建照旧读盘）。脚本末尾**自检导入表**：还依赖 `libcangjie-runtime.dll` / `libcjtbridge.dll` /
+  `WebView2Loader.dll` / `libboundscheck.dll` 就直接失败。`examples/typing-poem` 实测（2026-10-07，Windows）：
+  28.8 MB → strip 后 **5.5 MB**，导入表只剩 msvcrt / KERNEL32 / SHELL32 / dbghelp / comdlg32 / USER32 /
+  ole32 / WS2_32；实机自检 `57 passed, 0 failed`，窗口创建（`set window: … size=1180x780`）、
+  `ExecuteScript -> hr=0x00000000`，内嵌资源字节数与源文件**逐字节吻合**（页面 107962 / three.js 669884）。
+  用法与两条坑见 `docs/使用文档.md` §11、`AGENTS.md` §4。
 
 ### Changed
 

@@ -140,10 +140,14 @@
   （实测成绩文件里 `bestAccuracy` 涨到 `9630000000000000`）能把整条命令带走。凡是「算出来再落盘 / 回投」的量，
   **读与写必须同一口径**（同一字段一边按百分比、一边按分数，就会每轮 ×100 复利式发散），
   并且转换前**先夹范围**（`round1()` 现在有兜底），别指望异常会告诉你——见下一条。
-- **命令 handler 抛异常时框架只回 `reject`、仓颉侧 stderr 一行都不打**（`IpcHub.runCommand` 的两个 catch；
-  事件监听器那条路反而有 `event listener failed`，两者不对称）。所以命令「没反应」时**别把「日志里没有错误行」
-  当成「命令成功了」**——示例/插件要让页面把 reject 也回投（`report`）才能定位；本轮打字练习的自检
-  就是这么抓到「成绩再也存不下」的。想给框架补一行日志是合理的（未做）。
+- **命令 handler 抛异常要留一行 stderr，别让失败无声**（`3de499d` 已补，2026-10-07）：`IpcHub.runCommand`
+  的两个 catch 此前**只回 `reject`、仓颉侧 stderr 一行都不打**（事件监听器那条路反而有 `event listener failed`，
+  两者不对称），于是命令「没反应」时端到端日志里毫无凭证。现在分别打
+  `[cj-tauri] command rejected (<命令>): <message>`（应用级拒绝）与 `command failed (<命令>): <异常>`
+  （非预期失败），**前缀不同便于 `grep` 分流**，**回投给前端的报文一字未变**。
+  注意教训仍在：**「日志里没有错误行」不等于「命令成功了」**——页面没接 `catch` 时失败只在页面上可见，
+  示例/插件仍应把 reject 也回投（`report`），别把「没抓到 reject」读成「成功」
+  （打字练习的 `score:save` 全废十几轮就是这么被抓到的）。
 
 **平台与工具链**
 
@@ -182,6 +186,20 @@
   `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`）。
   打包用 `scripts/pack-win.sh`（已覆盖这两个），别手工抄 DLL 清单（实测 2026-10-06：`examples/movie`
   的便携包第一版就是这么挂的）。
+- **单文件包（`scripts/pack-win-single.sh`）里 loader 必须内嵌释放，不能静态链**：SDK 的
+  `WebView2LoaderStatic.lib` 是 MSVC 编的，要 `/GS` 的 `__security_cookie` 与 C++ 运行时符号
+  （`?nothrow@std@@`、`_Init_thread_epoch` …），mingw 实测链接失败
+  （`ld.lld: undefined symbol: __security_cookie`）。做法是把它当**资源**：DLL 字节用 `od` 生成 C 头、
+  随静态桥一起编进 exe（`-DCJ_EMBED_WEBVIEW2_LOADER` + `native/bridge_win.c` 的 `unpack_embedded_loader`），
+  首次运行释放到 `%TEMP%\cj-tauri-loader\` 再按绝对路径 `LoadLibraryW`（幂等：比大小；失败把错在哪一步打进 stderr）。
+  取证判据：未修前那一轮 stderr 只有 `WebView2Loader.dll not found`，修好后同一份 exe 自检 57 passed / 0 failed。
+- **mingw 的 `swprintf` 里 `%s` 收的是 `char*` 而不是 `wchar_t*`**（默认方言走 MSVCRT 语义）：
+  拿它拼宽字符路径得到的是垃圾，而且**不报错**——单文件包第一版就只留了一句
+  `failed to unpack embedded WebView2Loader.dll`，毫无线索。C 桥里拼宽字符串一律用
+  `lstrcpyW` / `lstrcatW`（`windows.h` 自带，不碰 CRT 方言）。
+- **cjpm 的 `path-option` 写 Windows 路径别用反斜杠**：TOML 基本字符串里 `\c` 是非法转义，
+  `cjpm build` 直接以 `errLexEscape` 失败（`D:\cangjie-stdx\...` 得写成 `D:\\cangjie-stdx\\...`）。
+  生成 toml 的脚本用正斜杠（`D:/cangjie-stdx/...`）：cjpm 与 gcc 都认，省掉这层转义。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
 - Linux 宿主：桥接脚本必须**在 document start 注入**（`WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`）——
@@ -257,7 +275,7 @@
   唯一例外是功能必需的两处：`.github/workflows/` 下的 GitHub Actions workflow（npm trusted publishing 只支持
   GitHub / GitLab / CircleCI 三家）；`npm/package.json` 的 `repository.url`（必须精确等于 GitHub 仓库名，
   否则 npm 以 `E422` 拒绝发布）。
-- 不提交：`target/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
+- 不提交：`target/`、`dist-win/`、`dist-single/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。

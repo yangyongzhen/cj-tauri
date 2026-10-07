@@ -290,6 +290,8 @@ examples/typing-poem/
   run.bat                    # Windows 启动脚本（纯 ASCII；支持 run.bat selfcheck）
   README.md                  # 本文件
   src/main.cj                # 装配：窗口配置 → 注册命令 → 读页面与 three.js → run()
+  src/packed_resources.cj    # 内嵌资源取用（base64 解码 / 内嵌优先 / 逗号切分），单文件包用
+  src/packed_assets.cj       # 内嵌资源常量：仓库里为空存根（⇒ 读盘），打包脚本覆盖成 base64
   src/poems.cj               # 诗库（108 首 / 2996 音节）+ 星级 + 启动自检 checkPoemData()
   src/commands.cj            # 六个命令 + 成绩存储 ScoreStore + 星级门槛 + 两个验收钩子
   ui/index.html              # 前端单页：样式 + three.js 场景 + 打字逻辑（无构建）
@@ -301,3 +303,27 @@ examples/typing-poem/
 想从零起一个自己的应用（而不是改本例），用脚手架：
 `cli\cj-tauri.bat create <名字> --template app|vue|react`。
 想先把「cj-tauri 是怎么用的」读一遍，见 [`docs/仓颉版Tauri-打字游戏实战.md`](../../docs/仓颉版Tauri-打字游戏实战.md)。
+
+## 10. 单文件打包（一个 exe 发出去）
+
+`scripts/pack-win-single.sh` 把本示例打成**一个 exe**（仓颉运行时 / std / stdx 静态链接、C 桥静态归档、
+loader 与页面全部内嵌），目标机不需要仓颉 SDK、也不需要任何随行文件：
+
+```bash
+bash scripts/pack-win-single.sh                       # 在仓根执行，默认打本示例
+bash scripts/pack-win-single.sh examples/typing-poem   # 也可以显式指定
+```
+
+产物 `examples/typing-poem/dist-single/typing-poem.exe`（`dist-single/` 不入库）。实测（2026-10-07，Windows）：
+
+| 指标 | 值 |
+|---|---|
+| 体积 | 28.8 MB → strip 后 **5.5 MB** |
+| 导入表 | 只剩系统库：msvcrt / KERNEL32 / SHELL32 / dbghelp / comdlg32 / USER32 / ole32 / WS2_32 |
+| 内置自检 | `[frontend] 自检结束：57 passed, 0 failed, 用时 3.6s` |
+| 内嵌资源 | 页面 107962 字节、three.js 669884 字节（**与源文件逐字节吻合**） |
+| 桥日志 | `set window: title=古诗词打字练习 · cj-tauri size=1180x780`、`ExecuteScript -> hr=0x00000000` |
+
+自己复验：双击 exe，或按 §6.1 的自检钩子（先 `set CJ_TYPING_SELFCHECK=1` 再启动），stderr 会给出上表那几行。
+实现细节与踩到的两条坑（`WebView2LoaderStatic.lib` mingw 链不上、mingw `swprintf` 的 `%s` 是 `char*`）
+见 [`docs/使用文档.md`](../../docs/使用文档.md) §11 与 `AGENTS.md` §4。

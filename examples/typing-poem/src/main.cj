@@ -2,6 +2,7 @@ package typing_poem
 
 import std.env.*
 import std.fs.*
+import stdx.encoding.json.*
 import cjTauri.*
 
 /**
@@ -18,6 +19,10 @@ import cjTauri.*
  *
  * 为什么页面与 three.js 都要按**相对路径从项目根读**：`capabilities/` 是同一套约定，
  * 启动器（`run.bat`）负责把工作目录切到本示例目录，应用只按相对路径取。
+ *
+ * 唯一的例外是**单文件打包产物**（`scripts/pack-win-single.sh`）：那时页面 / three.js / 能力清单
+ * 都由打包脚本以 base64 内嵌进二进制（见 `src/packed_assets.cj` 与 `src/packed_resources.cj`），
+ * 产物只有一个 exe、没有任何随行文件。两条路的差别只在「字节从哪来」，玩法与命令一行不改。
  */
 
 let UI_PATH = "ui/index.html"
@@ -44,8 +49,11 @@ main(): Int64 {
         eprintln("[typing] 素材有 ${bad} 处对不上：游戏里会在那些字上卡住，请先修 src/poems.cj")
     }
 
-    let html = readTextFile(UI_PATH, "前端页面")
-    let three = readTextFile(THREE_PATH, "three.js")
+    // 字节从哪来有两条路，玩法一行不改：
+    //   · 仓库内构建：`src/packed_assets.cj` 的三个常量为空 ⇒ 按相对路径从 ui/ 读盘（改页面刷新即可看效果）；
+    //   · 单文件打包：打包脚本把三个常量替换成 base64 ⇒ 页面与 three.js 都在二进制里，产物只有一个 exe。
+    let html = textOrFile(PACKED_UI_B64, UI_PATH, "前端页面")
+    let three = textOrFile(PACKED_THREE_B64, THREE_PATH, "three.js")
 
     var app = TauriApp().window(WindowConfig("古诗词打字练习 · cj-tauri", 1180, 780))
     let store = ScoreStore(SCORES_PATH)
@@ -55,6 +63,19 @@ main(): Int64 {
     app.register("typing:config", TypingConfigCommand())
     app.register("report", ReportCommand())
     app.register("typing:quit", QuitCommand(app))
+
+    // 能力清单：内嵌优先（打包产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[typing] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
+    }
 
     // three.js 经「预执行脚本」通道注入（document-start，排在桥 JS 之后）——这是本示例唯一一处
     // 不直白的地方，理由值得记下来：页面是 run(html) 的内联来源，Windows 下由 `NavigateToString`

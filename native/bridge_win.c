@@ -674,6 +674,102 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 /* ===== 宿主线程（对标 tao 的事件循环线程）===== */
 
+/* WebView2Loader 的两种加载方式：
+     · 默认（动态桥 / 便携包）：运行期按名字找 WebView2Loader.dll（exe 目录或 PATH）；
+     · 单文件产物（-DCJ_EMBED_WEBVIEW2_LOADER）：把 loader 的字节直接编进 exe，首次运行时
+       释放到 %TEMP%\cj-tauri-loader\ 再按绝对路径加载（幂等：大小一致就不重写）。
+   为什么不是「静态链 WebView2LoaderStatic.lib」：那份 .lib 是 MSVC 编的，要 /GS 的
+   __security_cookie 与 C++ 运行时符号（?nothrow@std@@、_Init_thread_epoch …），
+   2026-10-07 mingw 实测链接失败（ld.lld: undefined symbol: __security_cookie）。 */
+#ifdef CJ_EMBED_WEBVIEW2_LOADER
+#include "webview2_loader_embed.h"   /* 打包脚本生成的 C 头：字节数组 + 长度 */
+
+static int write_bytes(HANDLE f, const unsigned char *p, DWORD total) {
+    DWORD off = 0;
+    while (off < total) {
+        DWORD wrote = 0;
+        if (!WriteFile(f, p + off, total - off, &wrote, NULL) || wrote == 0) {
+            return 0;
+        }
+        off += wrote;
+    }
+    return 1;
+}
+
+/* 把内嵌的 loader 释放成文件，成功时把绝对路径写进 out。
+   路径拼接一律用 lstrcpyW/lstrcatW：mingw 的 swprintf 在默认方言下走 MSVCRT 语义，
+   `%s` 收的是 char* 而不是 wchar_t* —— 拼出来是垃圾路径，而且失败时一声不响
+   （2026-10-07 实测：日志只有一句 "failed to unpack embedded WebView2Loader.dll"）。 */
+static int unpack_embedded_loader(wchar_t *out, DWORD cap) {
+    wchar_t tmp[MAX_PATH];
+    wchar_t dir[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, tmp);
+    if (n == 0 || n + 32 >= MAX_PATH) {
+        fprintf(stderr, "[cj-bridge] embedded loader: GetTempPathW failed: err=%lu\n",
+                GetLastError());
+        return 0;
+    }
+    lstrcpyW(dir, tmp);
+    lstrcatW(dir, L"cj-tauri-loader");
+    if (!CreateDirectoryW(dir, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        fprintf(stderr, "[cj-bridge] embedded loader: CreateDirectoryW(%ls) err=%lu\n",
+                dir, GetLastError());
+        /* 建不出来也不立刻放弃：目录可能本来就存在且可写 */
+    }
+    lstrcpyW(out, dir);
+    lstrcatW(out, L"\\WebView2Loader.dll");
+    {
+        WIN32_FILE_ATTRIBUTE_DATA attr;
+        if (GetFileAttributesExW(out, GetFileExInfoStandard, &attr)) {
+            LARGE_INTEGER sz;
+            sz.HighPart = (LONG)attr.nFileSizeHigh;
+            sz.LowPart = attr.nFileSizeLow;
+            if (sz.QuadPart == (LONGLONG)CJ_WV2_LOADER_SIZE) {
+                return 1;                  /* 已经释放过同一份 */
+            }
+        }
+    }
+    {
+        HANDLE f = CreateFileW(out, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+        int ok;
+        if (f == INVALID_HANDLE_VALUE) {
+            fprintf(stderr, "[cj-bridge] embedded loader: CreateFileW(%ls) err=%lu\n",
+                    out, GetLastError());
+            return 0;
+        }
+        ok = write_bytes(f, CJ_WV2_LOADER_BYTES, (DWORD)CJ_WV2_LOADER_SIZE);
+        CloseHandle(f);
+        if (!ok) {
+            fprintf(stderr, "[cj-bridge] embedded loader: WriteFile failed: err=%lu\n",
+                    GetLastError());
+        }
+        return ok;
+    }
+}
+
+static HMODULE load_webview2_loader(void) {
+    wchar_t path[MAX_PATH];
+    if (unpack_embedded_loader(path, MAX_PATH)) {
+        HMODULE m = LoadLibraryW(path);
+        if (m) {
+            fprintf(stderr, "[cj-bridge] WebView2Loader unpacked to %%TEMP%% and loaded\n");
+            return m;
+        }
+        fprintf(stderr, "[cj-bridge] unpacked WebView2Loader refused to load: err=%lu\n",
+                GetLastError());
+    } else {
+        fprintf(stderr, "[cj-bridge] failed to unpack embedded WebView2Loader.dll\n");
+    }
+    /* 退回按名字找：失败文案与默认模式一致，便于对照 */
+    return LoadLibraryW(L"WebView2Loader.dll");
+}
+#else
+static HMODULE load_webview2_loader(void) {
+    return LoadLibraryW(L"WebView2Loader.dll");
+}
+#endif
+
 typedef HRESULT(STDMETHODCALLTYPE *pfn_create_env)(
         PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions *,
         ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *);
@@ -695,8 +791,8 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     fprintf(stderr, "[cj-bridge] host thread started\n");
 
-    /* WebView2 的入口在 WebView2Loader.dll 中（运行期查找，避免依赖 MSVC 导入库） */
-    p->loader = LoadLibraryW(L"WebView2Loader.dll");
+    /* WebView2 的入口在 WebView2Loader.dll 中（默认按名字找；单文件产物从内嵌字节释放） */
+    p->loader = load_webview2_loader();
     if (!p->loader) {
         fprintf(stderr, "[cj-bridge] WebView2Loader.dll not found: "
                         "put it next to the exe or on PATH\n");

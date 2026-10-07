@@ -2,6 +2,7 @@
 target/
 dist-npm/
 dist-win/
+dist-single/
 *.o
 *.a
 *.so

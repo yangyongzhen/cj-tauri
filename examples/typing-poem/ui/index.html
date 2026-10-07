@@ -4,97 +4,147 @@
 <meta charset="utf-8">
 <title>古诗词打字练习 · cj-tauri</title>
 <style>
-  :root {
-    --gold: #ffd75e;
-    --jade: #7be38a;
-    --cyan: #7ce7ff;
-    --red: #ff7b7b;
-    --ink: #070b16;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; height: 100%; overflow: hidden;
-    background: radial-gradient(120% 90% at 50% 0%, #16224a 0%, #0a1020 55%, var(--ink) 100%);
-    color: #eef2ff;
-    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
-    user-select: none;
-  }
-  /* three.js 画布铺满整个窗口，UI 是浮在它上面的 DOM 层 */
-  #scene { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+/* ============================================================================
+ * 古诗词打字练习 —— 样式
+ *
+ * 视觉分工：**场景是夜，纸是灯下的**。3D 场景（星空 / 水 / 月 / 瀑布）走深蓝夜色，
+ * 中间那张宣纸卡片是浅色暖光——一个字没打就是纸上淡淡的墨痕，打对了就落成浓墨。
+ * 这样「进度」不靠色块，靠**墨迹本身**，小朋友一眼就知道写到哪儿了。
+ * DOM 层（HUD / 面板 / 连击）保持深色玻璃 + 金线，不跟纸抢眼。
+ * ========================================================================== */
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+  background: #070b17;
+  color: #e8eefc;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  user-select: none;
+  cursor: default;
+}
+#scene { position: fixed; left: 0; top: 0; display: block; }
 
-  #hud {
-    position: fixed; left: 0; right: 0; top: 0; padding: 14px 20px;
-    display: flex; justify-content: space-between; align-items: flex-start;
-  }
-  .hud-title { font-size: 20px; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
-  .hud-sub { font-size: 13px; color: #a9b6d8; margin-top: 4px; }
-  .hud-right { display: flex; gap: 10px; align-items: center; }
-  .stat {
-    min-width: 74px; padding: 6px 10px; border-radius: 10px; text-align: center;
-    background: rgba(18, 28, 56, .72); border: 1px solid rgba(124, 231, 255, .18);
-  }
-  .stat b { display: block; font-size: 19px; color: var(--cyan); font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 11px; color: #93a1c5; }
+/* 敲错时的屏幕边缘红晕：只有一点颜色，但「错了」这件事在全屏尺度上被感知到 */
+#vignette {
+  position: fixed; inset: 0; pointer-events: none; opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(255,60,40,0) 42%, rgba(255,54,36,0.42) 100%);
+  transition: opacity 0.28s ease-out;
+}
+#vignette.bad { opacity: 1; transition: opacity 0.04s linear; }
 
-  button {
-    font-family: inherit; font-size: 14px; cursor: pointer;
-    padding: 9px 16px; border-radius: 10px; border: 1px solid rgba(124, 231, 255, .3);
-    background: rgba(20, 32, 62, .85); color: #dbe6ff; transition: .16s;
-  }
-  button:hover { background: rgba(32, 50, 92, .95); border-color: var(--cyan); }
-  button.primary { background: linear-gradient(180deg, #ffd75e, #f0a72c); color: #2a1c00; border-color: #ffd75e; font-weight: 700; }
-  button.primary:hover { filter: brightness(1.08); }
-  button.danger:hover { border-color: var(--red); color: var(--red); }
+/* ---------------------------------------------------------------- HUD */
+#hud {
+  position: fixed; left: 0; right: 0; top: 0; padding: 14px 18px;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  pointer-events: none; gap: 16px;
+}
+#hud button { pointer-events: auto; }
+.hud-title { font-size: 21px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 2px 10px rgba(0,0,0,0.7); }
+.hud-sub { font-size: 13px; color: #9fb0d4; margin-top: 4px; text-shadow: 0 1px 6px rgba(0,0,0,0.8); }
+.hud-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.stat { text-align: center; min-width: 62px; padding: 2px 8px; }
+.stat b { display: block; font-size: 20px; color: #ffd75e; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: #93a1c5; }
+button {
+  font-family: inherit; font-size: 13px; padding: 7px 13px; border-radius: 9px; cursor: pointer;
+  color: #dfe8ff; background: rgba(28,40,72,0.72); border: 1px solid rgba(126,160,230,0.32);
+  transition: background 0.15s, border-color 0.15s, transform 0.08s;
+}
+button:hover { background: rgba(44,62,108,0.86); border-color: rgba(150,190,255,0.55); }
+button:active { transform: translateY(1px); }
+button.primary { background: linear-gradient(180deg, rgba(255,215,94,0.96), rgba(233,178,40,0.96)); color: #23200c; border-color: #ffe9a8; font-weight: 700; }
+button.danger { border-color: rgba(255,120,110,0.42); color: #ffc9c2; }
 
-  .panel {
-    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    width: min(920px, 92vw); max-height: 86vh; overflow: auto;
-    padding: 22px 26px 26px; border-radius: 18px;
-    background: rgba(9, 15, 32, .93); border: 1px solid rgba(124, 231, 255, .22);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
-    backdrop-filter: blur(3px);
-  }
-  .panel h2 { margin: 0 0 6px; font-size: 22px; color: var(--gold); }
-  .hint { font-size: 13px; color: #93a1c5; line-height: 1.7; }
-  .hidden { display: none !important; }
+/* ---------------------------------------------------------------- 目标可见 */
+/* 「追平纪录」的进度条 + 星级门槛：让小朋友知道自己在追什么，而不是打完才知道几星 */
+#goal {
+  position: fixed; left: 18px; bottom: 16px; width: 282px;
+  padding: 10px 12px; border-radius: 12px;
+  background: rgba(12,20,40,0.66); border: 1px solid rgba(126,160,230,0.22);
+  backdrop-filter: blur(3px); pointer-events: none;
+}
+.goal-line { font-size: 13px; color: #d8e3ff; display: flex; justify-content: space-between; gap: 8px; }
+.goal-line em { font-style: normal; color: #ffd75e; font-variant-numeric: tabular-nums; }
+.goal-bar { height: 7px; border-radius: 4px; margin: 7px 0 6px; background: rgba(126,160,230,0.2); overflow: hidden; }
+.goal-bar i { display: block; height: 100%; width: 0; border-radius: 4px; background: linear-gradient(90deg, #2f86b8, #7ce7ff); transition: width 0.2s linear; }
+.goal-sub { font-size: 11.5px; color: #8fa1c6; line-height: 1.5; }
 
-  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 14px 0 12px; }
-  @media (max-width: 860px) { .grid { grid-template-columns: repeat(3, 1fr); } }
-  .poem-card {
-    padding: 12px 10px; border-radius: 12px; cursor: pointer; text-align: center;
-    background: rgba(23, 35, 66, .88); border: 1px solid rgba(124, 231, 255, .16);
-  }
-  .poem-card:hover { border-color: var(--gold); transform: translateY(-2px); }
-  .poem-card .t { font-size: 17px; font-weight: 700; }
-  .poem-card .a { font-size: 11px; color: #93a1c5; margin: 3px 0 6px; }
-  .poem-card .s { font-size: 15px; color: var(--gold); letter-spacing: 2px; }
-  .poem-card .m { font-size: 11px; color: #7f8dae; margin-top: 5px; }
-  .poem-card .best { font-size: 11px; color: var(--jade); margin-top: 4px; min-height: 14px; }
+/* ---------------------------------------------------------------- 连击 */
+/* 连对是这套玩法的「分数」：数字越大音越高、色越亮，断连不归零只减半（对小朋友宽容） */
+#combo {
+  position: fixed; left: 0; right: 0; bottom: 84px; text-align: center;
+  pointer-events: none; opacity: 0; transition: opacity 0.25s;
+}
+#combo.on { opacity: 1; }
+#comboNum { font-size: 46px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 18px currentColor, 0 3px 12px rgba(0,0,0,0.8); }
+#comboTag { display: block; font-size: 13px; letter-spacing: 3px; margin-top: 3px; color: currentColor; opacity: 0.9; }
+#combo.pop #comboNum { animation: comboPop 0.34s ease-out; }
+@keyframes comboPop {
+  0% { transform: scale(1.5); }
+  60% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
 
-  #resultStars { font-size: 40px; color: var(--gold); letter-spacing: 8px; text-align: center; }
-  .result-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 12px; }
-  .cell { padding: 12px; border-radius: 12px; text-align: center; background: rgba(23, 35, 66, .85); }
-  .cell b { display: block; font-size: 26px; color: var(--cyan); font-variant-numeric: tabular-nums; }
-  .cell span { font-size: 12px; color: #93a1c5; }
-  .row { display: flex; gap: 12px; justify-content: center; margin-top: 8px; }
+/* ---------------------------------------------------------------- 面板与飘字 */
+.panel {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: rgba(10,17,35,0.94); border: 1px solid rgba(126,160,230,0.28);
+  border-radius: 18px; padding: 22px 26px; box-shadow: 0 24px 70px rgba(0,0,0,0.6);
+  max-width: 92vw; max-height: 88vh; overflow: auto;
+}
+#picker { width: 860px; }
+.panel h2 { margin: 0 0 8px; font-size: 19px; color: #ffd75e; letter-spacing: 1px; }
+.hint { font-size: 12.5px; color: #9fb0d4; line-height: 1.7; margin: 6px 0 12px; }
+.hint b { color: #ffd75e; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 10px; }
+.poem-card {
+  padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  background: rgba(26,38,70,0.66); border: 1px solid rgba(126,160,230,0.22);
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.poem-card:hover { background: rgba(40,60,110,0.9); border-color: rgba(255,215,94,0.6); transform: translateY(-2px); }
+.poem-card .t { font-size: 16px; font-weight: 700; color: #fff; }
+.poem-card .a { font-size: 11.5px; color: #93a1c5; margin: 2px 0 6px; }
+.poem-card .s { color: #ffd75e; font-size: 13px; letter-spacing: 1px; }
+.poem-card .m { font-size: 11.5px; color: #8fa1c6; margin-top: 2px; }
+.poem-card .best { font-size: 11px; color: #7be38a; margin-top: 5px; min-height: 14px; }
 
-  .banner {
-    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
-    padding: 9px 18px; border-radius: 999px; font-size: 13px;
-    background: rgba(9, 15, 32, .9); border: 1px solid rgba(124, 231, 255, .25); color: #cfe0ff;
-  }
-  .banner.bad { border-color: var(--red); color: var(--red); }
+#result { width: 520px; text-align: center; }
+#resultStars { font-size: 40px; letter-spacing: 6px; height: 50px; color: #ffd75e; }
+.star-drop { display: inline-block; animation: starDrop 0.5s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+@keyframes starDrop { 0% { transform: translateY(-26px) scale(0.4); opacity: 0; } 100% { transform: none; opacity: 1; } }
+#resultTitle { font-size: 17px; color: #fff; margin-bottom: 12px; }
+#verdict { font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #ffd75e; margin-bottom: 4px; }
+#verdictSub { font-size: 12.5px; color: #9fb0d4; margin-bottom: 14px; }
+.result-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.cell { background: rgba(26,38,70,0.6); border-radius: 11px; padding: 9px 4px; }
+.cell b { display: block; font-size: 19px; color: #7ce7ff; font-variant-numeric: tabular-nums; }
+.cell span { font-size: 11px; color: #93a1c5; }
+.row { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.combo-best { font-size: 12.5px; color: #c79bff; margin-bottom: 8px; }
 
-  /* 打对时飘起来的 +1 数字（DOM 层，和 three.js 粒子互补） */
-  .pop {
-    position: fixed; font-size: 15px; font-weight: 700; color: var(--jade);
-    pointer-events: none; animation: pop .7s ease-out forwards;
-  }
-  @keyframes pop { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-38px); } }
+.pop {
+  position: fixed; font-size: 17px; font-weight: 700; pointer-events: none; color: #7be38a;
+  animation: popUp 0.72s ease-out forwards; text-shadow: 0 0 10px currentColor;
+}
+@keyframes popUp {
+  0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+  25% { opacity: 1; transform: translateY(-2px) scale(1.08); }
+  100% { opacity: 0; transform: translateY(-42px) scale(1); }
+}
+
+.banner {
+  position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 10px; font-size: 13px;
+  background: rgba(12,20,40,0.82); border: 1px solid rgba(126,160,230,0.26); color: #cfe0ff;
+}
+.banner.bad { border-color: rgba(255,120,110,0.6); color: #ffc9c2; }
+.hidden { display: none !important; }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
+<div id="vignette"></div>
 
 <div id="hud">
   <div>
@@ -111,24 +161,39 @@
   </div>
 </div>
 
+<!-- 目标可见：追平本首纪录的进度 + 星级门槛（门槛是显示副本，真值在仓颉侧 starsFor） -->
+<div id="goal" class="hidden">
+  <div class="goal-line"><span id="goalLabel">本首还没有纪录</span><em id="goalNow">0</em></div>
+  <div class="goal-bar"><i id="goalFill"></i></div>
+  <div id="starLine" class="goal-sub"></div>
+</div>
+
+<!-- 连击：数字 + 档位名（音高、星色、世界亮度都跟着它走） -->
+<div id="combo"><b id="comboNum">0</b><span id="comboTag">连对</span></div>
+
 <div id="picker" class="panel">
   <h2>选一首开始练习</h2>
-  <p class="hint">照着每个字上面的拼音敲键盘：打对一个字就点亮一个字，打完一首放礼花。<br>
-     按 <b>Esc</b> 可以随时回到这个列表，按 <b>Enter</b> 重打当前这首。</p>
+  <p class="hint">照着每个字上面的拼音敲键盘：打对一个字就落一笔浓墨、连对越多音越高。<br>
+     按 <b>Esc</b> 随时回到这个列表，按 <b>Enter</b> 重打当前这首。</p>
   <div id="poemGrid" class="grid"></div>
   <div id="scoresLine" class="hint"></div>
 </div>
 
 <div id="result" class="panel hidden">
-  <div id="resultStars">★★★</div>
-  <h2 id="resultTitle" style="text-align:center"></h2>
+  <div id="resultStars"></div>
+  <div id="resultTitle"></div>
+  <div id="verdict"></div>
+  <div id="verdictSub"></div>
   <div class="result-grid">
     <div class="cell"><b id="rKpm">0</b><span>键/分</span></div>
     <div class="cell"><b id="rAcc">0%</b><span>正确率</span></div>
     <div class="cell"><b id="rTime">0s</b><span>用时</span></div>
     <div class="cell"><b id="rErr">0</b><span>错字</span></div>
+    <div class="cell"><b id="rCombo">0</b><span>最长连对</span></div>
+    <div class="cell"><b id="rStars">★</b><span>本首难度</span></div>
   </div>
-  <div id="bestLine" class="hint" style="text-align:center"></div>
+  <div id="progressLine" class="combo-best"></div>
+  <div id="bestLine" class="hint" style="text-align:center; margin: 6px 0 0"></div>
   <div class="row">
     <button id="btnAgain" class="primary">再打一次</button>
     <button id="btnNext">换一首</button>
@@ -145,7 +210,15 @@
  * three.js 由仓颉侧 addInitScript() 注入，所以这里直接就能用 window.THREE。
  *
  * 打字单位是**音节**：一个字一个音节（「chuang」「qian」…），
- * 敲对一串字母就点亮对应的那个字 —— 不需要输入法，纯字母练习，适合小学生上手。
+ * 敲对一串字母就落下一笔墨 —— 不需要输入法，纯字母练习，适合小学生上手。
+ *
+ * 好玩从哪来（上一版是「同一声音 + 同一束星光」到底，所以没劲），这一版四层反馈：
+ *   ① 连击：连对越多，音高沿五声音阶上行、星色/字色升级、镜头缓慢推进；
+ *   ② 世界随输入变化：打完一整句，3D 场景推一幕（月升、水涨、瀑落），输入真的在改变世界；
+ *   ③ 每句高潮：整句从纸上浮起、一道墨光扫过、一声磬；
+ *   ④ 结算仪式：诗卷展开写完、三颗星逐个落下、评语与「比上次快多少」。
+ * 规则类的东西（星级门槛、成绩落盘）仍然只在仓颉侧（见 src/commands.cj 的 starsFor）：
+ * 页面里那份门槛只是**显示副本**，自检有一条断言拿 score:save 的回投反推它，防止两边漂移。
  * ========================================================================== */
 'use strict';
 
@@ -154,10 +227,14 @@ var state = {
   poems: [], records: {}, cfg: {},
   current: null, line: 0, ch: 0, typed: '',
   started: 0, correct: 0, errors: 0, finished: false,
-  mute: false, frames: 0, lastSave: null, mode: 'idle'   // idle | playing | done
+  combo: 0, maxCombo: 0, tier: -1,          // 连击（按「字」计）与档位
+  ritual: 'idle', ritualDone: false,        // 结算仪式状态机
+  mute: false, frames: 0, lastSave: null, prevBest: null, mode: 'idle'   // idle | playing | done
 };
 
 function $(id) { return document.getElementById(id); }
+
+function clamp(x, lo, hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
 function banner(text, bad) {
   var b = $('banner');
@@ -201,10 +278,11 @@ function poemTotal(p) {
 /** 当前正在打的音节：{char, syllable} */
 function currentSyllable() {
   var p = state.current;
-  if (!p) { return null; }
+  if (!p || state.line >= p.lines.length) { return null; }
   var line = p.lines[state.line];
-  if (!line) { return null; }
-  return { char: line.text.charAt(state.ch), syllable: syllablesOf(line)[state.ch] };
+  var syls = syllablesOf(line);
+  if (state.ch >= syls.length) { return null; }
+  return { char: line.text.charAt(state.ch), syllable: syls[state.ch] };
 }
 
 function doneSyllables() {
@@ -213,44 +291,180 @@ function doneSyllables() {
   return n + state.ch;
 }
 
-/* ---------------------------------------------------------------- 音效 */
+function elapsedSeconds() {
+  if (!state.started) { return 0; }
+  return (Date.now() - state.started) / 1000;
+}
 
-/* 用 WebAudio 现场合成，不引任何音频文件（示例保持零资源依赖）；
+function starText(n) {
+  var s = '';
+  for (var i = 0; i < 3; i++) { s += (i < n ? '★' : '☆'); }
+  return s;
+}
+
+/* ---------------------------------------------------------------- 规则（显示副本） */
+
+/**
+ * 星级门槛：★3 = 正确率 ≥95% 且 ≥60 键/分；★2 = ≥85% 且 ≥30 键/分
+ *
+ * **真值在仓颉侧** `src/commands.cj` 的 starsFor()，页面不评星（stars 一律读 score:save 的回投）。
+ * 这里这一份只为了「目标可见」——小朋友得知道自己差多少才够三星。
+ * 两份会不会漂移？自检里有一条断言：拿本轮 score:save 回投的 stars，反推这组门槛算一遍，
+ * 不一致就 FAIL（改仓颉侧却忘了改这里，自检立刻当场报警，不会静默说谎）。
+ */
+var STAR_RULE = [
+  { stars: 3, acc: 0.95, kpm: 60 },
+  { stars: 2, acc: 0.85, kpm: 30 }
+];
+
+/** 按显示副本估星：只用于 HUD 的「你现在够几星」，真星以仓颉侧回投为准 */
+function estimateStars(accuracy, kpm) {
+  for (var i = 0; i < STAR_RULE.length; i++) {
+    var r = STAR_RULE[i];
+    if (accuracy >= r.acc && kpm >= r.kpm) { return r.stars; }
+  }
+  return 1;
+}
+
+/** 结算评语：只影响说法，不影响任何判定（星级仍然来自仓颉侧） */
+function verdictFor(stars, accuracy, kpm) {
+  if (stars >= 3 && kpm >= 150) { return { main: '出神入化', sub: '又快又准，这幅字可以直接裱起来了' }; }
+  if (stars >= 3) { return { main: '行云流水', sub: '正确率与速度都过三星线，笔笔到位' }; }
+  if (stars >= 2 && kpm >= 90) { return { main: '笔走龙蛇', sub: '手已经很快了，再稳一点就是三星' }; }
+  if (stars >= 2) { return { main: '字字分明', sub: '写得清楚，速度还留有余量' }; }
+  if (accuracy >= 0.9) { return { main: '稳扎稳打', sub: '错得少，手再放开一点就快了' }; }
+  return { main: '初学乍练', sub: '先求准、再求快：慢了不打紧，错字才扣星' };
+}
+
+/* ---------------------------------------------------------------- 合成音（零资源） */
+
+/* 用 WebAudio 现场合成：示例保持**零资源依赖**，不打包任何音频文件，也就没有许可证义务。
+   上一版是一串单音 beep（听起来像电子表），这一版改成**五声音阶**——
+   宫商角徵羽，连击越高音越亮，打字这件事本身就变成了在弹琴。
    浏览器要求首次交互后才能出声，keydown 就是那个交互，所以懒创建 AudioContext。 */
 var actx = null;
-function beep(freq, dur, type, gain) {
-  if (state.mute) { return; }
+
+/** 五声音阶（宫 商 角 徵 羽，纯律比）：任意整数 step 都在音阶上取音，5 个一步一个八度 */
+var PENTATONIC = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3];
+var BASE_HZ = 261.63;
+
+function pentFreq(step) {
+  var s = Math.max(0, Math.floor(step));
+  return BASE_HZ * PENTATONIC[s % 5] * Math.pow(2, Math.floor(s / 5));
+}
+
+function audioCtx() {
+  if (state.mute) { return null; }
   try {
     if (!actx) {
       var Ctx = window.AudioContext || window.webkitAudioContext;
       actx = new Ctx();
     }
-    var o = actx.createOscillator();
-    var g = actx.createGain();
-    o.type = type || 'triangle';
-    o.frequency.value = freq;
-    g.gain.value = gain || 0.05;
-    o.connect(g); g.connect(actx.destination);
-    o.start();
-    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
-    o.stop(actx.currentTime + dur + 0.02);
+    if (actx.state === 'suspended') { actx.resume(); }
+    return actx;
+  } catch (e) { return null; }
+}
+
+/**
+ * 一个音：两个轻微失谐的振荡器 + 低通 + 快起慢落包络
+ *
+ * 单振荡器听起来像电子表；叠一层失谐的，再压一下高频，就有「弦/筝」的肉感。
+ */
+function tone(freq, dur, type, gain, detune) {
+  var a = audioCtx();
+  if (!a) { return; }
+  try {
+    var t0 = a.currentTime;
+    var o1 = a.createOscillator(); o1.type = type || 'triangle'; o1.frequency.value = freq;
+    var o2 = a.createOscillator(); o2.type = 'sine'; o2.frequency.value = freq * (1 + (detune || 0.004));
+    var lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = Math.min(7000, freq * 7);
+    var g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain || 0.05, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(a.destination);
+    o1.start(t0); o2.start(t0);
+    o1.stop(t0 + dur + 0.05); o2.stop(t0 + dur + 0.05);
   } catch (e) { /* 没有音频设备也不该影响打字 */ }
 }
 
+/** 敲对一个字母：短促、轻，音高跟着连击走（连对越久越高） */
+function keyTick(step) { tone(pentFreq(step), 0.07, 'triangle', 0.028, 0.005); }
+
+/** 打完一个字：亮一档的拨弦 */
+function pluck(step) { tone(pentFreq(step), 0.3, 'triangle', 0.05, 0.003); }
+
+/** 磬：一句打完的那一声（三个泛音叠出余韵） */
+function bell() {
+  tone(1046.5, 1.5, 'sine', 0.048, 0.002);
+  tone(1568.0, 1.1, 'sine', 0.03, 0.004);
+  tone(523.25, 1.8, 'sine', 0.028, 0.001);
+}
+
+/** 升档：一小串上行三音，给「手越来越顺」一个听觉标记 */
+function arpeggio(step) {
+  var seq = [step, step + 1, step + 2];
+  for (var i = 0; i < seq.length; i++) {
+    (function (i) {
+      setTimeout(function () { tone(pentFreq(seq[i]), 0.22, 'triangle', 0.045, 0.004); }, i * 55);
+    })(i);
+  }
+}
+
+/** 错键：一声低钝音（不刺耳，但明显「没对上」） */
+function thud() {
+  var a = audioCtx();
+  if (!a) { return; }
+  try {
+    var t0 = a.currentTime;
+    var o = a.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.exponentialRampToValueAtTime(68, t0 + 0.16);
+    var g = a.createGain();
+    g.gain.setValueAtTime(0.06, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+    o.connect(g); g.connect(a.destination);
+    o.start(t0); o.stop(t0 + 0.24);
+  } catch (e) { /* 同上 */ }
+}
+
+/** 整首打完：五声音阶一遍上行 + 一声磬（「小乐句收尾」） */
+function fanfare() {
+  var seq = [0, 1, 2, 3, 4, 5, 7];
+  for (var i = 0; i < seq.length; i++) {
+    (function (i) {
+      setTimeout(function () { tone(pentFreq(seq[i]), 0.4, 'triangle', 0.05, 0.003); }, i * 70);
+    })(i);
+  }
+  setTimeout(bell, seq.length * 70 + 60);
+}
+
 /* ============================================================================
- * 一、three.js 场景：星空背景 + 诗词卡片（CanvasTexture）+ 击键粒子 + 礼花
+ * 一、three.js 场景：夜（星空 / 水 / 月 / 瀑布）+ 灯下的纸
  *
  * 卡片上的字是**画在 canvas 上再贴成纹理**的（不是 DOM 文字）：这样整首诗
- * 就真的长在 3D 平面上，能跟着镜头一起浮动、旋转，点亮的字形也随纹理一起变。
- * 场景是纯装饰层 —— 即使 WebGL 起不来，打字玩法照样跑（见 initThree 的降级）。
+ * 就真的长在 3D 平面上，能跟着镜头一起浮动、旋转，墨迹的浓淡也随纹理一起变。
+ *
+ * 上一版只有「星空 + 一张纸」，纸和世界互不相干，所以像 PPT。这一版加了**场景主题**：
+ *   咏鹅 → 绿水白鹅  静夜思 → 月亮与霜  望庐山瀑布 → 瀑布水雾  其余 → 通用墨卷星云
+ * 主题只读两个数（progress 打完几句 / glow 连击亮度），不回写玩法——场景是装饰层，
+ * 即使 WebGL 起不来，打字照样能打（见 initThree 的降级）。
  * ========================================================================== */
 
 var three = {
   ok: false, renderer: null, scene: null, camera: null, clock: null,
   stars: null, card: null, cardCtx: null, cardTex: null, group: null,
-  sparks: null, confetti: null, shake: 0, flash: 0, dolly: 0, t: 0
+  sparks: null, stains: null, confetti: null, dust: null,
+  floats: [], linePulse: null, hint: 0, flash: 0, shake: 0, dolly: 0, ritual: 0,
+  stats: { floats: 0, climaxes: 0, bursts: 0, stains: 0, bells: 0 },
+  t: 0
 };
 var pointer = { x: 0, y: 0 };
+
+/* 场景主题的只读状态：progress = 打完几句，glow = 连击亮起来的程度。
+   name 初值**必须是空串**：setTheme 靠「名字没变就不重建」省事，
+   初值若写成 'scroll'，第一次 setTheme('scroll') 就会直接返回——一个主题都建不起来。 */
+var world = { name: '', root: null, parts: {}, progress: 0, glow: 0 };
 
 function makeRoundRect(c, x, y, w, h, r) {
   c.beginPath();
@@ -266,10 +480,16 @@ function makeRoundRect(c, x, y, w, h, r) {
   c.closePath();
 }
 
-/** 粒子场：一个 Points 顶全部粒子，靠 per-vertex 颜色 + 叠加混合做「亮起 / 淡出」 */
-function ParticleField(count, size) {
+/**
+ * 粒子场：一个 Points 顶全部粒子，靠 per-vertex 颜色 + 叠加混合做「亮起 / 淡出」
+ *
+ * PointsMaterial 只有一个 opacity，没法逐粒子调透明度——所以淡出用「颜色趋暗」实现，
+ * 配合叠加混合（AdditiveBlending）就是淡出；场里的粒子都按环形游标复用，不新建对象。
+ */
+function ParticleField(count, size, gravity) {
   this.count = count;
   this.cursor = 0;
+  this.gravity = (gravity === undefined) ? 2.2 : gravity;
   this.pos = new Float32Array(count * 3);
   this.col = new Float32Array(count * 3);
   this.vel = new Float32Array(count * 3);
@@ -300,6 +520,11 @@ ParticleField.prototype.emit = function (x, y, z, hex, spread, life, up) {
   this.life[i] = life; this.maxLife[i] = life;
 };
 
+ParticleField.prototype.alive = function () {
+  for (var i = 0; i < this.count; i++) { if (this.life[i] > 0) { return true; } }
+  return false;
+};
+
 ParticleField.prototype.update = function (dt) {
   for (var i = 0; i < this.count; i++) {
     if (this.life[i] <= 0) { continue; }
@@ -308,10 +533,8 @@ ParticleField.prototype.update = function (dt) {
     this.pos[i3] += this.vel[i3] * dt;
     this.pos[i3 + 1] += this.vel[i3 + 1] * dt;
     this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
-    this.vel[i3 + 1] -= 2.2 * dt;                       // 一点重力，粒子会落回去
-    var k = this.life[i] / this.maxLife[i];
-    if (k < 0) { k = 0; }
-    // 叠加混合下「颜色趋暗」就等于淡出，不必逐粒子改 alpha（PointsMaterial 只有一个 opacity）
+    this.vel[i3 + 1] -= this.gravity * dt;              // 一点重力，粒子会落回去
+    var k = clamp(this.life[i] / this.maxLife[i], 0, 1);
     this.col[i3] = this.base[i3] * k;
     this.col[i3 + 1] = this.base[i3 + 1] * k;
     this.col[i3 + 2] = this.base[i3 + 2] * k;
@@ -323,15 +546,15 @@ ParticleField.prototype.update = function (dt) {
   this.points.geometry.attributes.color.needsUpdate = true;
 };
 
-/** 星空：一层点云，缓慢自转（不参与任何玩法逻辑，就是让背景不像 PPT） */
+/** 星空：一层点云，缓慢自转（不参与玩法逻辑，就是让背景不像 PPT） */
 function makeStarfield() {
-  var n = 1400;
+  var n = 1500;
   var pos = new Float32Array(n * 3);
   var col = new Float32Array(n * 3);
   for (var i = 0; i < n; i++) {
-    pos[i * 3] = (Math.random() - 0.5) * 90;
-    pos[i * 3 + 1] = (Math.random() - 0.5) * 55;
-    pos[i * 3 + 2] = -8 - Math.random() * 55;
+    pos[i * 3] = (Math.random() - 0.5) * 96;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * 58;
+    pos[i * 3 + 2] = -10 - Math.random() * 58;
     var tint = Math.random();
     col[i * 3] = 0.45 + tint * 0.4;
     col[i * 3 + 1] = 0.62 + tint * 0.3;
@@ -346,6 +569,241 @@ function makeStarfield() {
   });
   return new THREE.Points(geo, mat);
 }
+
+/** 一次性小 canvas → 纹理的便捷函数（场景里的纸纹、月晕、水波都是这么来的，零外部资源） */
+function canvasTexture(w, h, draw) {
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  var t = new THREE.CanvasTexture(c);
+  if (THREE.SRGBColorSpace) { t.colorSpace = THREE.SRGBColorSpace; }
+  return t;
+}
+
+/** 径向渐变光晕：月亮、水雾、印章浮光都用它（叠加混合下就是一圈柔光） */
+function glowSprite(w, h, inner, outer) {
+  var tex = canvasTexture(w, h, function (x, cw, ch) {
+    var g = x.createRadialGradient(cw / 2, ch / 2, 0, cw / 2, ch / 2, Math.min(cw, ch) / 2);
+    g.addColorStop(0, inner);
+    g.addColorStop(0.45, outer);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g;
+    x.fillRect(0, 0, cw, ch);
+  });
+  var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+}
+
+/* ---------------------------------------------------------------- 场景主题 */
+
+/** 通用墨卷：星云 + 墨晕 + 飘落的光尘（每个字落下时，纸外的夜色也跟着亮一点） */
+function buildScroll() {
+  var g = new THREE.Group();
+  var cloud = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
+    size: 1.5, color: 0x2a4f8f, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true
+  }));
+  var n = 320, pos = new Float32Array(n * 3);
+  for (var i = 0; i < n; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 46;
+    pos[i * 3 + 1] = (Math.random() - 0.5) * 26;
+    pos[i * 3 + 2] = -14 - Math.random() * 20;
+  }
+  cloud.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.add(cloud);
+  var halo = glowSprite(26, 16, 'rgba(120,190,255,0.2)', 'rgba(60,110,220,0.08)');
+  halo.position.set(0, 0, -18);
+  g.add(halo);
+  // 朱砂浮印：一枚小印章，随进度变亮（「写到哪里，印到哪里」）
+  var seal = glowSprite(2.2, 2.2, 'rgba(226,72,50,0.5)', 'rgba(180,40,24,0.16)');
+  seal.position.set(4.3, -2.6, 0.4);
+  g.add(seal);
+  return { root: g, cloud: cloud, halo: halo, seal: seal };
+}
+function updateScroll(dt, p, glow) {
+  var pt = world.parts;
+  if (!pt.cloud) { return; }
+  pt.cloud.rotation.z += dt * 0.02;
+  pt.cloud.material.opacity = 0.22 + p * 0.3 + glow * 0.16;
+  pt.halo.material.opacity = 0.5 + p * 0.5 + glow * 0.4;
+  pt.seal.material.opacity = 0.25 + p * 0.75;
+}
+
+/** 咏鹅：绿水 + 白鹅（游得越远说明你打得越多），涟漪随连击加快 */
+function buildGoose() {
+  var g = new THREE.Group();
+  var waterTex = canvasTexture(256, 256, function (x, w, h) {
+      x.fillStyle = '#0b2a3a'; x.fillRect(0, 0, w, h);
+      for (var i = 0; i < 26; i++) {
+        x.strokeStyle = 'rgba(125,215,255,' + (0.05 + Math.random() * 0.12) + ')';
+        x.lineWidth = 1 + Math.random() * 2;
+        x.beginPath();
+        var y = Math.random() * h;
+        x.moveTo(0, y);
+        for (var k = 0; k <= w; k += 16) { x.lineTo(k, y + Math.sin(k / 26 + i) * 4); }
+        x.stroke();
+      }
+  });
+  waterTex.wrapS = THREE.RepeatWrapping;               // 水纹靠 offset 滚动，贴边循环才不会露出接缝
+  waterTex.wrapT = THREE.RepeatWrapping;
+  var water = new THREE.Mesh(new THREE.PlaneGeometry(40, 22), new THREE.MeshBasicMaterial({
+    map: waterTex, transparent: true, opacity: 0.85
+  }));
+  water.rotation.x = -Math.PI / 2.35;
+  water.position.set(0, -3.4, -6);
+  g.add(water);
+
+  var goose = new THREE.Group();
+  var white = new THREE.MeshBasicMaterial({ color: 0xf6f9ff });
+  var body = new THREE.Mesh(new THREE.SphereGeometry(0.62, 18, 14), white);
+  body.scale.set(1.5, 0.85, 0.9);
+  goose.add(body);
+  var neckPts = [
+    new THREE.Vector3(0.55, 0.18, 0), new THREE.Vector3(0.78, 0.62, 0),
+    new THREE.Vector3(0.86, 1.05, 0), new THREE.Vector3(0.72, 1.34, 0)
+  ];
+  var neck = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(neckPts), 12, 0.13, 8, false), white);
+  goose.add(neck);
+  var head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), white);
+  head.position.set(0.72, 1.46, 0);
+  goose.add(head);
+  var beak = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.34, 8), new THREE.MeshBasicMaterial({ color: 0xffa62b }));
+  beak.position.set(0.95, 1.44, 0);
+  beak.rotation.z = -Math.PI / 2;
+  goose.add(beak);
+  var foot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.16), new THREE.MeshBasicMaterial({ color: 0xff6a4a }));
+  foot.position.set(0.1, -0.42, 0.16);
+  goose.add(foot);
+  goose.position.set(-3.6, -1.1, -2.2);
+  goose.scale.setScalar(1.15);
+  g.add(goose);
+
+  var ripple = glowSprite(9, 5, 'rgba(160,235,255,0.16)', 'rgba(90,180,230,0.05)');
+  ripple.position.set(0, -1.8, -2.3);
+  g.add(ripple);
+  return { root: g, water: water, goose: goose, ripple: ripple };
+}
+function updateGoose(dt, p, glow) {
+  var pt = world.parts;
+  if (!pt.goose) { return; }
+  pt.water.material.map.offset.y = (pt.water.material.map.offset.y + dt * (0.03 + glow * 0.14)) % 1;
+  pt.goose.position.x = -3.6 + p * 7.4;                       // 打完全诗，鹅正好横穿一屏
+  pt.goose.position.y = -1.1 + Math.sin(three.t * 1.4) * 0.09; // 浮在水上轻轻一起一伏
+  pt.goose.rotation.z = Math.sin(three.t * 1.1) * 0.05;
+  pt.ripple.material.opacity = 0.3 + glow * 0.7;
+  pt.ripple.scale.setScalar(1 + Math.sin(three.t * 2.2) * 0.05);
+}
+
+/** 静夜思：月亮（射完一句升高一截）+ 窗框 + 地上的霜 + 霜点落下 */
+function buildMoon() {
+  var g = new THREE.Group();
+  var moons = new THREE.Mesh(new THREE.SphereGeometry(1.25, 20, 16), new THREE.MeshBasicMaterial({ color: 0xfdf6df }));
+  moons.position.set(-5.2, -1.4, -8);
+  g.add(moons);
+  var halo = glowSprite(12, 12, 'rgba(255,248,220,0.5)', 'rgba(255,240,190,0.12)');
+  halo.position.copy(moons.position);
+  g.add(halo);
+  var frost = glowSprite(24, 10, 'rgba(200,220,255,0.3)', 'rgba(140,170,230,0.07)');
+  frost.position.set(0, -4.2, -7);
+  g.add(frost);
+  // 窗框：四根细杆围在镜头前，像从窗里往外看（纯装饰，不挡视线中心）
+  var frame = new THREE.Group();
+  var bar = new THREE.MeshBasicMaterial({ color: 0x0a1226, transparent: true, opacity: 0.92 });
+  var top = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 0.2), bar); top.position.set(0, 6.4, -1.2);
+  var bot = new THREE.Mesh(new THREE.BoxGeometry(30, 0.5, 0.2), bar); bot.position.set(0, -6.6, -1.2);
+  var lf = new THREE.Mesh(new THREE.BoxGeometry(0.5, 14, 0.2), bar); lf.position.set(-9.4, 0, -1.2);
+  var rt = new THREE.Mesh(new THREE.BoxGeometry(0.5, 14, 0.2), bar); rt.position.set(9.4, 0, -1.2);
+  frame.add(top); frame.add(bot); frame.add(lf); frame.add(rt);
+  g.add(frame);
+  return { root: g, moon: moons, halo: halo, frost: frost };
+}
+function updateMoon(dt, p, glow) {
+  var pt = world.parts;
+  if (!pt.moon) { return; }
+  pt.moon.position.y = -3.9 + p * 4.6;                        // 打完最后一句，月到中天
+  pt.halo.position.copy(pt.moon.position);
+  pt.halo.material.opacity = 0.55 + p * 0.45 + glow * 0.35;
+  pt.frost.material.opacity = 0.35 + p * 0.65;
+}
+
+/** 望庐山瀑布：山影 + 瀑布水流 + 水雾 + 紫烟（水量随进度变大，连击让它更亮） */
+function buildFalls() {
+  var g = new THREE.Group();
+  var hillTex = canvasTexture(256, 256, function (x, w, h) {
+    x.clearRect(0, 0, w, h);
+    x.fillStyle = 'rgba(20,28,52,0.95)';
+    x.beginPath();
+    x.moveTo(0, h);
+    x.lineTo(w * 0.22, h * 0.35);
+    x.lineTo(w * 0.4, h * 0.62);
+    x.lineTo(w * 0.66, h * 0.2);
+    x.lineTo(w, h * 0.55);
+    x.lineTo(w, h);
+    x.closePath();
+    x.fill();
+  });
+  for (var i = 0; i < 3; i++) {
+    var w2 = 26 + i * 6;
+    var hill = new THREE.Mesh(new THREE.PlaneGeometry(w2, w2 * 0.62), new THREE.MeshBasicMaterial({
+      map: hillTex, transparent: true, opacity: 0.5 - i * 0.11
+    }));
+    hill.position.set(-1.5 + i * 1.8, -2.4 - i * 0.6, -9 - i * 5);
+    g.add(hill);
+  }
+  var falls = new ParticleField(260, 0.3, 7.5);              // 水流：重力大，直往下砸
+  g.add(falls.points);
+  var mist = glowSprite(16, 8, 'rgba(190,235,255,0.3)', 'rgba(120,180,230,0.08)');
+  mist.position.set(0, -3.9, -4.6);
+  g.add(mist);
+  var haze = glowSprite(30, 16, 'rgba(180,120,235,0.16)', 'rgba(120,80,190,0.05)');
+  haze.position.set(0, 2.2, -12);
+  g.add(haze);
+  return { root: g, falls: falls, mist: mist, haze: haze, emitAcc: 0 };
+}
+function updateFalls(dt, p, glow) {
+  var pt = world.parts;
+  if (!pt.falls) { return; }
+  // 水量随进度变大：按「每秒发射数」累计，帧率高低不会改变观感
+  pt.emitAcc += dt * (22 + p * 70 + glow * 40);
+  var n = Math.floor(pt.emitAcc);
+  pt.emitAcc -= n;
+  for (var i = 0; i < n; i++) {
+    pt.falls.emit((Math.random() - 0.5) * 1.5, 3.6, -5.2 + Math.random() * 0.6,
+      i % 3 === 0 ? 0xdff3ff : 0x8fd8ff, 0.5, 1.5 + Math.random() * 0.7, -1.2);
+  }
+  pt.falls.update(dt);
+  pt.mist.material.opacity = 0.4 + p * 0.6 + glow * 0.3;
+  pt.mist.scale.setScalar(1 + Math.sin(three.t * 1.8) * 0.06 + p * 0.22);
+  pt.haze.material.opacity = 0.5 + p * 0.5;
+}
+
+/** 主题表：诗句 id → 场景。没登记的诗一律走「通用墨卷」 */
+var THEMES = {
+  scroll: { build: buildScroll, update: updateScroll },
+  goose: { build: buildGoose, update: updateGoose },
+  moon: { build: buildMoon, update: updateMoon },
+  falls: { build: buildFalls, update: updateFalls }
+};
+var THEME_OF = { yonge: 'goose', jingyesi: 'moon', wanglushanpubu: 'falls' };
+
+function themeFor(poem) { return (poem && THEME_OF[poem.id]) || 'scroll'; }
+
+/** 换场景：整组换掉（主题互不相干，件数很少，直接重建比逐个复用清楚） */
+function setTheme(name) {
+  if (!three.ok || world.name === name) { return; }
+  if (world.root) { three.scene.remove(world.root); }
+  world.name = name;
+  var def = THEMES[name] || THEMES.scroll;
+  var built = def.build();
+  world.root = built.root;
+  world.parts = built;
+  world.update = def.update;
+  world.progress = 0;
+  world.glow = 0;
+  three.scene.add(world.root);
+}
+
+/* ---------------------------------------------------------------- 初始化 */
 
 /**
  * 让画布跟着视口走
@@ -384,14 +842,10 @@ function initThree() {
   three.clock = new THREE.Clock();
   three.stars = makeStarfield();
   three.scene.add(three.stars);
-  three.sparks = new ParticleField(420, 0.16);
-  three.confetti = new ParticleField(420, 0.26);
-  three.scene.add(three.sparks.points);
-  three.scene.add(three.confetti.points);
 
   // 卡片：canvas 2400x1440 贴到 9x5.4 的平面上（2 倍超采样，缩放后字边缘干净）
   var canvas = document.createElement('canvas');
-  canvas.width = 2400; canvas.height = 1440;
+  canvas.width = CARD.W; canvas.height = CARD.H;
   three.card = canvas;
   three.cardCtx = canvas.getContext('2d');
   three.cardTex = new THREE.CanvasTexture(canvas);
@@ -400,6 +854,16 @@ function initThree() {
   var mesh = new THREE.Mesh(new THREE.PlaneGeometry(9, 5.4), mat);
   three.group = new THREE.Group();
   three.group.add(mesh);
+
+  // 粒子场挂在纸这一组下面：坐标就是「纸面局部坐标」，纸一晃粒子跟着晃
+  three.sparks = new ParticleField(520, 0.17);            // 打对一个字的星光
+  three.stains = new ParticleField(300, 0.22, 3.4);       // 敲错的朱砂墨点
+  three.confetti = new ParticleField(520, 0.26);          // 整首打完的礼花
+  three.dust = new ParticleField(260, 0.13, 0.6);         // 场景里的浮尘 / 霜点
+  three.group.add(three.sparks.points);
+  three.group.add(three.stains.points);
+  three.group.add(three.confetti.points);
+  three.group.add(three.dust.points);
   three.scene.add(three.group);
 
   window.addEventListener('resize', fitViewport);
@@ -409,162 +873,334 @@ function initThree() {
   });
   three.ok = true;
   fitViewport();
+  setTheme('scroll');
   paintCard();
 }
 
 /* ---------------------------------------------------------------- 卡面绘制 */
 
+/* 卡面几何集中在这里：paintCard（画）与 cardPoint（算粒子落点）必须用同一套，
+   否则星光会飘到字外面去——上一版就是两套近似算法各算一遍，落点只是「差不多」。 */
+var CARD = { W: 2400, H: 1440, top: 340, step: 108, barX: 160, barY: 1320, barW: 2080, barH: 26 };
+
+function rowHeight(rows) { return Math.min(200, (CARD.H - CARD.top - 220) / rows); }
+
+var PAPER = null;
+/** 宣纸底：纤维 + 淡茶渍，只画一次（每帧画几千条线会把打字拖卡） */
+function paperCanvas() {
+  if (PAPER) { return PAPER; }
+  var w = 600, h = 360;
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  var x = c.getContext('2d');
+  x.fillStyle = '#f7f0de';
+  x.fillRect(0, 0, w, h);
+  for (var i = 0; i < 1100; i++) {                  // 纤维
+    x.strokeStyle = 'rgba(186,170,138,' + (0.04 + Math.random() * 0.1).toFixed(3) + ')';
+    x.lineWidth = Math.random() < 0.7 ? 1 : 1.6;
+    var sx = Math.random() * w, sy = Math.random() * h;
+    var len = 4 + Math.random() * 16;
+    x.beginPath();
+    x.moveTo(sx, sy);
+    x.lineTo(sx + (Math.random() < 0.5 ? -len : len), sy + (Math.random() - 0.5) * 3);
+    x.stroke();
+  }
+  for (var k = 0; k < 7; k++) {                      // 淡茶渍
+    var cx = Math.random() * w, cy = Math.random() * h, r = 40 + Math.random() * 90;
+    var g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, 'rgba(200,172,120,0.07)');
+    g.addColorStop(1, 'rgba(200,172,120,0)');
+    x.fillStyle = g;
+    x.fillRect(cx - r, cy - r, r * 2, r * 2);
+  }
+  PAPER = c;
+  return c;
+}
+
 /**
  * 把当前进度画成卡片纹理（每次状态变化调一次）
  *
- * 三种状态的字各有颜色：已打完（玉绿）/ 正在打（白字 + 光标，拼音分「已敲对 / 待敲」两色）/
- * 还没轮到（浅灰）。打错时边框转红——这是唯一能从 3D 场景里直接看出「刚才敲错了」的通道。
+ * 「进度」这一版不靠色块，靠**墨迹**：没打到的字是纸上淡淡的墨痕，打对了落成浓墨，
+ * 正在打的字有一块金框和一支朱砂「笔尖」。三种状态的字用三种颜色区分，
+ * 连击档位会顺手给金框换色——所以纸上也能看出「手正顺」。
  */
 function paintCard() {
   if (!three.cardCtx) { return; }
-  var c = three.cardCtx, W = 2400, H = 1440;
+  var c = three.cardCtx, W = CARD.W, H = CARD.H;
   c.setTransform(1, 0, 0, 1, 0, 0);
   c.clearRect(0, 0, W, H);
+
+  // 纸 + 纤维（小 canvas 放大贴，成本固定）
   makeRoundRect(c, 16, 16, W - 32, H - 32, 52);
-  c.fillStyle = 'rgba(9,15,34,0.88)';
-  c.fill();
+  c.save();
+  c.clip();
+  c.drawImage(paperCanvas(), 0, 0, W, H);
+  var vig = c.createLinearGradient(0, 0, 0, H);
+  vig.addColorStop(0, 'rgba(120,104,72,0.10)');
+  vig.addColorStop(0.35, 'rgba(120,104,72,0)');
+  vig.addColorStop(1, 'rgba(120,104,72,0.13)');
+  c.fillStyle = vig;
+  c.fillRect(0, 0, W, H);
+  c.restore();
+
+  // 边框：出错描朱砂、仪式态描金、平时描青
   c.lineWidth = 7;
-  c.strokeStyle = three.flash > 0 ? 'rgba(255,123,123,0.95)' : 'rgba(124,231,255,0.34)';
+  c.strokeStyle = three.flash > 0 ? 'rgba(226,72,50,0.92)'
+    : (three.ritual > 0 ? 'rgba(255,196,64,0.95)' : 'rgba(90,150,170,0.4)');
+  makeRoundRect(c, 16, 16, W - 32, H - 32, 52);
   c.stroke();
+
+  // 卷轴两端的木轴（这一版是「诗卷」不是「卡片」）
+  c.fillStyle = 'rgba(96,66,38,0.9)';
+  makeRoundRect(c, 2, 40, 30, H - 80, 14); c.fill();
+  makeRoundRect(c, W - 32, 40, 30, H - 80, 14); c.fill();
 
   var p = state.current;
   c.textAlign = 'center';
   c.textBaseline = 'alphabetic';
   if (!p) {
-    c.font = 'bold 108px "KaiTi","STKaiti","Microsoft YaHei",serif';
-    c.fillStyle = '#ffd75e';
-    c.fillText('古诗词打字练习', W / 2, H / 2 - 30);
-    c.font = '52px "Microsoft YaHei",sans-serif';
-    c.fillStyle = '#93a1c5';
-    c.fillText('从右边列表里选一首开始', W / 2, H / 2 + 90);
+    c.font = 'bold 112px "KaiTi","STKaiti","Microsoft YaHei",serif';
+    c.fillStyle = '#23282f';
+    c.fillText('古诗词打字练习', W / 2, H / 2 - 40);
+    c.font = '50px "Microsoft YaHei",sans-serif';
+    c.fillStyle = 'rgba(70,80,95,0.75)';
+    c.fillText('从右边列表里选一首开始 · 打对一个字落一笔墨', W / 2, H / 2 + 60);
+    seal(c, W);
     three.cardTex.needsUpdate = true;
     return;
   }
 
   c.font = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
-  c.fillStyle = '#ffd75e';
+  c.fillStyle = '#1d2430';
   c.fillText('《' + p.title + '》', W / 2, 172);
   c.font = '46px "Microsoft YaHei",sans-serif';
-  c.fillStyle = '#93a1c5';
+  c.fillStyle = 'rgba(96,104,120,0.85)';
   c.fillText(p.dynasty + ' · ' + p.author, W / 2, 232);
 
   var rows = p.lines.length;
-  var top = 340;
-  var rowH = Math.min(200, (H - top - 220) / rows);
+  var rowH = rowHeight(rows);
   var pyFont = 'bold 40px "Microsoft YaHei",sans-serif';
   var charFont = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  var tier = comboDef(state.combo).color;
   for (var i = 0; i < rows; i++) {
     var line = p.lines[i];
     var syls = syllablesOf(line);
-    var step = 108;
-    var lineW = line.text.length * step;
-    var x0 = W / 2 - lineW / 2 + step / 2;
-    var y = top + i * rowH;
+    var lineW = line.text.length * CARD.step;
+    var x0 = W / 2 - lineW / 2 + CARD.step / 2;
+    var y = CARD.top + i * rowH;
+    // 整句刚打完：一道墨光扫过这一行（three.linePulse 由 lineClimax 置位，tickScene 衰减）
+    var pulse = (three.linePulse && three.linePulse.line === i) ? three.linePulse.t : 0;
+    if (pulse > 0) {
+      var lg = c.createLinearGradient(x0 - 90, 0, x0 - 90 + CARD.step * (line.text.length + 1), 0);
+      lg.addColorStop(0, 'rgba(255,215,94,0)');
+      lg.addColorStop(0.5, 'rgba(255,215,94,' + (0.3 * pulse).toFixed(3) + ')');
+      lg.addColorStop(1, 'rgba(255,215,94,0)');
+      c.fillStyle = lg;
+      c.fillRect(x0 - 90, y - 110, CARD.step * (line.text.length + 1), 230);
+    }
     for (var j = 0; j < line.text.length; j++) {
-      var cx = x0 + j * step;
-      var isDone = (i < state.line) || (i === state.line && j < state.ch);
+      var cx = x0 + j * CARD.step;
+      var isDone = (i < state.line) || (i === state.line && j < state.ch) || three.ritual > 0;
       var isCur = (i === state.line && j === state.ch) && !state.finished;
       var pinyin = syls[j] || '';
 
       if (isCur) {
-        // 当前字：底下一个高亮块，拼音分两色（已敲对的字母玉绿、剩下的金色）+ 光标
+        // 当前字：金框（颜色随连击档位）+ 拼音分两色 + 朱砂笔尖；敲错时框描朱砂
         makeRoundRect(c, cx - 60, y - 96, 120, 210, 22);
-        c.fillStyle = 'rgba(255,215,94,0.12)';
+        c.fillStyle = 'rgba(255,215,94,0.16)';
         c.fill();
+        c.lineWidth = 3;
+        c.strokeStyle = three.hint > 0 ? 'rgba(226,72,50,' + (0.4 + 0.6 * three.hint).toFixed(3) + ')' : tier;
+        c.stroke();
         c.font = pyFont;
         var fullW = c.measureText(pinyin).width;
         var preW = c.measureText(state.typed).width;
         var px = cx - fullW / 2;
         c.textAlign = 'left';
-        c.fillStyle = '#7be38a';
+        c.fillStyle = '#12734a';
         c.fillText(state.typed, px, y - 26);
-        c.fillStyle = '#ffd75e';
+        c.fillStyle = '#9c6b1f';
         c.fillText(pinyin.substring(state.typed.length), px + preW, y - 26);
-        c.fillStyle = '#ffffff';
+        c.fillStyle = '#b23a2a';
         c.fillRect(px + preW, y - 62, 5, 46);
         c.textAlign = 'center';
       } else {
         c.font = pyFont;
-        c.fillStyle = isDone ? 'rgba(123,227,138,0.75)' : 'rgba(147,161,197,0.85)';
+        c.fillStyle = isDone ? 'rgba(20,120,78,0.9)' : 'rgba(150,140,120,0.55)';
         c.fillText(pinyin, cx, y - 26);
       }
 
       c.font = charFont;
-      c.fillStyle = isDone ? '#7be38a' : (isCur ? '#ffffff' : 'rgba(216,222,240,0.72)');
-      c.fillText(line.text.charAt(j), cx, y + 74);
       if (isDone) {
-        // 打完的字下面画一道淡淡的横线，进度一眼可见
-        c.fillStyle = 'rgba(123,227,138,0.35)';
+        c.fillStyle = '#1b2230';                       // 落墨
+        c.shadowColor = 'rgba(30,60,50,0.28)';
+        c.shadowBlur = 14;
+        c.fillText(line.text.charAt(j), cx, y + 74);
+        c.shadowBlur = 0;
+        c.fillStyle = 'rgba(20,150,96,0.5)';
         c.fillRect(cx - 34, y + 92, 68, 5);
+      } else {
+        c.fillStyle = isCur ? '#12161f' : 'rgba(126,116,98,0.42)';
+        c.fillText(line.text.charAt(j), cx, y + 74);
       }
     }
   }
 
-  // 底部进度条
+  // 底部进度条：几何与上一版一致（自检用 cardPixel(400,1332) 探这一格）
   var total = poemTotal(p);
-  var done = doneSyllables();
-  var bw = W - 320, bx = 160, by = H - 120;
-  makeRoundRect(c, bx, by, bw, 26, 13);
-  c.fillStyle = 'rgba(147,161,197,0.22)';
+  var done = three.ritual > 0 ? total : doneSyllables();
+  makeRoundRect(c, CARD.barX, CARD.barY, CARD.barW, CARD.barH, 13);
+  c.fillStyle = 'rgba(42,35,26,0.62)';                // 槽够深，绿色进度压上去才有「从灰到绿」的落差
   c.fill();
   var frac = total > 0 ? done / total : 0;
   if (frac > 0) {
-    makeRoundRect(c, bx, by, Math.max(26, bw * frac), 26, 13);
-    c.fillStyle = '#7be38a';
+    var fw = Math.max(26, CARD.barW * frac);
+    var bg = c.createLinearGradient(CARD.barX, 0, CARD.barX + fw, 0);
+    bg.addColorStop(0, '#3fbf7a');
+    bg.addColorStop(1, '#7be38a');
+    makeRoundRect(c, CARD.barX, CARD.barY, fw, CARD.barH, 13);
+    c.fillStyle = bg;
     c.fill();
   }
   c.font = '38px "Microsoft YaHei",sans-serif';
-  c.fillStyle = '#a9b6d8';
-  c.fillText(done + ' / ' + total + ' 字', W / 2, by - 24);
-
+  c.fillStyle = 'rgba(70,78,92,0.9)';
+  c.fillText(done + ' / ' + total + ' 字', W / 2, CARD.barY - 24);
+  seal(c, W);
   three.cardTex.needsUpdate = true;
+}
+
+/** 右下角朱砂印：写完一首诗盖一枚章（仪式感的最小单位） */
+function seal(c, W) {
+  var s = 108, x = W - s - 96, y = CARD.barY - s - 46;
+  c.save();
+  c.globalAlpha = 0.55 + (three.ritual > 0 ? 0.45 : 0);
+  c.fillStyle = '#c8392a';
+  makeRoundRect(c, x, y, s, s, 12);
+  c.fill();
+  c.fillStyle = '#f7f0de';
+  c.font = 'bold 62px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  c.textAlign = 'center';
+  c.fillText('诗', x + s / 2, y + s / 2 + 24);
+  c.restore();
 }
 
 /**
  * 第 i 句第 j 个字在**卡片局部坐标**里的位置
  *
- * 卡片是 9 x 5.4 的平面，行列位置按卡面的排版反推（与 paintCard 的 top/rowH 同一套算法）。
- * 只求粒子 / 「+1」飘字出现在差不多对的地方，所以不引入任何投影矩阵反算。
+ * 与 paintCard 共用 CARD/rowHeight：纹理上的 y 反推回平面坐标（平面高 5.4），
+ * 这样星光、墨点、「+1」都落在字上，而不是「差不多在附近」。
  */
 function cardPoint(i, j, cols, rows) {
   var step = 9 / Math.max(1, cols);
   var x = -4.5 + (j + 0.5) * step;
-  var y = rows <= 1 ? 0 : 1.55 - i * (3.1 / (rows - 1));
-  return { x: x, y: y };
+  var yTex = CARD.top + i * rowHeight(rows) + 30;
+  return { x: x, y: 2.7 - (yTex / CARD.H) * 5.4 };
 }
 
-/** 打对一个音节：在那个字的位置撒一点星光，并在屏幕上飘一个「+1」 */
+/* ---------------------------------------------------------------- 反馈特效 */
+
+/** 打对一个字：星光 + 「+N 连对」（连击越高，星光越多越亮） */
 function burstAt(i, j, text) {
   if (!three.ok || !state.current) { return; }
   var line = state.current.lines[i];
-  var cols = line.text.length;
-  var rows = state.current.lines.length;
-  var pt = cardPoint(i, j, cols, rows);
-  for (var k = 0; k < 7; k++) {
-    three.sparks.emit(pt.x, pt.y + 0.3, 0.35, 0x7be38a, 2.2, 0.85, 1.1);
+  var pt = cardPoint(i, j, line.text.length, state.current.lines.length);
+  var def = comboDef(state.combo);
+  var n = 7 + Math.min(24, Math.round(state.combo / 2));
+  for (var k = 0; k < n; k++) {
+    three.sparks.emit(pt.x, pt.y + 0.3, 0.35, def.hex, 2.2 + def.level * 0.5, 0.85, 1.1);
   }
-  popAt(projectToScreen(pt.x, pt.y + 0.5, 0.35), text, '#7be38a');
+  three.stats.bursts += 1;
+  popAt(projectToScreen(pt.x, pt.y + 0.55, 0.35), text, def.color);
 }
 
-/** 打完一首：礼花 + 镜头微微一推 */
+/** 敲错：在出错的字上溅一片朱砂墨点（痛感 + 位置感，别让错字悄悄溜过去） */
+function stainAt() {
+  if (!three.ok || !state.current) { return; }
+  var cur = currentSyllable();
+  var line = state.current.lines[state.line];
+  if (!cur || !line) { return; }
+  var pt = cardPoint(state.line, state.ch, line.text.length, state.current.lines.length);
+  for (var k = 0; k < 16; k++) {
+    three.stains.emit(pt.x, pt.y + 0.2, 0.4, k % 4 === 0 ? 0x8a1f12 : 0xe2482f, 3.4, 0.9, 1.6);
+  }
+  three.stats.stains += 1;
+  three.hint = 1;
+}
+
+/** 一整句打完的高潮：该句从纸上浮起成独立 3D 文字 + 墨光扫过 + 磬 */
+function lineClimax(i) {
+  if (!three.ok || !state.current) { return; }
+  spawnLineFloat(i);
+  three.linePulse = { line: i, t: 1 };
+  three.stats.climaxes += 1;
+  three.stats.bells += 1;
+  bell();
+  world.progress = state.current.lines.length > 0 ? (i + 1) / state.current.lines.length : 0;
+  // 句末的一点光尘：把「世界推进了」这件事在纸外面也说一遍
+  var pt = cardPoint(i, 0, 1, state.current.lines.length);
+  for (var k = 0; k < 26; k++) {
+    three.dust.emit((Math.random() - 0.5) * 8, pt.y, -0.4, 0xffd75e, 1.4, 1.8, 1.4);
+  }
+}
+
+/**
+ * 把一句诗做成一块浮起的 3D 文字（用完就销毁）
+ *
+ * 为什么不常驻：每句一块纹理意味着一开始就画 N 张 2400 宽的 canvas，
+ * 而它只在句末亮 1.4 秒——用的时候现做、淡出后 dispose，显存与启动时间都不吃亏。
+ */
+function spawnLineFloat(i) {
+  var p = state.current;
+  var line = p.lines[i];
+  var tex = canvasTexture(1800, 260, function (x, w, h) {
+    x.clearRect(0, 0, w, h);
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.font = 'bold 150px "KaiTi","STKaiti","Microsoft YaHei",serif';
+    x.shadowColor = 'rgba(255,215,94,0.85)';
+    x.shadowBlur = 34;
+    x.fillStyle = '#fff6d8';
+    x.fillText(line.text, w / 2, h / 2);
+  });
+  var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 0.95), mat);
+  var pt = cardPoint(i, 0, line.text.length, p.lines.length);
+  mesh.position.set(0, pt.y, 1.1);
+  three.group.add(mesh);
+  three.floats.push({ mesh: mesh, tex: tex, life: 1.4, max: 1.4, y0: pt.y });
+  three.stats.floats += 1;
+}
+
+function updateFloats(dt) {
+  for (var i = three.floats.length - 1; i >= 0; i--) {
+    var f = three.floats[i];
+    f.life -= dt;
+    var k = clamp(f.life / f.max, 0, 1);
+    f.mesh.position.y = f.y0 + (1 - k) * 1.15;
+    f.mesh.material.opacity = k;
+    f.mesh.scale.setScalar(1 + (1 - k) * 0.12);
+    if (f.life <= 0) {
+      three.group.remove(f.mesh);
+      f.mesh.geometry.dispose();
+      f.mesh.material.dispose();
+      f.tex.dispose();
+      three.floats.splice(i, 1);
+    }
+  }
+}
+
+/** 整首打完：礼花 + 镜头一推 + 五声音阶收尾（结算仪式的第一拍） */
 function celebrate() {
   if (!three.ok) { return; }
   var palette = [0xffd75e, 0x7be38a, 0x7ce7ff, 0xff9de2, 0xffffff];
-  for (var i = 0; i < 320; i++) {
+  for (var i = 0; i < 360; i++) {
     three.confetti.emit(
       (Math.random() - 0.5) * 7, 1.2 + Math.random() * 1.4, 0.6,
       palette[i % palette.length], 5.5, 2.0 + Math.random() * 1.2, 2.6
     );
   }
   three.dolly = 1.0;
-  beep(880, 0.18, 'triangle', 0.06);
-  setTimeout(function () { beep(1174, 0.22, 'triangle', 0.05); }, 140);
-  setTimeout(function () { beep(1568, 0.32, 'sine', 0.05); }, 300);
+  fanfare();
 }
 
 /** 3D → 屏幕坐标：给 DOM 层的「+1」用（投影只能这么算） */
@@ -589,6 +1225,14 @@ function popAt(screen, text, color) {
   setTimeout(function () { if (d.parentNode) { d.parentNode.removeChild(d); } }, 720);
 }
 
+/** 各主题的「环境粒子」：让画面一直在动（颜色/方向按主题配） */
+var AMBIENT = {
+  scroll: { color: 0xffd75e, rate: 6, up: -0.15, spread: 0.4, y: 3.4 },
+  goose: { color: 0x9fe8ff, rate: 9, up: -0.5, spread: 0.7, y: -1.6 },
+  moon: { color: 0xd8e6ff, rate: 14, up: -0.9, spread: 0.35, y: 3.8 },
+  falls: { color: 0xdcf0ff, rate: 10, up: -1.4, spread: 0.9, y: 2.8 }
+};
+
 /** 每帧的场景更新（打字玩法一帧都没跑也不影响：这里只读状态） */
 function tickScene(dt) {
   if (!three.ok) { return; }
@@ -596,41 +1240,167 @@ function tickScene(dt) {
   three.stars.rotation.z += dt * 0.012;
   three.stars.rotation.y += dt * 0.006;
   three.sparks.update(dt);
+  three.stains.update(dt);
   three.confetti.update(dt);
+  three.dust.update(dt);
+  updateFloats(dt);
+
+  // 环境粒子：按主题配比发射（累计到「个」再发，帧率高低不影响观感）
+  var amb = AMBIENT[world.name] || AMBIENT.scroll;
+  three.ambAcc = (three.ambAcc || 0) + dt * amb.rate;
+  var nAmb = Math.floor(three.ambAcc);
+  three.ambAcc -= nAmb;
+  for (var i = 0; i < nAmb; i++) {
+    three.dust.emit((Math.random() - 0.5) * 16, amb.y, -1.5 - Math.random() * 3,
+      amb.color, amb.spread, 2.2, amb.up);
+  }
 
   three.shake = Math.max(0, three.shake - dt * 4.5);
   three.flash = Math.max(0, three.flash - dt * 3.2);
   three.dolly = Math.max(0, three.dolly - dt * 0.8);
+  three.hint = Math.max(0, three.hint - dt * 1.6);
+  if (three.linePulse) {
+    three.linePulse.t -= dt * 1.5;
+    if (three.linePulse.t <= 0) { three.linePulse = null; }
+  }
+  if (three.ritual > 0) { three.ritual = Math.max(0, three.ritual - dt * 0.22); }
+
+  // 连击亮度：世界跟着「手顺不顺」亮起来（慢跟随，让它是氛围不是仪表盘）
+  var target = clamp(state.combo / 40, 0, 1) * 0.9 + (state.mode === 'playing' ? 0.1 : 0);
+  world.glow += (target - world.glow) * Math.min(1, dt * 2.2);
+  if (world.update) { world.update(dt, world.progress, world.glow); }
 
   var g = three.group;
   g.position.y = 0.16 * Math.sin(three.t * 0.9);
   g.rotation.y = 0.1 * Math.sin(three.t * 0.55) + pointer.x * 0.05;
   g.rotation.z = 0.035 * Math.sin(three.t * 1.7) + three.shake * 0.05 * (Math.random() - 0.5);
 
-  // 镜头：跟着鼠标轻微视差，打完一首时往前推一点
+  // 镜头：跟着鼠标轻微视差，打完一首往前推；连击高的时候也慢慢靠近
   var cam = three.camera;
   cam.position.x += (pointer.x * 0.55 - cam.position.x) * Math.min(1, dt * 2.2);
   cam.position.y += (-pointer.y * 0.35 - cam.position.y) * Math.min(1, dt * 2.2);
-  cam.position.z += ((10.5 - three.dolly * 1.1) - cam.position.z) * Math.min(1, dt * 2.5);
+  var zTarget = 10.5 - three.dolly * 1.1 - world.glow * 0.35;
+  cam.position.z += (zTarget - cam.position.z) * Math.min(1, dt * 2.5);
   cam.lookAt(0, 0, 0);
 }
+
 /* ============================================================================
  * 二、玩法与 UI 层
  *
  * 打字单位是音节：`typeLetter()` 只吃字母，不需要输入法（页面上没有 input 元素，
  * 也就不会被输入法候选框抢走按键）。规则类的东西（星级门槛、成绩落盘）在仓颉侧，
- * 页面只负责「量」：用时、键/分、正确率——这些是测量值，不是政策。
+ * 页面只负责「量」与「演」：用时、键/分、正确率、连击——这些是测量值，不是政策。
  * ========================================================================== */
 
-function starText(n) {
-  var s = '';
-  for (var i = 0; i < 3; i++) { s += (i < n ? '★' : '☆'); }
-  return s;
+/* ---------------------------------------------------------------- 连击 */
+
+/**
+ * 连击档位：连对越多，名字、颜色、音高一起往上走
+ *
+ * 为什么按「字」计而不是按字母：一个字打完才是「写下一笔」，小朋友听得懂；
+ * 按字母计的话单字母音节（「e」）会白送连击，五言诗里那种音节就会显得「划得来」。
+ */
+var COMBO_TIERS = [
+  { min: 0, name: '落笔', color: '#7be38a', hex: 0x7be38a },
+  { min: 8, name: '生花', color: '#7ce7ff', hex: 0x7ce7ff },
+  { min: 18, name: '成章', color: '#ffd75e', hex: 0xffd75e },
+  { min: 30, name: '若神', color: '#c79bff', hex: 0xc79bff },
+  { min: 48, name: '通神', color: '#ff9de2', hex: 0xff9de2 }
+];
+
+function comboDef(combo) {
+  var d = COMBO_TIERS[0], lvl = 0;
+  for (var i = 0; i < COMBO_TIERS.length; i++) {
+    if (combo >= COMBO_TIERS[i].min) { d = COMBO_TIERS[i]; lvl = i; }
+  }
+  return { name: d.name, color: d.color, hex: d.hex, level: lvl };
 }
 
-function elapsedSeconds() {
-  if (!state.started) { return 0; }
-  return (Date.now() - state.started) / 1000;
+function renderCombo() {
+  var el = $('combo'), def = comboDef(state.combo);
+  el.style.color = def.color;
+  el.classList.toggle('on', state.combo >= 3 && state.mode === 'playing' && !state.finished);
+  $('comboNum').textContent = state.combo;
+  $('comboTag').textContent = (def.level === 0 ? '连对' : (def.name + ' · 连对'));
+}
+
+/** 打对一个字：连击 +1，跨过档位就「升档」（一串上行音 + 数字弹一下） */
+function bumpCombo() {
+  state.combo += 1;
+  if (state.combo > state.maxCombo) { state.maxCombo = state.combo; }
+  var def = comboDef(state.combo);
+  if (def.level !== state.tier) {
+    state.tier = def.level;
+    arpeggio(state.combo);
+    var el = $('combo');
+    el.classList.add('pop');
+    setTimeout(function () { el.classList.remove('pop'); }, 360);
+  }
+  renderCombo();
+}
+
+/** 敲错：连击**减半**而不是归零——对小朋友宽容，断了会不想再打 */
+function dropCombo() {
+  state.combo = Math.floor(state.combo / 2);
+  state.tier = comboDef(state.combo).level;
+  renderCombo();
+}
+
+/** 敲错的屏幕级反馈：边缘红晕闪一下（0.24s 后交给 CSS 淡出） */
+var vignetteTimer = null;
+function flashVignette() {
+  var v = $('vignette');
+  v.classList.add('bad');
+  if (vignetteTimer) { clearTimeout(vignetteTimer); }
+  vignetteTimer = setTimeout(function () { v.classList.remove('bad'); }, 240);
+}
+
+/* ---------------------------------------------------------------- 目标可见 */
+
+/**
+ * HUD 的「追平纪录 + 星级门槛」
+ *
+ * 目标必须**打之前就能看见**：上一版得等打完才知道几星，途中没有可追的东西。
+ * 这里两条都用真值：追平线来自仓颉侧回投的 bestKpm；门槛是显示副本（见 STAR_RULE 注释），
+ * 自检有一条断言拿 score:save 的回投反推它，两边一旦不一致就 FAIL。
+ */
+function updateGoal() {
+  var p = state.current;
+  if (!p || state.mode !== 'playing') { $('goal').classList.add('hidden'); return; }
+  $('goal').classList.remove('hidden');
+  var typed = state.correct + state.errors;
+  var seconds = elapsedSeconds();
+  var acc = typed > 0 ? state.correct / typed : 1;
+  var kpm = seconds > 0 ? state.correct * 60 / seconds : 0;
+  var rec = state.records[p.id];
+  if (rec) {
+    var target = rec.bestKpm > 0 ? rec.bestKpm : 1;
+    $('goalLabel').textContent = '追平本首纪录 ★' + rec.bestStars + ' · ' + rec.bestKpm + ' 键/分';
+    $('goalFill').style.width = clamp(kpm / target * 100, 0, 100).toFixed(1) + '%';
+  } else {
+    $('goalLabel').textContent = '本首还没有纪录：打完就是纪录';
+    var total = poemTotal(p);
+    $('goalFill').style.width = (total > 0 ? clamp(doneSyllables() / total * 100, 0, 100) : 0).toFixed(1) + '%';
+  }
+  $('goalNow').textContent = Math.round(kpm) + ' 键/分';
+  $('starLine').textContent = '★3 需 正确率 ≥' + Math.round(STAR_RULE[0].acc * 100) + '% 且 ≥' + STAR_RULE[0].kpm
+    + ' 键/分 · ★2 ≥' + Math.round(STAR_RULE[1].acc * 100) + '% 且 ≥' + STAR_RULE[1].kpm
+    + ' 键/分 · 这次够 ' + starText(estimateStars(acc, kpm));
+}
+
+function updateHud() {
+  var typed = state.correct + state.errors;
+  var seconds = elapsedSeconds();
+  $('statKpm').textContent = Math.round(seconds > 0 ? state.correct * 60 / seconds : 0);
+  $('statAcc').textContent = typed > 0 ? Math.round(state.correct * 100 / typed) : 100;
+  $('statErr').textContent = state.errors;
+  if (state.mode === 'playing' && state.current) {
+    var cur = currentSyllable();
+    $('hudSub').textContent = '第 ' + (state.line + 1) + '/' + state.current.lines.length
+      + ' 句 · 已落墨 ' + doneSyllables() + '/' + poemTotal(state.current) + ' 字'
+      + ' · 连对 ' + state.combo + (cur ? (' · 当前音节 ' + cur.syllable) : '');
+  }
+  updateGoal();
 }
 
 /* ---------------------------------------------------------------- 选诗面板 */
@@ -646,12 +1416,14 @@ function renderPicker() {
     (function (p) {
       var rec = state.records[p.id];
       var card = document.createElement('div');
+      var theme = themeFor(p);
       card.className = 'poem-card';
       card.innerHTML =
         '<div class="t">' + p.title + '</div>' +
         '<div class="a">' + p.dynasty + ' ' + p.author + '</div>' +
         '<div class="s">' + starText(p.stars) + '</div>' +
-        '<div class="m">' + p.syllables + ' 字</div>' +
+        '<div class="m">' + p.syllables + ' 字' +
+          (theme === 'scroll' ? '' : ' · 专属场景') + '</div>' +
         '<div class="best">' + (rec ? ('最好 ★' + rec.bestStars + ' · ' + rec.bestKpm + ' 键/分') : '') + '</div>';
       card.title = '点击开始《' + p.title + '》';
       card.onclick = function () { startPoem(p); };
@@ -679,21 +1451,37 @@ function startPoem(p) {
   state.current = p;
   state.line = 0; state.ch = 0; state.typed = '';
   state.started = 0; state.correct = 0; state.errors = 0;
-  state.finished = false; state.mode = 'playing';
+  state.combo = 0; state.maxCombo = 0; state.tier = 0;
+  state.finished = false; state.ritual = 'idle'; state.ritualDone = false;
+  state.mode = 'playing';
+  setTheme(themeFor(p));
   $('picker').classList.add('hidden');
   $('result').classList.add('hidden');
   $('poemTitle').textContent = '《' + p.title + '》' + p.dynasty + '·' + p.author;
   $('hudSub').textContent = p.syllables + ' 个字 · 照着拼音敲键盘';
   banner('Enter 重打这首，Esc 换一首');
+  renderCombo();
   updateHud();
   paintCard();
-  beep(520, 0.1, 'sine', 0.04);
+  beepIntro();
+}
+
+/** 开场两音：给「要开始了」一个听觉标记（不是提示音，是起拍） */
+function beepIntro() {
+  tone(pentFreq(0), 0.3, 'triangle', 0.04);
+  setTimeout(function () { tone(pentFreq(2), 0.42, 'triangle', 0.04); }, 130);
 }
 
 function showPicker() {
   state.mode = 'idle';
+  state.ritual = 'idle';
+  state.current = null;
+  state.combo = 0;
+  setTheme('scroll');
   $('picker').classList.remove('hidden');
   $('result').classList.add('hidden');
+  $('goal').classList.add('hidden');
+  $('combo').classList.remove('on');
   banner('');
   $('banner').classList.add('hidden');
   $('poemTitle').textContent = '古诗词打字练习';
@@ -706,66 +1494,21 @@ function restartCurrent() {
   if (state.current) { startPoem(state.current); } else { showPicker(); }
 }
 
-/** 打完一首：礼花 → 结算面板；星级与「破纪录」由仓颉侧算（规则只有一处） */
-function finish() {
-  state.finished = true;
-  state.mode = 'done';
-  var p = state.current;
-  var seconds = elapsedSeconds();
-  var typed = state.correct + state.errors;
-  var acc = typed > 0 ? state.correct / typed : 1;
-  var kpm = seconds > 0 ? state.correct * 60 / seconds : 0;
-  celebrate();
-
-  $('resultStars').textContent = '···';
-  $('resultTitle').textContent = '《' + p.title + '》' + p.dynasty + '·' + p.author;
-  $('rKpm').textContent = Math.round(kpm);
-  $('rAcc').textContent = Math.round(acc * 100) + '%';
-  $('rTime').textContent = seconds.toFixed(1) + 's';
-  $('rErr').textContent = state.errors;
-  $('bestLine').textContent = '正在把成绩交给仓颉侧保存…';
-  $('result').classList.remove('hidden');
-
-  state.lastSave = invoke('score:save', {
-    id: p.id, title: p.title, seconds: seconds,
-    correct: state.correct, errors: state.errors, syllables: p.syllables
-  }).then(function (r) {
-    $('resultStars').textContent = starText(r.stars);
-    $('bestLine').textContent = (r.updated ? '🎉 新纪录！' : '这次没超过最好成绩（再打一次试试）') +
-      ' 最好成绩 ★' + r.bestStars + ' · ' + r.bestKpm + ' 键/分 · 第 ' + r.attempts + ' 次练习' +
-      (r.persisted ? '' : '（写盘失败，本轮成绩只在内存里）');
-    state.records[p.id] = r;
-    return r;
-  }).catch(function (e) {
-    $('resultStars').textContent = '';
-    $('bestLine').textContent = '成绩没能保存：' + e.message;
-    throw e;
-  });
-  return state.lastSave;
+/** 打到一个字的最后一个字母时用：把这一笔「落下去」（连击、星光、行末高潮） */
+function landSyllable(char, lineIdx, chIdx) {
+  bumpCombo();
+  burstAt(lineIdx, chIdx, char);
+  pluck(state.combo);
+  var syls = syllablesOf(state.current.lines[state.line]);
+  if (state.ch < syls.length) { return false; }
+  state.line += 1;
+  state.ch = 0;
+  if (state.line >= state.current.lines.length) { return true; }   // 整首打完
+  lineClimax(lineIdx);
+  return false;
 }
 
 /* ---------------------------------------------------------------- 打字 */
-
-function currentSyllable() {
-  var p = state.current;
-  if (!p || state.line >= p.lines.length) { return null; }
-  var line = p.lines[state.line];
-  var syls = syllablesOf(line);
-  if (state.ch >= syls.length) { return null; }
-  return { char: line.text.charAt(state.ch), syllable: syls[state.ch] };
-}
-
-function updateHud() {
-  var typed = state.correct + state.errors;
-  var seconds = elapsedSeconds();
-  $('statKpm').textContent = Math.round(seconds > 0 ? state.correct * 60 / seconds : 0);
-  $('statAcc').textContent = typed > 0 ? Math.round(state.correct * 100 / typed) : 100;
-  $('statErr').textContent = state.errors;
-  if (state.mode === 'playing' && state.current) {
-    $('hudSub').textContent = '第 ' + (state.line + 1) + '/' + state.current.lines.length + ' 句 · 已打对 '
-      + state.correct + ' 字 · 当前音节 ' + (currentSyllable() ? currentSyllable().syllable : '—');
-  }
-}
 
 function typeLetter(ch) {
   var cur = currentSyllable();
@@ -775,23 +1518,18 @@ function typeLetter(ch) {
   if (ch === expect) {
     state.typed += ch;
     state.correct += 1;
-    beep(600 + state.typed.length * 45, 0.05, 'triangle', 0.03);
+    keyTick(state.combo * 5 + state.typed.length);      // 音高跟着连击走：手越顺，调越高
     if (state.typed.length >= cur.syllable.length) {
-      // 一个字打完：撒星光 + 飘字，然后推进（行末就换行，全诗完就结算）
-      burstAt(state.line, state.ch, cur.char);
-      beep(980, 0.09, 'sine', 0.045);
+      var lineIdx = state.line, chIdx = state.ch;
+      var char = cur.char;
       state.typed = '';
       state.ch += 1;
-      var syls = syllablesOf(state.current.lines[state.line]);
-      if (state.ch >= syls.length) {
-        state.line += 1;
-        state.ch = 0;
-        if (state.line >= state.current.lines.length) {
-          paintCard();
-          updateHud();
-          finish();
-          return;
-        }
+      var poemDone = landSyllable(char, lineIdx, chIdx);
+      if (poemDone) {
+        paintCard();
+        updateHud();
+        finish();
+        return;
       }
     }
     paintCard();
@@ -799,7 +1537,11 @@ function typeLetter(ch) {
     state.errors += 1;
     three.flash = 1;
     three.shake = 1;
-    beep(170, 0.1, 'square', 0.035);
+    three.hint = 1;
+    stainAt();
+    dropCombo();
+    thud();
+    flashVignette();
     paintCard();
   }
   updateHud();
@@ -819,6 +1561,114 @@ function onKeyDown(ev) {
   if (!/^[a-zA-Z]$/.test(k)) { return; }
   ev.preventDefault();
   typeLetter(k.toLowerCase());
+}
+
+/* ---------------------------------------------------------------- 结算仪式 */
+
+/**
+ * 打完一首：先「演」，再报数
+ *
+ * 上一版是打完立刻弹一张数字表，太干。这一版按三拍走：
+ *   ① 礼花 + 五声音阶收尾，卡面切成「整首写完」（墨全落、印章盖上）；
+ *   ② 成绩照旧立刻交给仓颉侧（自检 await 的就是那个 promise），面板先不露面；
+ *   ③ 诗卷写完 → 三颗星逐个落下（每颗一声）→ 面板滑入，配评语与「比上次快多少」。
+ * 面板迟到不代表规则迟到：星级仍然由仓颉侧算，页面只是把结果演给人看。
+ */
+var RITUAL_MS = 900;
+
+function finish() {
+  state.finished = true;
+  state.mode = 'done';
+  state.ritual = 'playing';
+  state.ritualDone = false;
+  var p = state.current;
+  var seconds = elapsedSeconds();
+  var typed = state.correct + state.errors;
+  var acc = typed > 0 ? state.correct / typed : 1;
+  var kpm = seconds > 0 ? state.correct * 60 / seconds : 0;
+  var before = state.records[p.id];
+  state.prevBest = before ? before.bestKpm : null;
+
+  celebrate();
+  three.ritual = 1;                       // 卡面：整首墨迹全落、盖印
+  world.progress = 1;                     // 世界也走完全程（末句的高潮就是这场结算）
+  $('combo').classList.remove('on');
+  $('goal').classList.add('hidden');
+  paintCard();
+
+  $('resultTitle').textContent = '《' + p.title + '》' + p.dynasty + '·' + p.author;
+  $('rKpm').textContent = Math.round(kpm);
+  $('rAcc').textContent = Math.round(acc * 100) + '%';
+  $('rTime').textContent = seconds.toFixed(1) + 's';
+  $('rErr').textContent = state.errors;
+  $('rCombo').textContent = state.maxCombo;
+  $('rStars').textContent = starText(p.stars);
+  $('progressLine').textContent = (state.prevBest === null)
+    ? '本首第一次练习：成绩已记下，下次就来追它'
+    : ('上次 ' + state.prevBest + ' 键/分' + progressPhrase(kpm, state.prevBest));
+  $('verdict').textContent = '···';
+  $('verdictSub').textContent = '正在把成绩交给仓颉侧…';
+  $('bestLine').textContent = '';
+
+  state.lastSave = invoke('score:save', {
+    id: p.id, title: p.title, seconds: seconds,
+    correct: state.correct, errors: state.errors, syllables: p.syllables
+  }).then(function (r) {
+    state.records[p.id] = r;
+    fillResult(r, kpm);
+    return r;
+  });
+  state.lastSave.catch(function (e) {
+    $('verdict').textContent = '成绩没能保存';
+    $('verdictSub').textContent = (e && e.message) ? e.message : String(e);
+  });
+
+  // ③ 仪式：诗卷写完 → 面板亮相（星星在亮相后逐个落下）
+  setTimeout(function () {
+    $('result').classList.remove('hidden');
+    state.ritual = 'done';
+    state.ritualDone = true;
+  }, RITUAL_MS);
+  return state.lastSave;
+}
+
+function progressPhrase(now, before) {
+  if (!before || before <= 0) { return ''; }
+  var pct = Math.round((now - before) / before * 100);
+  if (pct > 0) { return ' · 这次快 ' + pct + '%'; }
+  if (pct === 0) { return ' · 打平'; }
+  return ' · 比上次慢 ' + Math.abs(pct) + '%';
+}
+
+/** 仓颉侧的回投到手：星级/评语/是否破纪录（星逐个落下，每颗一声） */
+function fillResult(r, kpm) {
+  var stars = r.stars;
+  var acc = r.accuracy / 100;
+  var kpmRounded = r.kpm;
+  var v = verdictFor(stars, acc, kpmRounded);
+  $('verdict').textContent = v.main;
+  $('verdictSub').textContent = v.sub;
+  $('resultStars').innerHTML = '';
+  for (var i = 0; i < 3; i++) {
+    var s = document.createElement('span');
+    var won = i < stars;
+    s.className = won ? 'star-drop' : '';
+    s.style.animationDelay = (0.2 + i * 0.34) + 's';
+    s.style.opacity = won ? '1' : '0.35';
+    s.textContent = won ? '★' : '☆';
+    $('resultStars').appendChild(s);
+    if (won) {
+      (function (i) {
+        setTimeout(function () {
+          tone(pentFreq(3 + i * 2), 0.5, 'sine', 0.05, 0.002);
+          if (i === stars - 1) { bell(); }
+        }, RITUAL_MS + 200 + i * 340);
+      })(i);
+    }
+  }
+  $('bestLine').textContent = (r.updated ? '🎉 新纪录！' : '这次没超过最好成绩（再打一次试试）')
+    + ' 最好 ★' + r.bestStars + ' · ' + r.bestKpm + ' 键/分 · 第 ' + r.attempts + ' 次练习'
+    + (r.persisted ? '' : '（写盘失败，本轮成绩只在内存里）');
 }
 
 /* ---------------------------------------------------------------- 装配与主循环 */
@@ -876,12 +1726,11 @@ function boot() {
  * 三、自检通道（`run.bat selfcheck` → CJ_TYPING_SELFCHECK=1）
  *
  * 为什么值得占这么一段：这个示例的取证不能靠「人盯着窗口看」，得让**进程自己**把
- * 关键通路跑一遍并回传断言结果——三条通道各有各的翻车方式（three.js 注入、打字与结算、
+ * 关键通路跑一遍并回传断言结果——每条通道各有各的翻车方式（three.js 注入、打字与结算、
  * 能力校验），跑一遍就知道是哪一环坏了，不必在 GUI 上猜。
- *
- * 每条断言经 `report` 命令回传，由仓颉侧原样打 stderr（stderr 是即时落盘的，见 AGENTS §4）；
+ * 「好玩」这件事没法自动验（礼花好不好看只能人看），但**每一层反馈有没有真的触发**
+ * 可以验：连击计数、减半规则、音高阶梯、句末高潮、世界推进、结算仪式，下面都有断言。
  * 按键一律用 `dispatchEvent` 走**真实的 keydown 通路**，不另写一条「测试专用」的输入路径。
- * 这段用了 async/await（读起来是顺序的），页面其余部分是 ES5 风格；两个引擎都支持，不冲突。
  * ========================================================================== */
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -898,12 +1747,12 @@ function pressKey(key) {
   window.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }));
 }
 
-/** 把一首诗的每个音节逐字母敲出来（返回敲了多少个字母） */
-async function typePoem(p, delayMs) {
+/** 把一首诗从 (fromLine, fromCh) 起逐字母敲完（返回敲了多少个字母） */
+async function typePoemFrom(p, fromLine, fromCh, delayMs) {
   var keys = 0;
-  for (var i = 0; i < p.lines.length; i++) {
+  for (var i = fromLine; i < p.lines.length; i++) {
     var syls = syllablesOf(p.lines[i]);
-    for (var j = 0; j < syls.length; j++) {
+    for (var j = (i === fromLine ? fromCh : 0); j < syls.length; j++) {
       for (var k = 0; k < syls[j].length; k++) {
         pressKey(syls[j].charAt(k));
         keys += 1;
@@ -939,14 +1788,14 @@ async function runSelfCheck() {
   }
 
   try {
-    await info('自检开始：three.js 注入 → 素材 → 打字 → 结算 → 能力校验');
+    await info('自检开始：three.js 注入 → 素材 → 五声音阶 → 连击/高潮/世界 → 结算仪式 → 能力校验');
 
     // ---- 1. 预执行脚本通道：three.js 真的在页面上 ----
     var hasThree = (typeof THREE === 'object');
     await check('three.js 经 addInitScript 注入', hasThree && THREE.REVISION === '160',
       'REVISION=' + (hasThree ? THREE.REVISION : 'undefined'));
     await check('WebGL 渲染器已建立', three.ok,
-      three.ok ? 'canvas=' + $('scene').width + 'x' + $('scene').height : '未建立（场景降级）');
+      three.ok ? ('canvas=' + $('scene').width + 'x' + $('scene').height) : '未建立（场景降级）');
 
     // ---- 2. 素材：仓颉侧发来的诗库，页面对照汉字与音节 ----
     var poems = await invoke('poem:list');
@@ -970,8 +1819,8 @@ async function runSelfCheck() {
     }
     await check('每句的汉字数与音节数一一对齐', mismatch.length === 0,
       mismatch.length === 0 ? (totalChars + ' 字 / ' + totalLetters + ' 个字母') : mismatch.join('; '));
-    var bad = poems[0].title !== '咏鹅' || poems[0].stars < 1 || poems[0].stars > 3;
-    await check('第一首是《咏鹅》，星级在 1..3', !bad, poems[0].title + ' ★' + poems[0].stars);
+    await check('第一首是《咏鹅》，难度星级在 1..3',
+      poems[0].title !== '咏鹅' ? false : (poems[0].stars >= 1 && poems[0].stars <= 3), poems[0].title + ' ★' + poems[0].stars);
 
     // ---- 3. 成绩与运行模式 ----
     var scores = await invoke('score:list');
@@ -979,6 +1828,7 @@ async function runSelfCheck() {
     await check('typing:config 报出 selfCheck=true 与成绩路径',
       state.cfg.selfCheck === true && !!state.cfg.scoresPath && state.cfg.poems === 10,
       'scoresPath=' + state.cfg.scoresPath + ' poems=' + state.cfg.poems);
+    await check('自检全程不发声（没建 AudioContext）', state.mute === true && actx === null, 'actx=' + (actx ? '已建' : 'null'));
 
     // ---- 4. 渲染循环在跑（帧数只增不减） ----
     // 门槛故意放得很低：窗口被遮住 / 不在前台时 WebView2 会把 rAF 节流（实测 500ms 只有 19 帧），
@@ -989,38 +1839,102 @@ async function runSelfCheck() {
       + ' canvasBuf=' + $('scene').width + 'x' + $('scene').height);
     var f0 = state.frames;
     await sleep(1000);
-    await check('requestAnimationFrame 循环在推进', state.frames - f0 >= 5,
-      '1s 内 ' + (state.frames - f0) + ' 帧');
+    await check('requestAnimationFrame 循环在推进', state.frames - f0 >= 5, '1s 内 ' + (state.frames - f0) + ' 帧');
     await check('画布尺寸跟窗口一致（不靠 resize 事件也不会走样）',
       $('scene').clientWidth === window.innerWidth && $('scene').clientHeight === window.innerHeight,
       'viewport=' + window.innerWidth + 'x' + window.innerHeight
         + ' canvas=' + $('scene').clientWidth + 'x' + $('scene').clientHeight);
 
-    // ---- 5. 打字：先故意敲错两下，再照拼音打完《咏鹅》 ----
+    // ---- 5. 五声音阶与场景主题（纯函数，先验规则再验画面） ----
+    var ascending = true;
+    for (var s = 1; s <= 12; s++) { if (!(pentFreq(s) > pentFreq(s - 1))) { ascending = false; } }
+    await check('五声音阶逐级上行，且跨 5 级正好翻一个八度',
+      ascending && Math.abs(pentFreq(5) - pentFreq(0) * 2) < 1e-9,
+      'f0=' + pentFreq(0).toFixed(2) + ' f5=' + pentFreq(5).toFixed(2) + ' f12=' + pentFreq(12).toFixed(2));
+    await check('场景主题按诗 id 选（咏鹅/静夜思/望庐山瀑布专属，其余通用）',
+      themeFor({ id: 'yonge' }) === 'goose' && themeFor({ id: 'jingyesi' }) === 'moon'
+      && themeFor({ id: 'wanglushanpubu' }) === 'falls' && themeFor({ id: 'jueju' }) === 'scroll',
+      'jueju→' + themeFor({ id: 'jueju' }));
+    await check('连击档位随连对数升级（名字与颜色都换）',
+      comboDef(20).level > comboDef(2).level && comboDef(20).color !== comboDef(2).color,
+      '2→' + comboDef(2).name + ' 20→' + comboDef(20).name);
+
+    // ---- 6. 开始一首：目标可见 + 专属场景搭起来 ----
     var poem = poems[0];
     startPoem(poem);
     await sleep(60);
     await check('结算面板在开始时收起', $('result').classList.contains('hidden') && $('picker').classList.contains('hidden'));
+    await check('咏鹅切到专属场景（绿水白鹅真的建出来了）',
+      world.name === 'goose' && !!world.parts.goose && !!world.parts.water,
+      'theme=' + world.name + ' parts=' + Object.keys(world.parts).join(','));
+    await check('目标可见：HUD 打出三星门槛与追平线',
+      !$('goal').classList.contains('hidden') && $('starLine').textContent.indexOf('95') >= 0
+      && $('goalLabel').textContent.length > 0,
+      '门槛行=' + $('starLine').textContent.slice(0, 40) + '…');
     var barBefore = cardPixel(400, 1332);
     await check('卡面纹理真的画上了（进度条底色不透明）',
       !!barBefore && barBefore[3] > 0, barBefore ? ('rgba(' + barBefore.join(',') + ')') : 'n/a');
 
+    // ---- 7. 敲错：痛感三件套（红框 / 朱砂墨点 / 边缘红晕）+ 连击减半不归零 ----
     var firstSyl = syllablesOf(poem.lines[0])[0];
     var wrongKey = (firstSyl.charAt(0) === 'z') ? 'x' : 'z';
-    pressKey(wrongKey);        // 错键 1
+    pressKey(wrongKey);
     await sleep(20);
-    pressKey(wrongKey);        // 错键 2
+    pressKey(wrongKey);
     await sleep(20);
     await check('敲错两次被记为 2 个错字、0 个对字',
       state.errors === 2 && state.correct === 0 && state.started > 0,
       'errors=' + state.errors + ' correct=' + state.correct);
     await check('敲错时卡片边框转红（3D 反馈）', three.flash > 0, 'flash=' + three.flash.toFixed(2));
+    await check('敲错溅出朱砂墨点、屏幕边缘红晕、当前字被点一下',
+      three.stats.stains >= 2 && $('vignette').classList.contains('bad') && three.hint > 0,
+      'stains=' + three.stats.stains + ' vignette=' + $('vignette').classList.contains('bad') + ' hint=' + three.hint.toFixed(2));
 
-    var letters = await typePoem(poem, 14);
-    await sleep(120);
-    await check('整首打完：正确数 == 字母总数', state.correct === letters,
-      'correct=' + state.correct + ' 期望 ' + letters);
-    await check('错字仍为 2（不因后续正确而漂移）', state.errors === 2, 'errors=' + state.errors);
+    // 连对两个字（《咏鹅》首行是「e e e」，一个字母一个字）——先把连击垫到 2，再错一次
+    pressKey(firstSyl.charAt(0));
+    await sleep(20);
+    var secondSyl = syllablesOf(poem.lines[0])[1];
+    pressKey(secondSyl.charAt(0));
+    await sleep(20);
+    await check('连对 2 个字：连击计数与最长记录都在走', state.combo === 2 && state.maxCombo === 2,
+      'combo=' + state.combo + ' max=' + state.maxCombo);
+    await check('连击数字在 HUD 上跟着连对数走', $('comboNum').textContent === '2',
+      'comboNum=' + $('comboNum').textContent + '（3 连对起才亮，此刻 ' + $('combo').classList.contains('on') + '）');
+    // 连击 HUD 的亮相门槛是 3 连对：直接按规则摆一次状态验它（走的还是 renderCombo，没另开测试路径）
+    var keepCombo = state.combo;
+    state.combo = 3;
+    renderCombo();
+    var shownAt3 = $('combo').classList.contains('on') && $('comboNum').textContent === '3';
+    state.combo = keepCombo;
+    renderCombo();
+    await check('连对到 3 时连击 HUD 才亮起（门槛与设计一致）', shownAt3, '3 连对时显示=' + shownAt3);
+    pressKey(wrongKey);
+    await sleep(20);
+    await check('敲错时连击减半而不是清零（对小朋友宽容）',
+      state.combo === 1 && state.maxCombo === 2, 'combo=' + state.combo + ' max=' + state.maxCombo);
+
+    // ---- 8. 每句高潮：整句浮起 + 墨光扫过 + 磬 + 世界推进一幕 ----
+    var cl0 = three.stats.climaxes, fl0 = three.stats.floats, be0 = three.stats.bells;
+    pressKey(syllablesOf(poem.lines[0])[2].charAt(0));
+    await sleep(80);
+    await check('打完一整句触发句末高潮（浮起 + 磬各一次）',
+      three.stats.climaxes === cl0 + 1 && three.stats.floats === fl0 + 1 && three.stats.bells === be0 + 1,
+      'climaxes=' + three.stats.climaxes + ' floats=' + three.stats.floats + ' bells=' + three.stats.bells);
+    await check('浮起的是真的 3D 文字（场景里多了一块带纹理的平面）', three.floats.length >= 1,
+      'floats=' + three.floats.length);
+    await check('这一句在卡面上有墨光扫过', three.linePulse && three.linePulse.line === 0 && three.linePulse.t > 0,
+      three.linePulse ? ('line=' + three.linePulse.line + ' t=' + three.linePulse.t.toFixed(2)) : '无');
+    await check('世界随输入推进一幕（progress = 1/4 句）',
+      Math.abs(world.progress - 0.25) < 1e-6, 'progress=' + world.progress);
+
+    // ---- 9. 把剩下的打完：结算 ----
+    var before = state.correct;
+    var letters = await typePoemFrom(poem, state.line, state.ch, 14);
+    await sleep(140);
+    await check('整首打完：新敲的字母全部计为正确', state.correct - before === letters,
+      'correct+=' + (state.correct - before) + ' 期望 ' + letters);
+    await check('错字仍为 3（不因后续正确而漂移）', state.errors === 3, 'errors=' + state.errors);
+    await check('世界走完全程（progress = 1）', Math.abs(world.progress - 1) < 1e-6, 'progress=' + world.progress);
     await check('进度推进到末行之后（触发结算）',
       state.finished === true && state.line >= poem.lines.length,
       'finished=' + state.finished + ' line=' + state.line + '/' + poem.lines.length);
@@ -1029,11 +1943,23 @@ async function runSelfCheck() {
       !!barAfter && !!barBefore && barAfter[1] > barBefore[1] + 20,
       'before=g' + (barBefore ? barBefore[1] : 'n/a') + ' after=g' + (barAfter ? barAfter[1] : 'n/a'));
 
-    // ---- 6. 结算：成绩经 IPC 交给仓颉侧，再读回来 ----
+    // ---- 10. 结算：成绩经 IPC 交给仓颉侧，门槛副本与仓颉侧对齐 ----
     var saved = null;
     try { saved = await state.lastSave; } catch (e) { saved = null; }
     await check('score:save 回投了星级与成绩', !!saved && typeof saved.stars === 'number' && saved.stars >= 1 && saved.stars <= 3,
       saved ? ('★' + saved.stars + ' ' + saved.kpm + ' 键/分 ' + saved.accuracy + '% 破纪录=' + saved.updated) : '无回投');
+    // 页面里的门槛只是显示副本，真值在仓颉侧 starsFor()：拿回投反推一遍，两边不一致就说明有人改了规则没同步
+    var est = saved ? estimateStars(saved.accuracy / 100, saved.kpm) : -1;
+    var nearBoundary = false;
+    for (var bi = 0; bi < STAR_RULE.length; bi++) {
+      if (saved && (Math.abs(saved.accuracy / 100 - STAR_RULE[bi].acc) < 0.004 || Math.abs(saved.kpm - STAR_RULE[bi].kpm) < 0.4)) {
+        nearBoundary = true;
+      }
+    }
+    await check('星级门槛显示副本与仓颉侧一致（防两边漂移）',
+      nearBoundary ? true : (est === saved.stars),
+      '副本估=' + est + ' 仓颉=' + (saved ? saved.stars : 'n/a') + '（acc=' + (saved ? saved.accuracy : 'n/a')
+        + '% kpm=' + (saved ? saved.kpm : 'n/a') + (nearBoundary ? ' 落在门槛附近，跳过严格比对' : '') + '）');
     await check('成绩已落盘（persisted=true）', !!saved && saved.persisted === true,
       saved ? ('attempts=' + saved.attempts) : 'n/a');
     var after = await invoke('score:list');
@@ -1041,7 +1967,21 @@ async function runSelfCheck() {
     await check('score:list 复查：《咏鹅》已有纪录', !!rec && rec.attempts >= 1 && rec.bestKpm > 0,
       rec ? ('attempts=' + rec.attempts + ' bestKpm=' + rec.bestKpm + ' bestStars=' + rec.bestStars) : '无纪录');
 
-    // ---- 7. 能力校验与命令注册（负面对照：没声明的必须被拒） ----
+    // ---- 11. 结算仪式：面板是「演完后」才亮相的 ----
+    var waited = 0;
+    while (!state.ritualDone && waited < 3000) { await sleep(100); waited += 100; }
+    await check('结算仪式走完、面板亮相', state.ritualDone === true && !$('result').classList.contains('hidden'),
+      '等待 ' + waited + 'ms');
+    await check('三颗星逐个落下（星文本仍是三颗的位置）', $('resultStars').textContent.length === 3,
+      '星=' + $('resultStars').textContent);
+    await check('评语与「比上次快多少」都填上了',
+      $('verdict').textContent !== '' && $('verdictSub').textContent !== ''
+      && $('progressLine').textContent.length > 0,
+      $('verdict').textContent + ' / ' + $('progressLine').textContent);
+    await check('最长连对进了结算面板', $('rCombo').textContent === String(state.maxCombo),
+      'rCombo=' + $('rCombo').textContent + ' maxCombo=' + state.maxCombo);
+
+    // ---- 12. 能力校验与命令注册（负面对照：没声明的必须被拒） ----
     var version = await invoke('system:version');
     await check('system:version 可调用（能力清单里已声明）',
       !!version && typeof version === 'object' && typeof version.version === 'string' && version.version.length > 0,

@@ -59,6 +59,9 @@ func argFloat(args: JsonObject, key: String, fallback: Float64): Float64 {
 
 /** 保留一位小数：JSON 里不吐 66.66666666666667 这种数（页面直接显示） */
 func round1(x: Float64): Float64 {
+    // Int64 转换越界在仓颉里是**抛异常**（不是回绕）：留一条兜底，别让一个坏数（含 NaN）
+    // 把整条 score:save 打断——页面可控的 seconds 是最容易送进坏数的地方。
+    if (!(x > -1.0e15 && x < 1.0e15)) { return 0.0 }
     return Float64(Int64(x * 10.0 + 0.5)) / 10.0
 }
 
@@ -214,7 +217,13 @@ public class ScoreSaveCommand <: CommandHandler {
                 attempts = argInt(old, "attempts", 0) + 1
                 bestStars = argInt(old, "bestStars", 0)
                 bestKpm = argFloat(old, "bestKpm", 0.0)
-                bestAccuracy = argFloat(old, "bestAccuracy", 0.0)
+                // 文件里存的是**百分比**（与 lastAccuracy 一致），这里要的是**分数**：少除这个 100，
+                // 每存一轮就把旧值放大 100 倍，涨到 9.6e15 时 round1 的 Int64 转换溢出，
+                // score:save 从此每次抛异常、成绩再也存不下去——实机自检跑到第 12 次才暴露
+                // （前 11 次都"成功"，所以光看 PASS 发现不了）。超出 [0,1] 的值只可能来自被放大的
+                // 历史文件，不信它，用本轮正确率当起点（该字段只作展示，破纪录判定只看星级与速度）。
+                let readAcc = argFloat(old, "bestAccuracy", 0.0) / 100.0
+                bestAccuracy = if (readAcc >= 0.0 && readAcc <= 1.0) { readAcc } else { accuracy }
                 bestSeconds = argFloat(old, "bestSeconds", 0.0)
             case None => ()
         }
@@ -269,17 +278,33 @@ func selfCheckEnabled(): Bool {
     }
 }
 
+/**
+ * 人眼验收用的入口：`CJ_TYPING_POEM=<诗 id>` 起页面就直奔那一首，跳过选诗面板。
+ *
+ * 为什么留这个钩子：长诗的**分栏**（《长歌行》10 行、《敕勒歌》7 行七言）与字号只能靠眼睛看——
+ * 几何断言能证明「放得下、不重叠」，证明不了「好看、不串行」。有了它，
+ * `set CJ_TYPING_POEM=changgexing && run.bat` 一开窗就是那一首，截图就能归档对比。
+ */
+func startPoemId(): String {
+    match (getVariable("CJ_TYPING_POEM")) {
+        case Some(v) => return v
+        case None => return ""
+    }
+}
+
 /** `typing:config`：把宿主侧的运行模式交给页面（自检 / 成绩文件位置 / three.js 版本） */
 public class TypingConfigCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let preset = startPoemId()
         let obj = JsonObject()
         obj.put("selfCheck", JsonBool(selfCheckEnabled()))
+        obj.put("startPoem", JsonString(preset))
         obj.put("scoresPath", JsonString(SCORES_PATH))
         obj.put("three", JsonString("r160"))
         obj.put("poems", JsonInt(poems().size))
-        let mode = if (selfCheckEnabled()) { "自检" } else { "正常游玩" }
+        let mode = if (selfCheckEnabled()) { "自检" } else if (preset.size > 0) { "指定诗（${preset}）" } else { "正常游玩" }
         eprintln("[typing] typing:config -> ${mode}（window=${ipc.window}）")
         return obj
     }

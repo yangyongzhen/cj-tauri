@@ -93,6 +93,21 @@ button.danger { border-color: rgba(255,120,110,0.42); color: #ffc9c2; }
   max-width: 92vw; max-height: 88vh; overflow: auto;
 }
 #picker { width: 860px; }
+
+/* 弹层是页面里唯一会滚的地方（选诗 108 首要滚、结算面板也偶尔顶出去），而 Chromium 默认那条
+   灰蓝滚动条跟「深色玻璃 + 金线」不是一套。重配成淡金轴头 + 近乎透明的圆角轨道，宽度和圆角
+   都跟着面板走，让「还能往下翻」这件事一眼看得出来。WebView2 = Chromium，::-webkit-* 生效。 */
+.panel::-webkit-scrollbar { width: 12px; height: 12px; }
+.panel::-webkit-scrollbar-track { background: rgba(126,160,230,0.07); border-radius: 12px; margin: 10px 0; }
+.panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255,215,94,0.5), rgba(255,183,77,0.32));
+  border: 2px solid transparent; border-radius: 12px; background-clip: padding-box; min-height: 44px;
+}
+.panel::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255,215,94,0.8), rgba(255,183,77,0.55));
+  background-clip: padding-box;
+}
+.panel::-webkit-scrollbar-corner { background: transparent; }
 .panel h2 { margin: 0 0 8px; font-size: 19px; color: #ffd75e; letter-spacing: 1px; }
 .hint { font-size: 12.5px; color: #9fb0d4; line-height: 1.7; margin: 6px 0 12px; }
 .hint b { color: #ffd75e; }
@@ -883,23 +898,84 @@ function initThree() {
    否则星光会飘到字外面去——上一版就是两套近似算法各算一遍，落点只是「差不多」。 */
 var CARD = {
   W: 2400, H: 1440,
-  top: 262, step: 250,                  // 每格 250px：七言 1750px 宽，两侧还各余 325px
+  top: 262, step: 250,                  // 单栏每格 250px：七言 1750px 宽，两侧还各余 325px
   barX: 160, barY: 1320, barW: 2080, barH: 26,
   charPx: 156,                          // 汉字字号（原 104：实机反馈「不够醒目」）
-  pyPx: 66, pyCurPx: 80                 // 拼音字号；当前字更大——孩子真正要读的是这一行
+  pyPx: 66, pyCurPx: 80,                // 拼音字号；当前字更大——孩子真正要读的是这一行
+  colGap: 90                            // 分栏时的栏间距
 };
 
-/* 行内几何：一行里「拼音在哪、汉字在哪」只在这里定，paintCard 与 cardPoint 共用。
-   两处各算一遍的后果不是排版难看，而是星光／墨点落不到字上（上一版就是两套近似算法）。 */
+/* 行高与基线：行号按**栏内**行数算（长诗分栏后一栏只有 5 行，行高才撑得住大字）。
+   一行里「拼音在哪、汉字在哪」只在这里定，paintCard 与 cardPoint 共用——
+   两处各算一遍的后果不是排版难看，而是星光／墨点落不到字上。 */
 function rowHeight(rows) { return Math.min(255, (CARD.barY - 70 - CARD.top) / rows); }
 function rowTop(i, rows) { return CARD.top + i * rowHeight(rows); }
 function pinyinBaseY(i, rows) { return rowTop(i, rows) + rowHeight(rows) * 0.28; }
 function charBaseY(i, rows) { return rowTop(i, rows) + rowHeight(rows) * 0.95; }
 
+/* ------------------------------------------------------- 长诗分栏
+   行数一多，一栏就压不住：8 行时行高只剩 123px，汉字缩到 80px、拼音 34px——孩子要读的
+   正是拼音。分成像古籍那样的**左右两栏**（先读左栏从上到下、再读右栏）行高就够用了，
+   诗句顺序不变（左栏 1–5 句、右栏 6–10 句），进度条与「第几句」的算法一行都不用改。
+   但分栏也不是万灵药：4–5 行的七言一分栏，格宽从 250px 掉到 144px，字反而更小。
+   所以**不按行数拍阈值**，而是把两种排法各算一遍、谁的字更大用谁（见 columnCount）。 */
+function columnWidth(rows, cols) {
+  return (CARD.W - 2 * CARD.barX - CARD.colGap * (cols - 1)) / cols;
+}
+function columnRows(rows, cols) { return Math.ceil(rows / cols); }
+
+/** 栏内格宽：同时受两条约束——单栏 250px 的固定格宽，以及「最长一句得放得进一栏」 */
+function stepFor(rows, maxLen, cols) {
+  return Math.min(CARD.step, columnWidth(rows, cols) / Math.max(1, maxLen));
+}
+
+/** 该排法下汉字能有多大（绘制与「选排法」都读这一个式子，不各算一份） */
+function charPxFor(rows, maxLen, cols) {
+  return Math.min(CARD.charPx * vScale(columnRows(rows, cols)), stepFor(rows, maxLen, cols) * 0.86);
+}
+
+/** 一栏还是两栏：两种排法各算一遍，字更大的那种赢（诗词长短不齐，固定阈值必然吃亏） */
+function columnCount(rows, maxLen) {
+  if (rows <= 3 || maxLen <= 2) { return 1; }         // 三行以内怎么排都不挤，别瞎分
+  return charPxFor(rows, maxLen, 2) > charPxFor(rows, maxLen, 1) + 0.5 ? 2 : 1;
+}
+
+/** 第 i 句落在哪一栏、栏内第几行——绘制与引脚都走这两个函数，不各算一遍 */
+function lineColumn(i, cRows) { return i >= cRows ? 1 : 0; }
+function lineRowInCol(i, cRows) { return i - lineColumn(i, cRows) * cRows; }
+
+/** 最长一句的字数：格宽按它定（短句在栏内居中，各句长短不一也不会互相顶出去） */
+function poemMaxLen(p) {
+  var m = 1;
+  for (var i = 0; i < p.lines.length; i++) { m = Math.max(m, p.lines[i].text.length); }
+  return m;
+}
+
+/* 卡面几何（纹理像素）：paintCard 画、cardPoint 算落点，都从这里取，改一处两处一起动 */
+function cardGeometry(rows, maxLen) {
+  var cols = columnCount(rows, maxLen);
+  var cRows = columnRows(rows, cols);
+  return {
+    rows: rows, cols: cols, cRows: cRows, colW: columnWidth(rows, cols),
+    step: stepFor(rows, maxLen, cols),
+    rowH: rowHeight(cRows), vs: vScale(cRows),
+    charPx: charPxFor(rows, maxLen, cols),
+    pyPx: CARD.pyPx * vScale(cRows), pyCurPx: CARD.pyCurPx * vScale(cRows)
+  };
+}
+
+/** 某一栏的中心 x（纹理像素） */
+function columnCenterX(g, col) { return CARD.barX + g.colW / 2 + col * (g.colW + CARD.colGap); }
+
+/** 第 i 句第 j 个字的中心 x（纹理像素）：整句先在栏内居中，再按步长铺开 */
+function cellCenterX(i, j, lineLen, g) {
+  var lineW = lineLen * g.step;
+  return columnCenterX(g, lineColumn(i, g.cRows)) - lineW / 2 + g.step / 2 + j * g.step;
+}
+
 /* 字号随行数自适应：4 行以内用满字号，行数更多（《游子吟》6 行）按行高同比收。
    不收的后果是汉字直接压到下一行的拼音上——「行数变了字号不变」是排版最容易漏的一处。 */
 function vScale(rows) { return Math.min(1, rowHeight(rows) / 240); }
-function charInkPx(rows) { return CARD.charPx * vScale(rows); }
 
 /* 拼音比汉字宽得多（「chuang」六个字母），按可用宽度自动收字号，免得顶到邻格去 */
 function pyFitPx(c, text, basePx, maxW) {
@@ -1005,40 +1081,41 @@ function paintCard() {
   c.fillText(p.dynasty + ' · ' + p.author, W / 2, 236);
 
   var rows = p.lines.length;
-  var rowH = rowHeight(rows);
-  var vs = vScale(rows);                              // 行数多 → 字号与拼音同比收
-  var charPx = CARD.charPx * vs;
-  var pyPx = CARD.pyPx * vs;
-  var pyCurPx = CARD.pyCurPx * vs;
+  var g = cardGeometry(rows, poemMaxLen(p));          // 分栏 / 行高 / 字号一次算清，逐字只读它
+  var rowH = g.rowH;
+  var charPx = g.charPx;
+  var pyPx = g.pyPx;
+  var pyCurPx = g.pyCurPx;
   var charFont = 'bold ' + charPx + 'px "KaiTi","STKaiti","Microsoft YaHei",serif';
   var tier = comboDef(state.combo).color;
   for (var i = 0; i < rows; i++) {
     var line = p.lines[i];
     var syls = syllablesOf(line);
-    var lineW = line.text.length * CARD.step;
-    var x0 = W / 2 - lineW / 2 + CARD.step / 2;
-    var y = rowTop(i, rows);
-    var pyBase = pinyinBaseY(i, rows);      // 这一行拼音的基线
-    var chBase = charBaseY(i, rows);        // 这一行汉字的基线
+    var row = lineRowInCol(i, g.cRows);     // 栏内第几行：行高与两条基线都按它算
+    var lineW = line.text.length * g.step;
+    var x0 = columnCenterX(g, lineColumn(i, g.cRows)) - lineW / 2 + g.step / 2;
+    var y = rowTop(row, g.cRows);
+    var pyBase = pinyinBaseY(row, g.cRows); // 这一行拼音的基线
+    var chBase = charBaseY(row, g.cRows);   // 这一行汉字的基线
     // 整句刚打完：一道墨光扫过这一行（three.linePulse 由 lineClimax 置位，tickScene 衰减）
     var pulse = (three.linePulse && three.linePulse.line === i) ? three.linePulse.t : 0;
     if (pulse > 0) {
-      var lg = c.createLinearGradient(x0 - 90, 0, x0 - 90 + CARD.step * (line.text.length + 1), 0);
+      var lg = c.createLinearGradient(x0 - 90, 0, x0 - 90 + g.step * (line.text.length + 1), 0);
       lg.addColorStop(0, 'rgba(255,215,94,0)');
       lg.addColorStop(0.5, 'rgba(255,215,94,' + (0.3 * pulse).toFixed(3) + ')');
       lg.addColorStop(1, 'rgba(255,215,94,0)');
       c.fillStyle = lg;
-      c.fillRect(x0 - 90, y - 26, CARD.step * (line.text.length + 1), rowH + 26);
+      c.fillRect(x0 - 90, y - 26, g.step * (line.text.length + 1), rowH + 26);
     }
     for (var j = 0; j < line.text.length; j++) {
-      var cx = x0 + j * CARD.step;
+      var cx = x0 + j * g.step;
       var isDone = (i < state.line) || (i === state.line && j < state.ch) || three.ritual > 0;
       var isCur = (i === state.line && j === state.ch) && !state.finished;
       var pinyin = syls[j] || '';
 
       if (isCur) {
         // 当前字：金框（颜色随连击档位）+ 拼音分两色 + 朱砂笔尖；敲错时框描朱砂
-        var boxW = CARD.step * 0.84;
+        var boxW = g.step * 0.84;
         makeRoundRect(c, cx - boxW / 2, y - 2, boxW, rowH + 6, 24);
         c.fillStyle = 'rgba(255,215,94,0.16)';
         c.fill();
@@ -1047,7 +1124,7 @@ function paintCard() {
         c.stroke();
         // 当前字的拼音：按可用宽度挑字号（「chuang」这类长音节要收），再给一条金底衬——
         // 孩子真正在读的是这串字母，先让眼睛落在这里
-        var curPx = pyFitPx(c, pinyin, pyCurPx, CARD.step * 0.98);
+        var curPx = pyFitPx(c, pinyin, pyCurPx, g.step * 0.98);
         c.font = 'bold ' + curPx + 'px "Microsoft YaHei",sans-serif';
         var fullW = c.measureText(pinyin).width;
         var preW = c.measureText(state.typed).width;
@@ -1064,7 +1141,7 @@ function paintCard() {
         c.fillRect(px + preW, pyBase - curPx * 0.92, 6, curPx * 0.98);
         c.textAlign = 'center';
       } else {
-        var pyFit = pyFitPx(c, pinyin, pyPx, CARD.step * 0.92);
+        var pyFit = pyFitPx(c, pinyin, pyPx, g.step * 0.92);
         c.font = 'bold ' + pyFit + 'px "Microsoft YaHei",sans-serif';
         c.fillStyle = isDone ? 'rgba(18,110,72,0.92)' : 'rgba(138,128,110,0.62)';
         c.fillText(pinyin, cx, pyBase);
@@ -1078,7 +1155,7 @@ function paintCard() {
         c.fillText(line.text.charAt(j), cx, chBase);
         c.shadowBlur = 0;
         c.fillStyle = 'rgba(20,150,96,0.5)';           // 写完的字底下垫一道绿：一眼看出进度
-        c.fillRect(cx - CARD.step * 0.22, chBase + CARD.charPx * 0.10, CARD.step * 0.44, 6);
+        c.fillRect(cx - g.step * 0.22, chBase + charPx * 0.10, g.step * 0.44, 6);
       } else {
         c.fillStyle = isCur ? '#12161f' : 'rgba(126,116,98,0.42)';
         c.fillText(line.text.charAt(j), cx, chBase);
@@ -1127,14 +1204,19 @@ function seal(c, W) {
 /**
  * 第 i 句第 j 个字在**卡片局部坐标**里的位置
  *
- * 与 paintCard 共用 CARD/rowHeight：纹理上的 y 反推回平面坐标（平面高 5.4），
- * 这样星光、墨点、「+1」都落在字上，而不是「差不多在附近」。
+ * 与 paintCard 用的是同一套 cardGeometry / cellCenterX：先把字的中心算成纹理坐标，
+ * 再换算回平面坐标（卡片平面宽 9、高 5.4，纹理正好铺满），所以星光、墨点、「+1」
+ * 落在字的正上方。上一版的 x 是「按字数把整张卡平均分」估出来的，七言会偏出近一个字，
+ * 粒子其实飘在隔壁字上——这也是上一版「两套近似算法各算一遍」没改干净的那一半。
+ * 第 4 个参数 cols 仍是「该句字数」（调用点不必改），rows 仍是全诗行数。
  */
 function cardPoint(i, j, cols, rows) {
-  var step = 9 / Math.max(1, cols);
-  var x = -4.5 + (j + 0.5) * step;
-  var yTex = charBaseY(i, rows) - CARD.charPx * 0.40;   // 汉字墨迹的竖向中心（与 paintCard 同一套几何）
-  return { x: x, y: 2.7 - (yTex / CARD.H) * 5.4 };
+  var p = state.current;
+  var g = cardGeometry(rows, p ? poemMaxLen(p) : cols);
+  var xTex = cellCenterX(i, j, cols, g);
+  var row = lineRowInCol(i, g.cRows);
+  var yTex = charBaseY(row, g.cRows) - g.charPx * 0.40;   // 汉字墨迹的竖向中心（与 paintCard 同一套几何）
+  return { x: -4.5 + (xTex / CARD.W) * 9, y: 2.7 - (yTex / CARD.H) * 5.4 };
 }
 
 /* ---------------------------------------------------------------- 反馈特效 */
@@ -1203,9 +1285,13 @@ function spawnLineFloat(i) {
     x.fillText(line.text, w / 2, h / 2);
   });
   var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 0.95), mat);
+  // 分栏的长诗：浮字对齐它那一栏、宽度也收到一栏宽（不然会横着盖住两栏）
+  var g = cardGeometry(p.lines.length, poemMaxLen(p));
+  var planeW = Math.min(6.6, (g.colW / CARD.W) * 9);
+  var mesh = new THREE.Mesh(new THREE.PlaneGeometry(planeW, 0.95), mat);
   var pt = cardPoint(i, 0, line.text.length, p.lines.length);
-  mesh.position.set(0, pt.y, 1.1);
+  var xWorld = -4.5 + (columnCenterX(g, lineColumn(i, g.cRows)) / CARD.W) * 9;
+  mesh.position.set(xWorld, pt.y, 1.1);
   three.group.add(mesh);
   three.floats.push({ mesh: mesh, tex: tex, life: 1.4, max: 1.4, y0: pt.y });
   three.stats.floats += 1;
@@ -1659,8 +1745,11 @@ function finish() {
     return r;
   });
   state.lastSave.catch(function (e) {
+    // 记下拒因：仓颉侧命令抛异常只回一条 reject、**不写 stderr**，
+    // 不在这儿留一份，自检只能看到「无回投」，等于没有线索。
+    state.lastSaveError = (e && e.message) ? e.message : String(e);
     $('verdict').textContent = '成绩没能保存';
-    $('verdictSub').textContent = (e && e.message) ? e.message : String(e);
+    $('verdictSub').textContent = state.lastSaveError;
   });
 
   // ③ 仪式：诗卷写完 → 面板亮相（星星在亮相后逐个落下）
@@ -1756,6 +1845,7 @@ function boot() {
       renderPicker();
       startLoop();
       if (state.cfg.selfCheck) { runSelfCheck(); }
+      else if (state.cfg.startPoem) { startPreset(state.cfg.startPoem); }
     }).catch(function (e) {
       banner('初始化失败（' + e.message + '）', true);
     });
@@ -1801,6 +1891,21 @@ async function typePoemFrom(p, fromLine, fromCh, delayMs) {
     }
   }
   return keys;
+}
+
+/**
+ * `CJ_TYPING_POEM=<诗 id>`：跳过选诗面板直奔某一首。
+ *
+ * 留给「人眼验收」用（宿主侧见 TypingConfigCommand 的注释）：长诗分栏与字号这类东西
+ * 几何断言只能证「放得下不重叠」，证不了「好看不串行」——开窗就该是那一首，好截图归档。
+ * 写错 id 不算错，退回选诗面板并提示一句。
+ */
+function startPreset(id) {
+  for (var i = 0; i < state.poems.length; i++) {
+    if (state.poems[i].id === id) { startPoem(state.poems[i]); return; }
+  }
+  banner('CJ_TYPING_POEM=' + id + ' 不在诗库里，先挑一首吧', true);
+  showPicker();
 }
 
 /** 期望被拒的命令：返回错误文本（没被拒就返回 '(no error)'，本身就是 FAIL 证据） */
@@ -1860,8 +1965,16 @@ async function runSelfCheck() {
     }
     await check('每句的汉字数与音节数一一对齐', mismatch.length === 0,
       mismatch.length === 0 ? (totalChars + ' 字 / ' + totalLetters + ' 个字母') : mismatch.join('; '));
-    await check('第一首是《咏鹅》，难度星级在 1..3',
-      poems[0].title !== '咏鹅' ? false : (poems[0].stars >= 1 && poems[0].stars <= 3), poems[0].title + ' ★' + poems[0].stars);
+    // 诗库按音节数升序（列表从上往下就是「越打越长」）：既验排序，也防手滑把新诗插错位置
+    var unsorted = null;
+    for (var oi = 1; oi < poems.length; oi++) {
+      if (poems[oi].syllables < poems[oi - 1].syllables) { unsorted = poems[oi - 1].id + ' → ' + poems[oi].id; break; }
+    }
+    await check('诗库按音节数升序（难度递增），星级在 1..3',
+      unsorted === null && poems[0].stars >= 1 && poems[0].stars <= 3 && poems.length >= 100,
+      poems.length + ' 首：' + poems[0].title + ' ' + poems[0].syllables + ' 字 ★' + poems[0].stars
+        + ' → ' + poems[poems.length - 1].title + ' ' + poems[poems.length - 1].syllables + ' 字 ★'
+        + poems[poems.length - 1].stars + (unsorted === null ? '' : '，乱序：' + unsorted));
 
     // ---- 3. 成绩与运行模式 ----
     var scores = await invoke('score:list');
@@ -1886,19 +1999,58 @@ async function runSelfCheck() {
       'viewport=' + window.innerWidth + 'x' + window.innerHeight
         + ' canvas=' + $('scene').clientWidth + 'x' + $('scene').clientHeight);
 
-    // ---- 4b. 卡面版面：字号够大、行内不打架、长音节收得下 ----
+    // ---- 4b. 卡面版面：字号够大、行内不打架、长音节收得下、长诗自动分栏 ----
     // 起因是实机反馈「拼音和字体不够醒目」。字号是**审美**，但「有没有放大」「会不会串行」
-    // 是可以钉死的：这几条就是防回退的闸门。
+    // 「长诗怎么排」是可以钉死的：这几条就是防回退的闸门。
     var p0 = poems[0], rows0 = p0.lines.length;
+    var g0 = cardGeometry(rows0, poemMaxLen(p0));
     await check('卡面字号已放大（汉字 ≥150px、拼音 ≥60px）',
       CARD.charPx >= 150 && CARD.pyPx >= 60,
       'charPx=' + CARD.charPx + ' pyPx=' + CARD.pyPx + ' pyCurPx=' + CARD.pyCurPx);
     await check('行内几何不打架：拼音在汉字的上一段，末行也不压住进度条',
-      pinyinBaseY(0, rows0) < charBaseY(0, rows0)
-      && charBaseY(rows0 - 1, rows0) + CARD.charPx * 0.16 < CARD.barY - 40,
-      '拼音基线=' + pinyinBaseY(0, rows0).toFixed(1) + ' 汉字基线=' + charBaseY(0, rows0).toFixed(1)
-        + ' 末行墨迹底=' + (charBaseY(rows0 - 1, rows0) + CARD.charPx * 0.16).toFixed(1)
+      pinyinBaseY(0, g0.cRows) < charBaseY(0, g0.cRows)
+      && charBaseY(g0.cRows - 1, g0.cRows) + g0.charPx * 0.16 < CARD.barY - 40,
+      '拼音基线=' + pinyinBaseY(0, g0.cRows).toFixed(1) + ' 汉字基线=' + charBaseY(0, g0.cRows).toFixed(1)
+        + ' 末行墨迹底=' + (charBaseY(g0.cRows - 1, g0.cRows) + g0.charPx * 0.16).toFixed(1)
         + ' 进度条=' + CARD.barY);
+    // 全库扫一遍版面：每首都得放得进自己那一栏、汉字不许糊、分栏不许越出纸面（诗库一扩容就自动跟着跑）
+    var badLayout = [], twoCol = 0, oneCol = 0, minStep = 1e9, minStepId = '';
+    for (var wi = 0; wi < poems.length; wi++) {
+      var wp = poems[wi], wmax = poemMaxLen(wp);
+      var gw = cardGeometry(wp.lines.length, wmax);
+      if (gw.cols === 2) { twoCol += 1; } else { oneCol += 1; }
+      if (wmax * gw.step > gw.colW + 0.5) {
+        badLayout.push(wp.id + ' 最长句 ' + (wmax * gw.step).toFixed(0) + 'px > 栏宽 ' + gw.colW.toFixed(0) + 'px');
+      }
+      if (gw.cols * gw.colW + CARD.colGap * (gw.cols - 1) > CARD.W - 2 * CARD.barX + 0.5) {
+        badLayout.push(wp.id + ' 分栏越出纸面');
+      }
+      if (gw.charPx < 60) { badLayout.push(wp.id + ' 汉字只剩 ' + gw.charPx.toFixed(0) + 'px'); }
+      if (gw.step < minStep) { minStep = gw.step; minStepId = wp.id; }
+    }
+    await check('全库每一首都排得下（最长句 ≤ 栏宽、汉字 ≥60px、分栏不越界）',
+      badLayout.length === 0,
+      badLayout.length === 0 ? (poems.length + ' 首全部通过') : badLayout.slice(0, 4).join('; '));
+    await check('短诗单栏、长诗自动分栏（列表里两种排法都真的出现过）',
+      oneCol > poems.length / 2 && twoCol > 0,
+      oneCol + ' 首单栏 / ' + twoCol + ' 首分栏');
+    // 分栏是「算出来」的：同一首长诗分栏后必须比单栏更大，否则就该老实单栏
+    var mostRows = 0, mostTitle = '', mostMaxLen = 1;
+    for (var qi = 0; qi < poems.length; qi++) {
+      if (poems[qi].lines.length > mostRows) {
+        mostRows = poems[qi].lines.length; mostTitle = poems[qi].title; mostMaxLen = poemMaxLen(poems[qi]);
+      }
+    }
+    var gm = cardGeometry(mostRows, mostMaxLen);
+    await check('最长的那首分栏后字更大（分栏是比出来的，不是按行数拍的）',
+      gm.cols === 2 && gm.charPx > charPxFor(mostRows, mostMaxLen, 1) + 0.5,
+      '《' + mostTitle + '》' + mostRows + ' 行 → ' + gm.cols + ' 栏 ' + gm.charPx.toFixed(0)
+        + 'px vs 单栏 ' + charPxFor(mostRows, mostMaxLen, 1).toFixed(0) + 'px');
+    await check('分栏不漏句：最后一句落在最后一栏的最后一行',
+      lineColumn(mostRows - 1, gm.cRows) === gm.cols - 1 && lineRowInCol(mostRows - 1, gm.cRows) === gm.cRows - 1,
+      '末句 → 第 ' + (lineColumn(mostRows - 1, gm.cRows) + 1) + ' 栏第 '
+        + (lineRowInCol(mostRows - 1, gm.cRows) + 1) + ' 行（共 ' + gm.cRows + ' 行 × ' + gm.cols + ' 栏）');
+    // 最窄的格子来自分栏的长诗：长音节在那儿会被收得最小，所以专门盯住它
     var longest = '';
     for (var pi = 0; pi < poems.length; pi++) {
       for (var li = 0; li < poems[pi].lines.length; li++) {
@@ -1906,33 +2058,45 @@ async function runSelfCheck() {
         for (var si = 0; si < sy.length; si++) { if (sy[si].length > longest.length) { longest = sy[si]; } }
       }
     }
-    var longPx = pyFitPx(three.cardCtx, longest, CARD.pyCurPx, CARD.step * 0.98);
+    var longPx = pyFitPx(three.cardCtx, longest, CARD.pyCurPx, minStep * 0.98);
     three.cardCtx.font = 'bold ' + longPx + 'px "Microsoft YaHei",sans-serif';
     var longW = three.cardCtx.measureText(longest).width;
-    await check('最长的音节也收得进格子（自动收字号，不顶到邻格）',
-      longW <= CARD.step * 0.98 && longPx >= 40,
-      '「' + longest + '」' + longW.toFixed(0) + 'px ≤ ' + (CARD.step * 0.98).toFixed(0) + 'px，字号 ' + longPx + 'px');
-    var widest = 0;
-    for (var wi = 0; wi < poems.length; wi++) {
-      for (var wj = 0; wj < poems[wi].lines.length; wj++) {
-        if (poems[wi].lines[wj].text.length > widest) { widest = poems[wi].lines[wj].text.length; }
-      }
-    }
-    await check('最宽的一行留得住两侧墨边（不顶到纸边）',
-      widest * CARD.step <= CARD.W - 320,
-      widest + ' 字 × ' + CARD.step + 'px = ' + (widest * CARD.step) + 'px / 纸宽 ' + CARD.W);
+    await check('最长的音节在最窄的格子里也收得进（自动收字号，不顶到邻格）',
+      longW <= minStep * 0.98 && longPx >= 36,
+      '最窄格 ' + minStep.toFixed(0) + 'px（' + minStepId + '）：「' + longest + '」' + longW.toFixed(0)
+        + 'px，字号 ' + longPx + 'px');
+    // 星光／墨点的落点：与绘制共用 cardGeometry + cellCenterX，横竖都得落在那一个字上
     var cpBack = (2.7 - cardPoint(0, 0, p0.lines[0].text.length, rows0).y) / 5.4 * CARD.H;
     await check('星光落点由同一套几何算出（落在第一行的汉字上）',
-      cpBack > charBaseY(0, rows0) - CARD.charPx && cpBack < charBaseY(0, rows0),
+      cpBack > charBaseY(0, g0.cRows) - g0.charPx && cpBack < charBaseY(0, g0.cRows),
       '落点 yTex=' + cpBack.toFixed(0) + '，汉字带 '
-        + (charBaseY(0, rows0) - CARD.charPx).toFixed(0) + '..' + charBaseY(0, rows0).toFixed(0));
-    var mostRows = 0, mostTitle = '';
-    for (var qi = 0; qi < poems.length; qi++) {
-      if (poems[qi].lines.length > mostRows) { mostRows = poems[qi].lines.length; mostTitle = poems[qi].title; }
+        + (charBaseY(0, g0.cRows) - g0.charPx).toFixed(0) + '..' + charBaseY(0, g0.cRows).toFixed(0));
+    var cpX = cardPoint(0, 0, p0.lines[0].text.length, rows0).x;
+    var wantX = -4.5 + (cellCenterX(0, 0, p0.lines[0].text.length, g0) / CARD.W) * 9;
+    await check('星光落点的横坐标也由同一套几何算出（正落在那个字上，不飘到隔壁）',
+      Math.abs(cpX - wantX) < 1e-9,
+      '落点 x=' + cpX.toFixed(4) + ' 期望 ' + wantX.toFixed(4) + '（差 ' + Math.abs(cpX - wantX).toExponential(1) + '）');
+    // 滚动条重配是 CSS：光看文件里「写了没」不算数，从 stylesheet 里读回来，证明浏览器认了这几条
+    var sbWidth = '', sbThumb = '', sbCount = 0;
+    for (var ssi = 0; ssi < document.styleSheets.length; ssi++) {
+      var srules = document.styleSheets[ssi].cssRules || [];
+      for (var sri = 0; sri < srules.length; sri++) {
+        var ssel = srules[sri].selectorText || '';
+        if (ssel.indexOf('-webkit-scrollbar') < 0) { continue; }
+        sbCount += 1;
+        if (/::-webkit-scrollbar$/.test(ssel)) { sbWidth = srules[sri].style.width; }
+        if (ssel.indexOf('-webkit-scrollbar-thumb') >= 0) {
+          sbThumb = srules[sri].style.background || srules[sri].style.backgroundColor;
+        }
+      }
     }
-    await check('行数最多的那首字号也缩不糊（自适应留底 ≥100px）',
-      charInkPx(mostRows) >= 100,
-      '《' + mostTitle + '》' + mostRows + ' 行 → 汉字 ' + charInkPx(mostRows).toFixed(0) + 'px');
+    var panels = document.querySelectorAll('.panel'), scrollable = false;
+    for (var psi = 0; psi < panels.length; psi++) {
+      if (panels[psi].scrollHeight > panels[psi].clientHeight + 4) { scrollable = true; }
+    }
+    await check('弹层滚动条已重配色（改成淡金轴头，不再是浏览器默认那条）',
+      sbCount >= 4 && sbWidth === '12px' && sbThumb !== '' && scrollable,
+      '规则 ' + sbCount + ' 条，宽 ' + sbWidth + '，轴头 ' + sbThumb.slice(0, 46) + '…，弹层可滚=' + scrollable);
 
     // ---- 5. 五声音阶与场景主题（纯函数，先验规则再验画面） ----
     var ascending = true;
@@ -1949,7 +2113,10 @@ async function runSelfCheck() {
       '2→' + comboDef(2).name + ' 20→' + comboDef(20).name);
 
     // ---- 6. 开始一首：目标可见 + 专属场景搭起来 ----
+    // 样本用《咏鹅》：首行是「e e e」，一个字母一个字，按几下键就能凑出「整句打完」，
+    // 自检不必等一长串字母（诗库按音节数排序，第一首是《采薇（节选）》，首行 13 个字母）。
     var poem = poems[0];
+    for (var yi = 0; yi < poems.length; yi++) { if (poems[yi].id === 'yonge') { poem = poems[yi]; } }
     startPoem(poem);
     await sleep(60);
     await check('结算面板在开始时收起', $('result').classList.contains('hidden') && $('picker').classList.contains('hidden'));
@@ -2036,7 +2203,8 @@ async function runSelfCheck() {
     var saved = null;
     try { saved = await state.lastSave; } catch (e) { saved = null; }
     await check('score:save 回投了星级与成绩', !!saved && typeof saved.stars === 'number' && saved.stars >= 1 && saved.stars <= 3,
-      saved ? ('★' + saved.stars + ' ' + saved.kpm + ' 键/分 ' + saved.accuracy + '% 破纪录=' + saved.updated) : '无回投');
+      saved ? ('★' + saved.stars + ' ' + saved.kpm + ' 键/分 ' + saved.accuracy + '% 破纪录=' + saved.updated)
+        : ('无回投' + (state.lastSaveError ? '：' + state.lastSaveError : '')));
     // 页面里的门槛只是显示副本，真值在仓颉侧 starsFor()：拿回投反推一遍，两边不一致就说明有人改了规则没同步
     var est = saved ? estimateStars(saved.accuracy / 100, saved.kpm) : -1;
     var nearBoundary = false;
@@ -2046,7 +2214,7 @@ async function runSelfCheck() {
       }
     }
     await check('星级门槛显示副本与仓颉侧一致（防两边漂移）',
-      nearBoundary ? true : (est === saved.stars),
+      nearBoundary ? true : (saved ? (est === saved.stars) : false),
       '副本估=' + est + ' 仓颉=' + (saved ? saved.stars : 'n/a') + '（acc=' + (saved ? saved.accuracy : 'n/a')
         + '% kpm=' + (saved ? saved.kpm : 'n/a') + (nearBoundary ? ' 落在门槛附近，跳过严格比对' : '') + '）');
     await check('成绩已落盘（persisted=true）', !!saved && saved.persisted === true,
@@ -2055,6 +2223,12 @@ async function runSelfCheck() {
     var rec = after ? after[poem.id] : null;
     await check('score:list 复查：《咏鹅》已有纪录', !!rec && rec.attempts >= 1 && rec.bestKpm > 0,
       rec ? ('attempts=' + rec.attempts + ' bestKpm=' + rec.bestKpm + ' bestStars=' + rec.bestStars) : '无纪录');
+    // 正确率是百分比，两个字段都得待在 [0,100]：仓颉侧读回时把百分比当分数用会让它每轮 ×100，
+    // 涨到 1e15 量级就把 Int64 转换打溢出、此后成绩再也存不下去（本轮实机自检抓到的真 bug）。
+    await check('成绩文件里的正确率没越界（百分比就是百分比，不随轮次放大）',
+      !!rec && typeof rec.bestAccuracy === 'number' && rec.bestAccuracy >= 0 && rec.bestAccuracy <= 100
+      && typeof rec.lastAccuracy === 'number' && rec.lastAccuracy >= 0 && rec.lastAccuracy <= 100,
+      rec ? ('bestAccuracy=' + rec.bestAccuracy + ' lastAccuracy=' + rec.lastAccuracy) : '无纪录');
 
     // ---- 11. 结算仪式：面板是「演完后」才亮相的 ----
     var waited = 0;

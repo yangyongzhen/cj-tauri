@@ -19,7 +19,7 @@ REM Evidence to look for in the log (the app's own log lines are Chinese; the
 REM ASCII tags below are what findstr keys on):
 REM   [typing] main start                     -- assembly reached main()
 REM   [typing] three.js ...                   -- addInitScript channel armed
-REM   [typing] poem:list -> 10 ...            -- the poem library reached the page
+REM   [typing] poem:list -> <N> ...          -- the poem library reached the page
 REM   [typing] score:save ...                 -- stars + written/best flags at the end
 REM   [cj-bridge] ... window ...              -- the host window came up
 REM   [frontend] PASS/FAIL ...                -- page-side self check lines

@@ -195,8 +195,13 @@ public class IpcHub {
             let result = handler.handle(req.cmd, req.args, ctx)
             this.jsSink(IpcMessage.resolve(req.id, result), req.window)
         } catch (e: CommandException) {
+            // 应用级拒绝（作者主动抛的业务失败）也要留痕：前端可能压根没接 catch，
+            // 只回 reject 的话「这条命令失败了」在页面之外毫无线索——事件监听器路早有同款日志。
+            // 与下面的非预期失败分开措辞，便于 `grep command rejected` / `grep command failed` 分流。
+            eprintln("[cj-tauri] command rejected (${req.cmd}): ${e.message}")
             this.reject(req.id, e.message, req.window)
         } catch (e: Exception) {
+            eprintln("[cj-tauri] command failed (${req.cmd}): ${e}")
             this.reject(req.id, "command failed: ${e}", req.window)
         }
     }

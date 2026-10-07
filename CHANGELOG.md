@@ -188,6 +188,12 @@
 
 ### Fixed
 
+- **命令失败不再「无声」：`IpcHub.runCommand` 的两处 catch 补 stderr 日志**：此前 handler 抛异常
+  （业务级的 `CommandException` 也好、别的异常也好）只回一条 `reject`，仓颉侧**一行日志都不打**——
+  前端要是没接 `catch`，这次失败就完全无痕（事件监听器那条路一直有 `event listener failed`，
+  两条路不对称）。现在分别打 `[cj-tauri] command rejected (<命令>): <message>`（应用级拒绝）与
+  `[cj-tauri] command failed (<命令>): <异常>`（非预期失败），前缀不同便于分流检索；
+  **回投给前端的报文一字未变**，只多一条 stderr 行。`scripts/test.sh` 132/132 仍全绿。
 - **打字练习示例：`score:save` 的 `bestAccuracy` 读写单位不一致，成绩从某一轮起再也存不下**（自检第 12 轮才抓到）：
   落盘按**百分比**写、读回按**分数**用，于是每轮**复利式 ×100**——实测该字段已涨到 `9630000000000000`
   （约 9.63e15），命中 `round1()` 里 `Int64(x * 10.0)` 的越界 → 命令抛异常，`score:save` 就此全废
@@ -195,9 +201,10 @@
   （0..1），只在吐给页面与落盘时 ×100，**读写同口径**；② `round1()` 加范围兜底，脏数据不再把整条命令带走；
   ③ 页面侧加两条回归断言（`score:save` 回投的正确率必须与落盘值一致、且不得越界）。修完 `bestAccuracy`
   回到 `94.5`，自检 **57/0**（该文件 `attempts=14` 可对照这累计了十几轮的异常）。
-  ⚠️ 定位过程顺带暴露一个**诊断面缺口**：**命令 handler 抛异常时框架只回 `reject`、仓颉侧 stderr 一行都不打**
-  （`IpcHub.runCommand` 的两个 catch；事件监听器那条路则有 `event listener failed` 日志，两者不对称）。
-  本轮正是靠页面自己把错误回投才定位到的——命令「无声失败」时日志里查不到任何痕迹。
+  ⚠️ 定位过程顺带暴露的**诊断面缺口已在本版补掉**：命令 handler 抛异常时框架只回 `reject`、
+  仓颉侧 stderr 一行都不打（`IpcHub.runCommand` 的两个 catch；事件监听器那条路则有
+  `event listener failed` 日志，两者不对称）。本轮正是靠页面自己把错误回投才定位到的——
+  两个 catch 现已各自补日志，见本节 `IpcHub.runCommand` 那条。
 - **窗口销毁 / 文件对话框结果回调改按宿主句柄路由（多窗口下不再串台）**：三个宿主级回调里，
   消息回调的报文自带 window label，**销毁与对话框结果却不带宿主身份**，仓颉侧只能写进静态单槽
   （`HostGlobals.onDestroy` / `HostGlobals.dialogResult`）——后装配的窗口覆盖先装配的，于是

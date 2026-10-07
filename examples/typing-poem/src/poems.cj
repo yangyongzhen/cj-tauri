@@ -75,7 +75,7 @@ public class Poem {
 /** 拼音字符串的音节数：空格分隔，个数 = 空格数 + 1 */
 func syllableCount(pinyin: String): Int64 {
     var n: Int64 = 1
-    // 迭代 String 拿到的是 UInt32 码点（不是 Rune），空格就是 0x20
+    // 迭代 String 拿到的是 UInt8 字节（不是 UInt32 码点，细节见 charCount 与 AGENTS §4）；空格就是 0x20
     for (cp in pinyin) {
         if (cp == 0x20) {
             n += 1
@@ -102,9 +102,11 @@ func charCount(text: String): Int64 {
 }
 
 /**
- * 教材里最常出现的十首：五言短篇打底，七言给进阶
+ * 教材里最常出现的二十一首：五言短篇打底，七言给进阶
  *
- * 顺序即页面列表顺序：先《咏鹅》这种 18 字的小试，再五言 20 字，最后七言 28 字。
+ * 顺序即页面列表顺序：先《咏鹅》这种 18 字的小试，再五言 20 字，再七言 28 字，
+ * 最后《游子吟》6 行 30 字。（2026-10-07 按用户要求从十首扩到二十一首——多给几首，孩子才有得挑。）
+ * 行数不必都是 4：卡面字号按行数自适应（页面里的 `vScale()`），6 行的《游子吟》照样排得下。
  */
 public func poems(): Array<Poem> {
     return [
@@ -113,6 +115,18 @@ public func poems(): Array<Poem> {
             ("曲项向天歌", "qu xiang xiang tian ge"),
             ("白毛浮绿水", "bai mao fu lv shui"),
             ("红掌拨清波", "hong zhang bo qing bo")
+        ]),
+        Poem("hua", "画", "佚名", "唐", [
+            ("远看山有色", "yuan kan shan you se"),
+            ("近听水无声", "jin ting shui wu sheng"),
+            ("春去花还在", "chun qu hua hai zai"),
+            ("人来鸟不惊", "ren lai niao bu jing")
+        ]),
+        Poem("chishang", "池上", "白居易", "唐", [
+            ("小娃撑小艇", "xiao wa cheng xiao ting"),
+            ("偷采白莲回", "tou cai bai lian hui"),
+            ("不解藏踪迹", "bu jie cang zong ji"),
+            ("浮萍一道开", "fu ping yi dao kai")
         ]),
         Poem("jingyesi", "静夜思", "李白", "唐", [
             ("床前明月光", "chuang qian ming yue guang"),
@@ -131,6 +145,24 @@ public func poems(): Array<Poem> {
             ("万径人踪灭", "wan jing ren zong mie"),
             ("孤舟蓑笠翁", "gu zhou suo li weng"),
             ("独钓寒江雪", "du diao han jiang xue")
+        ]),
+        Poem("zengwanglun", "赠汪伦", "李白", "唐", [
+            ("李白乘舟将欲行", "li bai cheng zhou jiang yu xing"),
+            ("忽闻岸上踏歌声", "hu wen an shang ta ge sheng"),
+            ("桃花潭水深千尺", "tao hua tan shui shen qian chi"),
+            ("不及汪伦送我情", "bu ji wang lun song wo qing")
+        ]),
+        Poem("yongliu", "咏柳", "贺知章", "唐", [
+            ("碧玉妆成一树高", "bi yu zhuang cheng yi shu gao"),
+            ("万条垂下绿丝绦", "wan tiao chui xia lv si tao"),
+            ("不知细叶谁裁出", "bu zhi xi ye shui cai chu"),
+            ("二月春风似剪刀", "er yue chun feng si jian dao")
+        ]),
+        Poem("wangtianmenshan", "望天门山", "李白", "唐", [
+            ("天门中断楚江开", "tian men zhong duan chu jiang kai"),
+            ("碧水东流至此回", "bi shui dong liu zhi ci hui"),
+            ("两岸青山相对出", "liang an qing shan xiang dui chu"),
+            ("孤帆一片日边来", "gu fan yi pian ri bian lai")
         ]),
         Poem("minnong", "悯农", "李绅", "唐", [
             ("锄禾日当午", "chu he ri dang wu"),
@@ -167,6 +199,45 @@ public func poems(): Array<Poem> {
             ("一行白鹭上青天", "yi hang bai lu shang qing tian"),
             ("窗含西岭千秋雪", "chuang han xi ling qian qiu xue"),
             ("门泊东吴万里船", "men bo dong wu wan li chuan")
+        ]),
+        Poem("shanxing", "山行", "杜牧", "唐", [
+            ("远上寒山石径斜", "yuan shang han shan shi jing xie"),
+            ("白云生处有人家", "bai yun sheng chu you ren jia"),
+            ("停车坐爱枫林晚", "ting che zuo ai feng lin wan"),
+            ("霜叶红于二月花", "shuang ye hong yu er yue hua")
+        ]),
+        Poem("jiuyuejiuri", "九月九日忆山东兄弟", "王维", "唐", [
+            ("独在异乡为异客", "du zai yi xiang wei yi ke"),
+            ("每逢佳节倍思亲", "mei feng jia jie bei si qin"),
+            ("遥知兄弟登高处", "yao zhi xiong di deng gao chu"),
+            ("遍插茱萸少一人", "bian cha zhu yu shao yi ren")
+        ]),
+        Poem("qingming", "清明", "杜牧", "唐", [
+            ("清明时节雨纷纷", "qing ming shi jie yu fen fen"),
+            ("路上行人欲断魂", "lu shang xing ren yu duan hun"),
+            ("借问酒家何处有", "jie wen jiu jia he chu you"),
+            ("牧童遥指杏花村", "mu tong yao zhi xing hua cun")
+        ]),
+        Poem("chunri", "春日", "朱熹", "宋", [
+            ("胜日寻芳泗水滨", "sheng ri xun fang si shui bin"),
+            ("无边光景一时新", "wu bian guang jing yi shi xin"),
+            ("等闲识得东风面", "deng xian shi de dong feng mian"),
+            ("万紫千红总是春", "wan zi qian hong zong shi chun")
+        ]),
+        Poem("tixilinbi", "题西林壁", "苏轼", "宋", [
+            ("横看成岭侧成峰", "heng kan cheng ling ce cheng feng"),
+            ("远近高低各不同", "yuan jin gao di ge bu tong"),
+            ("不识庐山真面目", "bu shi lu shan zhen mian mu"),
+            ("只缘身在此山中", "zhi yuan shen zai ci shan zhong")
+        ]),
+        // 6 行一首：卡面字号按行数自适应，行数变多不会挤成一片（页面 vScale()）
+        Poem("youziyin", "游子吟", "孟郊", "唐", [
+            ("慈母手中线", "ci mu shou zhong xian"),
+            ("游子身上衣", "you zi shen shang yi"),
+            ("临行密密缝", "lin xing mi mi feng"),
+            ("意恐迟迟归", "yi kong chi chi gui"),
+            ("谁言寸草心", "shui yan cun cao xin"),
+            ("报得三春晖", "bao de san chun hui")
         ])
     ]
 }

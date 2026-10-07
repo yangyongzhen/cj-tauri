@@ -881,9 +881,36 @@ function initThree() {
 
 /* 卡面几何集中在这里：paintCard（画）与 cardPoint（算粒子落点）必须用同一套，
    否则星光会飘到字外面去——上一版就是两套近似算法各算一遍，落点只是「差不多」。 */
-var CARD = { W: 2400, H: 1440, top: 340, step: 108, barX: 160, barY: 1320, barW: 2080, barH: 26 };
+var CARD = {
+  W: 2400, H: 1440,
+  top: 262, step: 250,                  // 每格 250px：七言 1750px 宽，两侧还各余 325px
+  barX: 160, barY: 1320, barW: 2080, barH: 26,
+  charPx: 156,                          // 汉字字号（原 104：实机反馈「不够醒目」）
+  pyPx: 66, pyCurPx: 80                 // 拼音字号；当前字更大——孩子真正要读的是这一行
+};
 
-function rowHeight(rows) { return Math.min(200, (CARD.H - CARD.top - 220) / rows); }
+/* 行内几何：一行里「拼音在哪、汉字在哪」只在这里定，paintCard 与 cardPoint 共用。
+   两处各算一遍的后果不是排版难看，而是星光／墨点落不到字上（上一版就是两套近似算法）。 */
+function rowHeight(rows) { return Math.min(255, (CARD.barY - 70 - CARD.top) / rows); }
+function rowTop(i, rows) { return CARD.top + i * rowHeight(rows); }
+function pinyinBaseY(i, rows) { return rowTop(i, rows) + rowHeight(rows) * 0.28; }
+function charBaseY(i, rows) { return rowTop(i, rows) + rowHeight(rows) * 0.95; }
+
+/* 字号随行数自适应：4 行以内用满字号，行数更多（《游子吟》6 行）按行高同比收。
+   不收的后果是汉字直接压到下一行的拼音上——「行数变了字号不变」是排版最容易漏的一处。 */
+function vScale(rows) { return Math.min(1, rowHeight(rows) / 240); }
+function charInkPx(rows) { return CARD.charPx * vScale(rows); }
+
+/* 拼音比汉字宽得多（「chuang」六个字母），按可用宽度自动收字号，免得顶到邻格去 */
+function pyFitPx(c, text, basePx, maxW) {
+  var px = basePx;
+  while (px > 26) {
+    c.font = 'bold ' + px + 'px "Microsoft YaHei",sans-serif';
+    if (c.measureText(text).width <= maxW) { break; }
+    px -= 2;
+  }
+  return px;
+}
 
 var PAPER = null;
 /** 宣纸底：纤维 + 淡茶渍，只画一次（每帧画几千条线会把打字拖卡） */
@@ -970,24 +997,29 @@ function paintCard() {
     return;
   }
 
-  c.font = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  c.font = 'bold 116px "KaiTi","STKaiti","Microsoft YaHei",serif';
   c.fillStyle = '#1d2430';
-  c.fillText('《' + p.title + '》', W / 2, 172);
-  c.font = '46px "Microsoft YaHei",sans-serif';
+  c.fillText('《' + p.title + '》', W / 2, 176);
+  c.font = '50px "Microsoft YaHei",sans-serif';
   c.fillStyle = 'rgba(96,104,120,0.85)';
-  c.fillText(p.dynasty + ' · ' + p.author, W / 2, 232);
+  c.fillText(p.dynasty + ' · ' + p.author, W / 2, 236);
 
   var rows = p.lines.length;
   var rowH = rowHeight(rows);
-  var pyFont = 'bold 40px "Microsoft YaHei",sans-serif';
-  var charFont = 'bold 104px "KaiTi","STKaiti","Microsoft YaHei",serif';
+  var vs = vScale(rows);                              // 行数多 → 字号与拼音同比收
+  var charPx = CARD.charPx * vs;
+  var pyPx = CARD.pyPx * vs;
+  var pyCurPx = CARD.pyCurPx * vs;
+  var charFont = 'bold ' + charPx + 'px "KaiTi","STKaiti","Microsoft YaHei",serif';
   var tier = comboDef(state.combo).color;
   for (var i = 0; i < rows; i++) {
     var line = p.lines[i];
     var syls = syllablesOf(line);
     var lineW = line.text.length * CARD.step;
     var x0 = W / 2 - lineW / 2 + CARD.step / 2;
-    var y = CARD.top + i * rowH;
+    var y = rowTop(i, rows);
+    var pyBase = pinyinBaseY(i, rows);      // 这一行拼音的基线
+    var chBase = charBaseY(i, rows);        // 这一行汉字的基线
     // 整句刚打完：一道墨光扫过这一行（three.linePulse 由 lineClimax 置位，tickScene 衰减）
     var pulse = (three.linePulse && three.linePulse.line === i) ? three.linePulse.t : 0;
     if (pulse > 0) {
@@ -996,7 +1028,7 @@ function paintCard() {
       lg.addColorStop(0.5, 'rgba(255,215,94,' + (0.3 * pulse).toFixed(3) + ')');
       lg.addColorStop(1, 'rgba(255,215,94,0)');
       c.fillStyle = lg;
-      c.fillRect(x0 - 90, y - 110, CARD.step * (line.text.length + 1), 230);
+      c.fillRect(x0 - 90, y - 26, CARD.step * (line.text.length + 1), rowH + 26);
     }
     for (var j = 0; j < line.text.length; j++) {
       var cx = x0 + j * CARD.step;
@@ -1006,42 +1038,50 @@ function paintCard() {
 
       if (isCur) {
         // 当前字：金框（颜色随连击档位）+ 拼音分两色 + 朱砂笔尖；敲错时框描朱砂
-        makeRoundRect(c, cx - 60, y - 96, 120, 210, 22);
+        var boxW = CARD.step * 0.84;
+        makeRoundRect(c, cx - boxW / 2, y - 2, boxW, rowH + 6, 24);
         c.fillStyle = 'rgba(255,215,94,0.16)';
         c.fill();
         c.lineWidth = 3;
         c.strokeStyle = three.hint > 0 ? 'rgba(226,72,50,' + (0.4 + 0.6 * three.hint).toFixed(3) + ')' : tier;
         c.stroke();
-        c.font = pyFont;
+        // 当前字的拼音：按可用宽度挑字号（「chuang」这类长音节要收），再给一条金底衬——
+        // 孩子真正在读的是这串字母，先让眼睛落在这里
+        var curPx = pyFitPx(c, pinyin, pyCurPx, CARD.step * 0.98);
+        c.font = 'bold ' + curPx + 'px "Microsoft YaHei",sans-serif';
         var fullW = c.measureText(pinyin).width;
         var preW = c.measureText(state.typed).width;
         var px = cx - fullW / 2;
+        makeRoundRect(c, px - 14, pyBase - curPx * 0.86, fullW + 28, curPx * 1.12, 12);
+        c.fillStyle = 'rgba(255,215,94,0.20)';
+        c.fill();
         c.textAlign = 'left';
-        c.fillStyle = '#12734a';
-        c.fillText(state.typed, px, y - 26);
-        c.fillStyle = '#9c6b1f';
-        c.fillText(pinyin.substring(state.typed.length), px + preW, y - 26);
-        c.fillStyle = '#b23a2a';
-        c.fillRect(px + preW, y - 62, 5, 46);
+        c.fillStyle = '#0f6b45';                 // 已打进的那截：深绿
+        c.fillText(state.typed, px, pyBase);
+        c.fillStyle = '#8a5c14';                 // 还没打的：深赭（底衬是浅金，得压深才看得清）
+        c.fillText(pinyin.substring(state.typed.length), px + preW, pyBase);
+        c.fillStyle = '#b23a2a';                 // 朱砂笔尖：下一个要按的字母
+        c.fillRect(px + preW, pyBase - curPx * 0.92, 6, curPx * 0.98);
         c.textAlign = 'center';
       } else {
-        c.font = pyFont;
-        c.fillStyle = isDone ? 'rgba(20,120,78,0.9)' : 'rgba(150,140,120,0.55)';
-        c.fillText(pinyin, cx, y - 26);
+        var pyFit = pyFitPx(c, pinyin, pyPx, CARD.step * 0.92);
+        c.font = 'bold ' + pyFit + 'px "Microsoft YaHei",sans-serif';
+        c.fillStyle = isDone ? 'rgba(18,110,72,0.92)' : 'rgba(138,128,110,0.62)';
+        c.fillText(pinyin, cx, pyBase);
       }
 
       c.font = charFont;
       if (isDone) {
         c.fillStyle = '#1b2230';                       // 落墨
         c.shadowColor = 'rgba(30,60,50,0.28)';
-        c.shadowBlur = 14;
-        c.fillText(line.text.charAt(j), cx, y + 74);
+        c.shadowBlur = 16;
+        c.fillText(line.text.charAt(j), cx, chBase);
         c.shadowBlur = 0;
-        c.fillStyle = 'rgba(20,150,96,0.5)';
-        c.fillRect(cx - 34, y + 92, 68, 5);
+        c.fillStyle = 'rgba(20,150,96,0.5)';           // 写完的字底下垫一道绿：一眼看出进度
+        c.fillRect(cx - CARD.step * 0.22, chBase + CARD.charPx * 0.10, CARD.step * 0.44, 6);
       } else {
         c.fillStyle = isCur ? '#12161f' : 'rgba(126,116,98,0.42)';
-        c.fillText(line.text.charAt(j), cx, y + 74);
+        c.fillText(line.text.charAt(j), cx, chBase);
       }
     }
   }
@@ -1062,9 +1102,9 @@ function paintCard() {
     c.fillStyle = bg;
     c.fill();
   }
-  c.font = '38px "Microsoft YaHei",sans-serif';
+  c.font = '42px "Microsoft YaHei",sans-serif';
   c.fillStyle = 'rgba(70,78,92,0.9)';
-  c.fillText(done + ' / ' + total + ' 字', W / 2, CARD.barY - 24);
+  c.fillText(done + ' / ' + total + ' 字', W / 2, CARD.barY - 26);
   seal(c, W);
   three.cardTex.needsUpdate = true;
 }
@@ -1093,7 +1133,7 @@ function seal(c, W) {
 function cardPoint(i, j, cols, rows) {
   var step = 9 / Math.max(1, cols);
   var x = -4.5 + (j + 0.5) * step;
-  var yTex = CARD.top + i * rowHeight(rows) + 30;
+  var yTex = charBaseY(i, rows) - CARD.charPx * 0.40;   // 汉字墨迹的竖向中心（与 paintCard 同一套几何）
   return { x: x, y: 2.7 - (yTex / CARD.H) * 5.4 };
 }
 
@@ -1799,7 +1839,8 @@ async function runSelfCheck() {
 
     // ---- 2. 素材：仓颉侧发来的诗库，页面对照汉字与音节 ----
     var poems = await invoke('poem:list');
-    await check('poem:list 返回 10 首', Array.isArray(poems) && poems.length === 10, 'count=' + (poems ? poems.length : 'n/a'));
+    await check('诗库装进来了（≥20 首，扩库不该悄悄掉篇目）',
+      Array.isArray(poems) && poems.length >= 20, 'count=' + (poems ? poems.length : 'n/a'));
     var mismatch = [];
     var totalChars = 0, totalLetters = 0;
     for (var i = 0; i < poems.length; i++) {
@@ -1826,8 +1867,8 @@ async function runSelfCheck() {
     var scores = await invoke('score:list');
     await check('score:list 返回 JSON 对象', scores && typeof scores === 'object' && !Array.isArray(scores));
     await check('typing:config 报出 selfCheck=true 与成绩路径',
-      state.cfg.selfCheck === true && !!state.cfg.scoresPath && state.cfg.poems === 10,
-      'scoresPath=' + state.cfg.scoresPath + ' poems=' + state.cfg.poems);
+      state.cfg.selfCheck === true && !!state.cfg.scoresPath && state.cfg.poems === poems.length,
+      'scoresPath=' + state.cfg.scoresPath + ' poems=' + state.cfg.poems + '（与 poem:list 同数）');
     await check('自检全程不发声（没建 AudioContext）', state.mute === true && actx === null, 'actx=' + (actx ? '已建' : 'null'));
 
     // ---- 4. 渲染循环在跑（帧数只增不减） ----
@@ -1844,6 +1885,54 @@ async function runSelfCheck() {
       $('scene').clientWidth === window.innerWidth && $('scene').clientHeight === window.innerHeight,
       'viewport=' + window.innerWidth + 'x' + window.innerHeight
         + ' canvas=' + $('scene').clientWidth + 'x' + $('scene').clientHeight);
+
+    // ---- 4b. 卡面版面：字号够大、行内不打架、长音节收得下 ----
+    // 起因是实机反馈「拼音和字体不够醒目」。字号是**审美**，但「有没有放大」「会不会串行」
+    // 是可以钉死的：这几条就是防回退的闸门。
+    var p0 = poems[0], rows0 = p0.lines.length;
+    await check('卡面字号已放大（汉字 ≥150px、拼音 ≥60px）',
+      CARD.charPx >= 150 && CARD.pyPx >= 60,
+      'charPx=' + CARD.charPx + ' pyPx=' + CARD.pyPx + ' pyCurPx=' + CARD.pyCurPx);
+    await check('行内几何不打架：拼音在汉字的上一段，末行也不压住进度条',
+      pinyinBaseY(0, rows0) < charBaseY(0, rows0)
+      && charBaseY(rows0 - 1, rows0) + CARD.charPx * 0.16 < CARD.barY - 40,
+      '拼音基线=' + pinyinBaseY(0, rows0).toFixed(1) + ' 汉字基线=' + charBaseY(0, rows0).toFixed(1)
+        + ' 末行墨迹底=' + (charBaseY(rows0 - 1, rows0) + CARD.charPx * 0.16).toFixed(1)
+        + ' 进度条=' + CARD.barY);
+    var longest = '';
+    for (var pi = 0; pi < poems.length; pi++) {
+      for (var li = 0; li < poems[pi].lines.length; li++) {
+        var sy = syllablesOf(poems[pi].lines[li]);
+        for (var si = 0; si < sy.length; si++) { if (sy[si].length > longest.length) { longest = sy[si]; } }
+      }
+    }
+    var longPx = pyFitPx(three.cardCtx, longest, CARD.pyCurPx, CARD.step * 0.98);
+    three.cardCtx.font = 'bold ' + longPx + 'px "Microsoft YaHei",sans-serif';
+    var longW = three.cardCtx.measureText(longest).width;
+    await check('最长的音节也收得进格子（自动收字号，不顶到邻格）',
+      longW <= CARD.step * 0.98 && longPx >= 40,
+      '「' + longest + '」' + longW.toFixed(0) + 'px ≤ ' + (CARD.step * 0.98).toFixed(0) + 'px，字号 ' + longPx + 'px');
+    var widest = 0;
+    for (var wi = 0; wi < poems.length; wi++) {
+      for (var wj = 0; wj < poems[wi].lines.length; wj++) {
+        if (poems[wi].lines[wj].text.length > widest) { widest = poems[wi].lines[wj].text.length; }
+      }
+    }
+    await check('最宽的一行留得住两侧墨边（不顶到纸边）',
+      widest * CARD.step <= CARD.W - 320,
+      widest + ' 字 × ' + CARD.step + 'px = ' + (widest * CARD.step) + 'px / 纸宽 ' + CARD.W);
+    var cpBack = (2.7 - cardPoint(0, 0, p0.lines[0].text.length, rows0).y) / 5.4 * CARD.H;
+    await check('星光落点由同一套几何算出（落在第一行的汉字上）',
+      cpBack > charBaseY(0, rows0) - CARD.charPx && cpBack < charBaseY(0, rows0),
+      '落点 yTex=' + cpBack.toFixed(0) + '，汉字带 '
+        + (charBaseY(0, rows0) - CARD.charPx).toFixed(0) + '..' + charBaseY(0, rows0).toFixed(0));
+    var mostRows = 0, mostTitle = '';
+    for (var qi = 0; qi < poems.length; qi++) {
+      if (poems[qi].lines.length > mostRows) { mostRows = poems[qi].lines.length; mostTitle = poems[qi].title; }
+    }
+    await check('行数最多的那首字号也缩不糊（自适应留底 ≥100px）',
+      charInkPx(mostRows) >= 100,
+      '《' + mostTitle + '》' + mostRows + ' 行 → 汉字 ' + charInkPx(mostRows).toFixed(0) + 'px');
 
     // ---- 5. 五声音阶与场景主题（纯函数，先验规则再验画面） ----
     var ascending = true;

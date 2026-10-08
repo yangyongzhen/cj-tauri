@@ -193,6 +193,16 @@
   随静态桥一起编进 exe（`-DCJ_EMBED_WEBVIEW2_LOADER` + `native/bridge_win.c` 的 `unpack_embedded_loader`），
   首次运行释放到 `%TEMP%\cj-tauri-loader\` 再按绝对路径 `LoadLibraryW`（幂等：比大小；失败把错在哪一步打进 stderr）。
   取证判据：未修前那一轮 stderr 只有 `WebView2Loader.dll not found`，修好后同一份 exe 自检 57 passed / 0 failed。
+- **单文件包只要碰 https，链接期还必须显式加 `-lcrypt32`**：`stdx.net.tls` 读根证书走 **Windows 证书库**
+  （`CertOpenSystemStoreA` / `CertEnumCertificatesInStore` / `CertCloseStore` 都在 `crypt32.dll`），
+  静态链接的 exe 不带它就在链接期炸一串 `undefined symbol: __declspec(dllimport) CertOpenSystemStoreA`
+  （实测 2026-10-08：`examples/music` 的封面是 https，而 typing-poem 不碰 TLS，所以这条直到打音乐示例才暴露）。
+  `scripts/pack-win-single.sh` 的 `link-option` 已加上；用不到它的示例多链一个系统库无副作用——
+  **判据看导入表**（`objdump -p *.exe` 里 `DLL Name` 只该出现系统 DLL），不是看链接命令里写了什么。
+- **新示例要进单文件包，先备两样**：`src/packed_assets.cj` 空存根（`public let PACKED_*_B64: String = ""`，
+  **声明了哪几个常量打包器就生成哪几个**——没有 three.js 就不写那一条）与 `src/packed_resources.cj`
+  （`decodeBase64` / `splitBy` / `textOrFile`），再把页面与能力清单的取用改成「内嵌优先、否则读盘」；
+  最快是照 `examples/music/src/` 那两份抄。打包器会逐条 `die` 提示缺哪样。
 - **mingw 的 `swprintf` 里 `%s` 收的是 `char*` 而不是 `wchar_t*`**（默认方言走 MSVCRT 语义）：
   拿它拼宽字符路径得到的是垃圾，而且**不报错**——单文件包第一版就只留了一句
   `failed to unpack embedded WebView2Loader.dll`，毫无线索。C 桥里拼宽字符串一律用

@@ -370,12 +370,41 @@ run.bat selfcheck2  :: 自检 + 往后台**写**一条歌单（会真的提交�
 和 `examples/movie` 一样，可以直接用仓库脚本打成**免 SDK 的便携包**：
 
 ```bash
-bash scripts/pack-win.sh            # 目录式便携包
-bash scripts/pack-win-single.sh     # 单文件 exe（loader 内嵌释放）
+bash scripts/pack-win.sh examples/music            # 目录式便携包（exe + DLL + ui/ + capabilities/）
+bash scripts/pack-win-single.sh examples/music      # 单文件 exe（loader 内嵌释放）
 ```
 
 注意便携包必须自带 `WebView2Loader.dll` 与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`（仓颉运行时的
 TLS 加载器），它们**不在 PE 导入表里**，手工抄 DLL 清单一定会漏——直接用脚本，别手写（`AGENTS.md` §4）。
+
+### 单文件 exe（本示例实测）
+
+单文件这条路界面与命令一行不改，只是把「字节从哪来」换掉：本示例新增 `src/packed_assets.cj`（空存根）
+与 `src/packed_resources.cj`（`decodeBase64` / `splitBy` / `textOrFile`），`src/main.cj` 的页面读入与
+能力清单挂载都改成**内嵌优先、否则读盘**。
+
+| | 仓库内构建 | 单文件产物 |
+| --- | --- | --- |
+| 页面 | 按相对路径读 `ui/index.html` | 编进 exe（内嵌 126 350 字节） |
+| 能力清单 | `run()` 自动扫 `capabilities/` | 编进 exe（1 份，base64 408 字节） |
+| 随行文件 | `ui/` + `capabilities/` | **无**，只有一个 `music.exe` |
+
+产物 `dist-single/music.exe` **9 956 864 字节**（sha256 `be8d954ab40a13b1…3bb52c9`），导入表里只剩系统
+DLL（`KERNEL32 / WS2_32 / SHELL32 / USER32 / ole32 / CRYPT32 / comdlg32 / dbghelp / msvcrt`）。比打字游戏
+那份（5.5 MB）大，是因为**封面走 https**：静态链接把 `stdx.net.tls` 与 OpenSSL 一起链了进来，也正是它
+逼出链接期的一条坑——少写 `-lcrypt32`（Windows 证书库）就会炸
+`undefined symbol: CertOpenSystemStoreA`（打包脚本已补上）。
+
+零动手验收：随便找个**空目录**跑，不需要 `ui/`、不需要 `capabilities/`，也不需要本机装 SDK：
+
+```bash
+CJ_MUSIC_SELFCHECK=1 /path/to/dist-single/music.exe   # [自检] 汇总：10 passed / 0 failed
+CJ_MUSIC_SELFCHECK=2 /path/to/dist-single/music.exe   # 12 passed / 0 failed（含分享歌单到后台）
+```
+
+stderr 里应能看到 `能力清单来自内嵌资源（1 份，共 408 字节 base64）`、
+`前端页面已载入：ui/index.html（126350 字节）`、`set window: title=仓颉爱音乐 · cj-tauri size=1280x820`；
+自检会自己在空目录里建 `music-library.local.json`。
 
 ## 9. 相关
 

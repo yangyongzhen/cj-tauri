@@ -111,7 +111,7 @@ bash cli/cj-tauri.sh create music
 
 | 文件 | 行数 | 里面是什么 |
 | --- | --- | --- |
-| `cjpm.toml` | 17 | 应用构建配置：`[dependencies] cjTauri = { path = … }` + `[target.<triple>]` 链接参数 |
+| `cjpm.toml` | 22 | 应用构建配置：`[dependencies] cjTauri = { path = … }` + `[target.<triple>]` 链接参数 |
 | `src/main.cj` | 88 | 入口：`greet` / `timer`（推事件）/ 菜单演示 + `app.run(html)` |
 | `ui/index.html` | 118 | 演示页：`invoke` / `listen` / 插件 shim 的用法样板 |
 | `capabilities/default.json` | 7 | 白名单：`greet` / `timer` / `system:*`，权限集 `menu:state`，事件 `tick` / `menu:click` |

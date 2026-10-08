@@ -88,7 +88,7 @@ cd <你想放项目的目录>          # 父目录，create 会在里面新建 <
 | `ui/index.html` | 118 | 演示页：`invoke` / `listen` / 插件 shim 的用法样板 |
 | `capabilities/default.json` | 7 | 白名单：`greet` / `timer` / `system:*`，事件 `tick` / `menu:click` |
 | `README.md` | 80 | 模板自带说明：加命令、推事件、窗口配置怎么写 |
-| `.gitignore` | 16 | 构建产物 + 平台动态库 |
+| `.gitignore` | 13 | 构建产物 + 平台动态库 |
 
 几条 `create` 的规矩（源码在 `cli/src/scaffold.cj`，实测一致）：
 

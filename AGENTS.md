@@ -199,6 +199,20 @@
   （实测 2026-10-08：`examples/music` 的封面是 https，而 typing-poem 不碰 TLS，所以这条直到打音乐示例才暴露）。
   `scripts/pack-win-single.sh` 的 `link-option` 已加上；用不到它的示例多链一个系统库无副作用——
   **判据看导入表**（`objdump -p *.exe` 里 `DLL Name` 只该出现系统 DLL），不是看链接命令里写了什么。
+- **单文件产物默认是 console 子系统：双击会弹一个 DOS 黑窗口，`link-option` 必须写 `--subsystem=windows`**：
+  mingw/Cangjie 默认按 console 生成，Windows 见到 console 程序就给它配一个控制台（实测 2026-10-08：
+  `music.exe` 交付后用户第一条反馈就是它）。`scripts/pack-win-single.sh` 已加，并在脚本末尾**事后复核**
+  （`objdump -p` 里的 `Subsystem` 必须是 `00000002`，否则 `die`），免得被改回去只靠人眼发现。
+  cjc 的 `--link-options` 是**直接交给 ld.lld** 的（不是交给 gcc 驱动），所以只能用链接器的写法：
+  gcc 方言 `-mwindows` 会被当面拒（`lld: error: unknown parameter: -mwindows`），取值也只有 GNU 那套
+  （`console` / `windows` / `native` / `posix`——写 `gui` 报 `ld.lld: error: unknown subsystem: gui`）。
+  子系统只管「分不分配控制台」，**不碰日志链路**：从终端带重定向启动时 stderr 照旧落到文件
+  （实测**不显式重定向也能抓到**：未重定向跑 `CJ_MUSIC_SELFCHECK=1 music.exe`，228 行 stderr 照落），
+  实机取证与无人值守自检一行都不用改；代价是双击时看不到 stderr（要现场日志就 `app.exe 2> log.txt`）。
+  目录式便携包 `scripts/pack-win.sh` 走各示例自己的 `cjpm.toml`：**13 个示例的 mingw `link-option` 都已带上
+  同一个开关**（行内注释指向本条；打包器临时生成的 `dist-single/work/app` 副本同样带着它，但不入库），
+  产物同样是 GUI。动手时要认准目标段——**Linux 段那串 `-lwebkit2gtk-4.1 …` 不能加**（与子系统无关，
+  加了也会被链接器拒）；数「改了几个」时记得把 `dist-single/work/` 下的副本排除掉，否则会多算 2 个。
 - **新示例要进单文件包，先备两样**：`src/packed_assets.cj` 空存根（`public let PACKED_*_B64: String = ""`，
   **声明了哪几个常量打包器就生成哪几个**——没有 three.js 就不写那一条）与 `src/packed_resources.cj`
   （`decodeBase64` / `splitBy` / `textOrFile`），再把页面与能力清单的取用改成「内嵌优先、否则读盘」；

@@ -195,7 +195,14 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   # https 就得链上它，否则 ld.lld 在链接期报一串 undefined symbol（examples/music 实测：
   # 它的封面走 https，而 typing-poem 不用 TLS，所以这条直到打音乐示例才暴露）。
   # 用不到的示例多链一个系统库无副作用（import 表里不会出现，见脚本末尾的自检）。
-  link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32"
+  # `--subsystem=windows`：产物按 GUI 子系统链接（PE Subsystem=2，脚本末尾有事后悔核）。
+  # 缺了它 Windows 就按 console 程序对待产物——**双击时自动分配一个黑窗口（DOS 窗口）**，
+  # 这是 music.exe 交付后拿到的最直接反馈。cjc 的 `--link-options` 是直接交给 ld.lld 的，
+  # 所以只能用 lld 的写法：`-mwindows`（gcc 驱动方言）会被拒（实测 `lld: error: unknown
+  # parameter: -mwindows`），取值也只有 GNU 那套（console/windows/native/posix——写 `gui`
+  # 会报 `ld.lld: error: unknown subsystem: gui`）。
+  # 子系统只管「分不分配控制台」：从终端带重定向启动时 stderr 照旧落到文件，取证链路不变。
+  link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 --subsystem=windows"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["$STDX_PATH"]
@@ -230,7 +237,15 @@ if [ -n "$BAD" ]; then
     die "产物仍依赖:$BAD —— 静态链接没生效，检查 compile-option 与 link-option"
 fi
 
+# 子系统事后复核：必须是 GUI(2)。写成 console(3) 时双击产物会弹 DOS 窗口，
+# 而链接期一切正常、日志也照打——所以不能让这条只靠人眼发现。
+SUBSYS=$(objdump -p "$EXE" | grep -i "^Subsystem" | awk '{print $2}')
+if [ "$SUBSYS" != "00000002" ]; then
+    die "产物子系统是 $SUBSYS（应为 00000002 / Windows GUI）：link-option 少了 --subsystem=windows，双击会弹 DOS 窗口"
+fi
+
 echo "[pack-single] 单文件: $EXE（$(du -h "$EXE" | cut -f1)）"
+echo "[pack-single] 子系统: $SUBSYS (Windows GUI，双击不弹控制台)"
 echo "[pack-single] 目录: $OUT_ROOT（应只有这一个文件 + work/）"
 echo "[pack-single] 导入的 DLL（应全是 Windows 系统库）:"
 objdump -p "$EXE" | awk '/DLL Name:/ {print "  " $3}'

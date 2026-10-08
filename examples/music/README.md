@@ -389,11 +389,16 @@ TLS 加载器），它们**不在 PE 导入表里**，手工抄 DLL 清单一定
 | 能力清单 | `run()` 自动扫 `capabilities/` | 编进 exe（1 份，base64 408 字节） |
 | 随行文件 | `ui/` + `capabilities/` | **无**，只有一个 `music.exe` |
 
-产物 `dist-single/music.exe` **9 956 864 字节**（sha256 `be8d954ab40a13b1…3bb52c9`），导入表里只剩系统
+产物 `dist-single/music.exe` **9 956 864 字节**（sha256 `7926f25bfcb5d5ff…f356ea92`），导入表里只剩系统
 DLL（`KERNEL32 / WS2_32 / SHELL32 / USER32 / ole32 / CRYPT32 / comdlg32 / dbghelp / msvcrt`）。比打字游戏
 那份（5.5 MB）大，是因为**封面走 https**：静态链接把 `stdx.net.tls` 与 OpenSSL 一起链了进来，也正是它
 逼出链接期的一条坑——少写 `-lcrypt32`（Windows 证书库）就会炸
 `undefined symbol: CertOpenSystemStoreA`（打包脚本已补上）。
+
+产物同时是 **GUI 子系统**（`link-option` 里的 `--subsystem=windows`），所以**双击不会弹 DOS 黑窗口**
+（第一版漏了这个开关，双击时控制台黑窗口会跟着应用窗口一起出来）。要看 stderr 就从终端带重定向起
+（`music.exe 2> log.txt`）——子系统只管控制台，日志链路没变。打包脚本末尾会复核 `Subsystem` 必须是
+`00000002`，改回 console 会直接打包失败。
 
 零动手验收：随便找个**空目录**跑，不需要 `ui/`、不需要 `capabilities/`，也不需要本机装 SDK：
 
@@ -404,7 +409,7 @@ CJ_MUSIC_SELFCHECK=2 /path/to/dist-single/music.exe   # 12 passed / 0 failed（�
 
 stderr 里应能看到 `能力清单来自内嵌资源（1 份，共 408 字节 base64）`、
 `前端页面已载入：ui/index.html（126350 字节）`、`set window: title=仓颉爱音乐 · cj-tauri size=1280x820`；
-自检会自己在空目录里建 `music-library.local.json`。
+自检会自己在空目录里建 `music-library.local.json`（第 2 档才会落这个文件，第 1 档只读后台）。
 
 ## 9. 相关
 

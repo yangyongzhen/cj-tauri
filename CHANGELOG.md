@@ -162,6 +162,23 @@
   `examples/typing-poem/dist-single/typing-poem.exe`（`work/` 临时构建副本与 WebView2 用户数据不入库），
   不装 SDK 也能直接拿到。
 
+- **音乐播放器示例 `examples/music`（深色三栏播放器 + 两档无人值守自检）**：网易热歌榜 / 搜歌 / 点播 /
+  同步歌词滚动 / 收藏与最近播放 / 把收藏当歌单分享到后台（教学接口 `http://49.235.52.102:8000`，
+  可用 `CJ_MUSIC_API` 覆盖）。**数据与封面全部经 `invoke` 由仓颉侧取回，页面一次 `fetch` 都不发**：
+  封面走宿主侧带 `Referer` 的代理（后台封面是百度图片代理，不带 `Referer` 的失败形状是
+  「**HTTP 200 + 0 字节**」，页面侧无解），并对网易图床做缩略——同一张封面 **709 326 → 4 194 字节**
+  （列表按 200、主视觉按 500，取不到回退原图）；歌词在仓颉侧解成「毫秒 → 行」数组；收藏落本机
+  `music-library.local.json`。界面放在独立的 `ui/index.html`（2891 行），顺带绕开三引号字符串里
+  JS 反斜杠与 `${}` 插值的全部坑。自检分两档、**读写在文件里分家**：`run.bat selfcheck` 只读后台 +
+  只写本机收藏（①～⑩ 十项），`run.bat selfcheck2` 追加「分享歌单到后台 + **写后读回**」两项。
+  Windows 实机（2026-10-08）：两档全绿（`10 passed / 0 failed` 与 `12 passed / 0 failed`），
+  `ExecuteScript -> hr=0x00000000`；封面那项的判据是「真的在解码播放」
+  （`paused=false currentTime=0.44s duration=180.2s readyState=4`）。另修一处**只有抓图人眼才看得出**
+  的三栏布局缺陷（标题被挤成两行）。用法与坑见 `examples/music/README.md`——该 README 还带
+  **cj-tauri 三件套速览**与**「用 `cj-tauri create` 复刻本项目」的完整步骤**
+  （CLI 准备 / `create` 的真实输出与 6 个生成物 / `dev`·`build`·`run`·`info` /
+  「空模板 → 本项目改了哪几处」对照表 / 新增能力的「三处联动」）。
+
 ### Changed
 
 - **打字练习示例：长诗自动分左右两栏 + 弹层滚动条重配色**（第三批反馈「字够大了但长诗挤」「滚动条颜色不好看」）：

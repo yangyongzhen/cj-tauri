@@ -33,6 +33,57 @@
       --radius: 14px;
       --shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
       --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+      /*
+       * 强调色的 RGB 三元组：页面里到处要按不同透明度铺底/发光（rgba(var(--accent-rgb), 0.2) 这种），
+       * 光留 --accent 的十六进制没法算透明度，所以两种形态都留着——**换主题时四个值一起改**。
+       */
+      --accent-rgb: 79, 140, 255;
+      --accent-2-rgb: 164, 92, 255;
+    }
+
+    /* ---------------------------------------------------------------- 主题
+
+       只换「强调色」这一对（+ 它们的 RGB 三元组，共四个值）：底色 / 面板 / 文字这套深色底不跟着动——
+       页面里还有二十多处写死的深色面（#080b13、#0c111d、rgba(12, 18, 32, …)），真要出浅色主题
+       得先把它们也变量化，那是另一件事（记在 examples/music/README 的待办里）。
+       挂 <html> 而不是 <body>：这样连 :root 自己那条规则也能读到被覆盖的值。 */
+    html.theme-sunset {
+      --accent: #ff7a59;
+      --accent-2: #ff3d81;
+      --accent-rgb: 255, 122, 89;
+      --accent-2-rgb: 255, 61, 129;
+    }
+
+    html.theme-forest {
+      --accent: #2fd8a5;
+      --accent-2: #4f9dff;
+      --accent-rgb: 47, 216, 165;
+      --accent-2-rgb: 79, 157, 255;
+    }
+
+    html.theme-ocean {
+      --accent: #2bb7f0;
+      --accent-2: #7c5cff;
+      --accent-rgb: 43, 183, 240;
+      --accent-2-rgb: 124, 92, 255;
+    }
+
+    /* ---------------------------------------------------------------- 动效降级
+
+       系统开了「减少动态效果」时把动画/过渡压到接近 0（而不是留一段长动画）。三处要单独关：
+         · 轮播的自动翻页在 JS 侧本来就不启动（reducedMotion()），那条进度线也不该装作还在走；
+         · 唱片停转（.spin 的 rotate 是 22s 持续动画，最容易引起不适）；
+         · 歌词容器的平滑滚动（否则点一句歌词还是会滑很远）。 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+
+      .banner .dots i.on::after { display: none; }
+      .now .art.spin img { animation: none; }
+      .lyrics { scroll-behavior: auto; }
     }
 
     * {
@@ -61,8 +112,8 @@
       inset: -20% -10% auto -10%;
       height: 70vh;
       background:
-        radial-gradient(42% 60% at 18% 12%, rgba(79, 140, 255, 0.28), transparent 70%),
-        radial-gradient(38% 55% at 82% 4%, rgba(164, 92, 255, 0.24), transparent 72%);
+        radial-gradient(42% 60% at 18% 12%, rgba(var(--accent-rgb), 0.28), transparent 70%),
+        radial-gradient(38% 55% at 82% 4%, rgba(var(--accent-2-rgb), 0.24), transparent 72%);
       filter: blur(10px);
       pointer-events: none;
       z-index: 0;
@@ -95,6 +146,11 @@
       position: relative;
       z-index: 1;
       height: 100vh;
+      /* 大屏护栏：三栏是 212 / 1fr / 320，超宽时中间那栏被拉得很散（2560 全屏下 middle
+         有 2000px，卡片、歌词行都失去比例）。超过 1560px 就居中留白，看起来是「窗口化」
+         播放器；背景光晕是 body::before（整屏 fixed），留白处不会空成一块死黑。 */
+      max-width: 1560px;
+      margin: 0 auto;
       display: grid;
       grid-template-columns: 212px minmax(0, 1fr) 320px;
       grid-template-rows: 62px minmax(0, 1fr) 96px;
@@ -127,7 +183,7 @@
       display: grid;
       place-items: center;
       font-size: 17px;
-      box-shadow: 0 6px 18px rgba(79, 140, 255, 0.42);
+      box-shadow: 0 6px 18px rgba(var(--accent-rgb), 0.42);
     }
 
     .brand .name {
@@ -157,9 +213,9 @@
     }
 
     .search:focus-within {
-      border-color: rgba(79, 140, 255, 0.65);
+      border-color: rgba(var(--accent-rgb), 0.65);
       background: var(--panel-hi);
-      box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.13);
+      box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.13);
     }
 
     .search input {
@@ -241,8 +297,8 @@
 
     .nav-item.active {
       color: #fff;
-      background: linear-gradient(90deg, rgba(79, 140, 255, 0.26), rgba(164, 92, 255, 0.14));
-      box-shadow: inset 0 0 0 1px rgba(79, 140, 255, 0.32);
+      background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.26), rgba(var(--accent-2-rgb), 0.14));
+      box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.32);
     }
 
     .nav-item.active::before {
@@ -331,7 +387,7 @@
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       border-color: transparent;
       color: #fff;
-      box-shadow: 0 8px 20px rgba(79, 140, 255, 0.32);
+      box-shadow: 0 8px 20px rgba(var(--accent-rgb), 0.32);
     }
 
     .btn.primary:hover {
@@ -358,6 +414,11 @@
       /* 按宽度定高（16:6）。不支持 aspect-ratio 的老 WebView 落到 min-height，不会塌成一条线 */
       aspect-ratio: 16 / 6;
       min-height: 208px;
+      /* 大屏护栏：宽度过了 ~715px 之后高度不再跟着涨。16:6 是照 1280 窗口定的，
+         全屏时中间那列能有 2000px 宽，横幅按比例就涨到 750px 高——132px 的封面缩成
+         正中一小块、模糊底占满整屏，正是「全屏后很难看」的来源（实测全屏如此）。
+         268px 就是 1280 窗口下的自然高度，等于「≥1280 一律这个高度」。 */
+      max-height: 268px;
     }
 
     .banner .stage {
@@ -532,11 +593,62 @@
       transition: width 0.2s ease, background 0.2s ease;
     }
 
+    /* 当前那颗不是「一条渐变药丸」，而是一条按周期走完的进度线：轨道 + 内部填充。
+       时长走 --banner-gap（wireBanner 里按 BANNER_GAP_MS 写进来），不写字面量——
+       写字面量的话改了常量就会「线跑完了页还没翻」。 */
     .banner .dots i.on {
-      width: 20px;
+      position: relative;
+      width: 34px;
       border-radius: 4px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      background: rgba(255, 255, 255, 0.22);
+      overflow: hidden;
     }
+
+    .banner .dots i.on::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transform-origin: left center;
+      animation: dotfill var(--banner-gap, 5s) linear both;
+    }
+
+    /* 悬停时 JS 停掉的是自动翻页的定时器，进度线得一起冻住，否则线走完了页还停着 */
+    .banner:hover .dots i.on::after {
+      animation-play-state: paused;
+    }
+
+    @keyframes dotfill {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
+
+    /* 氛围底缓慢推近（Ken Burns）+ 文字错峰上浮。规则都挂在 .on 上，而 setBanner() 只切 class、
+       不重画 DOM，所以每次换页这两个动画都会从头播一遍。 */
+    @keyframes kbIn {
+      from { transform: scale(1); }
+      to { transform: scale(1.07); }
+    }
+
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .banner .slide.on .bg {
+      animation: kbIn 9s ease-out both;
+    }
+
+    .banner .slide.on .art,
+    .banner .slide.on .info > * {
+      animation: riseIn 0.5s var(--ease) both;
+    }
+
+    .banner .slide.on .info > *:nth-child(1) { animation-delay: 0.05s; }
+    .banner .slide.on .info > *:nth-child(2) { animation-delay: 0.12s; }
+    .banner .slide.on .info > *:nth-child(3) { animation-delay: 0.18s; }
+    .banner .slide.on .info > *:nth-child(4) { animation-delay: 0.24s; }
 
     /* 首页的区块表头（「后台歌单」这一条） */
     .sec-head {
@@ -690,7 +802,7 @@
 
     .song-row {
       display: grid;
-      grid-template-columns: 44px minmax(0, 1fr) auto;
+      grid-template-columns: 30px 44px minmax(0, 1fr) auto auto;
       align-items: center;
       gap: 14px;
       padding: 7px 12px;
@@ -700,14 +812,38 @@
       border: 1px solid transparent;
     }
 
+    /* 序号列：榜单/列表的位次，等宽数字对齐 */
+    .song-row .rank {
+      font-size: 13px;
+      color: var(--dimmer);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .song-row.playing .rank {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    /* 时长列：后台的歌曲对象只有 sid / song / sing / url / cover 五个字段（src/commands.cj 的
+       映射里没有 duration），所以**不填假数字**——只在真的播过、从 audio.duration 学到真值之后
+       才写进页面（DUR 表 + rememberDuration），没听过的那几行就是空的。 */
+    .song-row .dur {
+      font-size: 12px;
+      color: var(--dimmer);
+      font-variant-numeric: tabular-nums;
+      min-width: 34px;
+      text-align: right;
+    }
+
     .song-row:hover {
       background: var(--panel);
       border-color: var(--line);
     }
 
     .song-row.playing {
-      background: linear-gradient(90deg, rgba(79, 140, 255, 0.18), rgba(164, 92, 255, 0.07));
-      border-color: rgba(79, 140, 255, 0.3);
+      background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.18), rgba(var(--accent-2-rgb), 0.07));
+      border-color: rgba(var(--accent-rgb), 0.3);
     }
 
     .song-row .thumb {
@@ -844,7 +980,7 @@
 
     .card:hover {
       transform: translateY(-3px);
-      border-color: rgba(79, 140, 255, 0.4);
+      border-color: rgba(var(--accent-rgb), 0.4);
       background: var(--panel-hi);
     }
 
@@ -914,6 +1050,41 @@
       text-overflow: ellipsis;
     }
 
+    /* ------------------------------------------------------ 悬停微交互
+
+       封面缩放必须写在**容器内的 img** 上：fillCover 插进来的 <img> 既没有 class 也没有行内尺寸，
+       把 zoom 写在容器上不传导（同 §4「img 尺寸规则必须落在容器内」那条坑）。两块封面的容器
+       （.mcover / .cover）本来就有 overflow: hidden，放大不会溢出圆角。 */
+    .mcard .mcover img,
+    .card .cover img {
+      transition: transform 0.34s var(--ease);
+    }
+
+    .mcard:hover .mcover img,
+    .card:hover .cover img {
+      transform: scale(1.06);
+    }
+
+    .card:hover {
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+    }
+
+    /* 列表行：原来只变底色，加一格位移让「鼠标停在哪一行」更明确（transform 要一并进 transition，
+       否则是硬跳）
+       ⚠️ 这条 .song-row 会覆盖上面那条 transition 简写——属性是超集，别单独删 */
+    .song-row {
+      transition: background 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.15s var(--ease);
+    }
+
+    .song-row:hover {
+      transform: translateX(2px);
+    }
+
+    /* 正在播的行别被悬停规则盖掉：.song-row.playing .t 与本条权重相同，靠 :not(.playing) 划清 */
+    .song-row:not(.playing):hover .t {
+      color: #fff;
+    }
+
     /* 骨架屏 */
     .skel {
       border-radius: 10px;
@@ -927,6 +1098,8 @@
       to { background-position: -60% 0; }
     }
 
+    /* 空/错态：一颗光晕圆盘当插画（纯 CSS，不引第三方图）+ 标题 / 说明 / 可选的动作按钮。
+       播放队列抽屉里那个裸 .empty（只写了一行字）也吃这套样式——没有子元素时自然退化成一行居中提示。 */
     .empty {
       padding: 46px 20px;
       text-align: center;
@@ -935,11 +1108,39 @@
       line-height: 2;
     }
 
-    .empty .big {
+    .empty .art {
+      width: 84px;
+      height: 84px;
+      margin: 0 auto 12px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
       font-size: 34px;
+      opacity: 0.9;
+      background: radial-gradient(circle at 50% 36%, rgba(var(--accent-rgb), 0.24), rgba(8, 11, 19, 0) 70%);
+      border: 1px solid var(--line);
+    }
+
+    .empty .title {
       display: block;
-      margin-bottom: 6px;
-      opacity: 0.65;
+      color: var(--text);
+      font-size: 14.5px;
+      font-weight: 600;
+    }
+
+    .empty .sub {
+      display: block;
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: var(--dimmer);
+      margin-top: 2px;
+    }
+
+    .empty .acts {
+      margin-top: 14px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
     }
 
     .chips {
@@ -970,7 +1171,7 @@
 
     .chip.on {
       color: #fff;
-      background: linear-gradient(135deg, rgba(79, 140, 255, 0.85), rgba(164, 92, 255, 0.75));
+      background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.85), rgba(var(--accent-2-rgb), 0.75));
       border-color: transparent;
     }
 
@@ -1037,8 +1238,32 @@
       animation: spin 22s linear infinite;
     }
 
+    /* 播放时的呼吸光环：中空径向渐变（中心透明，不挡唱片），套在唱片外圈 14px 处。
+       只有 .spin（= 正在播放）时才亮起——.spin 由 paintNowPlaying 按 S.playing 切换，
+       所以暂停后它自己会淡回去（基态的 transition 负责这一下淡出）。 */
+    .now .art::before {
+      content: "";
+      position: absolute;
+      inset: -14px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(var(--accent-rgb), 0) 58%, rgba(var(--accent-rgb), 0.24) 72%, rgba(var(--accent-2-rgb), 0) 88%);
+      opacity: 0;
+      transition: opacity 0.4s var(--ease);
+      pointer-events: none;
+    }
+
+    .now .art.spin::before {
+      opacity: 1;
+      animation: halo 3.6s ease-in-out infinite;
+    }
+
     @keyframes spin {
       to { transform: rotate(360deg); }
+    }
+
+    @keyframes halo {
+      0%, 100% { transform: scale(0.97); opacity: 0.5; }
+      50% { transform: scale(1.05); opacity: 1; }
     }
 
     .now .title {
@@ -1090,7 +1315,7 @@
       font-size: 15px;
       font-weight: 700;
       transform: scale(1.06);
-      text-shadow: 0 0 18px rgba(79, 140, 255, 0.5);
+      text-shadow: 0 0 18px rgba(var(--accent-rgb), 0.5);
     }
 
     .lyrics .none {
@@ -1195,12 +1420,18 @@
       color: #fff;
       font-size: 17px;
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      box-shadow: 0 10px 24px rgba(79, 140, 255, 0.38);
+      /* 双圈发光：近处一圈紧光 + 远处一圈外扩，比单层 box-shadow 更像「亮起来」 */
+      box-shadow: 0 8px 20px rgba(var(--accent-rgb), 0.42), 0 0 34px rgba(var(--accent-2-rgb), 0.28);
+      transition: box-shadow 0.2s var(--ease), transform 0.12s var(--ease), filter 0.2s var(--ease);
     }
 
     .ctrl-btn.main:hover {
-      filter: brightness(1.1);
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      filter: brightness(1.12);
+      box-shadow: 0 10px 26px rgba(var(--accent-rgb), 0.55), 0 0 46px rgba(var(--accent-2-rgb), 0.4);
+    }
+
+    .ctrl-btn.main:active {
+      transform: scale(0.94);
     }
 
     .progress {
@@ -1228,6 +1459,16 @@
       border-radius: 4px;
       background: rgba(255, 255, 255, 0.12);
       overflow: hidden;
+      transition: height 0.16s var(--ease), background 0.16s var(--ease);
+    }
+
+    /* 悬停/按住时轨道加粗一档：4px 细线在宽屏上不好瞄，加粗与把手浮现一起给反馈。
+       用 :active 而不是某个 dragging 类——拖拽时指针按在条上，:active 一直成立，
+       不依赖 JS 再维护一个状态类。 */
+    .bar:hover .track,
+    .bar:active .track {
+      height: 6px;
+      background: rgba(255, 255, 255, 0.18);
     }
 
     .bar .fill {
@@ -1236,6 +1477,7 @@
       border-radius: 4px;
       background: linear-gradient(90deg, var(--accent), var(--accent-2));
       transition: width 0.12s linear;
+      box-shadow: 0 0 12px rgba(var(--accent-rgb), 0.35);
     }
 
     .bar .knob {
@@ -1244,15 +1486,17 @@
       height: 11px;
       border-radius: 50%;
       background: #fff;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(var(--accent-rgb), 0.16);
       transform: translateX(-50%);
       opacity: 0;
-      transition: opacity 0.15s var(--ease);
+      transition: opacity 0.15s var(--ease), transform 0.15s var(--ease);
       pointer-events: none;
     }
 
-    .bar:hover .knob {
+    .bar:hover .knob,
+    .bar:active .knob {
       opacity: 1;
+      transform: translateX(-50%) scale(1.12);
     }
 
     .player .right {
@@ -1269,8 +1513,10 @@
       width: 118px;
     }
 
+    /* 音量条：与进度条区分开（那条是主题渐变），这里由白向主题色收口 */
     .vol .bar .fill {
-      background: rgba(255, 255, 255, 0.65);
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.45), var(--accent));
+      box-shadow: none;
     }
 
     /* ---------------------------------------------------------------- 队列抽屉 */
@@ -1278,6 +1524,9 @@
     .drawer {
       position: fixed;
       right: 16px;
+      /* 跟 .app 的居中护栏对齐：超宽屏下抽屉贴着应用右缘，别落在视口最右边（离播放条老远）。
+         上一行是给不支持 max() 的内核的兜底，这一行才是实际生效的。 */
+      right: max(16px, calc(50vw - 764px));
       bottom: 108px;
       width: 380px;
       max-height: 62vh;
@@ -1343,7 +1592,7 @@
     }
 
     .q-row.playing {
-      background: rgba(79, 140, 255, 0.16);
+      background: rgba(var(--accent-rgb), 0.16);
     }
 
     .q-row .idx {
@@ -1454,8 +1703,8 @@
 
     .field input:focus,
     .field textarea:focus {
-      border-color: rgba(79, 140, 255, 0.6);
-      box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.12);
+      border-color: rgba(var(--accent-rgb), 0.6);
+      box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.12);
     }
 
     .row-2 {
@@ -1537,6 +1786,8 @@
         <input id="q" type="text" placeholder="搜索歌曲 / 歌手，回车开始搜索" autocomplete="off">
         <span class="hint">Enter</span>
       </label>
+      <!-- 主题色切换：顶栏是 flex（.search 占 1fr），靠 margin-left:auto 把按钮推到最右 -->
+      <button class="icon-btn" id="btn-theme" title="主题色" style="margin-left:auto;font-size:15px">🎨</button>
     </header>
 
     <aside class="sidebar">
@@ -1867,6 +2118,38 @@
       recent: { ico: '🕘', title: '最近播放', desc: '播过的歌自动记一笔（最多 50 条）' }
     };
 
+    /*
+     * 听过的真实时长。
+     *
+     * 后台的歌曲对象里没有 duration（只有 sid / song / sing / url / cover，见 src/commands.cj 的
+     * 字段映射），所以行内时长只能「学到多少显示多少」：<audio> 拿到元数据时记一笔，并把**已经渲染
+     * 出来的**同一首歌的行一起补上。没播过的那几行就空着——比填一个假数字诚实，也不会出现
+     * 「整屏都写着 03:00」这种一眼假的列表。
+     */
+    var DUR = {};
+
+    function rememberDuration(sec) {
+      var c = current();
+      if (!c || !isFinite(sec) || sec <= 0) { return; }
+      var key = songKey(c);
+      /* 幂等：调用点在 paintTimes（挂在 timeupdate 上），值没变就直接回去，别每 250ms 扫一遍 DOM */
+      if (DUR[key] === sec) { return; }
+      DUR[key] = sec;
+      /* 按 dataset.key 比着找，而不是把 key 拼进选择器：songKey 里可能带竖线（nm:歌名|歌手），
+         拼进 querySelector 会炸，旧内核也没有 CSS.escape */
+      var rows = document.querySelectorAll('.song-row');
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].dataset.key !== key) { continue; }
+        var d = rows[i].querySelector('.dur');
+        if (d) { d.textContent = fmtTime(sec); }
+      }
+    }
+
+    function durTextOf(song) {
+      var v = DUR[songKey(song)];
+      return v ? fmtTime(v) : '';
+    }
+
     /* 一行歌曲的 DOM（封面由 fillCover 异步填） */
     function songRowEl(song, i) {
       var row = document.createElement('div');
@@ -1874,12 +2157,15 @@
       row.dataset.i = String(i);
       row.dataset.key = songKey(song);
       row.innerHTML =
+        '<div class="rank">' + (i + 1) + '</div>' +
         '<div class="thumb"></div>' +
         '<div class="meta">' +
         '  <div class="t">' + esc(song.song || '(未知曲目)') + '</div>' +
         '  <div class="s">' + esc(song.sing || '未知歌手') + '</div>' +
         '</div>' +
+        '<div class="dur">' + durTextOf(song) + '</div>' +
         '<div class="acts">' +
+        '  <button class="icon-btn" data-act="play" title="播放这首">▶</button>' +
         '  <button class="icon-btn" data-act="add" title="加入播放列表">＋</button>' +
         '  <button class="icon-btn" data-act="fav" title="收藏 / 取消收藏">' + (isFav(song) ? '💗' : '♡') + '</button>' +
         '</div>';
@@ -1925,19 +2211,54 @@
         '<div class="right">' + (rightHtml || '') + '</div></div>';
     }
 
+    /*
+     * 骨架行必须与 .song-row 的**五列**网格对齐（序号 / 封面 / 信息 / 时长 / 操作）。
+     * 少写两列的话后面整体左移（封面跑到序号列、标题跑到封面列）——列数在 CSS、骨架在 JS，
+     * 两处不在一起，改网格列数时这是必须一起改的地方。
+     */
     function skeletonRows(n) {
       var out = '<div class="song-list">';
       for (var i = 0; i < n; i++) {
-        out += '<div class="song-row"><div class="skel" style="width:44px;height:44px"></div>' +
+        out += '<div class="song-row">' +
+          '<div class="skel" style="width:16px;height:12px;margin:0 auto"></div>' +
+          '<div class="skel" style="width:44px;height:44px"></div>' +
           '<div class="meta"><div class="skel" style="width:' + (120 + (i % 5) * 40) + 'px;height:13px"></div>' +
-          '<div class="skel" style="width:80px;height:11px;margin-top:7px"></div></div><div></div></div>';
+          '<div class="skel" style="width:80px;height:11px;margin-top:7px"></div></div>' +
+          '<div class="skel" style="width:34px;height:11px;margin-left:auto"></div>' +
+          '<div></div></div>';
       }
       return out + '</div>';
     }
 
+    /* 哪些视图的空态给「重新加载」：只有真能重拉一次的才给；
+       搜索页还没搜过（没有关键词）也不给——那按钮点下去什么都不会发生，等于骗人 */
+    var RETRYABLE_VIEWS = { hot: 1, menus: 1, search: 1 };
+
+    function canRetry() {
+      if (!RETRYABLE_VIEWS[S.view]) { return false; }
+      if (S.view === 'search' && !S.keyword) { return false; }
+      return true;
+    }
+
+    /* 空/错态上那枚「重新加载」：按当前视图重跑各自的拉取（force=true 绕开「正在加载就跳过」） */
+    function retryView() {
+      if (S.view === 'hot') { loadHot(true); }
+      else if (S.view === 'menus') { loadMenus(true); }
+      else if (S.view === 'search') { doSearch(S.keyword); }
+      else { renderApp(); }
+    }
+
+    /*
+     * 空/错态的一块：光晕圆盘插画 + 标题 + 说明 +（可选）重新加载按钮。
+     * 用 class 而不是行内样式，样式集中在「空/错态」那段；队列抽屉里的裸 .empty 不吃这套。
+     */
     function emptyBox(glyph, text, sub) {
-      return '<div class="empty"><span class="big">' + glyph + '</span>' + esc(text) +
-        (sub ? '<div style="font-size:12px;color:var(--dimmer)">' + esc(sub) + '</div>' : '') + '</div>';
+      return '<div class="empty">' +
+        '<div class="art">' + glyph + '</div>' +
+        '<span class="title">' + esc(text) + '</span>' +
+        (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') +
+        (canRetry() ? '<div class="acts"><button class="btn" data-retry="1">↻ 重新加载</button></div>' : '') +
+        '</div>';
     }
 
     /* ---------------------------------------------------------------- 各视图 */
@@ -2084,6 +2405,9 @@
     function wireBanner() {
       var banner = document.getElementById('banner');
       if (!banner) { return; }
+      /* 进度线的走完时长跟着常量走（CSS 里只写 var(--banner-gap, 5s) 兜底）：
+         改 BANNER_GAP_MS 时线不会和翻页对不上 */
+      banner.style.setProperty('--banner-gap', BANNER_GAP_MS + 'ms');
       var songs = bannerSongs();
       fillBannerCovers(songs);
       setBanner(bannerIdx);
@@ -2576,6 +2900,8 @@
         paintBar(document.getElementById('fill-progress'), document.getElementById('knob-progress'), Math.min(1, ratio));
         document.getElementById('t-cur').textContent = fmtTime(audio.currentTime);
         document.getElementById('t-dur').textContent = fmtTime(dur);
+        /* 顺手把「这首到底有多长」记下来，列表行的时长列才有值（后台不给 duration，见 rememberDuration） */
+        if (dur > 0) { rememberDuration(dur); }
       }
     }
 
@@ -2977,7 +3303,38 @@
       audio.addEventListener('error', onAudioError);
     }
 
+    /* ---------------------------------------------------------------- 主题色
+
+       强调色轮换：默认（蓝紫）→ 日落 → 森林 → 深海，默认 + 3 套可选。只切 --accent / --accent-2
+       与它们的 RGB 三元组（CSS 侧见「主题」那段）。
+       持久化是**尽力而为**：页面经 run(html) 内联加载、来源是 opaque，localStorage 可能直接抛
+       （lsGet/lsSet 已经 try/catch），取不到就只在本会话内有效——不值得为它去后端加一条命令。 */
+    var THEMES = ['', 'theme-sunset', 'theme-forest', 'theme-ocean'];
+    var THEME_NAMES = ['蓝紫', '日落', '森林', '深海'];
+
+    function applyTheme(i) {
+      var n = ((i % THEMES.length) + THEMES.length) % THEMES.length;
+      var root = document.documentElement;
+      for (var k = 0; k < THEMES.length; k++) {
+        if (THEMES[k]) { root.classList.remove(THEMES[k]); }
+      }
+      if (THEMES[n]) { root.classList.add(THEMES[n]); }
+      S.theme = n;
+      lsSet('cj-music-theme', String(n));
+      var btn = document.getElementById('btn-theme');
+      if (btn) { btn.title = '主题色：' + THEME_NAMES[n] + '（点击切换）'; }
+    }
+
+    function cycleTheme() {
+      applyTheme((S.theme || 0) + 1);
+      toast('主题色：' + THEME_NAMES[S.theme]);
+    }
+
     function wireUi() {
+      /* 恢复上次选的主题色（lsGet 取不到就按默认蓝紫） */
+      applyTheme(parseInt(lsGet('cj-music-theme'), 10) || 0);
+      var themeBtn = document.getElementById('btn-theme');
+      if (themeBtn) { themeBtn.onclick = cycleTheme; }
       document.getElementById('btn-play').onclick = togglePlay;
       document.getElementById('btn-prev').onclick = function () { step(-1); };
       document.getElementById('btn-next').onclick = function () { step(1); };
@@ -3250,6 +3607,14 @@
 
     function init() {
       content = document.getElementById('content');
+      /* 空/错态里那枚「重新加载」：视图是整块重画的（innerHTML 直接覆盖），所以走内容区的
+         一次性事件委托，而不是给每次重画出来的按钮逐个挂 onclick */
+      content.addEventListener('click', function (ev) {
+        var t = ev.target.closest ? ev.target.closest('[data-retry]') : null;
+        if (!t || !content.contains(t)) { return; }
+        ev.stopPropagation();
+        retryView();
+      });
       initAudio();
       wireUi();
 

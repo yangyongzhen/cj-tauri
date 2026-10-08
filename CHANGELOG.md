@@ -168,7 +168,7 @@
   封面走宿主侧带 `Referer` 的代理（后台封面是百度图片代理，不带 `Referer` 的失败形状是
   「**HTTP 200 + 0 字节**」，页面侧无解），并对网易图床做缩略——同一张封面 **709 326 → 4 194 字节**
   （列表按 200、主视觉按 500，取不到回退原图）；歌词在仓颉侧解成「毫秒 → 行」数组；收藏落本机
-  `music-library.local.json`。界面放在独立的 `ui/index.html`（2891 行），顺带绕开三引号字符串里
+  `music-library.local.json`。界面放在独立的 `ui/index.html`（3287 行），顺带绕开三引号字符串里
   JS 反斜杠与 `${}` 插值的全部坑。自检分两档、**读写在文件里分家**：`run.bat selfcheck` 只读后台 +
   只写本机收藏（①～⑩ 十项），`run.bat selfcheck2` 追加「分享歌单到后台 + **写后读回**」两项。
   Windows 实机（2026-10-08）：两档全绿（`10 passed / 0 failed` 与 `12 passed / 0 failed`），
@@ -178,6 +178,16 @@
   **cj-tauri 三件套速览**与**「用 `cj-tauri create` 复刻本项目」的完整步骤**
   （CLI 准备 / `create` 的真实输出与 6 个生成物 / `dev`·`build`·`run`·`info` /
   「空模板 → 本项目改了哪几处」对照表 / 新增能力的「三处联动」）。
+- **`examples/music` 界面重做与首页改版（2026-10-08 第二轮，改动只在前端 `ui/index.html`，仓颉侧与
+  能力清单一行未动）**：① 主角位大图换成**榜单 Top 5 轮播**——拿同一张封面做模糊底衬 + 方形裁切
+  （`object-fit: cover`），5 秒自动换页、悬停暂停、`prefers-reduced-motion` 下退化为手动、圆点与左右箭头
+  可点、点封面即播；② 首页新增**横向滚动的「后台歌单」行**（卡片一行横滑，`music:menus` 懒加载，右侧
+  「查看全部 ›」进完整列表）；③ 删掉页面里全部**调试信息**（左下「后台地址 / 榜单 kind / 收藏文件 / 自检开关」
+  那一栏与右上「后台正常 · 热门 30 首」角标，配套的 `hero-*` / `svc-*` / `side-meta` DOM 与
+  `setService` / `syncHeroFav` 一并清掉）；④ 修掉封面**被拉伸**的根因——容器里 `fillCover` 插进去的 `<img>`
+  **没有类别也没有内联尺寸**，只给容器写 `object-fit` 是写在 `div` 上的死规则，现在每个容器各配一条 `img` 规则。
+  判据：等级 1 / 等级 2 自检仍 `10 passed / 0 failed` 与 `12 passed / 0 failed`（同一份 `ui/index.html`），
+  `ui/index.html` 2891 → **3287 行**，两张文档截图按新界面重抓（`docs/images/example-music*.png`，抓图人眼验收）。
 
 ### Changed
 

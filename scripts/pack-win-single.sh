@@ -3,8 +3,15 @@
 #
 # 用法:
 #   bash scripts/pack-win-single.sh                        # 打包 examples/typing-poem
-#   bash scripts/pack-win-single.sh examples/typing-poem    # 指定示例
-#   bash scripts/pack-win-single.sh examples/typing-poem /tmp/out
+#   bash scripts/pack-win-single.sh examples/music          # 指定示例
+#   bash scripts/pack-win-single.sh examples/music /tmp/out
+#
+# 示例要接进来的三件套（缺一不可，本脚本会逐条 die 说明）：
+#   · `src/packed_assets.cj`：`public let PACKED_*_B64: String = ""` 空存根——**声明了哪几个，
+#     本脚本就生成哪几个**（typing-poem 多一个 three.js，examples/music 没有），
+#     仓库内正常构建仍按相对路径读盘；
+#   · `src/packed_resources.cj`：`decodeBase64` / `splitBy` / `textOrFile`（内嵌优先、否则读盘）；
+#   · `capabilities/` 下至少一份 json：单文件产物没有随行清单，必须编进二进制，否则命令全被拒。
 #
 # 与 scripts/pack-win.sh（目录 + zip 的便携包）的分工：
 #   pack-win.sh        动态链接，交付一个**目录**（exe + 十来个 DLL + ui/ + capabilities/ + run.bat）；
@@ -17,7 +24,7 @@
 #      __security_cookie 与 C++ 运行时符号，mingw 接不住（2026-10-07 实测 `ld.lld: undefined
 #      symbol: __security_cookie`）。于是把它的字节编进桥（-DCJ_EMBED_WEBVIEW2_LOADER），
 #      首次运行时释放到 %TEMP%\cj-tauri-loader\ 再按绝对路径加载（幂等，见 native/bridge_win.c）；
-#   ④ 页面 / three.js / 能力清单由本脚本生成 src/packed_assets.cj（base64），编进二进制。
+#   ④ 页面 / three.js（只有用它的示例）/ 能力清单由本脚本生成 src/packed_assets.cj（base64），编进二进制。
 #
 # 产物：<示例>/dist-single/<示例名>.exe（实测 typing-poem：28.8 MB → strip 后 5.5 MB；
 #       这份 exe 随仓库分发，work/ 临时副本与 *.WebView2/ 用户数据不入库）
@@ -114,11 +121,29 @@ BRIDGE_LIB="$WORK/bridge/libcjtbridge.a"
 cp -r "$EXAMPLE/src" "$WORK/app/"
 cp -r "$EXAMPLE/ui" "$WORK/app/"
 
+# 包名从示例的 cjpm.toml 抄（仓颉按包名找模块，生成的 packed_assets.cj 必须与源码同包）
+PKG_NAME="$(awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ {print $2; exit}' "$EXAMPLE/cjpm.toml")"
+[ -n "$PKG_NAME" ] || die "读不到 $EXAMPLE/cjpm.toml 的 package.name"
+
+# 内嵌哪几个常量以示例的存根为准：存根里 `public let PACKED_*_B64: String = ""` 的一行
+# 就是「这个示例要内嵌它」——examples/music 没有 three.js，生成时就不写那一条。
+ASSET_STUB="$EXAMPLE/src/packed_assets.cj"
+[ -f "$ASSET_STUB" ] || die "示例还没接内嵌资源：缺 $ASSET_STUB（空存根 + 取用函数，见 examples/music/src/packed_resources.cj）"
+has_asset() { grep -q "^public let $1" "$ASSET_STUB"; }
+has_asset PACKED_UI_B64 || die "$ASSET_STUB 里没有 PACKED_UI_B64 存根"
+
 b64() { base64 -w0 "$1" 2>/dev/null || base64 "$1" | tr -d '\n'; }
 
-# 页面与 three.js 各一份 base64
-UI_B64="$(b64 "$WORK/app/ui/index.html")"
-THREE_B64="$(b64 "$WORK/app/ui/vendor/three.min.js")"
+# 页面必填；three.js 只有用它的示例才有
+UI_FILE="$WORK/app/ui/index.html"
+[ -f "$UI_FILE" ] || die "示例缺前端页面: $UI_FILE"
+UI_B64="$(b64 "$UI_FILE")"
+THREE_B64=""
+if has_asset PACKED_THREE_B64; then
+    THREE_FILE="$WORK/app/ui/vendor/three.min.js"
+    [ -f "$THREE_FILE" ] || die "存根声明了 PACKED_THREE_B64，但缺 $THREE_FILE"
+    THREE_B64="$(b64 "$THREE_FILE")"
+fi
 
 # 能力清单：每个 capabilities/*.json 各自 base64，再用 "," 拼起来
 # （base64 字符表里没有逗号，所以逗号是安全的分隔符；应用侧按逗号切开逐个挂载）
@@ -134,18 +159,18 @@ done
 
 echo "[pack-single] 生成内嵌资源：页面 ${#UI_B64} / three.js ${#THREE_B64} base64 字节，能力清单 $CAPS_N 份"
 {
-    printf 'package typing_poem\n\n'
+    printf 'package %s\n\n' "$PKG_NAME"
     printf '/* 由 scripts/pack-win-single.sh 生成：内嵌资源（标准 base64，无换行）。**不要手工编辑**。\n'
-    printf '   三个常量非空即「内嵌模式」；仓库里的同名文件是空存根，正常构建仍按相对路径读盘。 */\n'
+    printf '   常量非空即「内嵌模式」；仓库里的同名文件是空存根，正常构建仍按相对路径读盘。 */\n'
     printf 'public let PACKED_UI_B64: String = "%s"\n' "$UI_B64"
-    printf 'public let PACKED_THREE_B64: String = "%s"\n' "$THREE_B64"
+    if has_asset PACKED_THREE_B64; then
+        printf 'public let PACKED_THREE_B64: String = "%s"\n' "$THREE_B64"
+    fi
     printf 'public let PACKED_CAPS_B64: String = "%s"\n' "$CAPS_B64"
 } > "$WORK/app/src/packed_assets.cj"
 
 # ---------- ③ cjpm.toml：静态链接三件套 + 静态桥 ----------
-# 注意 package.name 要跟示例源码一致（仓颉按包名找模块），所以从原 cjpm.toml 里抄名字。
-PKG_NAME="$(awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ {print $2; exit}' "$EXAMPLE/cjpm.toml")"
-[ -n "$PKG_NAME" ] || die "读不到 $EXAMPLE/cjpm.toml 的 package.name"
+# 包名上面已经从示例抄好（PKG_NAME），这里只负责写构建配置。
 
 # cjpm.toml 里出现的路径都要盘符形式（cjpm 与它拉起的 gcc 都是原生 Windows 程序，
 # 看到 /d/... 会当成「当前盘根目录下的 d 目录」）
@@ -165,7 +190,12 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   cjTauri = { path = "$DEP_PATH" }
 
 [target.x86_64-w64-mingw32]
-  link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32"
+  # `-lcrypt32`：stdx.net.tls 的根证书读取走 Windows 证书库（CertOpenSystemStoreA /
+  # CertEnumCertificatesInStore / CertCloseStore 都在 crypt32.dll），静态链接的示例只要碰
+  # https 就得链上它，否则 ld.lld 在链接期报一串 undefined symbol（examples/music 实测：
+  # 它的封面走 https，而 typing-poem 不用 TLS，所以这条直到打音乐示例才暴露）。
+  # 用不到的示例多链一个系统库无副作用（import 表里不会出现，见脚本末尾的自检）。
+  link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["$STDX_PATH"]

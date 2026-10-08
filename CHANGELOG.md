@@ -215,6 +215,20 @@
   put_Bounds` 也确实重设了 WebView2 边界，留白被 `body` 背景光晕填满、不是死黑。判据：`PrintWindow`
   （`PW_RENDERFULLCONTENT`）抓最大化窗口（`IsZoomed=True`，1280×820 → 1936×1048），横幅右缘与下方列表区对齐
   （修前 ≈1140 / 修后 ≈1400 @ 中栏 1028px），稳定态帧里标题与按钮均为实心；`ui/index.html` 3652 → **3657 行**。
+- **音乐播放器示例接上单文件打包（`bash scripts/pack-win-single.sh examples/music`）**：`examples/music` 新增
+  `src/packed_assets.cj`（空存根）与 `src/packed_resources.cj`（`decodeBase64` / `splitBy` / `textOrFile`），
+  `src/main.cj` 的页面读入与能力清单挂载改成**内嵌优先、否则读盘**——仓库内构建行为一行不变（存根为空时
+  仍按 `ui/index.html` 读盘，能力清单仍由 `run()` 自动扫 `capabilities/`）。产物
+  `examples/music/dist-single/music.exe`：**9 956 864 字节**（sha256 `be8d954ab40a13b1…3bb52c9`），页面
+  （126 350 字节）与 1 份能力清单都编在二进制里，导入表只剩系统 DLL（`KERNEL32 / WS2_32 / SHELL32 / USER32 /
+  ole32 / CRYPT32 / comdlg32 / dbghelp / msvcrt`），运行时 / stdx / OpenSSL 一个都不随行；比打字游戏那份
+  （5.5 MB）大，是因为封面走 https，静态链接把 `stdx.net.tls` 与 OpenSSL 链了进来。打包脚本同步泛化：
+  **内嵌哪几个常量以示例存根的声明为准**（typing-poem 3 个、music 2 个，没有 three.js 就不生成那条），
+  包名改从 `cjpm.toml` 的 `package.name` 取，并补上 `-lcrypt32`（见 `Fixed`）。实机取证（2026-10-08，
+  任意空目录、无 `ui/` 无 `capabilities/`、不装 SDK）：`CJ_MUSIC_SELFCHECK=1` → `[自检] 汇总：10 passed /
+  0 failed` 且退出码 0，`=2` → **12 passed / 0 failed**；stderr 含
+  `能力清单来自内嵌资源（1 份，共 408 字节 base64）`、`前端页面已载入：ui/index.html（126350 字节）`、
+  `set window: title=仓颉爱音乐 · cj-tauri size=1280x820`。用法见 `examples/music/README.md` §8。
 
 ### Changed
 
@@ -285,6 +299,13 @@
   用例数 127 → 132；`native/tests/test_bridge_core.c` 加 8 条断言（回调带回被销毁者自己的句柄），
   91 → 99 项。Windows 双窗实机（2026-10-07，`examples/multi-window/run.bat`）18/18 断言、`exit=0`，
   桥 stderr 两宿主各 `created` / `destroyed` 一次、无「未登记宿主句柄」、`hr=` 全 `0x00000000`。
+
+- **单文件打包链接期补 `-lcrypt32`（示例第一次用上 https 才暴露）**：`scripts/pack-win-single.sh` 的
+  `link-option` 原来只链 `ole32 / oleaut32 / uuid / user32 / gdi32 / advapi32 / comdlg32`，打
+  `examples/music` 时在链接期炸出一串 `undefined symbol: __declspec(dllimport) CertOpenSystemStoreA`
+  （连同 `CertEnumCertificatesInStore` / `CertCloseStore`）——它用 `stdx.net.tls`，静态链接下读根证书要走
+  Windows 证书库（`crypt32.dll`）。补上 `-lcrypt32` 后链接通过，exe 导入表里出现 `CRYPT32.dll`；
+  不碰 TLS 的示例（typing-poem）多链一个系统库无副作用。判据仍是**导入表里只该有系统 DLL**。
 
 ## [0.7.0] - 2026-10-05
 

@@ -1,6 +1,6 @@
 package music_app
 
-import std.fs.*
+import stdx.encoding.json.*
 import cjTauri.*
 
 /**
@@ -22,16 +22,13 @@ let MUSIC_LIBRARY_PATH = "music-library.local.json"
  * ① 三引号字符串会处理反斜杠转义，JS 里的 `\n`、正则会被先吃掉，整段 `<script>` 静默变语法错误；
  * ② 字符串插值 `${...}` 与 JS 的模板字面量同形，写模板串就等于往仓颉的插值里塞代码
  * （两条都在 AGENTS §4 里，examples/movie 已在注释里记过同样的取舍）。
+ *
+ * 字节从哪来有两条路，玩法一行不改（与 examples/typing-poem 同款）：
+ *   · 仓库内构建：`src/packed_assets.cj` 的两个常量为空 ⇒ 按相对路径从 ui/ 读盘（改页面刷新即可看效果）；
+ *   · 单文件打包：打包脚本把常量换成 base64 ⇒ 页面在二进制里，产物只有一个 exe、没有随行 ui/。
  */
 func loadMusicUi(): String {
-    var bytes: Array<Byte> = []
-    try {
-        bytes = File.readFrom(MUSIC_UI_PATH)
-    } catch (e: Exception) {
-        throw Exception("读不到前端页面 ${MUSIC_UI_PATH}（${e}）——请在 examples/music 目录下启动：" +
-            "capabilities/ 与 ui/ 都按项目根相对路径读")
-    }
-    return String.fromUtf8(bytes)
+    return textOrFile(PACKED_UI_B64, MUSIC_UI_PATH, "前端页面")
 }
 
 main(): Int64 {
@@ -63,6 +60,19 @@ main(): Int64 {
     app.register("music:config", MusicConfigCommand(store))
     app.register("music:quit", MusicQuitCommand(app))
     app.register("report", ReportCommand())
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[music] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
+    }
 
     let html = loadMusicUi()
     eprintln("[music] 前端页面已载入：${MUSIC_UI_PATH}（${html.size} 字节）")

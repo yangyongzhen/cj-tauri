@@ -603,8 +603,8 @@ CSS 里有几条是我抓图之后**人眼**才发现的（自检断言全绿也
 和 `examples/movie` 一样，仓库脚本可以直接打成**免 SDK 的便携包**：
 
 ```bash
-bash scripts/pack-win.sh            # 目录式便携包
-bash scripts/pack-win-single.sh     # 单文件 exe（WebView2 loader 内嵌释放）
+bash scripts/pack-win.sh examples/music            # 目录式便携包（exe + DLL + ui/ + capabilities/）
+bash scripts/pack-win-single.sh examples/music      # 单文件 exe（loader 内嵌释放）
 ```
 
 有一条必须记住：便携包要自带 `WebView2Loader.dll` 与 `libssl-3-x64.dll` / `libcrypto-3-x64.dll`
@@ -612,6 +612,19 @@ bash scripts/pack-win-single.sh     # 单文件 exe（WebView2 loader 内嵌释�
 所以"递归解析导入表收 DLL"一定会漏——漏掉 OpenSSL 的症状极像网络问题：窗口照起、页面照加载、
 `http://` 照 200，**只有 https 全灭**（`TlsException: Can not load openssl library or function …`）。
 **直接用脚本，别手写 DLL 清单。**
+
+单文件这条路，这个播放器也真打了一遍：`music.exe` **9 956 864 字节**，导入表里只剩系统 DLL。多出来的
+`CRYPT32` 是 https 的代价——静态链接下 `stdx.net.tls` 读根证书要走 Windows 证书库，链接期少写
+`-lcrypt32` 就会炸一串 `undefined symbol: CertOpenSystemStoreA`（打第一次时才撞上，打包脚本已补）。
+在任意空目录里直接跑它，**不需要** `ui/`，也不需要本机装 SDK：
+
+```bash
+CJ_MUSIC_SELFCHECK=2 /path/to/dist-single/music.exe    # [自检] 汇总：12 passed / 0 failed
+```
+
+日志里 `能力清单来自内嵌资源（1 份，共 408 字节 base64）` 与 `前端页面已载入：ui/index.html（126350 字节）`
+说明页面与清单确实来自二进制，而不是随行文件——为了这个，应用侧只多加了两个文件：一份空存根
+（`src/packed_assets.cj`）和一份取用函数（`src/packed_resources.cj`）。
 
 ## 小结
 

@@ -48,7 +48,7 @@
 - **Linux**：WebKitGTK，实机跑通；
 - **鸿蒙 ArkWeb**：留了条件编译位，还没实现。
 
-仓库在 AtomGit 上：<https://atomgit.com/qq8864/cj-tauri>。当前版本 0.7.0。
+仓库在 AtomGit 上：<https://atomgit.com/qq8864/cj-tauri>。当前版本 0.8.0。
 
 那你为什么不直接用 Tauri？理由就两条：一是你想用仓颉（比如后面要上鸿蒙 PC，或者团队本来就写仓颉）；
 二是想看一个只有几千行的、能读懂的实现——Tauri 那套东西工程化程度很高，改起来不轻松。
@@ -613,7 +613,7 @@ HTTP 200 但 `code=0` + `message=403 Forbidden`（上游限流），`getmvmenus`
 
 ## 10. 最后
 
-仓库在 AtomGit：<https://atomgit.com/qq8864/cj-tauri>，当前 0.7.0，代码是 MIT。
+仓库在 AtomGit：<https://atomgit.com/qq8864/cj-tauri>，当前 0.8.0，代码是 MIT。
 想自己起一个应用，最快的一条路还是那三行：
 
 ```bash

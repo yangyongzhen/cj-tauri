@@ -1,0 +1,19 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "music:hot",
+    "music:search",
+    "music:menus",
+    "music:lyric",
+    "music:image",
+    "music:share",
+    "fav:get",
+    "fav:set",
+    "music:config",
+    "music:quit",
+    "report",
+    "system:version"
+  ],
+  "events": []
+}

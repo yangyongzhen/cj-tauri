@@ -1,0 +1,16 @@
+# 构建产物
+target/
+cjpm.lock
+
+# 本机收藏 / 最近播放（运行期数据，不入库）
+music-library.local.json
+
+# 平台动态库 / 对象文件
+*.o
+*.so
+*.dll
+*.dll.a
+
+# 系统文件
+.DS_Store
+Thumbs.db

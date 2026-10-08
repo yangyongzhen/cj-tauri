@@ -263,6 +263,17 @@
   创建 token 等写操作全被拒（`temporarily suspended due to a recent security-sensitive action`），自动解除、
   无需申诉、无法加速。**不要拿恢复码反复试发布**（很可能重新计时）。旁路也不再可靠：本机 npm 10.9.4 的
   `npm token create` 没有 bypass 开关（npm 11 起才有），而 bypass-2FA token 本身已在退场（2026-07-31 公告）。
+- **自检全绿 ≠ 界面没问题：布局缺陷只能抓图人眼验**（2026-10-08 实测）：三栏 flex 行里标题**默认参与收缩**，
+  中间那栏一窄就把「热门歌曲」折成「热门歌 / 曲」——`examples/music` 那一轮 10 条页面自检断言**全绿**照样这样
+  （断言只管「数据到位 / 真的在解码播放 / 歌词跟得上」，管不了排版）。修法是标题 `flex: 0 0 auto;
+  white-space: nowrap`，让说明那一段（`min-width: 0; flex: 1 1 auto`）去收缩截断。
+  **改过布局就抓一张图看**——Windows 抓 WebView2 内容用 `PrintWindow(hwnd, dc, 2)`（脚本见 `.atomcode/shot.ps1`，
+  普通 `BitBlt` 只能拍到空白）。
+- **取证脚本别在用户正用着的时候起第二个实例**（2026-10-08 实测）：同一目录的两个实例会共用同一个
+  WebView2 用户数据目录（默认在 exe 旁边 `<exe>.WebView2/`），还会写同一份应用数据（如 `examples/music` 的
+  `music-library.local.json`）；`taskkill /IM main.exe` 更是把用户那个窗口一并带走。要无人值守验证就
+  **复制一份独立副本**（拷 `ui/` + `capabilities/` + `main.exe` + 一个纯 ASCII 的 `check.bat` 设好 `PATH`），
+  副本自带自己的数据文件与 WebView2 目录，与真实示例彻底隔离、日志也落副本里——读自己的证据，不打扰用户。
 
 ## 5. 文档与提交
 

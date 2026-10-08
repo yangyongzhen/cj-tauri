@@ -32,7 +32,13 @@ public class TemplateVars {
 func buildTargetSection(nativeDir: String, stdxDir: String): String {
     let triple = hostTriple()
     var linkOpt = "-L" + escapeTomlString(nativeDir) + " -lcjtbridge"
-    if (!hostIsWindows()) {
+    if (hostIsWindows()) {
+        // GUI 子系统：不写这个开关，产物是 console 程序，双击时会多出一个控制台黑窗口（AGENTS §4）。
+        // 取值只能用链接器那套——cjc 把 --link-options 直通 ld.lld，gcc 的 -mwindows 会被拒。
+        // 注意别在这儿写「行内 `#` 注释」:Cangjie 里 `#` 是 raw string 前缀、不是注释符，
+        // 生成出来的 toml 那行也就只放开关、不放尾注（保证与文档里的行数表格一致）。
+        linkOpt = linkOpt + " --subsystem=windows"
+    } else {
         linkOpt = linkOpt + " -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0" +
                   " -ljavascriptcoregtk-4.1 -lgobject-2.0"
     }

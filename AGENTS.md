@@ -1,7 +1,7 @@
 # cj-tauri 项目开发规范（AGENTS.md）
 
 > 本文件是本项目的**开发契约**：人类开发者与 AI 助手共同遵守，由 agent 自动加载注入。
-> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.7.0**（2026-10-05），与 `CHANGELOG.md` 同步维护。
+> 改代码前先读 §1 门禁与 §2 架构契约。适用版本：**0.8.0**（2026-10-08），与 `CHANGELOG.md` 同步维护。
 > 当前进度、未完成项与本机环境坑见 `docs/进度记录.md`；会话上下文导出（含换到 Linux 机器怎么接）见 `docs/会话交接.md`。
 
 ## 0. 项目定位
@@ -148,6 +148,11 @@
   注意教训仍在：**「日志里没有错误行」不等于「命令成功了」**——页面没接 `catch` 时失败只在页面上可见，
   示例/插件仍应把 reject 也回投（`report`），别把「没抓到 reject」读成「成功」
   （打字练习的 `score:save` 全废十几轮就是这么被抓到的）。
+- **`#` 不是注释符**：Cangjie 的 `#` 是 raw string 前缀（`#"..."#`），拿它写行内注释会让词法分析器
+  去找 raw string 的收尾，报的是 `error: expected '#' or '"' in raw string, found ' '`——**报错位置指向
+  注释正文的第一个字符**，看着像语法错误、其实是注释写法错。行注释一律用 `//`。
+  （实测 2026-10-08：脚手架 `cli/src/scaffold.cj` 想给生成出来的 `link-option` 附一句行内说明，
+  被这条挡下；最后把说明写成源码里的 `//`、生成文件那一行只放开关——顺带保住了行数。）
 
 **平台与工具链**
 
@@ -164,6 +169,11 @@
   别只看退出码——退出码 0 在这里什么都不证明。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
+- **`CANGJIE_STDX` 要指 stdx 的 `dynamic/stdx`（DLL 目录），不是 stdx 包根**：`cli/src/resolve.cj`
+  把它**逐字**写进生成工程的 `[target.<triple>.bin-dependencies]`，给错了照样 `create` 成功——一直要到
+  在那个新工程里 `cjpm build` 才炸：`root package '<名>' imports package 'stdx.encoding.json' in its
+  source code, but the dependency info is missing`。CLI 自己的报错文案里就写着「指向 stdx 动态库目录」，
+  按它给即可（实测 2026-10-08；本机是 `D:/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx`）。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。
 - **拉取「改了 C 桥导出」的提交后，先重建桥再跑测试/构建**：`native/libcjtbridge.so`（Windows 侧
   `libcjtbridge.dll`）是**本地产物、不入库**。菜单能力位那次 C 桥加了 5 个 `cj_bridge_*` 导出，
@@ -210,7 +220,9 @@
   （实测**不显式重定向也能抓到**：未重定向跑 `CJ_MUSIC_SELFCHECK=1 music.exe`，228 行 stderr 照落），
   实机取证与无人值守自检一行都不用改；代价是双击时看不到 stderr（要现场日志就 `app.exe 2> log.txt`）。
   目录式便携包 `scripts/pack-win.sh` 走各示例自己的 `cjpm.toml`：**13 个示例的 mingw `link-option` 都已带上
-  同一个开关**（行内注释指向本条；打包器临时生成的 `dist-single/work/app` 副本同样带着它，但不入库），
+  同一个开关**（行内注释指向本条；打包器临时生成的 `dist-single/work/app` 副本同样带着它，但不入库）、
+  另外 **`cj-tauri create` 生成的工程也带它**：`cli/src/scaffold.cj` 的 `buildTargetSection` 在 Windows 分支
+  （`hostIsWindows()`）追加同一个开关（Linux 分支一行不动）——否则用户拿到的第一份产物照样弹黑窗，
   产物同样是 GUI。动手时要认准目标段——**Linux 段那串 `-lwebkit2gtk-4.1 …` 不能加**（与子系统无关，
   加了也会被链接器拒）；数「改了几个」时记得把 `dist-single/work/` 下的副本排除掉，否则会多算 2 个。
 - **新示例要进单文件包，先备两样**：`src/packed_assets.cj` 空存根（`public let PACKED_*_B64: String = ""`，
@@ -326,7 +338,7 @@
 
 ## 6. 版本与发版
 
-- 语义化版本。0.x 阶段：新增能力进中间位（0.6.0 → 0.7.0），修复进末位（0.7.0 → 0.7.1）。当前 **0.7.0**。
+- 语义化版本。0.x 阶段：新增能力进中间位（0.6.0 → 0.7.0 → 0.8.0），修复进末位（0.8.0 → 0.8.1）。当前 **0.8.0**。
 - 必须同步的**五个位置**（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
   1. `cjpm.toml` 的 `version`（框架包）
   2. `cli/cjpm.toml` 的 `version` 与 `cli/src/project.cj` 的 `cliVersion()`（`--version` / `info` 打印它）

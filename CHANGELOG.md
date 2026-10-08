@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [0.8.0] - 2026-10-08
+
 ### Added
 
 - **观影应用示例 `examples/movie`**：仓颉后端 + WebView 前端的完整业务样例（榜单 6 个 tab / 搜索 /
@@ -326,6 +328,16 @@
   内建自检 `57 passed, 0 failed`、双击路径窗口正常）。补充实测：GUI 产物**不显式重定向也能抓到 stderr**
   （未重定向跑 `CJ_MUSIC_SELFCHECK=1 music.exe`，228 行日志照落），各示例 `run.bat` 的取证流程无需改动；
   `examples/music` 与 `examples/typing-poem` 仓库内 `cjpm build` 均 `exit=0`、产物 `Subsystem 00000002`。
+
+- **脚手架生成的工程也带 `--subsystem=windows`（新 `create` 出来的应用双击同样不弹黑窗）**：`cli/src/scaffold.cj` 的
+  `buildTargetSection` 在 **Windows 分支**（`hostIsWindows()`）补上同一个开关，Linux 分支一行未动——
+  此前只有仓库内示例拿到了它，用户 `cj-tauri create` 出来的新工程仍旧是 console 产物。重建 CLI 后实测：
+  新建工程 `cjpm.toml` 仍是 22 行（开关写在既有那行里）、带 `--subsystem=windows`、不含 `-lwebkit2gtk*`，
+  其余生成物行数 88 / 118 / 80 / 7 / 13 不变；生成工程 `cjpm build` `exit=0`、产物
+  `Subsystem 00000002 (Windows GUI)`。两处踩坑已记 `AGENTS.md` §4：**Cangjie 的 `#` 不是注释符**
+  （是 raw string 前缀，行内 `#` 注释会让 `cjpm build` 报 `expected '#' or '"' in raw string, found ' '`）；
+  **`CANGJIE_STDX` 要指 `…/dynamic/stdx`**（指成包根时 `create` 能成功，但生成工程 `cjpm build` 报
+  `imports package 'stdx.encoding.json' … dependency info is missing`）。
 
 ## [0.7.0] - 2026-10-05
 

@@ -121,7 +121,7 @@ cd <你想放项目的目录>          # 父目录，create 会在里面新建 <
 | --- | --- | --- |
 | `cjpm.toml` | 依赖写**本机绝对路径**，只有本机那一个 `[target.<triple>]` | 依赖改仓库内相对路径 `../..`；补上 **Linux + Windows 两个 target**；包名 `music` → `music_app` |
 | `src/` | 单文件 88 行（`greet` / `timer` / 菜单演示） | **6 个文件 1 371 行**，按单一职责拆分（`main` / `commands` / `api` / `cover` / `lrc` / `store`） |
-| `ui/index.html` | 118 行演示页 | **2 891 行**：深色三栏播放器 + 同步歌词 + 页面自检 |
+| `ui/index.html` | 118 行演示页 | **3 657 行**：深色三栏播放器 + 同步歌词 + 页面自检 |
 | `capabilities/default.json` | `greet` / `timer` / `system:*`，事件 `tick` / `menu:click` | **12 条命令**（`music:*` / `fav:*` / `report` / `system:version`），不再用事件 |
 | `.gitignore` | 构建产物 + `*.dll` | 多一行运行期数据 `music-library.local.json`（本机收藏与最近播放） |
 | `run.bat` | 无（模板只给 `cj-tauri dev`） | 新增纯 ASCII 的 `run.bat`：一键构建 + 起窗口 + 两档自检 + stderr 落盘 |
@@ -202,7 +202,7 @@ run.bat selfcheck2  :: 自检 + 往后台**写**一条歌单（会真的提交�
 | `src/cover.cj` | 207 | 封面取回：白名单、剥代理、缩略计划 |
 | `src/lrc.cj` | 224 | LRC 解析（多时间戳行、去前缀、毫秒换算） |
 | `src/store.cj` | 94 | 本机收藏库（JSON 文件读写 + 上限夹取） |
-| `ui/index.html` | 2891 | 全部界面与交互（含页面自检），独立文件、不走三引号字符串 |
+| `ui/index.html` | 3657 | 全部界面与交互（含页面自检），独立文件、不走三引号字符串 |
 
 ## 4. 命令 ↔ 后台接口
 

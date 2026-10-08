@@ -19,6 +19,10 @@
 > **实战续篇：[用 cj-tauri 开发打字游戏](docs/仓颉版Tauri-打字游戏实战.md)**——拿 `examples/typing-poem`
 > （古诗词打字练习）当案例：三件套怎么落地、给孩子用的取舍、three.js 的注入通道、自检与实机验收。
 >
+> **实战续篇（音乐播放器）：[用仓颉写一个桌面音乐播放器](docs/仓颉版Tauri-音乐播放器实战.md)**——拿 `examples/music`
+> 当案例：脚手架起手 → 命令层三处联动与参数校验 → 前端只走 `invoke` → 封面防盗链 / 歌词在仓颉侧解析 /
+> 收藏落本机 → 踩坑清单与 stderr 取证（两档无人值守自检）。
+>
 > 当前版本 **0.7.0**：变更记录见 [CHANGELOG.md](CHANGELOG.md)，开发规范见 [AGENTS.md](AGENTS.md)，
 > 贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，依赖与许可信息见 [README.OpenSource](README.OpenSource)。
 >

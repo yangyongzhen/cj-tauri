@@ -184,34 +184,6 @@
       padding: 1px 6px;
     }
 
-    .top-status {
-      margin-left: auto;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--dim);
-      white-space: nowrap;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--dimmer);
-      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
-    }
-
-    .dot.ok {
-      background: var(--ok);
-      box-shadow: 0 0 0 3px rgba(53, 211, 154, 0.16);
-    }
-
-    .dot.bad {
-      background: var(--pink);
-      box-shadow: 0 0 0 3px rgba(255, 77, 128, 0.16);
-    }
-
     /* ---------------------------------------------------------------- 左侧导航 */
 
     .sidebar {
@@ -282,28 +254,6 @@
       width: 3px;
       border-radius: 3px;
       background: linear-gradient(180deg, var(--accent), var(--accent-2));
-    }
-
-    .sidebar .spacer {
-      flex: 1;
-    }
-
-    .side-meta {
-      margin: 0 4px 2px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      font-size: 11px;
-      color: var(--dimmer);
-      line-height: 1.7;
-      word-break: break-all;
-      user-select: text;
-    }
-
-    .side-meta b {
-      color: var(--dim);
-      font-weight: 600;
     }
 
     /* ---------------------------------------------------------------- 主区域 */
@@ -397,51 +347,104 @@
       cursor: not-allowed;
     }
 
-    /* 热门页顶部的大图 hero */
-    .hero {
+    /* 热门页顶部的轮播横幅：模糊封面铺底 + 方形封面 + 曲目信息 + 圆点/箭头 */
+    .banner {
       position: relative;
-      display: flex;
-      gap: 20px;
-      align-items: center;
-      padding: 20px;
       border-radius: 18px;
       border: 1px solid var(--line);
       overflow: hidden;
       margin-bottom: 18px;
-      background: var(--panel);
+      background: #101728;
+      /* 按宽度定高（16:6）。不支持 aspect-ratio 的老 WebView 落到 min-height，不会塌成一条线 */
+      aspect-ratio: 16 / 6;
+      min-height: 208px;
     }
 
-    .hero .glow {
+    .banner .stage {
       position: absolute;
-      inset: -30% -10% auto -10%;
-      height: 190%;
-      background-size: cover;
-      background-position: center;
-      filter: blur(38px) saturate(1.5);
-      opacity: 0.5;
-      z-index: 0;
+      inset: 0;
     }
 
-    .hero > * {
+    /* 每张 slide 叠在一起，靠 opacity 交叉淡入淡出 */
+    .banner .slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.45s ease;
+      pointer-events: none;
+    }
+
+    .banner .slide.on {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* 氛围层：同一张封面模糊铺满，cover 等比裁切（这不是「拉伸的图」，是被刻意糊掉的底） */
+    .banner .bg-wrap {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    .banner .bg {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1.12);
+      filter: blur(26px) saturate(1.4) brightness(0.55);
+      display: block;
+    }
+
+    .banner .veil {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, rgba(9, 13, 24, 0.94) 0%, rgba(9, 13, 24, 0.62) 46%, rgba(9, 13, 24, 0.18) 100%);
+    }
+
+    .banner .row {
       position: relative;
       z-index: 1;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      padding: 20px 26px;
     }
 
-    .hero .art {
+    .banner .art {
       width: 132px;
       height: 132px;
+      flex: none;
       border-radius: 14px;
+      overflow: hidden;
       box-shadow: var(--shadow);
       background: #131a2b;
+    }
+
+    /* 关键一条：object-fit 必须写在 <img> 上。写在容器上不生效——容器不是被替换元素，
+       图会按自然尺寸落进框里变形（第一版 `.hero .art` 就是这么被压扁的）。 */
+    .banner .art img {
+      width: 100%;
+      height: 100%;
       object-fit: cover;
-      flex: none;
+      display: block;
     }
 
-    .hero .info {
+    .banner .art .ph {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      color: var(--dimmer);
+      font-size: 34px;
+    }
+
+    .banner .info {
       min-width: 0;
+      flex: 1 1 auto;
     }
 
-    .hero .tag {
+    .banner .tag {
       display: inline-block;
       font-size: 11px;
       letter-spacing: 1px;
@@ -452,7 +455,7 @@
       margin-bottom: 10px;
     }
 
-    .hero h2 {
+    .banner h2 {
       margin: 0 0 6px;
       font-size: 24px;
       line-height: 1.25;
@@ -461,15 +464,221 @@
       white-space: nowrap;
     }
 
-    .hero .sing {
+    .banner .sing {
       color: var(--dim);
       font-size: 13px;
       margin-bottom: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .hero .actions {
+    .banner .actions {
       display: flex;
       gap: 10px;
+    }
+
+    /* 箭头平时藏着，鼠标移进横幅才浮出来（不抢视觉） */
+    .banner .nav-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(12, 18, 32, 0.6);
+      color: #fff;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease, background 0.2s ease;
+    }
+
+    .banner:hover .nav-btn {
+      opacity: 1;
+    }
+
+    .banner .nav-btn:hover {
+      background: rgba(12, 18, 32, 0.85);
+    }
+
+    .banner .nav-btn.prev {
+      left: 12px;
+    }
+
+    .banner .nav-btn.next {
+      right: 12px;
+    }
+
+    .banner .dots {
+      position: absolute;
+      right: 22px;
+      bottom: 16px;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .banner .dots i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      cursor: pointer;
+      transition: width 0.2s ease, background 0.2s ease;
+    }
+
+    .banner .dots i.on {
+      width: 20px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+
+    /* 首页的区块表头（「后台歌单」这一条） */
+    .sec-head {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin: 2px 0 12px;
+    }
+
+    .sec-head h3 {
+      margin: 0;
+      font-size: 16px;
+      white-space: nowrap;
+    }
+
+    .sec-hint {
+      font-size: 12px;
+      color: var(--dimmer);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sec-head .btn.tiny {
+      margin-left: auto;
+      padding: 5px 10px;
+      font-size: 12px;
+      flex: none;
+    }
+
+    /* 横向滚动行：卡片横排、滚动条细条化、箭头平时藏着 */
+    .hscroll-wrap {
+      position: relative;
+      margin-bottom: 24px;
+    }
+
+    .hscroll {
+      display: flex;
+      gap: 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 2px 2px 10px;
+      scroll-snap-type: x proximity;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    }
+
+    .hscroll::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .hscroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 4px;
+    }
+
+    .hscroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .mcard {
+      flex: none;
+      width: 152px;
+      cursor: pointer;
+      scroll-snap-align: start;
+    }
+
+    .mcard .mcover {
+      width: 152px;
+      height: 152px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #131a2b;
+      box-shadow: var(--shadow);
+      transition: transform 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    /* fillCover 插进来的 <img> 不带 class、也不带行内尺寸，尺寸规则必须落在容器内（同 .banner .art img） */
+    .mcard .mcover img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .mcard:hover .mcover {
+      transform: translateY(-4px);
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+    }
+
+    .mcard .mt {
+      margin-top: 9px;
+      font-size: 13px;
+      line-height: 1.35;
+      height: 36px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .mcard .ms {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--dimmer);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .hscroll-btn {
+      position: absolute;
+      top: 60px;
+      z-index: 2;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(12, 18, 32, 0.72);
+      color: #fff;
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .hscroll-wrap:hover .hscroll-btn {
+      opacity: 1;
+    }
+
+    .hscroll-btn:disabled {
+      opacity: 0;
+      cursor: default;
+    }
+
+    .hscroll-btn.prev {
+      left: -8px;
+    }
+
+    .hscroll-btn.next {
+      right: -8px;
     }
 
     /* 歌曲行 */
@@ -1328,10 +1537,6 @@
         <input id="q" type="text" placeholder="搜索歌曲 / 歌手，回车开始搜索" autocomplete="off">
         <span class="hint">Enter</span>
       </label>
-      <div class="top-status">
-        <span id="svc-dot" class="dot"></span>
-        <span id="svc-text">正在连接后台…</span>
-      </div>
     </header>
 
     <aside class="sidebar">
@@ -1354,8 +1559,6 @@
         <span class="ico">🕘</span><span class="label">最近播放</span>
         <span class="count" id="recent-count">0</span>
       </div>
-      <div class="spacer"></div>
-      <div class="side-meta" id="side-meta">正在读取运行期配置…</div>
     </aside>
 
     <main class="content" id="content"></main>
@@ -1593,7 +1796,12 @@
     var COVER_LARGE = 500;   // 主视觉 /「正在播放」大图 / 它的背景光晕
 
     function coverFor(url, size) {
-      if (!url) { return Promise.resolve(null); }
+      /*
+       * 后台偶有脏数据：有的歌单封面字段就是字面量 `string`（截图轮次在 stderr 里抓到过一次）。
+       * 不是 http(s) 开头就当场放弃——否则白跑一次宿主取图，还在日志里留一条 command rejected，
+       * 把真正的失败淹掉。
+       */
+      if (!url || url.indexOf("http") !== 0) { return Promise.resolve(null); }
       var s = size || COVER_THUMB;
       // 尺寸要进缓存键：同一张图的 200 与 500 是两次取图，用一个键会互相顶掉（小图顶掉大图就是糊的）
       var key = url + '#' + s;
@@ -1743,42 +1951,247 @@
       } else if (S.hot.length === 0) {
         html += emptyBox('🎧', '榜单是空的', '检查后台是否可达，或点刷新重试');
       } else {
-        var top = S.hot[0];
-        html += '<div class="hero"><div class="glow" id="hero-glow"></div>' +
-          '<div class="art" id="hero-art"></div>' +
-          '<div class="info"><span class="tag">榜单 Top 1</span>' +
-          '<h2>' + esc(top.song || '(未知曲目)') + '</h2>' +
-          '<div class="sing">' + esc(top.sing || '未知歌手') + '</div>' +
-          '<div class="actions"><button class="btn primary" id="hero-play">▶ 播放这首</button>' +
-          '<button class="btn" id="hero-fav">♡ 收藏</button></div></div></div>';
+        html += bannerHtml(bannerSongs());
+        html += menuRowHtml();
         html += '<div id="hot-list"></div>';
       }
       content.innerHTML = html;
       if (S.hot.length > 0 && !S.busy.hot) {
-        var top2 = S.hot[0];
-        fillCover(document.getElementById('hero-art'), top2.cover, '♪', COVER_LARGE);
-        coverFor(top2.cover, COVER_LARGE).then(function (d) {
-          var glow = document.getElementById('hero-glow');
-          if (glow && d) { glow.style.backgroundImage = 'url("' + d + '")'; }
-        });
-        syncHeroFav();
+        wireBanner();
+        wireMenuRow();
         document.getElementById('hot-list').className = '';
         renderSongList(document.getElementById('hot-list'), S.hot, 'hot');
-        document.getElementById('hero-play').onclick = function () { playList(S.hot, 0, 'hot'); };
-        document.getElementById('hero-fav').onclick = function () { toggleFav(S.hot[0]); };
       }
       if (document.getElementById('hot-refresh')) {
         document.getElementById('hot-refresh').onclick = function () { loadHot(true); };
         document.getElementById('hot-playall').onclick = function () { playList(S.hot, 0, 'hot'); };
       }
+      /* 首页也顺手展示后台歌单：没拉过就拉一次（S.busy.menus 挡重复请求，拉完 renderApp 会重画这一行） */
+      if (S.menus.length === 0 && !S.busy.menus) { loadMenus(false); }
     }
 
-    /* hero 上的收藏按钮要跟着收藏状态变（第 0 首被收藏时显示已收藏） */
-    function syncHeroFav() {
-      var btn = document.getElementById('hero-fav');
-      if (!btn || S.hot.length === 0) { return; }
-      var on = isFav(S.hot[0]);
-      btn.textContent = on ? '💗 已收藏' : '♡ 收藏';
+    /* ------------------------------------------------------------ 首页轮播（热门 Top 5）
+
+       为什么用轮播而不是「Top 1 一张大图」：榜单接口一次就给一整页，只把第 1 首放大等于浪费了
+       首屏最好的位置。
+       图一律走 object-fit: cover（等比裁切）——封面是方图，按容器拉伸就会把人脸压扁；
+       首屏那张宽幅氛围底用「同一张封面模糊铺满」，这样无论原图什么比例都不会出现被拉长的图。 */
+    var BANNER_SLIDES = 5;      // 轮播最多展示几首
+    var BANNER_GAP_MS = 5000;   // 自动切换间隔（毫秒）
+    var bannerIdx = 0;          // 当前第几张（重渲染后不跳回第一张）
+    var bannerTimer = 0;
+
+    function bannerSongs() {
+      return S.hot.slice(0, BANNER_SLIDES);
+    }
+
+    function bannerHtml(songs) {
+      var slides = '';
+      var dots = '';
+      for (var i = 0; i < songs.length; i++) {
+        var s = songs[i];
+        slides += '<div class="slide' + (i === bannerIdx ? ' on' : '') + '" data-i="' + i + '">' +
+          '<div class="bg-wrap"><img class="bg" alt=""></div>' +
+          '<div class="veil"></div>' +
+          '<div class="row">' +
+            '<div class="art"><div class="ph">♪</div></div>' +
+            '<div class="info">' +
+              '<span class="tag">榜单 Top ' + (i + 1) + '</span>' +
+              '<h2>' + esc(s.song || '(未知曲目)') + '</h2>' +
+              '<div class="sing">' + esc(s.sing || '未知歌手') + '</div>' +
+              '<div class="actions">' +
+                '<button class="btn primary banner-play" data-i="' + i + '">▶ 播放这首</button>' +
+                '<button class="btn banner-fav" data-i="' + i + '">♡ 收藏</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+        dots += '<i data-i="' + i + '"' + (i === bannerIdx ? ' class="on"' : '') + '></i>';
+      }
+      return '<div class="banner" id="banner">' +
+        '<div class="stage" id="banner-stage">' + slides + '</div>' +
+        '<button class="nav-btn prev" id="banner-prev" title="上一首">‹</button>' +
+        '<button class="nav-btn next" id="banner-next" title="下一首">›</button>' +
+        '<div class="dots" id="banner-dots">' + dots + '</div>' +
+      '</div>';
+    }
+
+    function stopBannerTimer() {
+      if (bannerTimer) {
+        clearInterval(bannerTimer);
+        bannerTimer = 0;
+      }
+    }
+
+    function bannerAutoplayOn() {
+      if (bannerTimer) { return; }
+      bannerTimer = setInterval(function () { stepBanner(1); }, BANNER_GAP_MS);
+    }
+
+    /* 换到第 i 张：只切 class，图在 wireBanner 里一次性取好，切换既不闪也不重新取图 */
+    function setBanner(i) {
+      var n = bannerSongs().length;
+      if (n === 0) { return; }
+      bannerIdx = ((i % n) + n) % n;
+      var slides = document.querySelectorAll('#banner-stage .slide');
+      for (var a = 0; a < slides.length; a++) {
+        slides[a].classList.toggle('on', a === bannerIdx);
+      }
+      var dots = document.querySelectorAll('#banner-dots i');
+      for (var b = 0; b < dots.length; b++) {
+        dots[b].classList.toggle('on', b === bannerIdx);
+      }
+    }
+
+    function stepBanner(delta) {
+      setBanner(bannerIdx + delta);
+    }
+
+    /* 每张 slide 各有一个收藏按钮，都要跟着收藏状态走 */
+    function syncBannerFav() {
+      var songs = bannerSongs();
+      var btns = document.querySelectorAll('#banner-stage .banner-fav');
+      for (var i = 0; i < btns.length; i++) {
+        if (!songs[i]) { continue; }
+        var on = isFav(songs[i]);
+        btns[i].textContent = on ? '💗 已收藏' : '♡ 收藏';
+        btns[i].classList.toggle('on', on);
+      }
+    }
+
+    /* 每张取一张图：模糊铺底的宽幅底与方形封面共用同一份 data URL。取不到就留占位符（不显示破图） */
+    function fillBannerCovers(songs) {
+      for (var i = 0; i < songs.length; i++) {
+        (function (i) {
+          var slide = document.querySelector('#banner-stage .slide[data-i="' + i + '"]');
+          if (!slide) { return; }
+          coverFor(songs[i].cover, COVER_LARGE).then(function (data) {
+            if (!data) { return; }
+            var bg = slide.querySelector('.bg');
+            var art = slide.querySelector('.art');
+            if (bg) { bg.src = data; }
+            if (art) { art.innerHTML = '<img alt="" src="' + data + '">'; }
+          });
+        })(i);
+      }
+    }
+
+    /* 系统开了「减少动态效果」就完全不自动轮播，只保留手动圆点 / 箭头 */
+    function reducedMotion() {
+      return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    }
+
+    function wireBanner() {
+      var banner = document.getElementById('banner');
+      if (!banner) { return; }
+      var songs = bannerSongs();
+      fillBannerCovers(songs);
+      setBanner(bannerIdx);
+      syncBannerFav();
+
+      document.getElementById('banner-prev').onclick = function () { stepBanner(-1); };
+      document.getElementById('banner-next').onclick = function () { stepBanner(1); };
+      document.getElementById('banner-dots').onclick = function (ev) {
+        var t = ev.target;
+        var i = (t && t.getAttribute) ? t.getAttribute('data-i') : null;
+        if (i !== null) { setBanner(parseInt(i, 10)); }
+      };
+      /* 点卡片本体 = 播当前这张；点「播放这首」= 播它自己那张；点收藏 = 收藏那张 */
+      document.getElementById('banner-stage').onclick = function (ev) {
+        var t = ev.target;
+        var fav = (t && t.closest) ? t.closest('.banner-fav') : null;
+        if (fav) { toggleFav(songs[parseInt(fav.getAttribute('data-i'), 10)]); return; }
+        var play = (t && t.closest) ? t.closest('.banner-play') : null;
+        playList(S.hot, play ? parseInt(play.getAttribute('data-i'), 10) : bannerIdx, 'hot');
+      };
+
+      /* 悬停暂停：鼠标在横幅上时别自己翻页，移开再续上 */
+      stopBannerTimer();
+      banner.onmouseenter = null;
+      banner.onmouseleave = null;
+      if (!reducedMotion()) {
+        bannerAutoplayOn();
+        banner.onmouseenter = function () { stopBannerTimer(); };
+        banner.onmouseleave = function () { bannerAutoplayOn(); };
+      }
+    }
+
+    /* -------------------------------------------------- 首页的「后台歌单」横向滚动行
+
+       数据就用「后台歌单」视图那份 S.menus（同一个 music:menus 命令），不另开接口：
+       首页没拉过就顺手拉一次，拉回来 renderApp 会重画，这一行随之出现。 */
+    var HOME_MENU_CARDS = 8;    // 首页横滑最多放几张
+    var HOME_MENU_STEP = 3;     // 箭头一次滚过几张
+    var menuRowResizeWired = false;
+
+    function menuRowHtml() {
+      var list = S.menus.slice(0, HOME_MENU_CARDS);
+      if (list.length === 0) { return ''; }
+      var cards = '';
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        cards += '<div class="mcard" data-i="' + i + '">' +
+          '<div class="mcover"></div>' +
+          '<div class="mt">' + esc(m.title || '(无标题)') + '</div>' +
+          '<div class="ms">' + esc(m.user || '匿名') + ' · ' + (m.songs ? m.songs.length : 0) + ' 首</div>' +
+        '</div>';
+      }
+      return '<div class="sec-head"><h3>后台歌单</h3>' +
+        '<span class="sec-hint">共 ' + S.menus.length + ' 张</span>' +
+        '<button class="btn tiny" id="menu-row-more">查看全部 ›</button>' +
+      '</div>' +
+      '<div class="hscroll-wrap">' +
+        '<button class="hscroll-btn prev" id="menu-row-prev" title="向左">‹</button>' +
+        '<div class="hscroll" id="menu-row">' + cards + '</div>' +
+        '<button class="hscroll-btn next" id="menu-row-next" title="向右">›</button>' +
+      '</div>';
+    }
+
+    /* 箭头在两端置灰：不靠 scrollLeft 是否真的变了猜，直接比 scrollWidth / clientWidth */
+    function syncMenuRowArrows(row) {
+      var prev = document.getElementById('menu-row-prev');
+      var next = document.getElementById('menu-row-next');
+      var max = row.scrollWidth - row.clientWidth;
+      if (prev) { prev.disabled = row.scrollLeft <= 2; }
+      if (next) { next.disabled = max <= 2 || row.scrollLeft >= max - 2; }
+    }
+
+    function wireMenuRow() {
+      var row = document.getElementById('menu-row');
+      if (!row) { return; }
+      var prev = document.getElementById('menu-row-prev');
+      var next = document.getElementById('menu-row-next');
+      var stepWidth = function () {
+        var card = row.querySelector('.mcard');
+        var one = card ? card.offsetWidth + 14 : 166;
+        return Math.max(120, one * HOME_MENU_STEP);
+      };
+      if (prev) { prev.onclick = function () { row.scrollLeft -= stepWidth(); }; }
+      if (next) { next.onclick = function () { row.scrollLeft += stepWidth(); }; }
+      document.getElementById('menu-row-more').onclick = function () { setView('menus'); };
+
+      /* 点卡片 = 打开这张歌单，落法与「后台歌单」视图里点卡片完全一致 */
+      row.addEventListener('click', function (ev) {
+        var card = ev.target.closest ? ev.target.closest('.mcard') : null;
+        if (!card) { return; }
+        var menu = S.menus[parseInt(card.getAttribute('data-i'), 10)];
+        if (!menu) { return; }
+        S.menuDetail = { title: menu.title, songs: menu.songs || [] };
+        setView('menus');
+      });
+      row.addEventListener('scroll', function () { syncMenuRowArrows(row); });
+      if (!menuRowResizeWired) {
+        menuRowResizeWired = true;
+        window.addEventListener('resize', function () {
+          var r = document.getElementById('menu-row');
+          if (r) { syncMenuRowArrows(r); }
+        });
+      }
+      var cards = row.querySelectorAll('.mcard');
+      for (var i = 0; i < cards.length; i++) {
+        fillCover(cards[i].querySelector('.mcover'), S.menus[i].cover, '🗂️', COVER_THUMB);
+      }
+      syncMenuRowArrows(row);
     }
 
     function renderMenus() {
@@ -1901,6 +2314,7 @@
     }
 
     function renderApp() {
+      stopBannerTimer();
       if (S.view === 'hot') { renderHot(); }
       else if (S.view === 'menus') { renderMenus(); }
       else if (S.view === 'search') { renderSearch(); }
@@ -1935,14 +2349,12 @@
         .then(function (res) {
           S.busy.hot = false;
           S.hot = Array.isArray(res.data) ? res.data : [];
-          setService(true, '后台正常 · 热门 ' + S.hot.length + ' 首');
           report('[music-page] 热门已加载 ' + S.hot.length + ' 首（后台 title=' + (res.title || '') + '）');
           if (S.hot.length === 0) { toast('榜单返回空：' + (res.message || '后台没数据')); }
           renderApp();
         })
         .catch(function (err) {
           S.busy.hot = false;
-          setService(false, '后台不可用');
           toast('热门歌曲拉取失败：' + errText(err), 'bad');
           report('[music-page] 热门拉取失败：' + errText(err));
           renderApp();
@@ -1985,13 +2397,6 @@
           toast('搜索失败：' + errText(err), 'bad');
           renderApp();
         });
-    }
-
-    /* 顶栏的后台连通指示灯 */
-    function setService(ok, text) {
-      var dot = document.getElementById('svc-dot');
-      dot.className = 'dot ' + (ok ? 'ok' : 'bad');
-      document.getElementById('svc-text').textContent = text;
     }
 
     /* invoke 的失败对象来自仓颉侧的 CommandException，形状是 { code?, message } 或字符串 */
@@ -2446,7 +2851,7 @@
         btn.classList.toggle('on', on);
         btn.textContent = on ? '💗' : '♡';
       }
-      syncHeroFav();
+      syncBannerFav();
     }
 
     /* 播一首就记一笔最近播放（按 songKey 去重、新的在前、最多 50 条） */
@@ -2843,13 +3248,6 @@
 
     /* ---------------------------------------------------------------- 启动 */
 
-    function sideMeta(cfg, libPath) {
-      return '<b>后台</b><br>' + esc(cfg.apiBase || '?') +
-        '<br><b>榜单</b><br>' + esc(cfg.hotKind || 'topWyMusic') + '（每页 ' + (cfg.pageSize || 20) + ' 条）' +
-        '<br><b>收藏文件</b><br>' + esc(libPath || cfg.libraryPath || '?') +
-        '<br><b>自检</b><br>' + (cfg.selfCheck ? ('开（level ' + cfg.selfCheckLevel + '）') : '关（CJ_MUSIC_SELFCHECK=1 开）');
-    }
-
     function init() {
       content = document.getElementById('content');
       initAudio();
@@ -2862,7 +3260,6 @@
           S.cfg = cfg;
           S.fav = Array.isArray(lib.songs) ? lib.songs : [];
           S.recent = Array.isArray(lib.recent) ? lib.recent : [];
-          document.getElementById('side-meta').innerHTML = sideMeta(cfg, lib.path);
           refreshCounts();
           renderApp();
           report('[music-page] 启动：apiBase=' + cfg.apiBase + ' 收藏 ' + S.fav.length +
@@ -2874,7 +3271,6 @@
           }
         })
         .catch(function (err) {
-          document.getElementById('side-meta').textContent = '配置读取失败：' + errText(err);
           toast('启动失败：' + errText(err), 'bad');
           renderApp();
         });

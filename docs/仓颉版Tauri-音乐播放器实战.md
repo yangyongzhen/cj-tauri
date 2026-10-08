@@ -616,6 +616,19 @@ bash scripts/pack-win-single.sh examples/music      # 单文件 exe（loader 内
 单文件这条路，这个播放器也真打了一遍：`music.exe` **9 956 864 字节**，导入表里只剩系统 DLL。多出来的
 `CRYPT32` 是 https 的代价——静态链接下 `stdx.net.tls` 读根证书要走 Windows 证书库，链接期少写
 `-lcrypt32` 就会炸一串 `undefined symbol: CertOpenSystemStoreA`（打第一次时才撞上，打包脚本已补）。
+
+第一版打出来还有个更直观的毛病：**双击 `music.exe` 会先弹一个黑窗口（DOS 窗口）**。原因不在应用代码，
+在链接时的 PE 子系统——工具链默认按 console 程序生成，Windows 见到 console 程序就给它配一个控制台。
+改法是在 `link-option` 里写 `--subsystem=windows`，产物 PE 头里的子系统从 3（console）变成 2（Windows GUI）。
+这里有个容易踩空的细节：cjc 的 `--link-options` 是**直接交给链接器**的、不是交给 gcc 驱动，
+所以 gcc 那句 `-mwindows` 会被链接器当面拒掉（`lld: error: unknown parameter: -mwindows`），
+取值也只有 GNU 那一套（`console` / `windows` / `native` / `posix`，写 `gui` 会报
+`ld.lld: error: unknown subsystem: gui`）。子系统只管「分不分配控制台」：从终端带重定向启动时 stderr
+照旧落到文件，自检与取证一行都不用改；打包脚本末尾另加一道**事后复核**（`objdump -p` 读出的
+`Subsystem` 必须是 `00000002`，否则直接失败退出），免得哪天被改回 console 又靠人眼发现。同一个开关也加进了
+**各示例自己的 `cjpm.toml`**（`[target.x86_64-w64-mingw32]` 那段；Linux 段那串 `-lwebkit2gtk-4.1` 不能动），
+所以目录式便携包（`scripts/pack-win.sh`）打出来的产物同样是「双击不弹黑窗口」的 GUI 程序。
+
 在任意空目录里直接跑它，**不需要** `ui/`，也不需要本机装 SDK：
 
 ```bash

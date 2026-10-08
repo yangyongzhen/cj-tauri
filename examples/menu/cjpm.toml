@@ -20,7 +20,7 @@
     path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
 
 [target.x86_64-w64-mingw32]
-  link-option = "-L../../native -lcjtbridge"
+  link-option = "-L../../native -lcjtbridge --subsystem=windows"   # GUI 子系统：双击不弹 DOS 黑窗口，stderr 仍走重定向（AGENTS §4）
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]

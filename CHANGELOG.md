@@ -307,6 +307,26 @@
   Windows 证书库（`crypt32.dll`）。补上 `-lcrypt32` 后链接通过，exe 导入表里出现 `CRYPT32.dll`；
   不碰 TLS 的示例（typing-poem）多链一个系统库无副作用。判据仍是**导入表里只该有系统 DLL**。
 
+- **单文件产物改成 GUI 子系统：双击不再弹 DOS 黑窗口**（`scripts/pack-win-single.sh`，交付后的第一条实机反馈）：
+  脚本生成的 `cjpm.toml` 里 `link-option` 补 `--subsystem=windows`，产物 PE 头从 console(3) 变 GUI(2)——
+  此前双击 `music.exe`，Windows 按 console 程序给它分配一个控制台，黑窗口就跟着应用窗口一起出来。写法必须是
+  **链接器的说法**：cjc 的 `--link-options` 直通 ld.lld（不是交给 gcc 驱动），所以 `-mwindows` 会被当面拒
+  （`lld: error: unknown parameter: -mwindows`），取值也只有 GNU 那套（写 `gui` 报
+  `ld.lld: error: unknown subsystem: gui`）。子系统只管「分不分配控制台」，**日志链路不变**：从终端带重定向
+  启动时 stderr 照旧落到文件，无人值守自检与实机取证一行没改；代价是双击时看不到 stderr。脚本末尾另加
+  **事后复核**（`objdump -p` 的 `Subsystem` 必须是 `00000002`，否则 `die`），回归成 console 不靠人眼发现。
+  `examples/music` 重打实测：`dist-single/music.exe` 9 956 864 字节（sha256 `7926f25bfcb5d5ff…f356ea92`）、
+  `Subsystem 00000002 (Windows GUI)`、导入表仍只有系统 DLL、重定向下自检 **10 passed / 0 failed** 与
+  **12 passed / 0 failed**（均 `exit=0`）；再用 ShellExecuteEx（等同双击、不继承任何句柄）起进程，窗口正常
+  出现（标题 `仓颉爱音乐 · cj-tauri`）、进程存活、收尾无残留。
+  同一开关也加进了 **13 个示例的 mingw `link-option`**（逐文件统一替换，Linux 段那串 `-lwebkit2gtk-4.1`
+  不动；另有 2 处命中在打包器临时生成的 `dist-single/work/app/cjpm.toml`，不入库），于是
+  `scripts/pack-win.sh` 的目录式便携包同样是 GUI 产物；
+  `examples/typing-poem/dist-single/typing-poem.exe` 一并重打（5 766 656 字节、`Subsystem 00000002`、
+  内建自检 `57 passed, 0 failed`、双击路径窗口正常）。补充实测：GUI 产物**不显式重定向也能抓到 stderr**
+  （未重定向跑 `CJ_MUSIC_SELFCHECK=1 music.exe`，228 行日志照落），各示例 `run.bat` 的取证流程无需改动；
+  `examples/music` 与 `examples/typing-poem` 仓库内 `cjpm build` 均 `exit=0`、产物 `Subsystem 00000002`。
+
 ## [0.7.0] - 2026-10-05
 
 ### Added

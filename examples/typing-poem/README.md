@@ -320,6 +320,7 @@ bash scripts/pack-win-single.sh examples/typing-poem   # 也可以显式指定
 | 指标 | 值 |
 |---|---|
 | 体积 | 28.8 MB → strip 后 **5.5 MB** |
+| 子系统 | **GUI**（`--subsystem=windows`）：双击不弹控制台黑窗口 |
 | 导入表 | 只剩系统库：msvcrt / KERNEL32 / SHELL32 / dbghelp / comdlg32 / USER32 / ole32 / WS2_32 |
 | 内置自检 | `[frontend] 自检结束：57 passed, 0 failed, 用时 3.6s` |
 | 内嵌资源 | 页面 107962 字节、three.js 669884 字节（**与源文件逐字节吻合**） |

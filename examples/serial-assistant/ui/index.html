@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>串口调试助手 · cj-tauri</title>
+<style>
+  :root {
+    --bg: #10152a;          /* 页面底 */
+    --panel: #1a2140;       /* 卡片 */
+    --panel-2: #141a33;     /* 日志底 */
+    --line: #2c3760;        /* 边框 */
+    --ink: #e8ecf8;         /* 主文字 */
+    --muted: #8b93b0;       /* 次文字 */
+    --accent: #4f8cff;      /* 主色（连接态） */
+    --accent-2: #7ce7ff;    /* 标题 */
+    --tx: #ffb454;          /* 发送方向 */
+    --rx: #6ee7a0;          /* 接收方向 */
+    --err: #ff6b81;         /* 错误 */
+    --ok: #57d9a3;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ── 顶栏：标题 + 连接状态 ─────────────────────────── */
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 20px 10px; flex: 0 0 auto;
+  }
+  header h1 { margin: 0; font-size: 20px; color: var(--accent-2); letter-spacing: .5px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .status {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; margin-left: auto;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #6b7399; }
+  .status.on .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .status.err .dot { background: var(--err); }
+
+  /* ── 统计条 ─────────────────────────────────────────── */
+  #stats {
+    display: flex; gap: 10px; padding: 0 20px 10px; flex: 0 0 auto;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 16px; min-width: 108px;
+  }
+  .stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 11px; letter-spacing: .5px; }
+  .stat.tx b { color: var(--tx); }
+  .stat.rx b { color: var(--rx); }
+  #uptime { color: var(--muted); font-size: 12px; margin-left: auto; align-self: center; }
+
+  /* ── 参数面板 ───────────────────────────────────────── */
+  #params {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px;
+    margin: 0 20px 12px; padding: 12px 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    flex: 0 0 auto;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11px; color: var(--muted); letter-spacing: .5px; }
+  select, input[type="text"] {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 7px; padding: 7px 9px; font-size: 13px; outline: none;
+  }
+  select:focus, input[type="text"]:focus { border-color: var(--accent); }
+  /* WebKitGTK 会用原生 combo 的浅色样式盖掉上面的背景/文字色（实测白底浅字几乎不可读），
+     只能去原生外观自绘：右侧画一个 CSS 三角当箭头 */
+  select {
+    -webkit-appearance: none; appearance: none;
+    padding-right: 26px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+  }
+  select option { background: var(--panel-2); color: var(--ink); }
+  #path { width: 210px; }
+  button {
+    border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px;
+    cursor: pointer; color: #fff; background: #35406b;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+  #bConnect { background: var(--accent); min-width: 96px; }
+  #bConnect.open { background: var(--err); }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  button.ghost:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* ── 日志区 ─────────────────────────────────────────── */
+  #logwrap {
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    margin: 0 20px; min-height: 0;
+  }
+  #logbar {
+    display: flex; align-items: center; gap: 8px; padding-bottom: 6px; flex: 0 0 auto;
+  }
+  #logbar .hint { color: var(--muted); font-size: 11px; margin-right: auto; }
+  .chip {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); color: var(--muted); background: transparent;
+    user-select: none;
+  }
+  .chip.sel { color: #fff; background: #35406b; border-color: var(--accent); }
+  #log {
+    flex: 1 1 auto; overflow-y: auto; margin: 0;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 14px; font: 12.5px/1.65 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  #log .t { color: #5b6488; }                 /* 时间戳 */
+  #log .tag-tx { color: var(--tx); font-weight: 600; }
+  #log .tag-rx { color: var(--rx); font-weight: 600; }
+  #log .tag-sys { color: #9aa5d0; font-weight: 600; }
+  #log .line-tx { color: var(--tx); }
+  #log .line-rx { color: var(--rx); }
+  #log .line-sys { color: var(--muted); }
+  #log .line-err { color: var(--err); }
+  #log .hex { color: #7f8ab5; }
+  #log .empty { color: #4d5680; }
+
+  /* ── 发送区 ─────────────────────────────────────────── */
+  #sendrow {
+    display: flex; gap: 10px; align-items: center;
+    margin: 12px 20px 16px; flex: 0 0 auto;
+  }
+  #sendText {
+    flex: 1 1 auto; background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; padding: 11px 13px;
+    font-size: 13.5px; outline: none;
+  }
+  #sendText:focus { border-color: var(--accent); }
+  #sendText:disabled { opacity: .5; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+  .toggle input { accent-color: var(--accent); }
+  #bSend { background: var(--accent); padding: 11px 22px; font-size: 14px; }
+  #appendCRLF { margin-right: 2px; }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: #2c3760; border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>串口调试助手</h1>
+    <span class="sub">cj-tauri · serial 插件 · <span id="ver">…</span></span>
+    <span class="status" id="status"><span class="dot"></span><span id="statusText">未连接</span></span>
+  </header>
+
+  <div id="stats">
+    <div class="stat tx"><b id="txBytes">0</b><span>TX 字节</span></div>
+    <div class="stat rx"><b id="rxBytes">0</b><span>RX 字节</span></div>
+    <div class="stat"><b id="errCount">0</b><span>错误</span></div>
+    <span id="uptime"></span>
+  </div>
+
+  <div id="params">
+    <div class="field">
+      <label>设备路径</label>
+      <input type="text" id="path" value="/dev/ttyUSB0" spellcheck="false">
+    </div>
+    <div class="field">
+      <label>波特率</label>
+      <select id="baud">
+        <option>9600</option><option>19200</option><option>38400</option>
+        <option>57600</option><option selected>115200</option>
+        <option>230400</option><option>460800</option><option>921600</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>数据位</label>
+      <select id="dataBits">
+        <option>5</option><option>6</option><option>7</option><option selected>8</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>校验位</label>
+      <select id="parity">
+        <option selected value="none">None</option>
+        <option value="odd">Odd</option>
+        <option value="even">Even</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>停止位</label>
+      <select id="stopBits">
+        <option selected>1</option><option>2</option>
+      </select>
+    </div>
+    <button id="bConnect">连接</button>
+    <span class="hint" style="color:var(--muted);font-size:11px;line-height:1.5">
+      路径须在插件白名单内<br>（/dev/tty* · /dev/pts/* · COM*）
+    </span>
+  </div>
+
+  <div id="logwrap">
+    <div id="logbar">
+      <span class="hint">收发日志</span>
+      <span class="chip sel" data-f="all">全部</span>
+      <span class="chip" data-f="rx">接收</span>
+      <span class="chip" data-f="tx">发送</span>
+      <span class="chip" data-f="sys">系统</span>
+      <span class="chip" id="bAutoscroll">自动滚动：开</span>
+      <span class="chip" id="bClear">清空</span>
+    </div>
+    <div id="log"><div class="empty">等待桥就绪…</div></div>
+  </div>
+
+  <div id="sendrow">
+    <input type="text" id="sendText" placeholder="输入要发送的数据（连接后可用，Enter 发送）" disabled spellcheck="false">
+    <label class="toggle"><input type="checkbox" id="hexMode">HEX</label>
+    <label class="toggle"><input type="checkbox" id="appendCRLF" checked>追加 CRLF</label>
+    <button id="bSend" disabled>发送</button>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var ser = function () { return window.__CJ_TAURI__.serial; };
+  var report = function (line) {
+    if (window.__CJ_TAURI__) { window.__CJ_TAURI__.invoke('report', { line: line }); }
+  };
+
+  var state = {
+    handle: 0, connected: false,
+    tx: 0, rx: 0, err: 0,
+    t0: 0, filter: 'all', autoscroll: true, showHex: false
+  };
+  var MAX_LINES = 500;
+  var entries = [];   // { dir: tx|rx|sys|err, ts, text, hex, n }
+  var logEl = $('log');
+
+  /* ── 日志渲染（textContent 拼 DOM，用户数据不进 innerHTML） ── */
+  function pad(n, w) { n = String(n); while (n.length < (w || 2)) { n = '0' + n; } return n; }
+  function now() {
+    var d = new Date();
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +
+      '.' + pad(d.getMilliseconds(), 3);
+  }
+  var DIR_TAG = { tx: 'TX', rx: 'RX', sys: '··', err: '!!' };
+  var DIR_CLASS = { tx: 'line-tx', rx: 'line-rx', sys: 'line-sys', err: 'line-err' };
+
+  function entryVisible(e) {
+    if (state.filter === 'all') { return true; }
+    if (state.filter === 'sys') { return e.dir === 'sys' || e.dir === 'err'; }
+    return e.dir === state.filter;
+  }
+
+  function renderLine(e) {
+    var row = document.createElement('div');
+    row.className = DIR_CLASS[e.dir];
+    var t = document.createElement('span');
+    t.className = 't'; t.textContent = '[' + e.ts + '] ';
+    var tag = document.createElement('span');
+    tag.className = 'tag-' + e.dir; tag.textContent = DIR_TAG[e.dir] + ' ';
+    row.appendChild(t); row.appendChild(tag);
+    var body = e.text;
+    if (e.dir === 'rx' && body && body.indexOf('\r') >= 0) {
+      body = body.replace(/\r+/g, '');
+    }
+    row.appendChild(document.createTextNode(body === '' ? '' : body + (e.n ? ' ' : '')));
+    if (e.n) {
+      var size = document.createElement('span');
+      size.className = 'hex'; size.textContent = e.n + 'B';
+      row.appendChild(size);
+    }
+    if (e.hex && (state.showHex || e.text == null || e.text === '')) {
+      var hx = document.createElement('span');
+      hx.className = 'hex'; hx.textContent = e.hex;
+      row.appendChild(hx);
+    }
+    return row;
+  }
+
+  function rebuild() {
+    logEl.textContent = '';
+    var any = false;
+    for (var i = 0; i < entries.length; i++) {
+      if (entryVisible(entries[i])) { logEl.appendChild(renderLine(entries[i])); any = true; }
+    }
+    if (!any) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = state.connected ? '（当前过滤条件下没有行）' : '等待桥就绪…';
+      logEl.appendChild(empty);
+    } else if (state.autoscroll) {
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+
+  function addLine(dir, text, hex, n) {
+    var e = { dir: dir, ts: now(), text: text, hex: hex || '', n: n || 0 };
+    entries.push(e);
+    if (entries.length > MAX_LINES) { entries = entries.slice(-MAX_LINES); }
+    report('[' + dir + '] ' + text + (hex ? ' | ' + hex : ''));
+    var empty = logEl.querySelector('.empty');
+    if (empty) { empty.remove(); }
+    if (entryVisible(e)) {
+      logEl.appendChild(renderLine(e));
+      while (logEl.children.length > MAX_LINES) { logEl.removeChild(logEl.firstChild); }
+      if (state.autoscroll) { logEl.scrollTop = logEl.scrollHeight; }
+    }
+  }
+
+  function bumpErr() { state.err++; $('errCount').textContent = state.err; }
+  function updateStats() {
+    $('txBytes').textContent = state.tx;
+    $('rxBytes').textContent = state.rx;
+  }
+
+  /* ── 连接状态与工具条 ── */
+  function setConnected(on, label) {
+    state.connected = on;
+    $('bConnect').textContent = on ? '断开' : '连接';
+    $('bConnect').className = on ? 'open' : '';
+    $('status').className = 'status' + (on ? ' on' : '');
+    $('statusText').textContent = label;
+    $('sendText').disabled = !on;
+    $('bSend').disabled = !on;
+  }
+
+  var uptimeTimer = 0;
+  function startUptime() {
+    if (uptimeTimer) { clearInterval(uptimeTimer); }
+    uptimeTimer = setInterval(function () {
+      var s = Math.floor((Date.now() - state.t0) / 1000);
+      $('uptime').textContent = state.connected ? ('已连接 ' + pad(Math.floor(s / 60)) + ':' + pad(s % 60)) : '';
+    }, 500);
+  }
+
+  function connect() {
+    var args = {
+      path: $('path').value.replace(/^\s+|\s+$/g, ''),
+      baud: parseInt($('baud').value, 10),
+      dataBits: parseInt($('dataBits').value, 10),
+      parity: $('parity').value,
+      stopBits: parseInt($('stopBits').value, 10)
+    };
+    if (!args.path) { addLine('err', 'serial:open => 请填设备路径'); bumpErr(); return; }
+    setConnected(false, '连接中…');
+    addLine('sys', 'serial:open ' + args.path + ' @' + args.baud + ' ' + args.dataBits +
+      args.parity.charAt(0).toUpperCase() + args.stopBits);
+    ser().open(args).then(function (r) {
+      state.handle = r.handle; state.t0 = Date.now();
+      setConnected(true, r.path + ' @' + r.baud);
+      addLine('sys', 'serial:open => handle=' + r.handle + ' path=' + r.path + ' baud=' + r.baud +
+        ' dataBits=' + r.dataBits + ' parity=' + r.parity + ' stopBits=' + r.stopBits);
+      startUptime();
+      readLoop();
+    }).catch(function (e) {
+      addLine('err', 'serial:open FAIL => ' + e.message);
+      bumpErr(); setConnected(false, '连接失败');
+    });
+  }
+
+  function disconnect() {
+    var h = state.handle;
+    state.connected = false;
+    if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = 0; }
+    ser().close({ handle: h }).then(function (v) {
+      addLine('sys', 'serial:close => ' + v + '（句柄 ' + h + ' 已释放）');
+    }).catch(function (e) {
+      addLine('err', 'serial:close FAIL => ' + e.message); bumpErr();
+    });
+    state.handle = 0;
+    setConnected(false, '未连接');
+  }
+
+  /* ── 接收循环：连接期间持续拉读（串行、不重叠；count=0 只是这轮没数据） ── */
+  function readLoop() {
+    if (!state.connected || !state.handle) { return; }
+    ser().read({ handle: state.handle, maxBytes: 512, timeoutMs: 120 }).then(function (r) {
+      if (!state.connected) { return; }
+      if (r.count > 0) {
+        state.rx += r.count; updateStats();
+        var printable = (r.text != null && /[\u0020-\u007e\u4e00-\u9fff]/.test(r.text)) ? r.text : '';
+        addLine('rx', printable, r.hex, r.count);
+      }
+      setTimeout(readLoop, 30);
+    }).catch(function (e) {
+      if (!state.connected) { return; }
+      addLine('err', 'serial:read FAIL => ' + e.message);
+      bumpErr();
+      setTimeout(readLoop, 500);
+    });
+  }
+
+  /* ── 发送 ── */
+  function send() {
+    if (!state.connected) { return; }
+    var raw = $('sendText').value;
+    if (raw === '') { return; }
+    var hexMode = $('hexMode').checked;
+    var data = raw;
+    if (!hexMode && $('appendCRLF').checked) { data = raw + '\r\n'; }
+    var enc = hexMode ? 'hex' : 'utf8';
+    ser().write({ handle: state.handle, data: data, encoding: enc, timeoutMs: 1000 }).then(function (w) {
+      state.tx += w.written; updateStats();
+      addLine('tx', hexMode ? '(hex) ' + raw.replace(/\s+/g, ' ') : data, null, w.written);
+      if (w.written !== w.bytes) {
+        addLine('err', 'serial:write 部分写入：' + w.written + '/' + w.bytes);
+        bumpErr();
+      }
+    }).catch(function (e) {
+      addLine('err', 'serial:write FAIL => ' + e.message);
+      bumpErr();
+    });
+  }
+
+  /* ── 探针：应用经 document-start 注入 __SERIAL_PROBE__ 后自动跑一轮 ──
+     对端协议（serial-peer.py / run.sh 的 pty 对）：收到什么就回 PONG:<原文> */
+  function runProbe(p) {
+    var pass = 0, fail = 0;
+    function check(name, ok, detail) {
+      if (ok) { pass++; } else { fail++; bumpErr(); }
+      addLine(ok ? 'sys' : 'err', '[selfcheck] ' + name + ': ' + (ok ? 'PASS' : 'FAIL') +
+        (detail ? '（' + detail + '）' : ''));
+    }
+    addLine('sys', '[probe] start path=' + p.path + ' baud=' + p.baud + ' data=' + p.data);
+    ser().open({ path: p.path, baud: parseInt(p.baud, 10), dataBits: 8, parity: 'none', stopBits: 1 })
+      .then(function (r) {
+        state.handle = r.handle; state.t0 = Date.now();
+        setConnected(true, r.path + ' @' + r.baud); startUptime();
+        check('open', r.handle > 0, 'handle=' + r.handle);
+        return ser().write({ handle: state.handle, data: p.data, encoding: 'utf8' });
+      })
+      .then(function (w) {
+        check('write', w.written === w.bytes, w.written + '/' + w.bytes);
+        state.tx += w.written; updateStats();
+        addLine('tx', p.data, null, w.written);
+        var ms = parseInt(p.readMs, 10) || 500;
+        return new Promise(function (resolve) { setTimeout(function () { resolve(); }, ms); })
+          .then(function () { return ser().read({ handle: state.handle, maxBytes: 256, timeoutMs: ms }); });
+      })
+      .then(function (r) {
+        var expected = 'PONG:' + p.data;
+        var ok = r.count > 0 && r.text === expected;
+        state.rx += r.count; updateStats();
+        addLine('rx', r.text == null ? '' : r.text, r.hex, r.count);
+        check('read', ok, 'count=' + r.count + ' text=' + JSON.stringify(r.text));
+        if (p.quit === '1') {
+          return ser().close({ handle: state.handle }).then(function (v) {
+            state.connected = false; state.handle = 0;
+            check('close', v === true, String(v));
+            return null;
+          });
+        }
+        return null;   /* QUIT=0（展示轮）：保持连接，让窗口里留着 TX/RX 记录 */
+      })
+      .then(function () {
+        addLine('sys', '[selfcheck] ' + pass + '/' + (pass + fail) + ' passed');
+        addLine('sys', '[probe] ALL DONE');
+        if (p.quit === '1') {
+          setTimeout(function () { window.__CJ_TAURI__.invoke('quit', {}); }, 400);
+        }
+      })
+      .catch(function (e) {
+        addLine('err', '[probe] FAIL => ' + e.message); bumpErr();
+        addLine('sys', '[selfcheck] ' + pass + '/' + (pass + fail) + ' passed');
+        if (p.quit === '1') {
+          setTimeout(function () { window.__CJ_TAURI__.invoke('quit', {}); }, 400);
+        }
+      });
+  }
+
+  /* ── 控件接线 ── */
+  $('bConnect').onclick = function () { state.connected ? disconnect() : connect(); };
+  $('bSend').onclick = send;
+  $('sendText').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); send(); }
+  });
+  var chips = document.querySelectorAll('.chip[data-f]');
+  for (var i = 0; i < chips.length; i++) {
+    chips[i].onclick = function () {
+      for (var j = 0; j < chips.length; j++) { chips[j].classList.remove('sel'); }
+      this.classList.add('sel');
+      state.filter = this.getAttribute('data-f');
+      rebuild();
+    };
+  }
+  $('bAutoscroll').onclick = function () {
+    state.autoscroll = !state.autoscroll;
+    this.textContent = '自动滚动：' + (state.autoscroll ? '开' : '关');
+  };
+  var hexChip = document.createElement('span');
+  hexChip.className = 'chip';
+  hexChip.textContent = 'HEX 显示：关';
+  hexChip.onclick = function () {
+    state.showHex = !state.showHex;
+    hexChip.textContent = 'HEX 显示：' + (state.showHex ? '开' : '关');
+    rebuild();
+  };
+  $('bClear').onclick = function () { entries = []; rebuild(); };
+  $('bAutoscroll').parentNode.insertBefore(hexChip, $('bAutoscroll'));
+
+  function waitForBridge(cb) {
+    if (window.__CJ_TAURI__ && window.__CJ_TAURI__.serial) { cb(); return; }
+    setTimeout(function () { waitForBridge(cb); }, 50);
+  }
+
+  waitForBridge(function () {
+    addLine('sys', 'bridge ready（serial shim 早于本脚本：' +
+      !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.serial) + '）');
+    window.__CJ_TAURI__.invoke('system:version').then(function (v) {
+      if (v && v.version) { $('ver').textContent = 'v' + v.version; }
+    }).catch(function () { $('ver').textContent = ''; });
+    if (window.__SERIAL_PROBE__) {
+      runProbe(window.__SERIAL_PROBE__);
+    } else {
+      addLine('sys', '（手动模式：填设备路径 → 连接 → 收发。路径须在插件白名单内）');
+    }
+  });
+}());
+</script>
+
+</body>
+</html>

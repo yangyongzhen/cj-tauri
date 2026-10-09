@@ -305,6 +305,10 @@
   white-space: nowrap`，让说明那一段（`min-width: 0; flex: 1 1 auto`）去收缩截断。
   **改过布局就抓一张图看**——Windows 抓 WebView2 内容用 `PrintWindow(hwnd, dc, 2)`（脚本见 `.atomcode/shot.ps1`，
   普通 `BitBlt` 只能拍到空白）。
+- **WebKitGTK 的 `<select>` 会用原生 combo 的浅色样式盖掉页面配色**（2026-10-09 实测：`serial-assistant`
+  深色页里四个下拉框白底浅字几乎不可读，页面 CSS 的 `background`/`color` 都不生效）。深色页面一律给
+  `select` 加 `-webkit-appearance:none; appearance:none` 自绘（箭头用 `background-image` 的两段
+  `linear-gradient` 画三角），展开列表里的 `option` 另写一遍底色与文字色——它也吃原生样式。
 - **取证脚本别在用户正用着的时候起第二个实例**（2026-10-08 实测）：同一目录的两个实例会共用同一个
   WebView2 用户数据目录（默认在 exe 旁边 `<exe>.WebView2/`），还会写同一份应用数据（如 `examples/music` 的
   `music-library.local.json`）；`taskkill /IM main.exe` 更是把用户那个窗口一并带走。要无人值守验证就

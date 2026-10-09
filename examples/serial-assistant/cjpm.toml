@@ -1,0 +1,22 @@
+[package]
+  cjc-version = "1.0.5"
+  name = "serialAssistant"
+  description = "serial-assistant - cj-tauri 应用"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  # cj-tauri 框架本体（本仓库内相对路径；create 生成的绝对路径按仓内示例惯例改回相对）
+  cjTauri = { path = "../.." }
+
+[target.x86_64-unknown-linux-gnu]
+  link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
+

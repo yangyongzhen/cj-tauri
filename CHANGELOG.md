@@ -40,6 +40,17 @@
   （对端日志 `[peer] rx=13 bytes, replied 18 bytes` + 落盘文件内容），不是应用自己说「我写了」。
   单元测试 132 → **143**（新增 11 条串口用例），C 桥桩自检 **136/136**。
   **Windows 侧目前只有同名桩**（未实机）。
+- **串口调试助手示例 `examples/serial-assistant`**：`cj-tauri create` 脚手架（app 模板）+ 官方 `serial`
+  插件拼出的**业务向小工具**——参数面板（设备 / 波特率 / 数据位 / 校验 / 停止位）、收发日志（TX/RX
+  分色、时间戳、字节数、HEX 显示开关、按方向过滤）、TX/RX/错误计数、连接态徽标与计时；发送区支持
+  HEX 与「追加 CRLF」、Enter 直发。页面独立在 `ui/index.html`（与 movie 同一套做法，避开三引号字符串
+  的两个坑）；探针模式照 plugin-serial（`CJ_SERIAL_PROBE_PATH` 注入配置，页面自动跑一轮
+  open→write→read 自检并经 `report` 回传 stderr），`bash run.sh` 自带 pty 虚拟对端与断言。
+  实测顺手抓到一条界面坑：**WebKitGTK 的 `<select>` 会被原生 combo 的浅色样式盖掉页面配色**
+  （深色页里白底浅字几乎不可读），已用 `-webkit-appearance:none` 自绘修复（坑已记 `AGENTS.md` §4）。
+  Linux 实机六轮探针自检全过；**如实记**：6 轮里 4 轮进程在 `after run` **之后**以 134 收尾——同日
+  对照跑一行未动的 `examples/plugin-serial` 也崩，属既有 Linux 退出期偶发频率升高，与示例代码无关
+  （不判因，见进度记录 §3.2.17）。
 
 ## [0.8.0] - 2026-10-08
 

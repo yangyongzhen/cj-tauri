@@ -42,7 +42,7 @@
 
 ## 示例一览
 
-仓内 `examples/` 有十一个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
+仓内 `examples/` 有十二个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
 下面截图均为**发行态实机截图**（Linux / WebKitGTK，2026-10-02）。
 
 ### 示例应用
@@ -56,6 +56,7 @@
 | [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-shell`](examples/plugin-shell) | 插件体系示例：一行 `.plugin(ShellPlugin())` 接入官方 `shell` 插件（`shell:open` / `shell:exec`）——用系统默认程序打开链接、执行子进程取回退出码与输出；**argv 直传不过 shell**（页面拼不出注入），命名集 `shell:allow-open` 只放行打开，另带未授权对照组。 | `cd examples/plugin-shell && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-serial`](examples/plugin-serial) | 插件体系示例：一行 `.plugin(SerialPlugin())` 接入官方 **`serial`** 插件（`serial:open` / `serial:read` / `serial:write` / `serial:close`），清单里**两种写法各来一份**——命名集 `serial:readonly`（放行打开 / 读 / 关）加明文 `serial:write`（写必须在集外显式列出），证明二者混用等价。`bash run.sh` 自带虚拟串口对端（python3 `pty` 造对，**不需要真设备、也不需要 `socat`**）与断言：open → write → 对端回包 → read → close 闭环。 | `cd examples/plugin-serial && cjpm build`，Linux 跑 `bash run.sh`；Windows 侧本插件目前只有同名桩（未实机），接真串口请先补平台实现 |
+| [`examples/serial-assistant`](examples/serial-assistant) | **串口调试助手**（业务向工具，脚手架 + `serial` 插件）：参数面板（设备 / 波特率 / 数据位 / 校验 / 停止位）、TX/RX 分色收发日志（时间戳 + 字节数 + HEX 显示 + 按方向过滤）、TX/RX/错误计数、连接态徽标与计时；发送区支持 HEX 与「追加 CRLF」、Enter 直发。探针模式自动跑一轮收发自检并回传 stderr。 | `cd examples/serial-assistant && cjpm build`，Linux 跑 `bash run.sh`（pty 虚拟串口对端，不需要真设备）；Windows 侧串口仍是桩（未实机） |
 | [`examples/ipc-bench`](examples/ipc-bench) | **IPC 性能探针**：4 组基准（顺序往返延迟 / 管线化吞吐 / payload 放大 / 事件推送成本），前端算完经 `report` 命令回传仓颉侧 stderr；配套 `scripts/bench-ws-vs-tcp.js` 量同机 localhost WebSocket 与裸 TCP 的回环往返做对照。数字与解读见 [docs/IPC-通信机制.md](docs/IPC-通信机制.md)。 | `cd examples/ipc-bench && cjpm build`，再按上方「运行仓内示例」启动（结果在 stderr，以 `BENCH` 开头） |
 | [`examples/movie`](examples/movie) | **观影应用**（业务向示例）：后台影视数据（`hotmovie` / `detailmovie` / `mvsource`）全部由**仓颉侧**经 `stdx.net.http` 取回，前端只走 `invoke`——榜单浏览 / 搜索 / 详情 / 播放四个视图，页面是独立 `ui/index.html`（无 Node、无构建）。含页面侧自检（经 `report` 回传 stderr）与 `movie:nope` 未授权对照组。**仅用于学习研究**：影视数据取自第三方公开接口，请先读[用途与免责声明](examples/movie/README.md#用途与免责声明)。 | `cd examples/movie && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat` |
 | [`examples/music`](examples/music) | **桌面音乐播放器**（业务向示例）：后台音乐数据（榜单 / 搜索 / 歌单 / 歌词 / 分享歌单）全部由**仓颉侧** `stdx.net.http` 取回，前端只走 `invoke`——深色三栏界面（左侧导航 / 中间榜单·搜索·歌单 / 右侧「正在播放 + 同步歌词」）+ 底部播放条，顶栏 🎨 可切 **4 套主题色**（默认蓝紫 / 日落 / 森林 / 深海）：首页顶部是**榜单 Top 5 轮播**、下面一行**横滑的后台歌单**、再往下才是 30 首歌曲列表；点播、歌词随播放滚动、收藏与最近播放落本机 JSON、把收藏当歌单**分享到后台**。封面是后台给的**百度图片代理**（不带 `Referer` 的失败形状是「**HTTP 200 + 0 字节**」，页面侧无解），所以只能由宿主侧带对 `Referer` 取回再回投 `data:` URL，并对网易图床做缩略——同一张封面 **709 326 → 4 194 字节**（列表按 200、主视觉按 500）。**含两档无人值守自检**：`run.bat selfcheck` 只读后台 + 只写本机收藏（10 项），`run.bat selfcheck2` 追加「分享歌单到后台 + **写后读回**」（12 项）。**仅用于学习研究**：榜单 / 歌词 / 音频均取自第三方公开接口，请先读[用途与说明](examples/music/README.md#0-说明)。 | `cd examples/music && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat`（自检：`run.bat selfcheck`；要验「分享到后台」那两项再跑 `run.bat selfcheck2`，它会真的往后台提交一条歌单） |
@@ -93,6 +94,12 @@
 所以没有硬件也能验；写方向的凭证在对端日志与落盘文件里，不是应用自报：
 
 ![plugin-serial 示例运行截图：串口 open / write / read / close 闭环](docs/images/example-plugin-serial.png)
+
+`serial-assistant`：脚手架 + serial 插件拼出来的**能用的小工具**——截图里就是一轮自检收发：
+TX 13 字节、对端回 `PONG:cj-tauri-ping` 18 字节（RX 绿 / TX 橙），计数条、连接徽标与 termios
+参数面板同框（下拉框已按 WebKitGTK 的坑自绘，见 `AGENTS.md` §4）：
+
+![serial-assistant 示例运行截图：串口调试助手界面与一轮自检收发](docs/images/example-serial-assistant.png)
 
 > **`movie` 仅供学习研究**：它只演示「宿主侧取数 + 系统 WebView 前端」这条链路，自身**不提供任何影视资源**；
 > 片名、封面、剧集与播放地址均来自互联网上的第三方公开接口，版权归原权利人所有。请勿用于商业用途、
@@ -463,6 +470,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | `cj-tauri info` 取插件清单（`DISPLAY` 故意 unset） | ✅ `examples/plugin-shell`：末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；直跑应用 stderr `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0；陈旧产物 / 非项目目录均明确跳过 |
 | 菜单栏能力位（`examples/menu`，Xvfb + xdotool） | ✅ 原生 `GtkMenuBar` 真挂进竖向 `GtkBox`（`menu applied: items=4 … bar_children=5 visible=1`）；`xdotool` 发**真实鼠标事件**点中三项，各回投一条 `menu clicked: id=file.new|view.sidebar|edit.toggle` 且各带一条 `window=main shell {…}`；勾选项由 GTK 自己翻成选中（`enabled=1 checked=1`），应用层 `setMenuItemStateTo` 改状态后由 **GTK 侧读回**（`menu item readback: id=view.sidebar sensitive=0 active=1`）；收尾走应用级退出（`single mode: quit requested` → `host destroyed` → `exit=0`）。跑法 `bash examples/menu/run.sh`，三轮 21/21 断言全绿 |
 | 串口插件（`examples/plugin-serial`，Xvfb + python3 `pty` 虚拟串口对） | ✅ 读写闭环：`serial:open => handle=1 path=/dev/pts/4 baud=115200` → `serial:write => written=13/13` → 对端回包 → `serial:read => count=18 hex=504f…6e67 text="PONG:cj-tauri-ping"` → `serial:close => true`；桥侧对账行 `serial termios: path=/dev/pts/4 baud=115200 data=8 parity=0 stop=1 fd=33` → `serial open: handle=1` → `serial close: handle=1`。**写方向的凭证在应用之外**：对端 `[peer] rx=13 bytes, replied 18 bytes` 与落盘 `/tmp/plugin-serial-probe.log.rx`（内容 `cj-tauri-ping`）。三轮 `bash run.sh` 均 `exit=0`、断言全绿；清单用「命名集 `serial:readonly` + 明文 `serial:write`」两种写法混用 |
+| 串口调试助手（`examples/serial-assistant`，Xvfb + pty 对端） | ✅ 探针自检六轮全过（open / write / read[/close]，读回 `PONG:cj-tauri-ping`，写入有对端落盘佐证）；界面截图 `docs/images/example-serial-assistant.png`。**如实记**：6 轮里 4 轮进程在 `after run` 后 134（main 线程 SIGABRT）——同日对照 `examples/plugin-serial`（一行未动）同样崩，属既有 Linux 退出期偶发频率升高，不判因 |
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、
 > Linux 端用 GTK 的 `gtk_window_set_icon_from_file`，两端均已实机验证（见上两节末行）。

@@ -2,8 +2,8 @@
  * bridge_core.c 自检：不依赖仓颉 SDK，也不依赖 GTK / WebKit / WebView2。
  *
  * 被测的是「两平台逐字相同」的公共核心（回投队列与批处理、对话框单槽状态机、窗口配置存储、
- * 生命周期标志、菜单线路格式解析、以及全部 cj_bridge_* 导出）。做法：用一个「只记录调用」的桩平台实现
- * bridge_core.h 里的 21 个 cj_plat_* 原语，再把 core 与桩一起编译成单文件可执行程序——
+ * 生命周期标志、菜单线路格式解析、串口路径白名单、以及全部 cj_bridge_* 导出）。做法：用一个「只记录调用」的桩平台实现
+ * bridge_core.h 里的 25 个 cj_plat_* 原语，再把 core 与桩一起编译成单文件可执行程序——
  * 链接期就能证明 core 只经 cj_plat_* 触达平台、不 include 任何平台头。
  *
  * 跑法：bash scripts/test-bridge-core.sh
@@ -163,6 +163,60 @@ int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     g_caps_calls++;
     return g_caps_value;
+}
+
+/* ---- 串口：桩平台只记录调用，不碰真设备（core 侧的职责是白名单与参数校验）---- */
+static int g_serial_open_calls;
+static char g_serial_last_path[256];
+static cj_serial_cfg g_serial_last_cfg;
+static long long g_serial_open_ret = 42; /* 桩返回的假句柄（>0）*/
+static int g_serial_read_calls;
+static int g_serial_write_calls;
+static int g_serial_close_calls;
+static int g_serial_read_ret = 1;   /* 默认「读到 1 字节」*/
+static int g_serial_write_ret = -1; /* 负值 = 按写满 len 处理 */
+static int g_serial_write_last_len;
+static unsigned char g_serial_write_first;
+
+long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *err, int err_len) {
+    g_serial_open_calls++;
+    snprintf(g_serial_last_path, sizeof(g_serial_last_path), "%s", path ? path : "");
+    if (cfg) g_serial_last_cfg = *cfg;
+    if (g_serial_open_ret <= 0 && err && err_len > 0) {
+        snprintf(err, (size_t)err_len, "stub: 平台打开失败");
+    }
+    return g_serial_open_ret;
+}
+
+int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms,
+                        char *err, int err_len) {
+    (void)h;
+    (void)timeout_ms;
+    (void)err;
+    (void)err_len;
+    g_serial_read_calls++;
+    if (buf && len > 0 && g_serial_read_ret > 0) buf[0] = 'Z';
+    return g_serial_read_ret;
+}
+
+int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms,
+                         char *err, int err_len) {
+    (void)h;
+    (void)timeout_ms;
+    (void)err;
+    (void)err_len;
+    g_serial_write_calls++;
+    g_serial_write_last_len = len;
+    g_serial_write_first = (buf && len > 0) ? buf[0] : 0;
+    return g_serial_write_ret >= 0 ? g_serial_write_ret : len;
+}
+
+int cj_plat_serial_close(long long h, char *err, int err_len) {
+    (void)h;
+    (void)err;
+    (void)err_len;
+    g_serial_close_calls++;
+    return 0;
 }
 
 /* ===== 线路解析的回调收集器（菜单是树，桩侧用一张表记录 core 走出来的每一行）===== */
@@ -559,6 +613,74 @@ int main(void) {
     cj_bridge_destroy(h2);
     cj_bridge_destroy(h);
     CHECK(g_fini_calls == 2, "两个宿主各自走一次平台 fini");
+
+    /* --- 19. 串口：白名单是安全边界，导出只做校验 + 转发 --- */
+    case_begin("serial 白名单与导出转发");
+    CHECK(cj_serial_path_allowed("/dev/ttyUSB0"), "放行 /dev/ttyUSB0");
+    CHECK(cj_serial_path_allowed("/dev/ttyS3"), "放行 /dev/ttyS3");
+    CHECK(cj_serial_path_allowed("/dev/pts/7"), "放行伪终端 /dev/pts/7（socat 造的虚拟串口）");
+    CHECK(cj_serial_path_allowed("/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"),
+          "放行 udev 稳定链接");
+    CHECK(cj_serial_path_allowed("/dev/cu.usbserial-1420"), "放行 macOS /dev/cu.*");
+    CHECK(cj_serial_path_allowed("COM3"), "放行 Windows COM3");
+    CHECK(cj_serial_path_allowed("\\\\.\\COM12"), "放行 Windows 长名形式");
+    CHECK(!cj_serial_path_allowed("/etc/shadow"), "拒绝 /etc/shadow");
+    CHECK(!cj_serial_path_allowed("/dev/tty"), "拒绝裸 /dev/tty（那是控制终端，不是串口）");
+    CHECK(!cj_serial_path_allowed("/dev/ttyUSB0/../../etc/shadow"), "拒绝借白名单前缀做 .. 穿越");
+    CHECK(!cj_serial_path_allowed("/dev/serial/by-id/../../etc/passwd"), "拒绝符号链接段的 .. 穿越");
+    CHECK(!cj_serial_path_allowed("COMfoo"), "拒绝 COMfoo（COM 前缀后必须是数字）");
+    CHECK(!cj_serial_path_allowed("COM1234"), "拒绝 COM1234（超过 3 位）");
+    CHECK(!cj_serial_path_allowed(""), "拒绝空路径");
+    CHECK(!cj_serial_path_allowed(NULL), "拒绝 NULL 路径");
+
+    g_serial_open_calls = 0;
+    CHECK(cj_bridge_serial_open("/etc/shadow", 115200, 8, 0, 1) == -1,
+          "白名单外的路径被 core 拒绝（-1）");
+    CHECK(g_serial_open_calls == 0, "被拒路径不触达平台");
+    CHECK(cj_bridge_serial_last_error()[0] != '\0', "拒绝时 last_error 有可读原因");
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 115200, 9, 0, 1) == -1, "dataBits=9 被拒");
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 0, 8, 0, 1) == -1, "baud=0 被拒");
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 115200, 8, 3, 1) == -1, "parity=3 被拒");
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 115200, 8, 0, 3) == -1, "stopBits=3 被拒");
+    CHECK(g_serial_open_calls == 0, "参数非法同样不触达平台");
+
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 115200, 8, 2, 1) == 42,
+          "合法路径转发平台并原样带回句柄");
+    CHECK(g_serial_open_calls == 1 && strcmp(g_serial_last_path, "/dev/ttyUSB0") == 0,
+          "路径原样传给平台");
+    CHECK(g_serial_last_cfg.baud == 115200 && g_serial_last_cfg.data_bits == 8 &&
+          g_serial_last_cfg.parity == 2 && g_serial_last_cfg.stop_bits == 1,
+          "四项配置（含偶校验）原样传给平台");
+
+    g_serial_open_ret = -3;
+    CHECK(cj_bridge_serial_open("/dev/ttyUSB0", 115200, 8, 0, 1) == -3, "平台失败码原样返回");
+    CHECK(strstr(cj_bridge_serial_last_error(), "stub") != NULL, "平台给的原因进 last_error");
+    g_serial_open_ret = 42;
+
+    {
+        unsigned char rd[4];
+        unsigned char wr[3];
+        int n;
+
+        rd[0] = 0;
+        wr[0] = 'A';
+        wr[1] = 'B';
+        wr[2] = 'C';
+        n = cj_bridge_serial_read(42, rd, (int)sizeof(rd), 0);
+        CHECK(n == 1 && rd[0] == 'Z' && g_serial_read_calls == 1, "read 转发并带回字节");
+        n = cj_bridge_serial_write(42, wr, (int)sizeof(wr), 0);
+        CHECK(n == 3 && g_serial_write_calls == 1 && g_serial_write_last_len == 3 &&
+              g_serial_write_first == 'A', "write 转发（平台拿到原缓冲）");
+        CHECK(cj_bridge_serial_close(42) == 0 && g_serial_close_calls == 1, "close 转发");
+
+        CHECK(cj_bridge_serial_read(0, rd, 4, 0) == -1, "handle<=0 的 read 被拒");
+        CHECK(cj_bridge_serial_read(42, NULL, 4, 0) == -1, "空缓冲的 read 被拒");
+        CHECK(cj_bridge_serial_write(42, wr, 0, 0) == -1, "len=0 的 write 被拒");
+        CHECK(cj_bridge_serial_close(0) == -1, "handle<=0 的 close 被拒");
+        CHECK(g_serial_read_calls == 1 && g_serial_write_calls == 1 && g_serial_close_calls == 1,
+              "参数非法的调用没有触达平台");
+        CHECK(1, "串口导出不需要宿主（本用例跑在两个宿主都已销毁之后）");
+    }
 
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,
             g_pass, g_fail);

@@ -42,7 +42,7 @@
 
 ## 示例一览
 
-仓内 `examples/` 有十个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
+仓内 `examples/` 有十一个可直接运行的示例，`cli/templates/` 有三个脚手架工程模板。
 下面截图均为**发行态实机截图**（Linux / WebKitGTK，2026-10-02）。
 
 ### 示例应用
@@ -55,6 +55,7 @@
 | [`examples/plugin-fs`](examples/plugin-fs) | 插件体系示例：一行 `.plugin(FsPlugin())` 接入官方文件读写插件（`fs:readText` / `fs:writeText` / `fs:exists`），并演示**权限仍由 capabilities 决定**——清单故意只放行两条，第三条启动即提示、前端调用被拒。 | `cd examples/plugin-fs && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-dialog`](examples/plugin-dialog) | 插件体系示例：一行 `.plugin(DialogPlugin())` 接入官方**原生对话框**插件（`dialog:open` / `dialog:save` / `dialog:message`），弹的是系统对话框（Linux/GTK、Windows/Win32）；清单用命名权限集一次放行，另带 `system:devtools` 未授权对照组。 | `cd examples/plugin-dialog && cjpm build`，再按上方「运行仓内示例」启动 |
 | [`examples/plugin-shell`](examples/plugin-shell) | 插件体系示例：一行 `.plugin(ShellPlugin())` 接入官方 `shell` 插件（`shell:open` / `shell:exec`）——用系统默认程序打开链接、执行子进程取回退出码与输出；**argv 直传不过 shell**（页面拼不出注入），命名集 `shell:allow-open` 只放行打开，另带未授权对照组。 | `cd examples/plugin-shell && cjpm build`，再按上方「运行仓内示例」启动 |
+| [`examples/plugin-serial`](examples/plugin-serial) | 插件体系示例：一行 `.plugin(SerialPlugin())` 接入官方 **`serial`** 插件（`serial:open` / `serial:read` / `serial:write` / `serial:close`），清单里**两种写法各来一份**——命名集 `serial:readonly`（放行打开 / 读 / 关）加明文 `serial:write`（写必须在集外显式列出），证明二者混用等价。`bash run.sh` 自带虚拟串口对端（python3 `pty` 造对，**不需要真设备、也不需要 `socat`**）与断言：open → write → 对端回包 → read → close 闭环。 | `cd examples/plugin-serial && cjpm build`，Linux 跑 `bash run.sh`；Windows 侧本插件目前只有同名桩（未实机），接真串口请先补平台实现 |
 | [`examples/ipc-bench`](examples/ipc-bench) | **IPC 性能探针**：4 组基准（顺序往返延迟 / 管线化吞吐 / payload 放大 / 事件推送成本），前端算完经 `report` 命令回传仓颉侧 stderr；配套 `scripts/bench-ws-vs-tcp.js` 量同机 localhost WebSocket 与裸 TCP 的回环往返做对照。数字与解读见 [docs/IPC-通信机制.md](docs/IPC-通信机制.md)。 | `cd examples/ipc-bench && cjpm build`，再按上方「运行仓内示例」启动（结果在 stderr，以 `BENCH` 开头） |
 | [`examples/movie`](examples/movie) | **观影应用**（业务向示例）：后台影视数据（`hotmovie` / `detailmovie` / `mvsource`）全部由**仓颉侧**经 `stdx.net.http` 取回，前端只走 `invoke`——榜单浏览 / 搜索 / 详情 / 播放四个视图，页面是独立 `ui/index.html`（无 Node、无构建）。含页面侧自检（经 `report` 回传 stderr）与 `movie:nope` 未授权对照组。**仅用于学习研究**：影视数据取自第三方公开接口，请先读[用途与免责声明](examples/movie/README.md#用途与免责声明)。 | `cd examples/movie && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat` |
 | [`examples/music`](examples/music) | **桌面音乐播放器**（业务向示例）：后台音乐数据（榜单 / 搜索 / 歌单 / 歌词 / 分享歌单）全部由**仓颉侧** `stdx.net.http` 取回，前端只走 `invoke`——深色三栏界面（左侧导航 / 中间榜单·搜索·歌单 / 右侧「正在播放 + 同步歌词」）+ 底部播放条，顶栏 🎨 可切 **4 套主题色**（默认蓝紫 / 日落 / 森林 / 深海）：首页顶部是**榜单 Top 5 轮播**、下面一行**横滑的后台歌单**、再往下才是 30 首歌曲列表；点播、歌词随播放滚动、收藏与最近播放落本机 JSON、把收藏当歌单**分享到后台**。封面是后台给的**百度图片代理**（不带 `Referer` 的失败形状是「**HTTP 200 + 0 字节**」，页面侧无解），所以只能由宿主侧带对 `Referer` 取回再回投 `data:` URL，并对网易图床做缩略——同一张封面 **709 326 → 4 194 字节**（列表按 200、主视觉按 500）。**含两档无人值守自检**：`run.bat selfcheck` 只读后台 + 只写本机收藏（10 项），`run.bat selfcheck2` 追加「分享歌单到后台 + **写后读回**」（12 项）。**仅用于学习研究**：榜单 / 歌词 / 音频均取自第三方公开接口，请先读[用途与说明](examples/music/README.md#0-说明)。 | `cd examples/music && cjpm build`，再按上方「运行仓内示例」启动；Windows 直接双击 `run.bat`（自检：`run.bat selfcheck`；要验「分享到后台」那两项再跑 `run.bat selfcheck2`，它会真的往后台提交一条歌单） |
@@ -85,6 +86,13 @@
 参数里的 `&&` 原样输出（argv 直传、不经过 shell）；未授权的 `system:devtools` 仍被拒：
 
 ![plugin-shell 示例运行截图：shell:open 与 shell:exec 的实机自检输出](docs/images/example-plugin-shell.png)
+
+`plugin-serial`：同一个插件体系接串口——界面里就是证据链：`serial:open => handle=1` →
+`serial:write => written=13/13` → `serial:read => count=18 hex=504f…6e67 text="PONG:cj-tauri-ping"`
+（读回的是对端发的字节）→ `serial:close => true`。设备那头是 python3 造的**内核 pty 对**，
+所以没有硬件也能验；写方向的凭证在对端日志与落盘文件里，不是应用自报：
+
+![plugin-serial 示例运行截图：串口 open / write / read / close 闭环](docs/images/example-plugin-serial.png)
 
 > **`movie` 仅供学习研究**：它只演示「宿主侧取数 + 系统 WebView 前端」这条链路，自身**不提供任何影视资源**；
 > 片名、封面、剧集与播放地址均来自互联网上的第三方公开接口，版权归原权利人所有。请勿用于商业用途、
@@ -377,7 +385,7 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
 - ✅ 介绍与使用指南：`docs/仓颉版Tauri-介绍与使用指南.md`；CSDN 博客版
   [《用仓颉写桌面应用：一个类 Tauri 框架的实现与使用》](https://blog.csdn.net/qq8864/article/details/166944044)
 - ✅ P1：capability 文件自动加载、窗口配置化（标题 / 尺寸 / devtools / 图标）
-- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，78 个用例）与 `scripts/check-static.sh`
+- ✅ 工程化打底：`scripts/test.sh`（`cjpm test` 单元测试，143 个用例）与 `scripts/check-static.sh`
   （不需要仓颉 SDK 的静态门禁，双远端 CI 跑的就是它）
 - ✅ P3：热重载与前端框架模板（宿主加 `runUrl` / `loadUrl` / `reload`；`cj-tauri dev` 接管 Vite dev server，
   Vue 3 / React 18 模板，HMR 在窗口内生效）、`cj-tauri build` 打单文件前端产物
@@ -387,8 +395,11 @@ tauri.listen('tick', p => console.log(p));                          // 仓颉 �
   官方 `fs` 插件（`fs:readText` / `fs:writeText` / `fs:exists`）与 `examples/plugin-fs` 示例；
   设计取舍见 [`docs/RFC-插件体系.md`](docs/RFC-插件体系.md)，
   上手教程见 [`docs/插件体系教程.md`](docs/插件体系教程.md)
-- ✅ 官方插件三件套：`fs`（文件读写）、`dialog`（系统原生对话框）、`shell`（交给系统默认程序打开 / 执行子进程；
-  命名集 `shell:allow-open` / `shell:default`，argv 直传不过 shell）——各带示例（`examples/plugin-*`）与 Linux 实机证据
+- ✅ 官方插件四件套：`fs`（文件读写）、`dialog`（系统原生对话框）、`shell`（交给系统默认程序打开 / 执行子进程；
+  命名集 `shell:allow-open` / `shell:default`，argv 直传不过 shell）、`serial`（串口读写：`cj_bridge_serial_*`
+  五个导出落 C 桥 termios，路径白名单 + 参数校验在 core 侧，命名集 `serial:readonly` / `serial:default`，
+  **零第三方依赖**）——各带示例（`examples/plugin-*`），前四者都有 Linux 实机证据（`serial` 的 Windows 侧
+  目前只有同名桩）
 - ✅ 命令执行异步分发：通过校验的命令在 worker 线程上跑，慢命令（`shell:exec` 跑进程、原生对话框）不再钉住窗口；
   未授权 / 未注册仍在调用线程上同步拒绝，并发调用不保序、按 promise id 匹配。实机 A/B 对照见 `CHANGELOG.md`
 - ✅ 插件清单机器可读：框架函数 `describePluginsJson()`（不动 `Plugin` 接口）+ `cj-tauri info [--json]`——
@@ -431,7 +442,7 @@ Windows / WebView2（2026-10-01，cjc 1.2.0 + Runtime 122.0.2365.106 + SDK 1.0.2
 | 新工程 `cj-tauri build` | ✅ `target/release/bin/main.exe` |
 | 新工程 `cj-tauri run` | ✅ 窗口显示，JS→原生双向通信（62/48 字节消息，`ExecuteScript hr=0x0`） |
 | 窗口图标 `cfg.iconPath = "icon.ico"` | ✅ 桥日志 `set icon: path=icon.ico` → `window icon: path=icon.ico loaded (big=0x… small=0x…)`，标题栏 / 任务栏 / Alt-Tab 生效 |
-| 单元测试 `bash scripts/test.sh` | ✅ 78/78 通过（IPC 分发、能力校验、版本常量、插件体系 / 命名权限集 / 对话框 / shell / 清单导出） |
+| 单元测试 `bash scripts/test.sh` | ✅ 143/143 通过（IPC 分发、能力校验、版本常量、插件体系 / 命名权限集 / 对话框 / shell / 串口 / 清单导出） |
 
 Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 stderr 日志）：
 
@@ -451,6 +462,7 @@ Linux / WebKitGTK（2026-10-02，cjc 1.2.0 + stdx 1.0.5.1；证据取自桥的 s
 | `examples/ipc-bench`（IPC 基准，Xvfb） | ✅ 6 组基准全部出数：顺序往返 390.5 µs/次、未授权拒绝 349 µs/次、管线化 11905 ops/s、1 MB 回显 19.3 ms（51.8 MB/s）、事件 0.04 ms/条，末行 `BENCH done`；**回投直派 + 批处理**前后对照（同机、同一份应用二进制只换 C 桥，各 3 轮取中位）：吞吐 6024 → 11905 ops/s、事件 0.105 → 0.04 ms/条、顺序往返 386.5 → 390.5 µs（噪声内）；对照 `scripts/bench-ws-vs-tcp.js` 同机 WebSocket 0.151 ms / 裸 TCP 0.077 ms |
 | `cj-tauri info` 取插件清单（`DISPLAY` 故意 unset） | ✅ `examples/plugin-shell`：末段 `shell  shell:open, shell:exec`；`info --json` 解析出 `['shell']`；直跑应用 stderr `已导出插件清单（mode=json）：本轮未创建窗口` 且 `set window:` 行数 = 0；陈旧产物 / 非项目目录均明确跳过 |
 | 菜单栏能力位（`examples/menu`，Xvfb + xdotool） | ✅ 原生 `GtkMenuBar` 真挂进竖向 `GtkBox`（`menu applied: items=4 … bar_children=5 visible=1`）；`xdotool` 发**真实鼠标事件**点中三项，各回投一条 `menu clicked: id=file.new|view.sidebar|edit.toggle` 且各带一条 `window=main shell {…}`；勾选项由 GTK 自己翻成选中（`enabled=1 checked=1`），应用层 `setMenuItemStateTo` 改状态后由 **GTK 侧读回**（`menu item readback: id=view.sidebar sensitive=0 active=1`）；收尾走应用级退出（`single mode: quit requested` → `host destroyed` → `exit=0`）。跑法 `bash examples/menu/run.sh`，三轮 21/21 断言全绿 |
+| 串口插件（`examples/plugin-serial`，Xvfb + python3 `pty` 虚拟串口对） | ✅ 读写闭环：`serial:open => handle=1 path=/dev/pts/4 baud=115200` → `serial:write => written=13/13` → 对端回包 → `serial:read => count=18 hex=504f…6e67 text="PONG:cj-tauri-ping"` → `serial:close => true`；桥侧对账行 `serial termios: path=/dev/pts/4 baud=115200 data=8 parity=0 stop=1 fd=33` → `serial open: handle=1` → `serial close: handle=1`。**写方向的凭证在应用之外**：对端 `[peer] rx=13 bytes, replied 18 bytes` 与落盘 `/tmp/plugin-serial-probe.log.rx`（内容 `cj-tauri-ping`）。三轮 `bash run.sh` 均 `exit=0`、断言全绿；清单用「命名集 `serial:readonly` + 明文 `serial:write`」两种写法混用 |
 
 > 窗口图标是 2026-10-02 补的：Windows 端用 Win32 两档图标（`LoadImageW` + `WM_SETICON`）、
 > Linux 端用 GTK 的 `gtk_window_set_icon_from_file`，两端均已实机验证（见上两节末行）。

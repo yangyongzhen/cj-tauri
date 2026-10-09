@@ -14,6 +14,33 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- **官方 `serial` 插件（串口读写）**：`serial:open` / `serial:read` / `serial:write` / `serial:close`
+  四条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
+  设备参数在**打开时定稿**：`open { path, baud, dataBits?, parity?, stopBits? }` →
+  `{ handle, path, baud, dataBits, parity, stopBits }`；之后 `read { handle, maxBytes?, timeoutMs? }` →
+  `{ count, hex, text? }`（**超时无数据返回 `count=0`，不算错误**；不是合法 UTF-8 的二进制帧只给 `hex`）、
+  `write { handle, data, encoding?, timeoutMs? }` → `{ written, bytes }`（`encoding` 收 `utf8` / `hex`，
+  单次上限 4096 字节）、`close { handle }` → `true`。
+  命名权限集 `serial:readonly`（`open` + `read` + `close`）与 `serial:default`（另含 `write`）——
+  **只想读设备的应用引用前者即可，写能力不会被顺带打开**。
+  分层按 `AGENTS.md` §2：C 桥新增五个同名导出 `cj_bridge_serial_{open,read,write,close,last_error}`
+  （桥产物现 27 个 `cj_bridge_*`），**路径白名单 + 参数校验在 core 侧**（页面可控字符串的唯一闸门：
+  只放行设备节点类前缀 `/dev/tty*` · `/dev/pts/*` · `/dev/serial/by-{id,path}/` · `COM<N>`，
+  含 `..` 一律拒；baud / 数据位 / 校验 / 停止位越界即拒并给一句可读人话），
+  平台侧只放句柄表与 termios，故两平台导出名一致、上层没有平台分叉。
+  **零第三方依赖**：不链 `libserialport`，Linux 用 POSIX termios 自己开（`examples/plugin-serial`
+  与桥都不新增外部库，MIT 口径不变）；错误串放**线程局部**缓冲——命令各自跑在 worker 线程上，
+  静态单槽会被并发调用互相覆盖（`AGENTS.md` §4 那条坑的同类）。
+  Linux 实机（2026-10-06，WebKitGTK + Xvfb）：新示例 `examples/plugin-serial`（`bash run.sh`）用
+  python3 `pty` 造虚拟串口对，`serial:open => handle=1` → `serial:write => written=13/13` →
+  对端回 `PONG:cj-tauri-ping` → `serial:read => count=18 hex=504f…6e67 text="PONG:cj-tauri-ping"` →
+  `serial:close => true`，三轮 `exit=0`、断言全绿；**写方向的证据在应用进程之外**
+  （对端日志 `[peer] rx=13 bytes, replied 18 bytes` + 落盘文件内容），不是应用自己说「我写了」。
+  单元测试 132 → **143**（新增 11 条串口用例），C 桥桩自检 **136/136**。
+  **Windows 侧目前只有同名桩**（未实机）。
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

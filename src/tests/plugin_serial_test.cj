@@ -42,14 +42,14 @@ func testSerialPluginSurface(): Unit {
     let p = SerialPlugin()
     @Expect(p.name(), "serial")
     let names = pluginCommandNames(p)
-    @Expect(names.size, 4)
+    @Expect(names.size, 5)
     var found = 0
     for (n in names) {
-        if (n == "serial:open" || n == "serial:read" || n == "serial:write" || n == "serial:close") {
+        if (n == "serial:list" || n == "serial:open" || n == "serial:read" || n == "serial:write" || n == "serial:close") {
             found++
         }
     }
-    @Expect(found, 4)
+    @Expect(found, 5)
 }
 
 @Test
@@ -67,7 +67,7 @@ func testSerialPermissionSetsGateWrite(): Unit {
     let sets = pluginPermissionSets(SerialPlugin())
     @Expect(sets.size, 2)
     let ro = sets.get("serial:readonly").getOrThrow()
-    @Expect(ro.size, 3)
+    @Expect(ro.size, 4)
     var roHasWrite = false
     for (m in ro) {
         if (m == "serial:write") {
@@ -76,7 +76,7 @@ func testSerialPermissionSetsGateWrite(): Unit {
     }
     // 只想读设备的应用不该顺带拿到写能力
     @Expect(roHasWrite, false)
-    @Expect(sets.get("serial:default").getOrThrow().size, 4)
+    @Expect(sets.get("serial:default").getOrThrow().size, 5)
 }
 
 @Test
@@ -241,4 +241,27 @@ func testSerialPermissionSetGatesCommands(): Unit {
     hub.handleRawMessage("{\"type\":\"invoke\",\"id\":42,\"cmd\":\"serial:write\"}")
     @Expect(out.size, 2)
     @Expect(strField(out[1], "error"), "command not allowed: serial:write")
+}
+
+@Test
+func testSerialPortListIsSortedAndWhitelisted(): Unit {
+    let ports = serialPortList()
+    // 再排一次应逐元素相等：证明输出有序且无重复（页面下拉按这个顺序渲染）
+    let sorted = ArrayList<String>()
+    var i = 0
+    while (i < ports.size) {
+        sorted.add(ports[i])
+        i++
+    }
+    sorted.sort()
+    @Expect(sorted.size, ports.size)
+    i = 0
+    while (i < ports.size) {
+        @Expect(sorted[i], ports[i])
+        // 枚举出的端口必须过得了 C 桥白名单——列表与白名单是同一套设备面
+        @Expect(serialPathLooksAllowed(ports[i]), true)
+        // 伪终端（探针用的 pty）不算「本机串口」，不进下拉（白名单仍放行它）
+        @Expect(ports[i].contains("/pts/"), false)
+        i++
+    }
 }

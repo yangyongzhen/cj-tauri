@@ -148,6 +148,9 @@
   注意教训仍在：**「日志里没有错误行」不等于「命令成功了」**——页面没接 `catch` 时失败只在页面上可见，
   示例/插件仍应把 reject 也回投（`report`），别把「没抓到 reject」读成「成功」
   （打字练习的 `score:save` 全废十几轮就是这么被抓到的）。
+- **仓颉 `const` 只收「编译期常量表达式」：`const X: Array<String> = ["a","b"]` 编译不过**
+  （`expressions of type 'Array' are not constant`；实测 2026-10-09，`serial:list` 那轮）。
+  顶层不可变集合一律用 `let`（全局 `let` 就是不可变量）；真要编译期常量得上 `VArray<T, N>`（值数组）。
 - **`#` 不是注释符**：Cangjie 的 `#` 是 raw string 前缀（`#"..."#`），拿它写行内注释会让词法分析器
   去找 raw string 的收尾，报的是 `error: expected '#' or '"' in raw string, found ' '`——**报错位置指向
   注释正文的第一个字符**，看着像语法错误、其实是注释写法错。行注释一律用 `//`。

@@ -133,6 +133,8 @@ if [ "$RC" -eq 0 ]; then echo "  ok    干净退出（exit=0，走的是页面 i
 check "应用起来了"               '[serial-assistant] main start'
 check "页面已从 ui/ 读入"         '[serial-assistant] 前端页面已载入'
 check "探针配置已注入"           "[serial-assistant] 探针模式：path=$DEV"
+check "端口下拉已自动枚举"        "端口枚举："
+check "枚举里含探针对端"          "含探针对端 $DEV"
 check "C 桥真打开了设备节点"       "[cj-bridge] serial open: handle="
 check "打开的就是对端那个从端"      "path=$DEV"
 check "termios 参数落到设备上"     "[cj-bridge] serial termios: path=$DEV baud=115200 data=8 parity=0 stop=1"

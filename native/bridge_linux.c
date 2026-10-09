@@ -21,6 +21,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+/* 串口（plugin_serial）：termios 配置 + 超时读写 */
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <stdarg.h>
+#include <sys/types.h>
+#include <termios.h>
+#include <time.h>
 #include "bridge_core.h"
 
 /* ===== 菜单栏（RFC-002 §5.4 / §5.5）=====
@@ -971,4 +979,281 @@ int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；托盘 / 拖放到 7.B / 7.C */
     return CJ_CAP_MENU;
+}
+
+/* =========================================================================
+ *  串口（plugin_serial 的平台层）：POSIX termios
+ *
+ *  句柄表与 fd **只活在本文件**：仓颉侧拿到的是表里分配的序号而不是 fd —— 页面即使拿着句柄乱试，
+ *  也够不到 fd 1/2 这类「另有含义」的值。表锁用 PTHREAD_MUTEX_INITIALIZER 静态初始化，
+ *  所以不需要 core 提供「一次性初始化」钩子，无头进程（没有窗口）里也能直接用。
+ *
+ *  打开一律 O_RDWR | O_NOCTTY | O_NONBLOCK：不阻塞（不为等载波信号钉住 worker 线程），
+ *  也不把串口变成进程的控制终端。读取的超时交给 poll，不用 VTIME/VMIN——两套超时混用会让
+ *  「timeout=0 就是不等待」这件事变得不可预测。
+ * ========================================================================= */
+#define CJ_SERIAL_MAX_HANDLES 8
+
+typedef struct serial_slot {
+    int used;
+    long long id;
+    int fd;
+    char path[256];
+} serial_slot;
+
+static serial_slot g_serial_slots[CJ_SERIAL_MAX_HANDLES];
+static long long g_serial_next_id = 1;
+static pthread_mutex_t g_serial_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void serial_err(char *err, int err_len, const char *fmt, ...) {
+    va_list ap;
+    if (!err || err_len <= 0) return;
+    va_start(ap, fmt);
+    vsnprintf(err, (size_t)err_len, fmt, ap);
+    va_end(ap);
+}
+
+/* 数值波特率 → speed_t：只收 Linux 明确有宏的档位，不认识就拒绝（不猜、不近似） */
+static int serial_speed_of(int baud, speed_t *out) {
+    switch (baud) {
+        case 300: *out = B300; return 1;
+        case 600: *out = B600; return 1;
+        case 1200: *out = B1200; return 1;
+        case 2400: *out = B2400; return 1;
+        case 4800: *out = B4800; return 1;
+        case 9600: *out = B9600; return 1;
+        case 19200: *out = B19200; return 1;
+        case 38400: *out = B38400; return 1;
+        case 57600: *out = B57600; return 1;
+        case 115200: *out = B115200; return 1;
+        case 230400: *out = B230400; return 1;
+        case 460800: *out = B460800; return 1;
+        case 500000: *out = B500000; return 1;
+        case 921600: *out = B921600; return 1;
+        case 1000000: *out = B1000000; return 1;
+        default: return 0;
+    }
+}
+
+static serial_slot *serial_find_locked(long long id) {
+    int i;
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (g_serial_slots[i].used && g_serial_slots[i].id == id) return &g_serial_slots[i];
+    }
+    return NULL;
+}
+
+/* 把句柄翻成 fd；句柄无效时返回 -1 并填 err。调用方负责在 poll/read/write 期间不再持锁。 */
+static int serial_fd_of(long long h, char *err, int err_len) {
+    serial_slot *s;
+    int fd;
+    pthread_mutex_lock(&g_serial_lock);
+    s = serial_find_locked(h);
+    fd = s ? s->fd : -1;
+    pthread_mutex_unlock(&g_serial_lock);
+    if (fd < 0) serial_err(err, err_len, "serial: 句柄 %lld 无效（未打开或已关闭）", h);
+    return fd;
+}
+
+static long long serial_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
+}
+
+long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *err, int err_len) {
+    struct termios tty;
+    speed_t sp;
+    tcflag_t dbits;
+    int fd;
+    int i;
+    long long id;
+
+    if (!path || !cfg) {
+        serial_err(err, err_len, "serial: 空路径 / 空配置");
+        return -1;
+    }
+    if (!serial_speed_of(cfg->baud, &sp)) {
+        serial_err(err, err_len, "serial: 本平台不支持的波特率 %d（只收常见档位）", cfg->baud);
+        return -1;
+    }
+
+    /* open + 配置整段留在锁内：O_NONBLOCK 下 open 不会久等，这样也免了「先占槽再开」的竞态窗口 */
+    pthread_mutex_lock(&g_serial_lock);
+
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (!g_serial_slots[i].used) break;
+    }
+    if (i == CJ_SERIAL_MAX_HANDLES) {
+        pthread_mutex_unlock(&g_serial_lock);
+        serial_err(err, err_len, "serial: 句柄表满（最多 %d 个并发串口）", CJ_SERIAL_MAX_HANDLES);
+        return -2;
+    }
+
+    fd = open(path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {
+        serial_err(err, err_len, "serial: open(%s) 失败: %s", path, strerror(errno));
+        pthread_mutex_unlock(&g_serial_lock);
+        return -3;
+    }
+    if (tcgetattr(fd, &tty) != 0) {
+        serial_err(err, err_len, "serial: tcgetattr(%s) 失败: %s（不是终端类设备？）",
+                   path, strerror(errno));
+        close(fd);
+        pthread_mutex_unlock(&g_serial_lock);
+        return -3;
+    }
+
+    /* 裸模式：串口上多半是二进制帧，回显 / 换行转换 / 信号解释都是破坏性加工。
+       cfmakeraw 顺带设好 CS8 与清 PARENB，所以后面再按调用方参数覆盖一遍。 */
+    cfmakeraw(&tty);
+    tty.c_cflag |= (CLOCAL | CREAD);
+    switch (cfg->data_bits) {
+        case 5: dbits = CS5; break;
+        case 6: dbits = CS6; break;
+        case 7: dbits = CS7; break;
+        default: dbits = CS8; break;
+    }
+    tty.c_cflag &= ~CSIZE;
+    tty.c_cflag |= dbits;
+    switch (cfg->parity) {
+        case 1: tty.c_cflag |= (PARENB | PARODD); break;  /* 奇校验 */
+        case 2: tty.c_cflag |= PARENB; tty.c_cflag &= ~PARODD; break; /* 偶校验 */
+        default: tty.c_cflag &= ~PARENB; break;            /* 无校验 */
+    }
+    if (cfg->stop_bits == 2) {
+        tty.c_cflag |= CSTOPB;
+    } else {
+        tty.c_cflag &= ~CSTOPB;
+    }
+    /* 硬件流控不替应用开：RTS/CTS 在不少设备上是手工握手的信号，框架自作主张会改语义 */
+    tty.c_cflag &= ~CRTSCTS;
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 0;
+    if (cfsetispeed(&tty, sp) != 0 || cfsetospeed(&tty, sp) != 0) {
+        serial_err(err, err_len, "serial: 设置波特率 %d 失败: %s", cfg->baud, strerror(errno));
+        close(fd);
+        pthread_mutex_unlock(&g_serial_lock);
+        return -3;
+    }
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        serial_err(err, err_len, "serial: tcsetattr(%s) 失败: %s（设备不接受这组参数？）",
+                   path, strerror(errno));
+        close(fd);
+        pthread_mutex_unlock(&g_serial_lock);
+        return -3;
+    }
+    tcflush(fd, TCIOFLUSH);
+
+    id = g_serial_next_id++;
+    if (g_serial_next_id <= 0) g_serial_next_id = 1; /* 溢出兜底：句柄永不为 0 */
+    g_serial_slots[i].used = 1;
+    g_serial_slots[i].id = id;
+    g_serial_slots[i].fd = fd;
+    snprintf(g_serial_slots[i].path, sizeof(g_serial_slots[i].path), "%s", path);
+    pthread_mutex_unlock(&g_serial_lock);
+
+    /* 落地一行：参数与 fd 都打全，串口问题基本都是拿这行对账（AGENTS §1 的取证口径） */
+    fprintf(stderr, "[cj-bridge] serial termios: path=%s baud=%d data=%d parity=%d stop=%d fd=%d\n",
+            path, cfg->baud, cfg->data_bits, cfg->parity, cfg->stop_bits, fd);
+    return id;
+}
+
+int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms, char *err, int err_len) {
+    struct pollfd pfd;
+    int fd = serial_fd_of(h, err, err_len);
+    int pr;
+    ssize_t n;
+
+    if (fd < 0) return -4;
+
+    /* poll 在锁外等：同一把锁若被「某个句柄的读超时」占住，别的串口就全废了 */
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    pr = poll(&pfd, 1, timeout_ms > 0 ? timeout_ms : 0);
+    if (pr < 0) {
+        if (errno == EINTR) return 0; /* 被打断按「本轮无数据」处理，由上层决定要不要再读 */
+        serial_err(err, err_len, "serial: poll 失败: %s", strerror(errno));
+        return -3;
+    }
+    if (pr == 0) return 0; /* 超时：确实没数据，不是错误 */
+
+    n = read(fd, buf, (size_t)len);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) return 0;
+        serial_err(err, err_len, "serial: read 失败: %s", strerror(errno));
+        return -3;
+    }
+    return (int)n; /* n == 0：对端已关闭（pty 侧退出）*/
+}
+
+int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms,
+                         char *err, int err_len) {
+    struct pollfd pfd;
+    long long deadline = serial_now_ms() + (timeout_ms > 0 ? (long long)timeout_ms : 0);
+    int budget = timeout_ms > 0 ? timeout_ms : 0;
+    int fd = serial_fd_of(h, err, err_len);
+    int written = 0;
+
+    if (fd < 0) return -4;
+
+    /* 有界写完：每轮 poll 只等「剩余预算」，所以总等待不会超出 timeout_ms（不是每轮都等满一遍） */
+    while (written < len) {
+        ssize_t n;
+        int pr;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        pr = poll(&pfd, 1, budget);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            serial_err(err, err_len, "serial: poll(POLLOUT) 失败: %s", strerror(errno));
+            return written > 0 ? written : -3;
+        }
+        if (pr == 0) break; /* 预算用尽：返回已写入量，由上层决定要不要再写 */
+
+        n = write(fd, buf + written, (size_t)(len - written));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (budget <= 0) break; /* 不忙等：预算已尽就交回上层 */
+                budget = (int)(deadline - serial_now_ms());
+                if (budget < 0) budget = 0;
+                continue;
+            }
+            serial_err(err, err_len, "serial: write 失败: %s", strerror(errno));
+            return written > 0 ? written : -3;
+        }
+        written += (int)n;
+        budget = (int)(deadline - serial_now_ms());
+        if (budget < 0) budget = 0;
+    }
+    return written;
+}
+
+int cj_plat_serial_close(long long h, char *err, int err_len) {
+    int fd = -1;
+    int i;
+
+    pthread_mutex_lock(&g_serial_lock);
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (g_serial_slots[i].used && g_serial_slots[i].id == h) {
+            fd = g_serial_slots[i].fd;
+            g_serial_slots[i].used = 0;
+            g_serial_slots[i].id = 0;
+            g_serial_slots[i].fd = -1;
+            g_serial_slots[i].path[0] = '\0';
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_serial_lock);
+
+    if (fd < 0) {
+        serial_err(err, err_len, "serial: 句柄 %lld 无效（未打开或已关闭）", h);
+        return -4;
+    }
+    close(fd); /* close 放锁外：它可能触发 pty 侧的清理，不该占着表锁 */
+    return 0;
 }

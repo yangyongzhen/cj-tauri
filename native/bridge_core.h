@@ -195,6 +195,40 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
 
+/* ---- 串口（plugin_serial）----
+   与窗口 / WebView 无关，所以平台原语**不带 cj_host**：串口是设备 I/O，不是宿主能力位，
+   也不该为了拿一个句柄强迫应用先建窗口（无头侧跑串口服务是合法用法）。
+
+   分工：**句柄表与真正的 termios / Win32 调用在平台侧**——平台本来就有 pthread / CS 这类同步设施，
+   静态初始化即可，core 不必再发明一次「一次性初始化」；core 只做**路径白名单**与参数校验
+   （安全边界 + 平台无关，因而能被桩平台自检覆盖）。
+
+   返回码口径（core 与平台一致，上层因此不必写平台分支）：
+     >0  = 成功（句柄，仅本进程有意义；页面/前端拿不到它对应的 fd）
+     -1  = 参数非法（含路径不在白名单内）
+     -2  = 句柄表满
+     -3  = 打开 / 配置失败（明细写进 err）
+     -4  = 句柄无效 / 该平台未实现
+   read / write：>=0 实际字节数（0 = 超时无数据），<0 = 失败。 */
+typedef struct cj_serial_cfg {
+    int baud;       /* 数值波特率（平台自己查 speed_t / DCB 表）；不认识的值由平台拒绝 */
+    int data_bits;  /* 5..8 */
+    int parity;     /* 0=无 1=奇 2=偶 */
+    int stop_bits;  /* 1 或 2 */
+} cj_serial_cfg;
+
+long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *err, int err_len);
+int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms, char *err, int err_len);
+int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms,
+                         char *err, int err_len);
+int cj_plat_serial_close(long long h, char *err, int err_len);
+
+/* 设备路径白名单（纯函数、平台无关）：只放行常见串口设备节点 / 伪终端 / udev 稳定链接，
+   含 ".." 的一律拒绝。**这是安全边界**——路径是页面可控字符串，core 这里强制校验一次，
+   平台实现就不必各自重写策略（仓颉侧另有一份镜像用于「跨 FFI 之前」给出可读错误，C 这份是权威）。
+   非导出符号：桩平台自检直接调它。 */
+int cj_serial_path_allowed(const char *path);
+
 /* =========================================================================
  *  core 提供给平台的状态迁移（平台的事件循环里调用）
  * ========================================================================= */
@@ -303,5 +337,33 @@ CJ_BRIDGE_API int cj_bridge_host_capabilities(cj_host *h);
    也没有可靠的指针→整数转换。句柄本来就归 core 所有，判定交回 C 侧最省事、也最不会猜错。
    纯 core 函数：不需要任何平台原语。 */
 CJ_BRIDGE_API int cj_bridge_host_eq(cj_host *a, cj_host *b);
+
+/* =========================================================================
+ *  串口（plugin_serial）：设备 I/O，与宿主 / 窗口无关
+ *
+ *  这几个导出**不带 cj_host**：串口不是宿主能力，也不该强迫应用先建窗口才能用。
+ *  配置在仓颉侧已解析成数值，C 侧只认数值（字符串解析归仓颉，便于单测）。
+ * ========================================================================= */
+
+/* 打开并配置串口：成功返回 >0 句柄；失败返回负码（-1 参数/白名单、-2 句柄表满、
+   -3 平台打不开）。path 必须先过 cj_serial_path_allowed——**这是安全边界**。
+   打开是非阻塞的（O_NOCTTY | O_NONBLOCK + 裸 termios），不会为了等载波信号钉住调用线程。 */
+CJ_BRIDGE_API long long cj_bridge_serial_open(const char *path, int baud, int data_bits,
+                                              int parity, int stop_bits);
+
+/* 读：最多 len 字节，最多等 timeout_ms 毫秒（0 = 立即返回，负值按 0 处理）。
+   返回读到的字节数（0 = 超时无数据，不是错误）；<0 失败。缓冲由调用方提供。 */
+CJ_BRIDGE_API int cj_bridge_serial_read(long long h, unsigned char *buf, int len, int timeout_ms);
+
+/* 写：在 timeout_ms 预算内尽量写完；返回实际写入字节数（可能小于 len），<0 失败。 */
+CJ_BRIDGE_API int cj_bridge_serial_write(long long h, const unsigned char *buf, int len,
+                                         int timeout_ms);
+
+/* 关闭并释放句柄（幂等：重复关同一句柄返回 -4）。 */
+CJ_BRIDGE_API int cj_bridge_serial_close(long long h);
+
+/* 最近一次失败的明细（UTF-8，**线程局部**——命令各自跑在 worker 线程上，静态单槽会被互相覆盖）。
+   每次串口导出调用都会先清空它，失败时写入；返回的指针在该线程下次调用前有效。 */
+CJ_BRIDGE_API const char *cj_bridge_serial_last_error(void);
 
 #endif /* CJ_BRIDGE_CORE_H */

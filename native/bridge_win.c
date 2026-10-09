@@ -1265,3 +1265,46 @@ int cj_plat_host_capabilities(cj_host *h) {
     /* 本平台的静态能力：菜单栏已落地；托盘 / 拖放到 7.B / 7.C 做完再把对应的位置打开 */
     return CJ_CAP_MENU;
 }
+
+/* =========================================================================
+ *  串口（plugin_serial 的平台层）：Windows 侧
+ *
+ *  四个原语的**名字与返回码口径**与 Linux 侧逐字一致（见 bridge_core.h），所以上层不必写平台分支。
+ *  这里先只留接口：应用拿到的是可读的「本平台暂不支持」，而不是静默失败或链接期缺符号。
+ *  后续实现要点：CreateFileW("\\\\.\\COM3", GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED)
+ *  + GetCommState/SetCommState 配 DCB（BaudRate / ByteSize / Parity / StopBits）
+ *  + SetCommTimeouts 或 OVERLAPPED + WaitCommEvent 做超时读写。
+ * ========================================================================= */
+#define CJ_SERIAL_WIN_TODO "serial: Windows 侧串口尚未实现（接口已留，见 native/bridge_win.c）"
+
+long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *err, int err_len) {
+    (void)path;
+    (void)cfg;
+    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
+    return -3;
+}
+
+int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms, char *err, int err_len) {
+    (void)h;
+    (void)buf;
+    (void)len;
+    (void)timeout_ms;
+    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
+    return -4;
+}
+
+int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms,
+                         char *err, int err_len) {
+    (void)h;
+    (void)buf;
+    (void)len;
+    (void)timeout_ms;
+    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
+    return -4;
+}
+
+int cj_plat_serial_close(long long h, char *err, int err_len) {
+    (void)h;
+    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
+    return -4;
+}

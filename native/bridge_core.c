@@ -610,3 +610,179 @@ void cj_core_dialog_tick(cj_host *h, dlg_req *req) {
     cj_plat_sync_signal(h->dlg_lock);
     cj_plat_sync_unlock(h->dlg_lock);
 }
+
+/* =========================================================================
+ *  串口（plugin_serial）：路径白名单 + 参数校验 + 导出转发
+ *
+ *  句柄表与 fd 全在平台层（那边本来就有 pthread / CS），本文件**不持有任何串口状态**——
+ *  因此也不需要「一次性初始化」这种钩子，导出函数可以在没有宿主的进程里直接用。
+ * ========================================================================= */
+
+#if defined(_MSC_VER)
+#define CJ_THREAD_LOCAL __declspec(thread)
+#else
+#define CJ_THREAD_LOCAL __thread
+#endif
+
+/* 线程局部：命令各自跑在 worker 线程上，静态单槽会被并发调用互相覆盖（AGENTS §4 的静态单槽坑） */
+static CJ_THREAD_LOCAL char g_serial_err[256];
+
+static void cj_serial_err_set(const char *msg) {
+    if (!msg) {
+        g_serial_err[0] = '\0';
+        return;
+    }
+    snprintf(g_serial_err, sizeof(g_serial_err), "%s", msg);
+}
+
+/* 白名单前缀表。**只放行设备节点类路径**：页面递进来的是页面可控字符串，放行面越小越好。
+   注意 "\\.\COM" 与 "COM" 两条要额外约束「后面全是数字」，否则 COMfoo 这种也会被放行。 */
+static const char *const CJ_SERIAL_PREFIXES[] = {
+    "/dev/ttyUSB", "/dev/ttyACM", "/dev/ttyS", "/dev/ttyAMA", "/dev/ttyPS",
+    "/dev/ttyTHS", "/dev/ttyXRUSB", "/dev/ttyV",      /* Linux 串口（含虚拟 ttyV*）*/
+    "/dev/tty.", "/dev/cu.",                          /* macOS：调制解调器 / 呼出设备 */
+    "/dev/serial/by-id/", "/dev/serial/by-path/",     /* udev 稳定符号链接（推荐写法）*/
+    "/dev/pts/",                                      /* 伪终端：socat / openpty 造的虚拟串口 */
+    "COM", "\\\\.\\COM",                              /* Windows：COM3 / 长名形式 */
+};
+
+#define CJ_SERIAL_MAX_PATH 255
+
+int cj_serial_path_allowed(const char *path) {
+    size_t i, n;
+
+    if (!path || !path[0]) return 0;
+    n = strlen(path);
+    if (n > CJ_SERIAL_MAX_PATH) return 0;
+    /* 含 ".." 一律拒绝：否则 "/dev/ttyUSB0/../../etc/shadow" 这种前缀命中就能穿越出去 */
+    if (strstr(path, "..")) return 0;
+
+    for (i = 0; i < sizeof(CJ_SERIAL_PREFIXES) / sizeof(CJ_SERIAL_PREFIXES[0]); i++) {
+        const char *pfx = CJ_SERIAL_PREFIXES[i];
+        size_t pl = strlen(pfx);
+        const char *rest;
+        size_t k;
+
+        if (strncmp(path, pfx, pl) != 0) continue;
+        rest = path + pl;
+        if (!rest[0]) return 0;  /* 前缀本身不是设备名（"/dev/ttyS" 这种不收）*/
+
+        if (strcmp(pfx, "COM") != 0 && strcmp(pfx, "\\\\.\\COM") != 0) {
+            return 1;
+        }
+        for (k = 0; rest[k]; k++) {
+            if (rest[k] < '0' || rest[k] > '9') return 0;
+            if (k >= 3) return 0; /* COM1..COM999（Windows 实际到 COM256）*/
+        }
+        return 1;
+    }
+    return 0;
+}
+
+static int cj_serial_cfg_ok(const cj_serial_cfg *cfg) {
+    if (!cfg) return 0;
+    if (cfg->baud <= 0) return 0;
+    if (cfg->data_bits < 5 || cfg->data_bits > 8) return 0;
+    if (cfg->parity < 0 || cfg->parity > 2) return 0;
+    if (cfg->stop_bits != 1 && cfg->stop_bits != 2) return 0;
+    return 1;
+}
+
+long long cj_bridge_serial_open(const char *path, int baud, int data_bits, int parity, int stop_bits) {
+    cj_serial_cfg cfg;
+    char err[256];
+    long long h;
+
+    g_serial_err[0] = '\0';
+    if (!path || !path[0]) {
+        cj_serial_err_set("serial: 设备路径为空");
+        return -1;
+    }
+    if (!cj_serial_path_allowed(path)) {
+        snprintf(g_serial_err, sizeof(g_serial_err),
+                 "serial: 路径不在白名单内（只放行串口设备节点 / 伪终端，且不得含 ..）: %s", path);
+        return -1;
+    }
+    cfg.baud = baud;
+    cfg.data_bits = data_bits;
+    cfg.parity = parity;
+    cfg.stop_bits = stop_bits;
+    if (!cj_serial_cfg_ok(&cfg)) {
+        cj_serial_err_set("serial: 串口参数非法（baud>0 / dataBits 5..8 / parity 0|1|2 / stopBits 1|2）");
+        return -1;
+    }
+
+    err[0] = '\0';
+    h = cj_plat_serial_open(path, &cfg, err, (int)sizeof(err));
+    if (h <= 0) {
+        cj_serial_err_set(err[0] ? err : "serial: 平台打开失败");
+        /* 失败也留一行：串口问题多半要拿 stderr 对账（AGENTS §1 的取证口径）*/
+        fprintf(stderr, "[cj-bridge] serial open failed: path=%s baud=%d code=%lld (%s)\n",
+                path, baud, h, g_serial_err);
+        return h < 0 ? h : -3;
+    }
+    fprintf(stderr, "[cj-bridge] serial open: handle=%lld path=%s baud=%d data=%d parity=%d stop=%d\n",
+            h, path, baud, data_bits, parity, stop_bits);
+    return h;
+}
+
+int cj_bridge_serial_read(long long h, unsigned char *buf, int len, int timeout_ms) {
+    char err[256];
+    int n;
+
+    g_serial_err[0] = '\0';
+    if (h <= 0 || !buf || len <= 0 || len > (1 << 20)) {
+        cj_serial_err_set("serial: read 参数非法（handle>0 / len 1..1048576）");
+        return -1;
+    }
+    if (timeout_ms < 0) timeout_ms = 0;
+    err[0] = '\0';
+    n = cj_plat_serial_read(h, buf, len, timeout_ms, err, (int)sizeof(err));
+    if (n < 0) {
+        cj_serial_err_set(err[0] ? err : "serial: 读失败");
+        fprintf(stderr, "[cj-bridge] serial read failed: handle=%lld (%s)\n", h, g_serial_err);
+    }
+    return n;
+}
+
+int cj_bridge_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms) {
+    char err[256];
+    int n;
+
+    g_serial_err[0] = '\0';
+    if (h <= 0 || !buf || len <= 0 || len > (1 << 20)) {
+        cj_serial_err_set("serial: write 参数非法（handle>0 / len 1..1048576）");
+        return -1;
+    }
+    if (timeout_ms < 0) timeout_ms = 0;
+    err[0] = '\0';
+    n = cj_plat_serial_write(h, buf, len, timeout_ms, err, (int)sizeof(err));
+    if (n < 0) {
+        cj_serial_err_set(err[0] ? err : "serial: 写失败");
+        fprintf(stderr, "[cj-bridge] serial write failed: handle=%lld (%s)\n", h, g_serial_err);
+    }
+    return n;
+}
+
+int cj_bridge_serial_close(long long h) {
+    char err[256];
+    int rc;
+
+    g_serial_err[0] = '\0';
+    if (h <= 0) {
+        cj_serial_err_set("serial: close 参数非法（handle 必须 >0）");
+        return -1;
+    }
+    err[0] = '\0';
+    rc = cj_plat_serial_close(h, err, (int)sizeof(err));
+    if (rc != 0) {
+        cj_serial_err_set(err[0] ? err : "serial: 关句柄失败");
+        return rc < 0 ? rc : -4;
+    }
+    fprintf(stderr, "[cj-bridge] serial close: handle=%lld\n", h);
+    return 0;
+}
+
+const char *cj_bridge_serial_last_error(void) {
+    return g_serial_err;
+}

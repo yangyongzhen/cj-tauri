@@ -16,8 +16,11 @@
 
 ### Added
 
-- **官方 `serial` 插件（串口读写）**：`serial:open` / `serial:read` / `serial:write` / `serial:close`
-  四条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
+- **官方 `serial` 插件（串口读写）**：`serial:list` / `serial:open` / `serial:read` / `serial:write` /
+  `serial:close` 五条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
+  `list` 枚举本机串口设备节点（`/dev` 顶层按设备类前缀收 + `/dev/serial/by-{id,path}/` 整目录收录，
+  伪终端不算「本机串口」不进列表），返回 `{ ports: ["…"] }`、按字典序——页面拿它填「端口」下拉；
+  归入 `serial:readonly` 集（枚举是只读操作，且连接前的「选端口」离不开它）。
   设备参数在**打开时定稿**：`open { path, baud, dataBits?, parity?, stopBits? }` →
   `{ handle, path, baud, dataBits, parity, stopBits }`；之后 `read { handle, maxBytes?, timeoutMs? }` →
   `{ count, hex, text? }`（**超时无数据返回 `count=0`，不算错误**；不是合法 UTF-8 的二进制帧只给 `hex`）、
@@ -41,16 +44,18 @@
   单元测试 132 → **143**（新增 11 条串口用例），C 桥桩自检 **136/136**。
   **Windows 侧目前只有同名桩**（未实机）。
 - **串口调试助手示例 `examples/serial-assistant`**：`cj-tauri create` 脚手架（app 模板）+ 官方 `serial`
-  插件拼出的**业务向小工具**——参数面板（设备 / 波特率 / 数据位 / 校验 / 停止位）、收发日志（TX/RX
-  分色、时间戳、字节数、HEX 显示开关、按方向过滤）、TX/RX/错误计数、连接态徽标与计时；发送区支持
-  HEX 与「追加 CRLF」、Enter 直发。页面独立在 `ui/index.html`（与 movie 同一套做法，避开三引号字符串
-  的两个坑）；探针模式照 plugin-serial（`CJ_SERIAL_PROBE_PATH` 注入配置，页面自动跑一轮
-  open→write→read 自检并经 `report` 回传 stderr），`bash run.sh` 自带 pty 虚拟对端与断言。
-  实测顺手抓到一条界面坑：**WebKitGTK 的 `<select>` 会被原生 combo 的浅色样式盖掉页面配色**
-  （深色页里白底浅字几乎不可读），已用 `-webkit-appearance:none` 自绘修复（坑已记 `AGENTS.md` §4）。
-  Linux 实机六轮探针自检全过；**如实记**：6 轮里 4 轮进程在 `after run` **之后**以 134 收尾——同日
-  对照跑一行未动的 `examples/plugin-serial` 也崩，属既有 Linux 退出期偶发频率升高，与示例代码无关
-  （不判因，见进度记录 §3.2.17）。
+  插件拼出的**业务向小工具**——参数面板（**端口下拉自动枚举** + ↻ 刷新，/ 波特率 / 数据位 / 校验 / 停止位）、
+  收发日志（TX/RX 分色、时间戳、字节数、HEX 显示开关、按方向过滤）、TX/RX/错误计数、连接态徽标与计时；
+  发送区支持 HEX 与「追加 CRLF」、**定时发送**（间隔 ≥50ms 可调，框空跳拍，断开自动停）、Enter 直发。
+  页面独立在 `ui/index.html`（与 movie 同一套做法，避开三引号字符串的两个坑）；探针模式照 plugin-serial
+  （`CJ_SERIAL_PROBE_PATH` 注入配置，页面自动跑一轮 open→write→read 自检并经 `report` 回传 stderr，
+  对端端口会补进下拉），`bash run.sh` 自带 pty 虚拟对端与断言。
+  实测抓到两条坑（均已记 `AGENTS.md` §4）：**WebKitGTK 的 `<select>` 会被原生 combo 的浅色样式盖掉页面配色**
+  （已用 `-webkit-appearance:none` 自绘修复）；**仓颉 `const` 只收编译期常量、`Array` 字面量不合法**
+  （顶层可变量要用 `let`）。
+  Linux 实机探针自检多轮全过（v3 起断言含「端口枚举」两条）；**如实记**：期间多轮进程在 `after run`
+  **之后**以 134 收尾——同日对照跑一行未动的 `examples/plugin-serial` 也崩，属既有 Linux 退出期偶发
+  频率升高，与示例代码无关（不判因，见进度记录 §3.2.17）。
 
 ## [0.8.0] - 2026-10-08
 

@@ -1,12 +1,13 @@
 package cjTauri
 
 import std.collection.*
+import std.fs.*
 import stdx.encoding.json.*
 
 /**
  * 官方插件 serial：串口（对标 Tauri 的 serialport 插件，RFC-001 §7.3）
  *
- * 命令：serial:open / serial:read / serial:write / serial:close
+ * 命令：serial:list / serial:open / serial:read / serial:write / serial:close
  * 权限：**不自动放行**——应用要在 capabilities 里显式声明，两种写法等价：
  *   "commands": ["serial:open", "serial:read", "serial:close"]   // 明文逐条
  *   "permissions": ["serial:readonly"]                           // 命名权限集，一次放行一组
@@ -18,6 +19,52 @@ import stdx.encoding.json.*
  *
  * 前端：window.__CJ_TAURI__.serial.open({ path: "/dev/ttyUSB0", baud: 115200 })
  */
+
+// serial:list 的候选目录：/dev 顶层 + udev 稳定符号链接目录（不存在就跳过，不是错误）。
+// （顶层 let 是全局不可变量；仓颉的 const 只收编译期常量表达式，Array 字面量不合法——实测 2026-10-09）
+let SERIAL_LIST_DIRS: Array<String> = ["/dev", "/dev/serial/by-id", "/dev/serial/by-path"]
+
+/** /dev 顶层只收「设备节点类」前缀（与 C 桥白名单同一套设备面，排除 /dev/pts 伪终端） */
+let SERIAL_LIST_PREFIXES: Array<String> = [
+    "ttyUSB", "ttyACM", "ttyS", "ttyAMA", "ttyPS", "ttyTHS", "ttyXRUSB", "ttyV",
+    "tty.", "cu.",
+]
+
+/** 枚举本机串口设备节点（serial:list 的实现；拿不到 /dev 就回空数组，不抛） */
+func serialPortList(): ArrayList<String> {
+    let found = ArrayList<String>()
+    for (dir in SERIAL_LIST_DIRS) {
+        if (!exists(dir)) {
+            continue
+        }
+        var entries: Array<FileInfo>
+        try {
+            entries = Directory.readFrom(dir)
+        } catch (e: Exception) {
+            continue
+        }
+        // by-id / by-path 里全是串口设备（udev 链接名不含 ttyUSB 这类前缀），整目录收录
+        let scanAll = dir != "/dev"
+        for (info in entries) {
+            if (info.isDirectory()) {
+                continue
+            }
+            let name = info.path.toString()
+            if (scanAll) {
+                found.add(name)
+                continue
+            }
+            for (p in SERIAL_LIST_PREFIXES) {
+                if (name.contains(p)) {
+                    found.add(name)
+                    break
+                }
+            }
+        }
+    }
+    found.sort()
+    return found
+}
 public class SerialPlugin <: Plugin {
     public init() {}
 
@@ -27,6 +74,7 @@ public class SerialPlugin <: Plugin {
 
     public func commands(): HashMap<String, CommandHandler> {
         let m = HashMap<String, CommandHandler>()
+        m.add("list", SerialCommands())
         m.add("open", SerialCommands())
         m.add("read", SerialCommands())
         m.add("write", SerialCommands())
@@ -35,17 +83,20 @@ public class SerialPlugin <: Plugin {
     }
 
     /**
-     * 命名权限集：readonly 只含「打开 + 读 + 关」——只想读设备的应用引用它即可，
+     * 命名权限集：readonly 只含「列出 + 打开 + 读 + 关」——只想读设备的应用引用它即可，
      * **写能力不会被顺带打开**；要写就必须显式引用 default 或把 serial:write 写成明文。
+     * list 归入 readonly：枚举端口是只读操作，且连接前的「选端口」离不开它。
      */
     public func permissions(): HashMap<String, ArrayList<String>> {
         let m = HashMap<String, ArrayList<String>>()
         let ro = ArrayList<String>()
+        ro.add("list")
         ro.add("open")
         ro.add("read")
         ro.add("close")
         m.add("readonly", ro)
         let all = ArrayList<String>()
+        all.add("list")
         all.add("open")
         all.add("read")
         all.add("write")
@@ -60,6 +111,7 @@ public class SerialPlugin <: Plugin {
     public func jsShim(): String {
         return "(function () { var t = window.__CJ_TAURI__ || (window.__CJ_TAURI__ = {});" +
             " t.serial = {" +
+            " list: function () { return window.__CJ_TAURI__.invoke('serial:list', {}); }," +
             " open: function (args) { return window.__CJ_TAURI__.invoke('serial:open', args); }," +
             " read: function (args) { return window.__CJ_TAURI__.invoke('serial:read', args); }," +
             " write: function (args) { return window.__CJ_TAURI__.invoke('serial:write', args); }," +
@@ -255,6 +307,7 @@ class SerialCommands <: CommandHandler {
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
         match (cmd) {
+            case "serial:list" => this.listCmd()
             case "serial:open" => this.openCmd(args)
             case "serial:read" => this.readCmd(args)
             case "serial:write" => this.writeCmd(args)
@@ -311,6 +364,20 @@ class SerialCommands <: CommandHandler {
             return hi
         }
         return v
+    }
+
+    /**
+     * 枚举本机串口：页面拿它填「端口」下拉（连接前就要用，故归 readonly 集）。
+     * 返回 { ports: ["…"] }——没有设备就给空数组，页面据此显示「未发现端口」。
+     */
+    private func listCmd(): JsonValue {
+        let out = JsonObject()
+        let ports = ArrayList<JsonValue>()
+        for (p in serialPortList()) {
+            ports.add(JsonString(p))
+        }
+        out.put("ports", JsonArray(ports))
+        return out
     }
 
     private func openCmd(args: JsonObject): JsonValue {

@@ -65,11 +65,13 @@
   }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 11px; color: var(--muted); letter-spacing: .5px; }
-  select, input[type="text"] {
+  select, input[type="text"], input[type="number"] {
     background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
     border-radius: 7px; padding: 7px 9px; font-size: 13px; outline: none;
   }
-  select:focus, input[type="text"]:focus { border-color: var(--accent); }
+  select:focus, input[type="text"]:focus, input[type="number"]:focus { border-color: var(--accent); }
+  #timerMs { width: 84px; }
+  #timerMs:disabled { opacity: .5; }
   /* WebKitGTK 会用原生 combo 的浅色样式盖掉上面的背景/文字色（实测白底浅字几乎不可读），
      只能去原生外观自绘：右侧画一个 CSS 三角当箭头 */
   select {
@@ -93,6 +95,7 @@
   #bConnect.open { background: var(--err); }
   button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
   button.ghost:hover { color: var(--ink); border-color: var(--accent); }
+  button.ghost.sel { color: #fff; background: #35406b; border-color: var(--accent); }
 
   /* ── 日志区 ─────────────────────────────────────────── */
   #logwrap {
@@ -164,8 +167,12 @@
 
   <div id="params">
     <div class="field">
-      <label>设备路径</label>
-      <input type="text" id="path" value="/dev/ttyUSB0" spellcheck="false">
+      <label>端口</label>
+      <select id="port" style="min-width:190px"><option>枚举中…</option></select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="ghost" id="bRefresh">↻ 刷新</button>
     </div>
     <div class="field">
       <label>波特率</label>
@@ -197,7 +204,7 @@
     </div>
     <button id="bConnect">连接</button>
     <span class="hint" style="color:var(--muted);font-size:11px;line-height:1.5">
-      路径须在插件白名单内<br>（/dev/tty* · /dev/pts/* · COM*）
+      自动枚举串口（COM 口）；没插设备或刚接上<br>就点「↻ 刷新」。探针模式会多出对端一项
     </span>
   </div>
 
@@ -218,6 +225,8 @@
     <input type="text" id="sendText" placeholder="输入要发送的数据（连接后可用，Enter 发送）" disabled spellcheck="false">
     <label class="toggle"><input type="checkbox" id="hexMode">HEX</label>
     <label class="toggle"><input type="checkbox" id="appendCRLF" checked>追加 CRLF</label>
+    <input type="number" id="timerMs" value="1000" min="50" step="50" title="定时发送间隔（毫秒）" disabled>
+    <button class="ghost" id="bTimer" disabled>定时：关</button>
     <button id="bSend" disabled>发送</button>
   </div>
 
@@ -326,6 +335,14 @@
     $('statusText').textContent = label;
     $('sendText').disabled = !on;
     $('bSend').disabled = !on;
+    $('timerMs').disabled = !on;
+    $('bTimer').disabled = !on;
+    if (!on && timerId) {           // 断开（或探针收尾）时顺手停掉定时发送
+      clearInterval(timerId);
+      timerId = 0;
+      $('bTimer').textContent = '定时：关';
+      $('bTimer').className = 'ghost';
+    }
   }
 
   var uptimeTimer = 0;
@@ -339,13 +356,13 @@
 
   function connect() {
     var args = {
-      path: $('path').value.replace(/^\s+|\s+$/g, ''),
+      path: $('port').value,
       baud: parseInt($('baud').value, 10),
       dataBits: parseInt($('dataBits').value, 10),
       parity: $('parity').value,
       stopBits: parseInt($('stopBits').value, 10)
     };
-    if (!args.path) { addLine('err', 'serial:open => 请填设备路径'); bumpErr(); return; }
+    if (!args.path) { addLine('err', 'serial:open => 请先选择端口（没有就点「↻ 刷新」）'); bumpErr(); return; }
     setConnected(false, '连接中…');
     addLine('sys', 'serial:open ' + args.path + ' @' + args.baud + ' ' + args.dataBits +
       args.parity.charAt(0).toUpperCase() + args.stopBits);
@@ -507,16 +524,81 @@
     setTimeout(function () { waitForBridge(cb); }, 50);
   }
 
+  /* ── 端口枚举：填「端口」下拉（探针模式把对端也列为首选项） ── */
+  function refreshPorts(preferred) {
+    var sel = $('port');
+    return ser().list().then(function (r) {
+      var ports = (r && r.ports) ? r.ports : [];
+      var probePort = (window.__SERIAL_PROBE__ && window.__SERIAL_PROBE__.path) || '';
+      var added = false;
+      if (probePort && ports.indexOf(probePort) < 0) {
+        ports = ports.concat([probePort]);   // pty 对端不算「本机串口」，探针时补进来便于复现
+        added = true;
+      }
+      sel.textContent = '';
+      if (!ports.length) {
+        var o = document.createElement('option');
+        o.value = '';
+        o.textContent = '未发现串口（点 ↻ 刷新）';
+        sel.appendChild(o);
+      } else {
+        for (var i = 0; i < ports.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = ports[i];
+          opt.textContent = ports[i];
+          sel.appendChild(opt);
+        }
+        if (preferred && ports.indexOf(preferred) >= 0) { sel.value = preferred; }
+      }
+      addLine('sys', '端口枚举：' + ports.length + ' 项' + (added ? '（含探针对端 ' + probePort + '）' : ''));
+    }).catch(function (e) {
+      sel.textContent = '';
+      var o = document.createElement('option');
+      o.value = '';
+      o.textContent = '枚举失败';
+      sel.appendChild(o);
+      addLine('err', 'serial:list FAIL => ' + e.message);
+      bumpErr();
+    });
+  }
+
+  /* ── 定时发送：按发送框当前内容与 HEX/CRLF 开关周期性 send()，框空跳过该拍 ── */
+  var timerId = 0;
+  $('bTimer').onclick = function () {
+    if (timerId) {
+      clearInterval(timerId);
+      timerId = 0;
+      addLine('sys', '定时发送已停');
+    } else {
+      var ms = parseInt($('timerMs').value, 10);
+      if (!(ms >= 50)) {
+        addLine('err', '定时发送：间隔至少 50ms');
+        bumpErr();
+        return;
+      }
+      timerId = setInterval(function () {
+        if ($('sendText').value !== '') { send(); }
+      }, ms);
+      addLine('sys', '定时发送已启动：每 ' + ms + 'ms');
+    }
+    $('bTimer').textContent = '定时：' + (timerId ? '开' : '关');
+    $('bTimer').className = 'ghost' + (timerId ? ' sel' : '');
+    $('timerMs').disabled = !!timerId || !state.connected;
+  };
+  $('bRefresh').onclick = function () { refreshPorts(); };
+
   waitForBridge(function () {
     addLine('sys', 'bridge ready（serial shim 早于本脚本：' +
       !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.serial) + '）');
     window.__CJ_TAURI__.invoke('system:version').then(function (v) {
       if (v && v.version) { $('ver').textContent = 'v' + v.version; }
     }).catch(function () { $('ver').textContent = ''; });
-    if (window.__SERIAL_PROBE__) {
-      runProbe(window.__SERIAL_PROBE__);
+    var probe = window.__SERIAL_PROBE__ || null;
+    refreshPorts(probe ? probe.path : null);
+    if (probe) {
+      runProbe(probe);
     } else {
-      addLine('sys', '（手动模式：填设备路径 → 连接 → 收发。路径须在插件白名单内）');
+      addLine('sys', '（手动模式：选端口 → 连接 → 收发。没插设备或刚接上就点「↻ 刷新」）');
     }
   });
 }());

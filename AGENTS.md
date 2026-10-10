@@ -272,6 +272,21 @@
   一律走「句柄 → 回调」路由表（`HostRoute` / `registerHostRoute`；同一句柄重复登记＝替换而非叠加）。
   对应的 C 侧签名要求：`cj_on_shell_fn` / `cj_on_destroy_fn` / `cj_on_dialog_fn` 首参都是 `struct cj_host *`
   ——**新增宿主回调一律带头参**，别再造一个不带身份的单槽（2026-10-07 已把销毁与对话框结果两处补齐）。
+- **PowerShell 的错误报告按「父进程的 OEM 码页」输出，会被 GBK 变成 findstr 抓不到的字节**（2026-10-10 实测）：
+  `$OutputEncoding` / `[Console]::OutputEncoding` 只管脚本**自己** `Write-Output` 的行；
+  脚本抛终止性错误时那份 `所在位置 …` 报告由**外层宿主**在我们设置失效之后打印，仍是 GBK——
+  `%TEMP%\*.log` 里就是「Unicode 格式」警告 + 乱码，`findstr` 计数为 0，于是「没有这条日志」被误读成「没发生」。
+  修法：起 PowerShell 的那层先 `chcp 65001`（`cmd /c "chcp 65001 >nul && powershell …"`），整份日志就是 ASCII；
+  **脚本自身保持纯 ASCII，且别拿错误行当断言 needle**（能提前 catch 的就 catch 后自己 `Write-Output` 一行 ASCII）。
+- **`start` 的重定向抓不到子窗输出，必须放进内层 `cmd /c` 字符串**（2026-10-10 实测）：
+  `start "t" /min cmd /c "… > "%LOG%" 2>&1"` 里，那个 `>` 若写在 `start` 这一层，日志文件是 **0 字节**、
+  命令照跑不报错（看着像「对端没输出」）；写进内层字符串才有内容。判断照旧看**副作用**（日志行数），不看退出码。
+- **`.bat` 里 `timeout /t N` 会被 MSYS 的 GNU `timeout` 抢走**（2026-10-10 实测：`timeout: invalid time interval '/t'`）——
+  与 `find` 那条同源（PATH 里 MSYS 的 Coreutils 排在 Windows 同名命令前面）。脚本里等几秒一律用
+  `ping -n N 127.0.0.1 >nul`，别用 `timeout`。
+- **`if (…)` 块内的 `echo` 正文不能含英文括号**（2026-10-10 实测）：`echo … wrote to the wire (peer-side proof), …`
+  里的 `)` 被 cmd 当成 if 块的收尾，后面整段执行流错位，报的是
+  `此时不应有 read。`这行与括号八竿子打不着的错（且退出码非 0，PASS 文案永远打不出来）。要写括号就 `^(` `^)` 转义，或换措辞。
 - 执行子进程（`shell` 插件）：一律 **argv 直传**（`launch` / `executeWithOutput` 收参数数组），
   不要为省事拼 `bash -c "<一整串命令>"`——那等于把页面可控的字符串塞进 shell 解析，自己开后门。
   这类调用本身仍是**同步阻塞**的：它跑在命令 worker 线程上（命令分发已异步，见 §2），所以不再冻窗口，

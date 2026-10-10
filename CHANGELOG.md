@@ -42,7 +42,24 @@
   `serial:close => true`，三轮 `exit=0`、断言全绿；**写方向的证据在应用进程之外**
   （对端日志 `[peer] rx=13 bytes, replied 18 bytes` + 落盘文件内容），不是应用自己说「我写了」。
   单元测试 132 → **143**（新增 11 条串口用例），C 桥桩自检 **136/136**。
-  **Windows 侧目前只有同名桩**（未实机）。
+- **`serial` 插件的 Windows 平台实现（实机跑通）**：`native/bridge_win.c` 的四个原语从同名桩换成真实现——
+  `CreateFileW("\\\\.\\COMx", …, FILE_FLAG_OVERLAPPED)` 独占打开 + `GetCommState`/`SetCommState` 配 DCB
+  （流控一律不替应用开，与 Linux 侧同一条铁律）+ 超时全部归零、等待交给 `OVERLAPPED` 的
+  `WaitForSingleObject` 按剩余预算控制（**不用 `SetCommTimeouts` 的阻塞语义**：总超时只对「等到第一个字节」
+  可控，预算耗尽时 `CancelIo` 撤销未完成请求再交回），读写返回码口径与 Linux 逐字一致，上层零平台分支。
+  同批新增第六个导出 `cj_bridge_serial_list`：Windows 走 `QueryDosDeviceW` 扫全系统设备名收「`COM` + 全数字」
+  （虚拟口也在其中，比翻注册表稳），Linux 返回 `-4` 未实现、`serial:list` 回落仓颉侧的 `/dev` 扫描
+  （pty 与 `by-id` 仍能收）。桥产物现 **28 个 `cj_bridge_*`**；C 桥桩自检 136 → **141** 项。
+  Windows 实机（2026-10-10，COM1↔COM2 虚拟对，`examples/serial-assistant/run.bat`）**rc=0、8/8 断言全绿**：
+  端口枚举 `port enum: 2 item(s)`（C 桥路径生效）→ `serial win32: path=COM1 baud=115200 data=8 parity=0 stop=1`
+  → 页面自检 open / write 13/13 / read 18 字节 / close 4/4 → **写方向的证据仍在应用进程之外**
+  （对端 `[peer] rx 13 bytes: cj-tauri-ping`）。
+- **串口调试助手补 Windows 一键探针 `run.bat` 与手测模式**：新增 `examples/serial-assistant/run.bat`
+  （设 PATH → `cjpm build` → 先起 `serial-peer-win.ps1`（PowerShell 串口对端）→ 带探针变量跑应用 →
+  8 条断言）与 `serial-peer-win.ps1`（收到什么回 `PONG:<原文>` 并落盘 rx 文件，即「字节真的上过线」的外部凭证）；
+  `run.bat manual` 则不带探针、不起对端，开着窗口供人眼手测（日志照旧落 `%TEMP%\cj-serial-assistant.log`）。
+  该示例的 Windows `link-option` 补齐 `-L../../native -lcjtbridge --subsystem=windows` 与 stdx 动态库路径
+  （此前只有 Linux 段，Windows 下 `cjpm build` 根本链不上桥）。
 - **串口调试助手示例 `examples/serial-assistant`**：`cj-tauri create` 脚手架（app 模板）+ 官方 `serial`
   插件拼出的**业务向小工具**——参数面板（**端口下拉自动枚举** + ↻ 刷新，/ 波特率 / 数据位 / 校验 / 停止位）、
   收发日志（TX/RX 分色、时间戳、字节数、HEX 显示开关、按方向过滤）、TX/RX/错误计数、连接态徽标与计时；

@@ -30,8 +30,15 @@ let SERIAL_LIST_PREFIXES: Array<String> = [
     "tty.", "cu.",
 ]
 
-/** 枚举本机串口设备节点（serial:list 的实现；拿不到 /dev 就回空数组，不抛） */
+/** 枚举本机串口设备节点（serial:list 的实现；拿不到 /dev 就回空数组，不抛）。
+ * Windows 优先走 C 桥的 QueryDosDeviceW 枚举（返回的是「COM 名」，页面直接当 path 用，
+ * C 桥 open 会自动补 \\.\\ 前缀）；C 桥返回 -4（未实现）或异常时回落到 /dev 目录扫描——
+ * 后者在 Windows 下天然为空，不算错误。 */
 func serialPortList(): ArrayList<String> {
+    let viaC = serialListC()
+    if (let Some(list) <- viaC) {
+        return list
+    }
     let found = ArrayList<String>()
     for (dir in SERIAL_LIST_DIRS) {
         if (!exists(dir)) {

@@ -223,6 +223,10 @@ int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int tim
                          char *err, int err_len);
 int cj_plat_serial_close(long long h, char *err, int err_len);
 
+/* 枚举本机串口：一行一个名字写进 out（\n 分隔），返回条数；-1 参数非法，-4 未实现。
+   Linux 侧尚未实现（-4）——serial:list 在 Linux 仍走仓颉侧的 /dev 目录扫描。 */
+int cj_plat_serial_list(char *out, int out_len);
+
 /* 设备路径白名单（纯函数、平台无关）：只放行常见串口设备节点 / 伪终端 / udev 稳定链接，
    含 ".." 的一律拒绝。**这是安全边界**——路径是页面可控字符串，core 这里强制校验一次，
    平台实现就不必各自重写策略（仓颉侧另有一份镜像用于「跨 FFI 之前」给出可读错误，C 这份是权威）。
@@ -361,6 +365,11 @@ CJ_BRIDGE_API int cj_bridge_serial_write(long long h, const unsigned char *buf, 
 
 /* 关闭并释放句柄（幂等：重复关同一句柄返回 -4）。 */
 CJ_BRIDGE_API int cj_bridge_serial_close(long long h);
+
+/* 枚举本机串口（serial:list 的平台层）：把「COM + 全数字」一行一个写进 out，
+   返回条数（0 = 没有串口，不是错误）。平台不实现时返回 -4（err 口径同其余原语）。
+   out_len 是 out 的容量；放不下时截断到已写入的整行。 */
+CJ_BRIDGE_API int cj_bridge_serial_list(char *out, int out_len);
 
 /* 最近一次失败的明细（UTF-8，**线程局部**——命令各自跑在 worker 线程上，静态单槽会被互相覆盖）。
    每次串口导出调用都会先清空它，失败时写入；返回的指针在该线程下次调用前有效。 */

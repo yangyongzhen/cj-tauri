@@ -550,7 +550,8 @@
         }
         if (preferred && ports.indexOf(preferred) >= 0) { sel.value = preferred; }
       }
-      addLine('sys', '端口枚举：' + ports.length + ' 项' + (added ? '（含探针对端 ' + probePort + '）' : ''));
+      // ASCII 标记便于 .bat 探针断言 grep（控制台是 GBK，中文会乱码）
+      addLine('sys', 'port enum: ' + ports.length + ' item(s)' + (added ? ' (probe peer ' + probePort + ' added)' : ''));
     }).catch(function (e) {
       sel.textContent = '';
       var o = document.createElement('option');

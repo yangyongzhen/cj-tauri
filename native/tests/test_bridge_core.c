@@ -219,6 +219,12 @@ int cj_plat_serial_close(long long h, char *err, int err_len) {
     return 0;
 }
 
+/* 枚举桩：回 0（没有串口不是错误），只为让 core 的 cj_bridge_serial_list 可链接可调 */
+int cj_plat_serial_list(char *out, int out_len) {
+    if (out && out_len > 0) out[0] = '\0';
+    return 0;
+}
+
 /* ===== 线路解析的回调收集器（菜单是树，桩侧用一张表记录 core 走出来的每一行）===== */
 
 typedef struct row_rec {

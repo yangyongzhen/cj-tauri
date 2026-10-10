@@ -1257,3 +1257,12 @@ int cj_plat_serial_close(long long h, char *err, int err_len) {
     close(fd); /* close 放锁外：它可能触发 pty 侧的清理，不该占着表锁 */
     return 0;
 }
+
+/* Linux 侧不实现 C 桥枚举：serial:list 仍走仓颉侧的 /dev 目录扫描（pty / by-id 都能收），
+   这里按「未实现」口径返回 -4，core 原样交回。 */
+int cj_plat_serial_list(char *out, int out_len) {
+    if (out && out_len > 0) {
+        serial_err(out, out_len, "%s", "serial: list 在本平台未实现（走仓颉侧 /dev 扫描）");
+    }
+    return -4;
+}

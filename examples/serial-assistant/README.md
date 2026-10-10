@@ -11,12 +11,16 @@ cj-tauri 官方 `serial` 插件的业务向示例：**端口下拉自动枚举**
 cd examples/serial-assistant
 cjpm build
 bash run.sh        # Linux：pty 造虚拟串口对端，探针自动跑一轮 收→发→收 自检并断言
+run.bat            # Windows：PowerShell 造对端，8 条断言（需先有 COM1/COM2 这样一对口）
+run.bat manual     # Windows：不带探针、不起对端，开窗手测（关窗即退出）
 ```
 
 手动模式：直接 `cjpm run`（工作目录必须是本示例根），从「端口」下拉选设备（下拉由 `serial:list`
 自动枚举；没插设备或刚接上点「↻ 刷新」）→ 连接 → 收发。
 
-Windows 侧串口桥目前是**同名桩**（未实机），连接会失败——见 `examples/plugin-serial` 同款说明。
+Windows 侧串口桥**已实机跑通**（2026-10-10，COM1↔COM2 虚拟对，`run.bat` rc=0、8/8 断言全绿）：
+枚举走 C 桥 `QueryDosDeviceW`，open 用 `CreateFileW("\\.\COMx", …, FILE_FLAG_OVERLAPPED)` 独占打开、
+读写按 `WaitForSingleObject` 的剩余预算控制（超时不报错，返回 `count=0`）。
 
 ## 探针环境变量
 

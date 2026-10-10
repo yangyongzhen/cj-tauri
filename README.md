@@ -241,6 +241,22 @@ bash scripts/npm-pack.sh --publish --otp 123456 # 打包并发布（动态码 = 
 包在 npm 上需一次性绑定 GitHub 仓库与 workflow 文件名（步骤见 `AGENTS.md` §6）。CI 环境没有仓颉 SDK，
 所以 CI 打的包不含预编译 CLI、用户首次运行在本机源码构建；要带 `prebuilt/` 就用本机 `npm-pack.sh`。
 
+### 用 AtomCode 的 AI 助手开发（skills）
+
+本仓把开发工作流、实机取证、踩坑速查与回贡献流程沉淀成了 **AtomCode skills**（`skills/` 目录，
+已 marketplace 化），任何接入 AtomCode 的助手一行命令装上就能按这套实战方法开发应用：
+
+```bash
+atomcode plugin marketplace add https://atomgit.com/qq8864/cj-tauri.git
+atomcode plugin install cj-tauri-skills@cj-tauri-skills
+```
+
+包含四个 skill：`cj-tauri-app-dev`（起工程 / 三处联动 / 前端 / 门禁）、`cj-tauri-verify`
+（构建 → 实机 → 桥 stderr 取证 → Xvfb / pty 虚拟设备 → 断言截图）、`cj-tauri-troubleshoot`
+（编译报错 / 页面异常的实测坑速查表）、`cj-tauri-contribute`（问题→issue、修法→PR 的自进化入口）。
+详见 [`skills/README.md`](skills/README.md) 与 [skills 使用文章](docs/cj-tauri-skills-使用指南.md)。
+**用着遇到新坑？** 走 `cj-tauri-contribute` 提 PR 回仓——skills 与框架一起自进化。欢迎 star / fork / 共建。
+
 ### Windows 上跑起来（本机验证组合）
 
 cjc 1.2.0 + WebView2 Runtime 122.0.2365.106 + WebView2 SDK 1.0.2365.46：

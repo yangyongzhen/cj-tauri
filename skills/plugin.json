@@ -1,0 +1,6 @@
+{
+  "name": "cj-tauri-skills",
+  "version": "0.1.0",
+  "description": "AtomCode skills for the cj-tauri framework (Cangjie + system WebView): development workflow, verification & evidence, pitfall quick reference, and a contribute-back loop.",
+  "skills": "./skills"
+}

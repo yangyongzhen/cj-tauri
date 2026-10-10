@@ -471,7 +471,11 @@
             return null;
           });
         }
-        return null;   /* QUIT=0（展示轮）：保持连接，让窗口里留着 TX/RX 记录 */
+        /* QUIT=0（展示轮）：保持连接，让窗口里留着 TX/RX 记录。
+           展示轮同样要接上接收循环——窗口显示「已连接」就得真能收（探针自己连的口
+           不走 connect()，不补这一行就会看着连上、其实一个字节都收不到）。 */
+        readLoop();
+        return null;
       })
       .then(function () {
         addLine('sys', '[selfcheck] ' + pass + '/' + (pass + fail) + ' passed');

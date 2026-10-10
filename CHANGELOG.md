@@ -16,6 +16,12 @@
 
 ### Added
 
+- **AtomCode skills（`skills/`，已 marketplace 化）**：把框架的开发工作流、实机取证、踩坑速查与
+  回贡献流程沉淀成 AI 可复用的指令，`atomcode plugin install cj-tauri-skills@cj-tauri-skills` 一行装上
+  （或 `bash scripts/install-skills.sh` 只装 skills）。四个 skill：`cj-tauri-app-dev`（起工程 /
+  命令与插件三处联动 / 前端 / 门禁）、`cj-tauri-verify`（桥 stderr 取证 / Xvfb / pty 虚拟设备 /
+  断言截图）、`cj-tauri-troubleshoot`（实测坑速查表）、`cj-tauri-contribute`（问题→issue、修法→PR 的
+  自进化入口）。使用指南见 `docs/cj-tauri-skills-使用指南.md`。
 - **官方 `serial` 插件（串口读写）**：`serial:list` / `serial:open` / `serial:read` / `serial:write` /
   `serial:close` 五条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
   `list` 枚举本机串口设备节点（`/dev` 顶层按设备类前缀收 + `/dev/serial/by-{id,path}/` 整目录收录，

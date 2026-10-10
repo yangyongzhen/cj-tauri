@@ -357,6 +357,11 @@
   都不成立——只能把整份 UMD 经 `addInitScript()` 走 document-start 通道注入（AGENTS §4 有这条坑的完整形状）。
 - 仓库根保持 5 个标准文件：`README.md`（必须含运行截图）/ `LICENSE` / `README.OpenSource` / `CHANGELOG.md` /
   `CONTRIBUTING.md`；功能与依赖变更时同步受影响的文件，平台或依赖变化时 `README.OpenSource` 也要改。
+- **`skills/` 目录（AtomCode skills，已 marketplace 化）**：随仓库分发的 AI 指令（`cj-tauri-app-dev` /
+  `cj-tauri-verify` / `cj-tauri-troubleshoot` / `cj-tauri-contribute` 四个），`.atomcode-plugin/marketplace.json`
+  声明 plugin、`skills/plugin.json` 声明 skills 路径。**新坑 / 新工作流优先沉淀回 skills**（速查表在
+  `cj-tauri-troubleshoot/SKILL.md`），与 `AGENTS.md` §4 同步维护；skill 名限 `[a-z0-9_-]`。
+  本机验证：`bash scripts/install-skills.sh` 后新会话 `/` 菜单可见。
 
 ## 6. 版本与发版
 

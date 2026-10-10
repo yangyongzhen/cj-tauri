@@ -1,0 +1,10 @@
+{
+  "name": "cj-tauri-skills",
+  "plugins": [
+    {
+      "name": "cj-tauri-skills",
+      "source": "./skills",
+      "description": "AtomCode skills for the cj-tauri framework (Cangjie + system WebView): app development workflow (scaffold / commands / plugins / frontend), real-device verification & evidence gathering, a field-tested pitfall quick reference, and a contribute-back loop that turns new pitfalls into PRs. Install once and any AtomCode agent can build apps with cj-tauri."
+    }
+  ]
+}

@@ -60,6 +60,9 @@
   `run.bat manual` 则不带探针、不起对端，开着窗口供人眼手测（日志照旧落 `%TEMP%\cj-serial-assistant.log`）。
   该示例的 Windows `link-option` 补齐 `-L../../native -lcjtbridge --subsystem=windows` 与 stdx 动态库路径
   （此前只有 Linux 段，Windows 下 `cjpm build` 根本链不上桥）。
+  **修一处展示轮的 bug**：探针自己连的串口没接 `readLoop()`（接收循环只在用户点「连接」的 `connect()` 里起），
+  于是 `CJ_SERIAL_PROBE_QUIT=0` 的展示轮窗口显示「已连接」、对端推帧却一个字节都收不到；现在展示轮同样接上
+  接收循环（实机对照：修复前 `[rx]` 无条目，修复后对端三帧全部落到 `[rx]` 行）。
 - **串口调试助手示例 `examples/serial-assistant`**：`cj-tauri create` 脚手架（app 模板）+ 官方 `serial`
   插件拼出的**业务向小工具**——参数面板（**端口下拉自动枚举** + ↻ 刷新，/ 波特率 / 数据位 / 校验 / 停止位）、
   收发日志（TX/RX 分色、时间戳、字节数、HEX 显示开关、按方向过滤）、TX/RX/错误计数、连接态徽标与计时；

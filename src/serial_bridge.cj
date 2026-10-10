@@ -1,5 +1,7 @@
 package cjTauri
 
+import std.collection.*
+
 /**
  * 串口桥（plugin_serial 的 FFI 面）：C 桥 `cj_bridge_serial_*` 的声明与薄包装。
  *
@@ -43,6 +45,14 @@ foreign func cj_bridge_serial_close(h: Int64): Int32
 foreign func cj_bridge_serial_last_error(): CString
 
 /**
+ * 枚举本机串口（serial:list 的平台层）：一行一个名字写进 buf（'\n' 分隔），
+ * 返回条数（0 = 没有串口，不是错误）；-1 参数非法，-4 本平台未实现。
+ * 两平台导出同名同签名：Windows 走 QueryDosDeviceW，Linux 返回 -4（list 在 Linux 走 /dev 扫描）。
+ */
+@C
+foreign func cj_bridge_serial_list(buf: CPointer<UInt8>, bufLen: Int32): Int32
+
+/**
  * 打开串口：成功返回 >0 句柄，失败返回负码（-1 参数/白名单、-2 句柄表满、-3 平台打不开）。
  * 失败明细用 serialLastError() 取（C 侧线程局部，同一线程内取才有意义）。
  */
@@ -66,6 +76,51 @@ public func serialLastError(): String {
     unsafe {
         return cj_bridge_serial_last_error().toString()
     }
+}
+
+/**
+ * C 桥枚举本机串口：Windows 下走 QueryDosDeviceW（返回 COM 名字列表）；
+ * Linux 返回 None（-4 未实现，serial:list 在 Linux 走 /dev 扫描）。C 侧异常时也回 None。
+ */
+public func serialListC(): Option<ArrayList<String>> {
+    let cap: Int32 = 8192
+    let buf = LibC.malloc<UInt8>(count: Int64(cap))
+    var n: Int32 = 0
+    unsafe {
+        n = cj_bridge_serial_list(buf, cap)
+    }
+    if (n < 0) {
+        unsafe {
+            LibC.free(buf)
+        }
+        return None
+    }
+    // 返回值是「条数」不是字节数；真正的文本以 '\0' 结尾，按终止符取整段再按 '\n' 切开
+    var len: Int64 = 0
+    unsafe {
+        while (len < Int64(cap) && buf.read(len) != 0) {
+            len++
+        }
+    }
+    let bytes = Array<UInt8>(len, repeat: 0)
+    unsafe {
+        for (i in 0..len) {
+            bytes[i] = buf.read(i)
+        }
+    }
+    unsafe {
+        LibC.free(buf)
+    }
+    let out = ArrayList<String>()
+    let text = String.fromUtf8(bytes)
+    if (text != "") {
+        for (line in text.split('\n')) {
+            if (line != "") {
+                out.add(line)
+            }
+        }
+    }
+    return Some(out)
 }
 
 /**

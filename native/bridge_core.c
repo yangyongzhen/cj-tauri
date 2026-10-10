@@ -786,3 +786,12 @@ int cj_bridge_serial_close(long long h) {
 const char *cj_bridge_serial_last_error(void) {
     return g_serial_err;
 }
+
+int cj_bridge_serial_list(char *out, int out_len) {
+    if (!out || out_len <= 0) {
+        cj_serial_err_set("serial: list 参数非法（out 缓冲为空）");
+        return -1;
+    }
+    out[0] = '\0';
+    return cj_plat_serial_list(out, out_len); /* 负码原样交回（-4 = 本平台未实现） */
+}

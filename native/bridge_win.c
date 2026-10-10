@@ -30,6 +30,7 @@
 #include <commdlg.h>
 #include <objbase.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include "WebView2.h"
@@ -1270,41 +1271,363 @@ int cj_plat_host_capabilities(cj_host *h) {
  *  串口（plugin_serial 的平台层）：Windows 侧
  *
  *  四个原语的**名字与返回码口径**与 Linux 侧逐字一致（见 bridge_core.h），所以上层不必写平台分支。
- *  这里先只留接口：应用拿到的是可读的「本平台暂不支持」，而不是静默失败或链接期缺符号。
- *  后续实现要点：CreateFileW("\\\\.\\COM3", GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED)
- *  + GetCommState/SetCommState 配 DCB（BaudRate / ByteSize / Parity / StopBits）
- *  + SetCommTimeouts 或 OVERLAPPED + WaitCommEvent 做超时读写。
+ *  实现：CreateFileW("\\\\.\\COMx", …, FILE_FLAG_OVERLAPPED) + DCB 配参；
+ *  读写都走 OVERLAPPED——超时由 WaitForSingleObject 的预算控制，不会把调用线程钉死在
+ *  驱动内部的阻塞读上（SetCommTimeouts 的总超时只对「等到第一个字节」可控，
+ *  OVERLAPPED 才能像 Linux 的 poll 那样精确按剩余预算等）。
  * ========================================================================= */
-#define CJ_SERIAL_WIN_TODO "serial: Windows 侧串口尚未实现（接口已留，见 native/bridge_win.c）"
+
+#define CJ_SERIAL_MAX_HANDLES 8
+
+typedef struct serial_slot {
+    int used;
+    long long id;
+    HANDLE h;
+    char path[256];
+} serial_slot;
+
+static serial_slot g_serial_slots[CJ_SERIAL_MAX_HANDLES];
+static long long g_serial_next_id = 1;
+static CRITICAL_SECTION g_serial_lock;
+static INIT_ONCE g_serial_lock_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK serial_lock_init_once(PINIT_ONCE once, PVOID param, PVOID *ctx) {
+    (void)once; (void)param; (void)ctx;
+    InitializeCriticalSection(&g_serial_lock);
+    return TRUE;
+}
+
+static void serial_lock(void) {
+    InitOnceExecuteOnce(&g_serial_lock_once, serial_lock_init_once, NULL, NULL);
+    EnterCriticalSection(&g_serial_lock);
+}
+
+static void serial_unlock(void) {
+    LeaveCriticalSection(&g_serial_lock);
+}
+
+static void serial_err(char *err, int err_len, const char *fmt, ...) {
+    va_list ap;
+    if (!err || err_len <= 0) return;
+    va_start(ap, fmt);
+    vsnprintf(err, (size_t)err_len, fmt, ap);
+    va_end(ap);
+}
+
+static serial_slot *serial_find_locked(long long id) {
+    int i;
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (g_serial_slots[i].used && g_serial_slots[i].id == id) return &g_serial_slots[i];
+    }
+    return NULL;
+}
+
+/* 句柄 → HANDLE；无效时填 err 返回 NULL。HANDLE 值本身取出后在锁外用：
+   close 会先置 used=0 再 CloseHandle，所以锁外使用期间句柄不会被本表回收。 */
+static HANDLE serial_handle_of(long long h, char *err, int err_len) {
+    serial_slot *s;
+    HANDLE hd = NULL;
+    serial_lock();
+    s = serial_find_locked(h);
+    if (s) hd = s->h;
+    serial_unlock();
+    if (!hd) serial_err(err, err_len, "serial: 句柄 %lld 无效（未打开或已关闭）", h);
+    return hd;
+}
+
+/* "COM3"（白名单放行的形状）→ "\\.\COM3"：Win32 打开串口必须走设备命名空间，
+   普通文件语义的 "COM3" 会被当成当前目录下的同名文件。 */
+static int serial_win_path(const char *path, wchar_t *out, int out_chars) {
+    wchar_t w[256];
+    int n;
+    if (MultiByteToWideChar(CP_UTF8, 0, path, -1, w, 256) <= 0) return 0;
+    if (wcsncmp(w, L"\\\\.\\", 4) == 0) {
+        n = _snwprintf(out, (size_t)out_chars, L"%s", w);
+    } else {
+        n = _snwprintf(out, (size_t)out_chars, L"\\\\.\\%s", w);
+    }
+    return (n > 0 && n < out_chars) ? 1 : 0;
+}
+
+/* 数值波特率 → DCB：DCB.BaudRate 本身收数值，但沿用 Linux「只收常见档位」的口径——
+   不认识的值拒绝而不是透传给驱动（两端行为一致，上层不用猜哪边支持哪档） */
+static int serial_baud_known(int baud) {
+    switch (baud) {
+        case 300: case 600: case 1200: case 2400: case 4800: case 9600:
+        case 19200: case 38400: case 57600: case 115200: case 230400:
+        case 460800: case 500000: case 921600: case 1000000:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static long long serial_now_ms(void) {
+    return (long long)GetTickCount64();
+}
 
 long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *err, int err_len) {
-    (void)path;
-    (void)cfg;
-    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
-    return -3;
+    wchar_t wpath[280];
+    HANDLE hd;
+    DCB dcb;
+    COMMTIMEOUTS to;
+    int i;
+    long long id;
+
+    if (!path || !cfg) {
+        serial_err(err, err_len, "serial: 空路径 / 空配置");
+        return -1;
+    }
+    if (!serial_baud_known(cfg->baud)) {
+        serial_err(err, err_len, "serial: 本平台不支持的波特率 %d（只收常见档位）", cfg->baud);
+        return -1;
+    }
+    if (!serial_win_path(path, wpath, (int)(sizeof(wpath) / sizeof(wpath[0])))) {
+        serial_err(err, err_len, "serial: 设备路径转宽字符失败（过长或非 UTF-8？）: %s", path);
+        return -1;
+    }
+
+    serial_lock();
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (!g_serial_slots[i].used) break;
+    }
+    if (i == CJ_SERIAL_MAX_HANDLES) {
+        serial_unlock();
+        serial_err(err, err_len, "serial: 句柄表满（最多 %d 个并发串口）", CJ_SERIAL_MAX_HANDLES);
+        return -2;
+    }
+
+    /* 独占打开（共享模式 0）：串口是物理独占资源，两个进程同开一个口只会互咬数据 */
+    hd = CreateFileW(wpath, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+                     FILE_FLAG_OVERLAPPED, NULL);
+    if (hd == INVALID_HANDLE_VALUE) {
+        serial_err(err, err_len, "serial: CreateFileW(%s) 失败: lu=%lu（口不存在 / 被占用？）",
+                   path, (unsigned long)GetLastError());
+        serial_unlock();
+        return -3;
+    }
+
+    /* GetCommState 拿驱动现状打底再覆盖：DCB 结构里有几十个流控/二进制位，
+       全零起步会把 fBinary=0 这类非法组合交给驱动，行为随驱动版本漂移 */
+    memset(&dcb, 0, sizeof(dcb));
+    dcb.DCBlength = sizeof(dcb);
+    if (!GetCommState(hd, &dcb)) {
+        serial_err(err, err_len, "serial: GetCommState(%s) 失败: lu=%lu",
+                   path, (unsigned long)GetLastError());
+        CloseHandle(hd);
+        serial_unlock();
+        return -3;
+    }
+    dcb.BaudRate = (DWORD)cfg->baud;
+    dcb.ByteSize = (BYTE)cfg->data_bits;
+    dcb.Parity = (cfg->parity == 1) ? ODDPARITY : (cfg->parity == 2) ? EVENPARITY : NOPARITY;
+    dcb.StopBits = (cfg->stop_bits == 2) ? TWOSTOPBITS : ONESTOPBIT;
+    dcb.fBinary = TRUE;
+    dcb.fParity = (cfg->parity != 0) ? TRUE : FALSE;
+    /* 硬件/软件流控不替应用开（与 Linux 侧同一条铁律：框架自作主张会改握手语义） */
+    dcb.fOutxCtsFlow = FALSE;
+    dcb.fOutxDsrFlow = FALSE;
+    dcb.fDtrControl = DTR_CONTROL_DISABLE;
+    dcb.fRtsControl = RTS_CONTROL_DISABLE;
+    dcb.fOutX = FALSE;
+    dcb.fInX = FALSE;
+    if (!SetCommState(hd, &dcb)) {
+        serial_err(err, err_len, "serial: SetCommState(%s) 失败: lu=%lu（设备不接受这组参数？）",
+                   path, (unsigned long)GetLastError());
+        CloseHandle(hd);
+        serial_unlock();
+        return -3;
+    }
+
+    /* 超时全部归零：等待交给 OVERLAPPED 的 WaitForSingleObject（我们控制预算），
+       驱动层不再叠加自己的阻塞语义。PURGE 清掉打开瞬间的残留字节 */
+    memset(&to, 0, sizeof(to));
+    to.ReadIntervalTimeout = MAXDWORD;
+    to.ReadTotalTimeoutConstant = 0;
+    to.ReadTotalTimeoutMultiplier = 0;
+    to.WriteTotalTimeoutConstant = 0;
+    to.WriteTotalTimeoutMultiplier = 0;
+    if (!SetCommTimeouts(hd, &to)) {
+        serial_err(err, err_len, "serial: SetCommTimeouts(%s) 失败: lu=%lu",
+                   path, (unsigned long)GetLastError());
+        CloseHandle(hd);
+        serial_unlock();
+        return -3;
+    }
+    PurgeComm(hd, PURGE_TXABORT | PURGE_RXABORT | PURGE_TXCLEAR | PURGE_RXCLEAR);
+
+    id = g_serial_next_id++;
+    if (g_serial_next_id <= 0) g_serial_next_id = 1; /* 溢出兜底：句柄永不为 0 */
+    g_serial_slots[i].used = 1;
+    g_serial_slots[i].id = id;
+    g_serial_slots[i].h = hd;
+    snprintf(g_serial_slots[i].path, sizeof(g_serial_slots[i].path), "%s", path);
+    serial_unlock();
+
+    /* 落地一行：参数与句柄都打全，串口问题基本都是拿这行对账（AGENTS §1 的取证口径） */
+    fprintf(stderr, "[cj-bridge] serial win32: path=%s baud=%d data=%d parity=%d stop=%d handle=%p\n",
+            path, cfg->baud, cfg->data_bits, cfg->parity, cfg->stop_bits, (void *)hd);
+    return id;
 }
 
+/* 读：OVERLAPPED 发起，等事件最多 timeout_ms；0 = 超时无数据（与 Linux poll 口径一致） */
 int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms, char *err, int err_len) {
-    (void)h;
-    (void)buf;
-    (void)len;
-    (void)timeout_ms;
-    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
-    return -4;
+    HANDLE hd = serial_handle_of(h, err, err_len);
+    OVERLAPPED ov;
+    DWORD got = 0;
+    BOOL ok;
+
+    if (!hd) return -4;
+
+    memset(&ov, 0, sizeof(ov));
+    ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!ov.hEvent) {
+        serial_err(err, err_len, "serial: CreateEvent 失败: lu=%lu", (unsigned long)GetLastError());
+        return -3;
+    }
+    ok = ReadFile(hd, buf, (DWORD)len, &got, &ov);
+    if (!ok && GetLastError() == ERROR_IO_PENDING) {
+        DWORD w = WaitForSingleObject(ov.hEvent, timeout_ms > 0 ? (DWORD)timeout_ms : 0);
+        if (w == WAIT_TIMEOUT) {
+            /* 预算用尽：撤销这次读再走，驱动里不挂未完成请求 */
+            CancelIo(hd);
+            GetOverlappedResult(hd, &ov, &got, TRUE); /* 等 CancelIo 本身落定 */
+            CloseHandle(ov.hEvent);
+            return 0;
+        }
+        ok = (w == WAIT_OBJECT_0) ? GetOverlappedResult(hd, &ov, &got, FALSE) : FALSE;
+        if (!ok && GetLastError() == ERROR_OPERATION_ABORTED) {
+            CloseHandle(ov.hEvent);
+            return 0;
+        }
+    } else if (!ok && GetLastError() == ERROR_IO_INCOMPLETE) {
+        /* 理论上只在无事件句柄时出现；按「本轮无数据」降级，别当错误放大 */
+        CloseHandle(ov.hEvent);
+        return 0;
+    }
+    CloseHandle(ov.hEvent);
+    if (!ok) {
+        serial_err(err, err_len, "serial: ReadFile 失败: lu=%lu", (unsigned long)GetLastError());
+        return -3;
+    }
+    return (int)got;
 }
 
+/* 写：在 timeout_ms 总预算内有界写完（与 Linux 侧同一口径：返回已写入量，预算用尽即交回） */
 int cj_plat_serial_write(long long h, const unsigned char *buf, int len, int timeout_ms,
                          char *err, int err_len) {
-    (void)h;
-    (void)buf;
-    (void)len;
-    (void)timeout_ms;
-    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
-    return -4;
+    HANDLE hd = serial_handle_of(h, err, err_len);
+    long long deadline = serial_now_ms() + (timeout_ms > 0 ? (long long)timeout_ms : 0);
+    int written = 0;
+
+    if (!hd) return -4;
+
+    while (written < len) {
+        OVERLAPPED ov;
+        DWORD put = 0, w;
+        long long budget;
+        BOOL ok;
+
+        memset(&ov, 0, sizeof(ov));
+        ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+        if (!ov.hEvent) {
+            serial_err(err, err_len, "serial: CreateEvent 失败: lu=%lu", (unsigned long)GetLastError());
+            return written > 0 ? written : -3;
+        }
+        ok = WriteFile(hd, buf + written, (DWORD)(len - written), &put, &ov);
+        if (!ok && GetLastError() == ERROR_IO_PENDING) {
+            budget = deadline - serial_now_ms();
+            w = WaitForSingleObject(ov.hEvent, budget > 0 ? (DWORD)budget : 0);
+            if (w == WAIT_TIMEOUT) {
+                CancelIo(hd);
+                GetOverlappedResult(hd, &ov, &put, TRUE);
+                CloseHandle(ov.hEvent);
+                break; /* 预算用尽：返回已写入量 */
+            }
+            ok = (w == WAIT_OBJECT_0) ? GetOverlappedResult(hd, &ov, &put, FALSE) : FALSE;
+            if (!ok && GetLastError() == ERROR_OPERATION_ABORTED) {
+                CloseHandle(ov.hEvent);
+                break;
+            }
+        }
+        CloseHandle(ov.hEvent);
+        if (!ok) {
+            serial_err(err, err_len, "serial: WriteFile 失败: lu=%lu", (unsigned long)GetLastError());
+            return written > 0 ? written : -3;
+        }
+        if (put == 0) break; /* 驱动收了请求却 0 字节：别空转，交回上层 */
+        written += (int)put;
+    }
+    return written;
 }
 
 int cj_plat_serial_close(long long h, char *err, int err_len) {
-    (void)h;
-    if (err && err_len > 0) snprintf(err, (size_t)err_len, "%s", CJ_SERIAL_WIN_TODO);
-    return -4;
+    HANDLE hd = NULL;
+    int i;
+
+    serial_lock();
+    for (i = 0; i < CJ_SERIAL_MAX_HANDLES; i++) {
+        if (g_serial_slots[i].used && g_serial_slots[i].id == h) {
+            hd = g_serial_slots[i].h;
+            g_serial_slots[i].used = 0;
+            g_serial_slots[i].id = 0;
+            g_serial_slots[i].h = NULL;
+            g_serial_slots[i].path[0] = '\0';
+            break;
+        }
+    }
+    serial_unlock();
+    if (!hd) {
+        serial_err(err, err_len, "serial: 句柄 %lld 无效（未打开或已关闭）", h);
+        return -4;
+    }
+    if (!CloseHandle(hd)) {
+        serial_err(err, err_len, "serial: CloseHandle 失败: lu=%lu", (unsigned long)GetLastError());
+        return -3;
+    }
+    return 0;
+}
+
+/* 串口枚举（cj_bridge_serial_list 的平台层）：QueryDosDeviceW 扫全部 MS-DOS 设备名，
+   收「COM + 全数字」的形状。相比翻注册表（枚举值随驱动形态漂移：有 00xx 子键的、
+   有 Device Parameters 的），QueryDosDevice 一次调用给全系统当前真实存在的设备名，
+   虚拟口（com0com、驱动模拟）也在其中。 */
+int cj_plat_serial_list(char *out, int out_len) {
+    wchar_t *buf;
+    DWORD need = 65536, got, i;
+    int count = 0, pos = 0;
+
+    if (!out || out_len <= 0) return -1;
+    out[0] = '\0';
+    for (;;) {
+        buf = (wchar_t *)malloc((size_t)need * sizeof(wchar_t));
+        if (!buf) return -1;
+        got = QueryDosDeviceW(NULL, buf, need);
+        if (got > 0) break;
+        free(buf);
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) return -1;
+        need *= 2; /* 缓冲不够就翻倍重试；QueryDosDevice 无返回所需大小的口径 */
+    }
+    for (i = 0; buf[i] != L'\0'; i += wcslen(buf + i) + 1) {
+        wchar_t *name = buf + i;
+        const wchar_t *p = name;
+        int digits = 0;
+        if (wcsncmp(p, L"COM", 3) != 0) continue;
+        p += 3;
+        while (*p >= L'0' && *p <= L'9') { p++; digits++; }
+        if (digits == 0 || digits > 3 || *p != L'\0') continue; /* COMfoo / 超长号一律不要 */
+        {
+            char ascii[16];
+            int n = WideCharToMultiByte(CP_UTF8, 0, name, -1, ascii, (int)sizeof(ascii), NULL, NULL);
+            if (n <= 0) continue;
+            if (pos + n >= out_len) break; /* 放不下就到此为止：串口数量不会真到溢出 */
+            if (count > 0) out[pos++] = '\n';
+            memcpy(out + pos, ascii, (size_t)n);
+            pos += n - 1; /* 不含收尾 '\0' */
+            count++;
+        }
+    }
+    free(buf);
+    out[pos] = '\0';
+    return count;
 }

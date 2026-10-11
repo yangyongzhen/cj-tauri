@@ -16,6 +16,13 @@ description: 用 cj-tauri（仓颉版类 Tauri 框架）开发应用：起工程
 
 ## 步骤
 
+### 0. 环境先过关（没有环境，后面全是空谈）
+
+先跑 `cj-tauri-env` skill 的一键检测：`cjc` / `cjpm` / `CANGJIE_HOME` / `CANGJIE_STDX` /
+gcc（Linux）或 llvm-mingw（Windows）/ WebKitGTK / WebView2。缺哪样补哪样——
+安装指引、仓颉资料入口（官网 / 中心仓 / API / CangjieSkills 技能包）都在那个 skill 里。
+环境没齐就先装环境，**不要**在缺失的环境里试编译。
+
 ### 1. 起工程
 
 ```bash

@@ -8,6 +8,7 @@
 
 | skill | 干什么 | 什么时候会被触发 |
 |---|---|---|
+| `cj-tauri-env` | **环境检测与安装指引**：一键检测 cjc/cjpm/stdx/gcc/llvm-mingw/WebKitGTK/WebView2，缺哪样补哪样；附仓颉资料入口与 CangjieSkills 技能包安装 | 「检测环境」「这台机器能不能跑」「cjc/gcc 找不到」「环境怎么搭」 |
 | `cj-tauri-app-dev` | 起工程、加命令/插件（三处联动）、写前端、过门禁 | 「用 cj-tauri 起个应用」「加个命令/插件」「前端调用不通」 |
 | `cj-tauri-verify` | 构建 → 实机跑 → 桥 stderr 取证 → Xvfb/pty → 断言截图 | 「跑一下」「验证」「自动化验收」「截图」 |
 | `cj-tauri-troubleshoot` | 编译报错 / 页面异常 / 多窗口回调的**实测坑速查表** | 仓颉编译错、应用行为怪、写代码前预防 |
@@ -17,7 +18,7 @@
 
 ### 方式一：作为 plugin 安装（推荐，可整包更新）
 
-本目录已 marketplace 化（`.atomcode-plugin/marketplace.json`），一行命令把四个 skill 一起装上：
+本目录已 marketplace 化（`.atomcode-plugin/marketplace.json`），一行命令把五个 skill 一起装上：
 
 ```bash
 # CLI 方式
@@ -62,5 +63,5 @@ bash scripts/install-skills.sh --project  # 装到项目级 .atomcode/skills/（
 cj-tauri 是「仓颉后端 + 系统 WebView 前端」的混合开发框架，开发中的真实难点不在 Hello World，
 而在：**能力安全模型的三处联动**（漏一处命令就用不了）、**实机取证**（窗口起来 ≠ 成功，
 证据在桥的 stderr 日志）、以及**平台与语言层面的坑**（三引号转义、FFI 签名、WebKitGTK 行为…）。
-这四个 skill 分别把「怎么做 / 怎么验 / 怎么避坑 / 怎么回馈」固化下来，
+这五个 skill 分别把「环境怎么做齐 / 怎么做 / 怎么验 / 怎么避坑 / 怎么回馈」固化下来，
 全部内容来自真实项目的实战轮次——每一坑都实测踩过、每条修法都实机验证过。

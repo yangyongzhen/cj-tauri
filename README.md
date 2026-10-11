@@ -251,7 +251,9 @@ atomcode plugin marketplace add https://atomgit.com/qq8864/cj-tauri.git
 atomcode plugin install cj-tauri-skills@cj-tauri-skills
 ```
 
-包含四个 skill：`cj-tauri-app-dev`（起工程 / 三处联动 / 前端 / 门禁）、`cj-tauri-verify`
+包含五个 skill：`cj-tauri-env`（**环境检测 + 工具链安装指引**：一键检测 cjc / cjpm / stdx / gcc /
+llvm-mingw / WebKitGTK / WebView2，缺哪样补哪样，附仓颉资料入口与 CangjieSkills 语言技能包）、
+`cj-tauri-app-dev`（起工程 / 三处联动 / 前端 / 门禁）、`cj-tauri-verify`
 （构建 → 实机 → 桥 stderr 取证 → Xvfb / pty 虚拟设备 → 断言截图）、`cj-tauri-troubleshoot`
 （编译报错 / 页面异常的实测坑速查表）、`cj-tauri-contribute`（问题→issue、修法→PR 的自进化入口）。
 详见 [`skills/README.md`](skills/README.md) 与 [skills 使用文章](docs/cj-tauri-skills-使用指南.md)。

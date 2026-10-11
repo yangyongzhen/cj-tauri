@@ -22,6 +22,13 @@
   命令与插件三处联动 / 前端 / 门禁）、`cj-tauri-verify`（桥 stderr 取证 / Xvfb / pty 虚拟设备 /
   断言截图）、`cj-tauri-troubleshoot`（实测坑速查表）、`cj-tauri-contribute`（问题→issue、修法→PR 的
   自进化入口）。使用指南见 `docs/cj-tauri-skills-使用指南.md`。
+- **skills 补充环境检测 skill `cj-tauri-env`**：一键检测 cjc / cjpm / stdx / gcc（Linux）/
+  llvm-mingw（Windows）/ WebKitGTK / WebView2，缺哪样补哪样——安装指引含仓颉 SDK 与环境搭建教程
+  （cangjie-lang.cn）、stdx 的 `CANGJIE_STDX` 指向要求、Linux gcc + WebKitGTK 一行 apt、
+  Windows 推荐 llvm-mingw（免安装替代 MSVC）、WebView2 Runtime/SDK 规则，以及仓颉资料速查表
+  （官网 / API / 中心仓 / 主库与三方库组织 / 社区优质项目 / 官方示例）与
+  CangjieSkills 语言技能包安装；`cj-tauri-app-dev` 加「步骤 0：环境先过关」，
+  `cj-tauri-troubleshoot` 速查表补环境类三条（127 无输出 / stdx 指错 / 不必上 MSVC）。
 - **官方 `serial` 插件（串口读写）**：`serial:list` / `serial:open` / `serial:read` / `serial:write` /
   `serial:close` 五条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
   `list` 枚举本机串口设备节点（`/dev` 顶层按设备类前缀收 + `/dev/serial/by-{id,path}/` 整目录收录，

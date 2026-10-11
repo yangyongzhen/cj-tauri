@@ -15,6 +15,9 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 
 | 症状 / 写法 | 原因与修法 |
 |---|---|
+| `cjc: command not found` / 原生进程退出码 127 且无输出 | 环境没配齐：cjc 在 SDK `bin`，cjpm 在 `tools/bin`；Linux 运行时 .so 还要 `LD_LIBRARY_PATH` 含 `runtime/lib/<平台>`——**先跑 `cj-tauri-env` skill 的一键检测**，缺哪样补哪样 |
+| `root package ... imports package 'stdx...' but the dependency info is missing` | `CANGJIE_STDX` 指错了：必须指 `<stdx>/<三元组>/dynamic/stdx`（动态库目录，不是包根）；`create` 能成功、到生成工程 build 才炸，极具迷惑性 |
+| Windows 上没有 / 不想装 Visual Studio | 不需要 MSVC：C 桥用 **llvm-mingw**（免安装，解压即用，安装见 `cj-tauri-env` skill） |
 | 注释永不闭合、报莫名错误 | 块注释里出现 `/*` 开嵌套注释；路径通配（如 `*.json`）改写或换行注释 |
 | `error: expected '#' or '"' in raw string` | `#` 不是注释符（是 raw string 前缀）；行注释一律 `//` |
 | `unexpected main function in string interpolation` | `${main}` 撞同名函数；换个变量名 |

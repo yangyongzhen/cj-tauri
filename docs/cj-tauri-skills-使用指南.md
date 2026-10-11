@@ -163,6 +163,17 @@ bash cj-tauri/scripts/install-skills.sh --project  # 或只装到当前项目 .a
 3. **沉淀新工作流**：某个流程你重复跑了三轮以上（比如"打包前先过三道门禁"），
    就值得做成新 skill 放进 `skills/` 提 PR——下一个人（和下一个 AI）直接受益。
 
+### 当前的 PR 与 issue 情况（2026-10-09 快照）
+
+- **skills 地址**：https://atomgit.com/qq8864/cj-tauri/tree/main/skills
+  （新增 skill 就提 PR 改这个目录；五个 skill 各一个子目录，照现有 `SKILL.md` 的结构写即可）；
+- **PR**：https://atomgit.com/qq8864/cj-tauri/pulls —— 目前**还没有收到 PR**，
+  你提的就是第一个：修 bug、补文档、加 skill、加示例都欢迎；
+- **Issue**：https://atomgit.com/qq8864/cj-tauri/issues —— 当前有 **2 个开放 issue**，
+  都是征求意见的设计草案：[#1 RFC-001 插件体系](https://atomgit.com/qq8864/cj-tauri/issues/1)
+  与 [#2 RFC-002 热重载与前端模板](https://atomgit.com/qq8864/cj-tauri/issues/2)——
+  对框架设计有想法的话，直接去这两个 issue 下评审留言，比提代码还帮得上忙。
+
 cj-tauri 是 MIT 协议的开源项目，仓库在 AtomGit：https://atomgit.com/qq8864/cj-tauri
 （GitHub 同步镜像）。觉得有用就点个 star；遇到了坑别忍着，提上来——
 **你踩过的每一个坑，都会变成所有人下一段路里的平整地面。**

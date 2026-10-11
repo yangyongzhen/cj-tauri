@@ -138,6 +138,8 @@ public class MovieListCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let kind = argString(args, "kind", "hot")
         var path = ""
         match (movieListPathOf(kind)) {
@@ -165,6 +167,8 @@ public class MovieSearchCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let q = argString(args, "q", "")
         if (q.size == 0) {
             throw CommandException("请输入搜索关键词")
@@ -184,6 +188,8 @@ public class MovieDetailCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let id = argString(args, "id", "")
         if (id.size == 0) {
             throw CommandException("缺少影视 id")
@@ -205,6 +211,8 @@ public class MovieSourceCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let sid = argString(args, "sid", "")
         if (!isSafeSid(sid)) {
             throw CommandException("非法的播放源 id：\"${sid}\"（只接受数字）")
@@ -230,6 +238,8 @@ public class MovieSourceItemCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let sid = argString(args, "sid", "")
         if (!isSafeSid(sid)) {
             throw CommandException("非法的播放源 id：\"${sid}\"（只接受数字）")
@@ -257,6 +267,8 @@ public class MovieImageCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let url = argString(args, "url", "")
         if (url.size == 0) {
             throw CommandException("缺少封面地址")
@@ -275,6 +287,8 @@ public class ReportCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         eprintln("[frontend] " + argString(args, "line", "(空)"))
         return JsonBool(true)
     }

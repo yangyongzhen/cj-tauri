@@ -1,6 +1,6 @@
 package movie_app
 
-import std.fs.*
+import stdx.encoding.json.*
 import cjTauri.*
 
 /**
@@ -22,14 +22,7 @@ let MOVIE_UI_PATH = "ui/index.html"
  * 独立成文件后两个坑都不存在，编辑器也才认得出语法。
  */
 func loadMovieUi(): String {
-    var bytes: Array<Byte> = []
-    try {
-        bytes = File.readFrom(MOVIE_UI_PATH)
-    } catch (e: Exception) {
-        throw Exception("读不到前端页面 ${MOVIE_UI_PATH}（${e}）——请在 examples/movie 目录下启动：" +
-            "capabilities/ 与 ui/ 都按项目根相对路径读")
-    }
-    return String.fromUtf8(bytes)
+    return textOrFile(PACKED_UI_B64, MOVIE_UI_PATH, "前端页面")
 }
 
 main(): Int64 {
@@ -48,6 +41,19 @@ main(): Int64 {
         .register("movie:sourceitem", MovieSourceItemCommand())
         .register("movie:image", MovieImageCommand())
         .register("report", ReportCommand())
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[movie] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
+    }
 
     let html = loadMovieUi()
     eprintln("[movie] 前端页面已载入：${MOVIE_UI_PATH}（${html.size} 字节）")

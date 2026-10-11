@@ -136,6 +136,17 @@ bash cj-tauri/scripts/install-skills.sh --project  # 或只装到当前项目 .a
 
 项目级会覆盖同名全局 skill——你可以拿这个给不同项目配不同流程。
 
+### 其他市场与跨生态安装
+
+skill 的格式（目录 + `SKILL.md`）是通用的，同一个仓能被多个生态装载（均已核实）：
+
+- **Claude Code**：本仓已备 `.claude-plugin/marketplace.json`（AtomCode 的 plugin 协议与 CC 兼容）——
+  `/plugin marketplace add yangyongzhen/cj-tauri` → `/plugin install cj-tauri-skills@cj-tauri-skills`；
+- **skills CLI**（vercel-labs/skills，跨 75+ agent）：`npx skills add yangyongzhen/cj-tauri`——
+  它自动扫仓库的 `skills/` 目录（GitHub 镜像同步后即可用）；
+- **目录站**（自动索引公开 GitHub 仓库）：[Skill Navigator](https://www.skillnavigator.directory/)
+  与 [agentskills.cc](https://agentskills.cc/)——仓库公开后会被自动收录，无需报名。
+
 ### 方式三：手动拷贝
 
 把 `skills/<名字>/` 整个目录拷到 `~/.atomcode/skills/` 下即可，结构就是一个目录一个 `SKILL.md`。

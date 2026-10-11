@@ -94,6 +94,19 @@ WebKitGTK 的原生 combo 样式在作怪、`-webkit-appearance:none` 自绘可�
 
 ## 三、安装：三种方式挑一种
 
+### 它发布在哪（链接）
+
+这套 skills 的**正身随 cj-tauri 仓库分发**（已 marketplace 化），不在别的市场上：
+
+| 位置 | 链接 |
+|---|---|
+| cj-tauri 仓库（AtomGit，skills 正身所在） | https://atomgit.com/qq8864/cj-tauri |
+| skills 目录（五个 skill 就在这里面） | https://atomgit.com/qq8864/cj-tauri/tree/main/skills |
+| GitHub 同步镜像 | https://github.com/yangyongzhen/cj-tauri （受限网络下可能需配代理访问） |
+
+装好后可以在 AtomCode 里自查：`/plugin list` 应看到 `cj-tauri-skills@cj-tauri-skills`，
+`/plugin marketplace list` 应看到 `cj-tauri-skills`。
+
 ### 方式一：整包装（推荐）
 
 skills 已经 marketplace 化，一行命令装上五个：
@@ -104,7 +117,12 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 ```
 
 装完即用，通常不用重启 AtomCode。以后仓库更新了 skills，`atomcode plugin marketplace update cj-tauri-skills`
-再 `install` 一次就能拿到新版。
+再 `install` 一次就能拿到新版。不想用了就卸载（保留 marketplace 注册）：
+
+```bash
+atomcode plugin uninstall cj-tauri-skills@cj-tauri-skills
+atomcode plugin marketplace remove cj-tauri-skills   # 连 marketplace 一起移（需先卸载插件）
+```
 
 ### 方式二：只装 skills
 
@@ -148,4 +166,20 @@ bash cj-tauri/scripts/install-skills.sh --project  # 或只装到当前项目 .a
 cj-tauri 是 MIT 协议的开源项目，仓库在 AtomGit：https://atomgit.com/qq8864/cj-tauri
 （GitHub 同步镜像）。觉得有用就点个 star；遇到了坑别忍着，提上来——
 **你踩过的每一个坑，都会变成所有人下一段路里的平整地面。**
+
+## 六、装完没出现？常见问题排查
+
+**`/` 菜单里找不到这些 skill？** 按顺序查：
+
+1. **装上了没有**：`/plugin list`（或 `atomcode plugin list`）应列出
+   `cj-tauri-skills@cj-tauri-skills`。没有就回 §三 重装；
+2. **带前缀找**：plugin 贡献的 skill 带 `<plugin名>:` 命名空间——在补全菜单里搜
+   `cj-tauri-skills:`，别只搜裸名字；
+3. **名字合规**：skill 名只允许 `[a-z0-9_-]`，带斜杠或大小写混合的名字会被 loader 静默跳过
+   （本仓五个名字都合规，若你自己新增 skill 撞了这条，改名字）；
+4. **重载一次**：装完通常自动刷新；极少数没刷的，`/plugin reload` 扫一遍磁盘变更；
+5. **项目级覆盖**：项目级 `.atomcode/skills/` 会覆盖同名全局 skill——如果某个项目里名字对不上，
+   查是不是被本地同名 skill 盖了；
+6. **还看不见**：当前会话的 skill 列表可能是启动时的快照，开一个新会话再看
+   （本机验证时就是：安装当轮 `list_skills` 没显示，磁盘与 `/plugin list` 都已确认落盘）。
 

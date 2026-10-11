@@ -1,4 +1,4 @@
-# 让 AI 助手真正会用 cj-tauri：四个 skills 的使用指南
+# 让 AI 助手真正会用 cj-tauri：五个 skills 的使用指南
 
 > 面向读者：已经在用（或打算用）AtomCode 这类 AI 编码助手写应用的人。
 > 如果你装了 [cj-tauri](https://atomgit.com/qq8864/cj-tauri) 的 skills，本文讲清楚它们各管什么、
@@ -23,9 +23,27 @@ skills 解决的就是这个问题。AtomCode 的 skill 本质是一段带 front
 装上之后 AI 助手会在合适的时机按它行事。把框架的开发工作流、取证方法、踩坑速查沉淀成 skills，
 等于给每一个接入 AtomCode 的助手配了一本"这个框架怎么干活的作业指导书"。
 
-## 二、这四个 skill 各管什么
+## 二、这五个 skill 各管什么
 
-cj-tauri 的 skills 一共四个，对应开发一件事的四个环节：**怎么做、怎么验、怎么避坑、怎么回馈**。
+cj-tauri 的 skills 一共五个，对应开发一件事的五个环节：**环境怎么做齐、怎么做、怎么验、怎么避坑、怎么回馈**。
+
+### cj-tauri-env —— 环境检测与安装指引
+
+管"环境怎么做齐"。这是新用户的第一道坎，也是很多人卡住就放弃的地方：`cjc: command not found`、
+退出码 127 且无输出、`dependency info is missing`——这些报错没有一条告诉了你**该怎么装**。
+
+这个 skill 给了两组东西：
+
+- **一键检测脚本**：Linux/Git Bash 与 Windows 各一份，逐项检查 cjc / cjpm / `CANGJIE_HOME` /
+  `CANGJIE_STDX` / gcc（Linux）或 llvm-mingw（Windows）/ WebKitGTK / WebView2——先跑检测再动手，
+  缺哪样补哪样，不猜；
+- **缺什么装什么的指引**：仓颉 SDK（官网 cangjie-lang.cn 与环境搭建教程；注意官方下载页要登录华为账号、
+  没有匿名直链，别浪费时间找）、stdx（`CANGJIE_STDX` 必须指 `dynamic/stdx` 动态库目录，不是包根——
+  指错的表现是 `create` 成功、到生成工程 build 才炸）、Linux 的 gcc + WebKitGTK 一行 apt、
+  Windows 推荐 **llvm-mingw**（免安装、解压即用，从 GitHub Releases 下载后解压到无空格路径、
+  `bin` 进 PATH——不必上庞大的 MSVC / Visual Studio），以及给 AI 助手装仓颉语言知识库技能包
+  **CangjieSkills**（Cangjie-SIG 维护）。末尾附一张仓颉资料速查表：官网 / 环境搭建 / API / 中心仓 /
+  主库与三方库组织 / 社区优质项目 / 官方示例。
 
 ### cj-tauri-app-dev —— 开发主流程
 
@@ -42,7 +60,7 @@ AI 助手十有八九会漏第 ③ 处——因为在别的生态里没有这一
 
 ### cj-tauri-verify —— 实机验证与取证
 
-管"怎么验"。这是四个 skill 里我觉得**最该被推广**的一个，因为它的核心是一组判据铁律：
+管"怎么验"。这是五个 skill 里我觉得**最该被推广**的一个，因为它的核心是一组判据铁律：
 
 - **窗口起来 ≠ 成功**。真正的证据是桥的 stderr 日志：窗口创建、`set window:` 行、
   `js -> native` 的次数与实际调用吻合、`ExecuteScript -> hr=0x00000000`；
@@ -78,7 +96,7 @@ WebKitGTK 的原生 combo 样式在作怪、`-webkit-appearance:none` 自绘可�
 
 ### 方式一：整包装（推荐）
 
-skills 已经 marketplace 化，一行命令装上四个：
+skills 已经 marketplace 化，一行命令装上五个：
 
 ```bash
 atomcode plugin marketplace add https://atomgit.com/qq8864/cj-tauri.git

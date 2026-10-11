@@ -1,14 +1,11 @@
 package movie_app
 
-import std.collection.*
 import std.env.*
 import std.io.*
-import std.sync.*
 import stdx.encoding.base64.*
 import stdx.encoding.json.*
 import stdx.net.http.*
 import stdx.net.tls.*
-import stdx.net.tls.common.*
 import cjTauri.*
 
 /**

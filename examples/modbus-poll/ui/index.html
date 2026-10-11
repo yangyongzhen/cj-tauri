@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Modbus Poll (cj-tauri)</title>
+<style>
+  :root {
+    --bg: #10141b;
+    --panel: #171d27;
+    --panel2: #1c2431;
+    --line: #2a3345;
+    --text: #d7e0ee;
+    --dim: #8b97ab;
+    --accent: #4da3ff;
+    --ok: #3ecf8e;
+    --err: #ff6b6b;
+    --warn: #f5b95f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.5 "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* ---- 顶栏：全局连接参数 + 新增面板 ---- */
+  #topbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+    flex: 0 0 auto; flex-wrap: wrap;
+  }
+  #topbar .brand { font-weight: 600; font-size: 14px; margin-right: 8px; white-space: nowrap; }
+  #topbar .brand small { color: var(--dim); font-weight: 400; margin-left: 6px; }
+  .field { display: flex; align-items: center; gap: 4px; }
+  .field label { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  input, select {
+    background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 5px; padding: 4px 7px; font: inherit; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  input[type="number"] { width: 78px; }
+  input#host { width: 150px; }
+  button {
+    background: #24466e; border: 1px solid #33598c; color: var(--text);
+    border-radius: 5px; padding: 4px 12px; font: inherit; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: #2b5486; }
+  button.primary { background: #2e7d32; border-color: #3d9442; }
+  button.primary:hover { background: #368e3a; }
+  button.danger { background: #6e2430; border-color: #8c3343; }
+  button.danger:hover { background: #82293a; }
+  button:disabled { opacity: .45; cursor: default; }
+  #globalStatus { margin-left: auto; display: flex; gap: 14px; align-items: center; color: var(--dim); font-size: 12px; white-space: nowrap; }
+  #globalStatus .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 4px; vertical-align: middle; }
+  #globalStatus .dot.ok { background: var(--ok); }
+  #globalStatus .dot.err { background: var(--err); }
+
+  /* ---- 主区：面板网格，自由铺满（这就是「界面空间大」的答案） ---- */
+  #panels {
+    flex: 1 1 auto; overflow: auto; padding: 12px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    gap: 12px; align-content: start;
+  }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; display: flex; flex-direction: column; min-height: 300px; }
+  .panel.running { border-color: #2c5d3f; }
+  .panel .head { padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+  .panel .head .title { font-weight: 600; margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+  .panel .grid { flex: 1 1 auto; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 3px 10px; border-bottom: 1px solid #202839; text-align: left; white-space: nowrap; }
+  th { color: var(--dim); font-size: 11px; font-weight: 500; position: sticky; top: 0; background: var(--panel); }
+  td.val { cursor: pointer; font-weight: 600; }
+  td.val:hover { color: var(--accent); }
+  td.val input { width: 110px; padding: 1px 5px; }
+  tr.flash td { animation: rowflash .7s; }
+  @keyframes rowflash { 0% { background: #22405c; } 100% { background: transparent; } }
+  .panel .foot { padding: 5px 10px; border-top: 1px solid var(--line); color: var(--dim); font-size: 11px; display: flex; gap: 12px; align-items: center; }
+  .panel .foot .err { color: var(--err); flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel .foot .cnt { white-space: nowrap; }
+  .panel .foot .cnt b.ok { color: var(--ok); }
+  .panel .foot .cnt b.err { color: var(--err); }
+  .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); color: var(--dim); }
+  .panel.running .badge.run { color: var(--ok); border-color: #2c5d3f; }
+  #empty { color: var(--dim); padding: 40px; text-align: center; grid-column: 1 / -1; line-height: 2; }
+  #selfcheckNote { color: var(--dim); font-size: 11px; margin-left: auto; }
+
+  /* ---- 报文监视：底部停靠面板（可折叠） ---- */
+  #traceDock {
+    flex: 0 0 auto; border-top: 1px solid var(--line); background: #0c1017;
+    display: none; flex-direction: column; height: 200px;
+  }
+  #traceDock.open { display: flex; }
+  #traceHead {
+    display: flex; align-items: center; gap: 10px; padding: 4px 12px;
+    border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px;
+  }
+  #traceHead b { color: var(--text); }
+  #traceHead .spacer { margin-left: auto; }
+  #traceHead button { padding: 1px 8px; font-size: 11px; }
+  #traceLog {
+    flex: 1 1 auto; overflow: auto; padding: 4px 12px;
+    font: 12px/1.7 Consolas, monospace; white-space: pre; color: #9fb0c8;
+  }
+  #traceLog .tx { color: #6fc3ff; }
+  #traceLog .rx { color: #3ecf8e; }
+  #traceLog .meta { color: #5b6a80; }
+
+  /* ---- 写入模态框（单写确认 / FC16 批量编辑共用） ---- */
+  #modalMask {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 50;
+    display: none; align-items: center; justify-content: center;
+  }
+  #modalMask.open { display: flex; }
+  #modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    min-width: 420px; max-width: 640px; max-height: 80vh; display: flex; flex-direction: column;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  #modalTitle { padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--line); }
+  #modalBody { padding: 12px 14px; overflow: auto; }
+  #modalBody .mrow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #modalBody .mrow .maddr { color: var(--dim); font-size: 12px; width: 110px; white-space: nowrap; }
+  #modalBody .mrow input { width: 120px; }
+  #modalFoot { padding: 10px 14px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+  #modalOld { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+  <div id="topbar">
+    <span class="brand">Modbus Poll <small>cj-tauri · Modbus TCP</small></span>
+    <span class="field"><label>模式</label>
+      <select id="mode">
+        <option value="tcp">Modbus TCP</option>
+        <option value="rtu">Modbus RTU (串口)</option>
+      </select>
+    </span>
+    <span class="field" id="fHost"><label>主机</label><input id="host" value="127.0.0.1"></span>
+    <span class="field" id="fPort"><label>端口</label><input id="port" type="number" value="502" min="1" max="65535"></span>
+    <span class="field" id="fSerial" style="display:none">
+      <label>串口</label><input id="serialPath" value="COM1" style="width:92px">
+      <label>波特率</label>
+      <select id="baud"></select>
+      <label>校验</label>
+      <select id="parity">
+        <option value="0">无</option>
+        <option value="1">奇</option>
+        <option value="2">偶</option>
+      </select>
+      <label>数据位</label>
+      <select id="dataBits"><option>8</option><option>7</option></select>
+      <label>停止位</label>
+      <select id="stopBits"><option>1</option><option>2</option></select>
+    </span>
+    <span class="field"><label>超时 ms</label><input id="timeout" type="number" value="3000" min="100" max="60000" step="100"></span>
+    <button class="primary" id="addPanel">+ 新增监控面板</button>
+    <button class="danger" id="stopAll">全部停止</button>
+    <button id="traceToggle">报文监视</button>
+    <button id="pointsExport">导出点位表</button>
+    <button id="pointsImport">导入点位表</button>
+    <span id="selfcheckNote"></span>
+    <span id="globalStatus"><span class="dot" id="connDot"></span><span id="connText">未连接</span></span>
+  </div>
+  <div id="panels"></div>
+  <div id="traceDock">
+    <div id="traceHead">
+      <b>报文监视</b><span id="traceCount">0 帧</span>
+      <input id="traceFilter" placeholder="过滤（如 Rx / fc=3 / 1502）" style="width:170px">
+      <span class="spacer"></span>
+      <label><input type="checkbox" id="tracePause"> 暂停滚动</label>
+      <button id="traceExport">导出</button>
+      <button id="traceClear">清空</button>
+      <button id="traceClose">收起</button>
+    </div>
+    <div id="traceLog"></div>
+  </div>
+  <div id="modalMask">
+    <div id="modal">
+      <div id="modalTitle"></div>
+      <div id="modalBody"></div>
+      <div id="modalFoot">
+        <button id="modalCancel">取消</button>
+        <button class="primary" id="modalOk">写入</button>
+      </div>
+    </div>
+  </div>
+  <script>
+'use strict';
+/* =====================================================================
+ * 多面板 Modbus Poll（对标 Modbus Poll 的 MDI 多窗口，这里铺成网格面板）
+ * 每个面板 = 一个「窗口」：从站 ID / 功能码 / 地址 / 数量 / 扫描周期 / 显示格式，
+ * 面板数量不设限，自由加减——这是对原工具「一屏一组」的补足。
+ * ===================================================================== */
+function waitForBridge(cb) {
+  if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { cb(); return; }
+  var t = setInterval(function () {
+    if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { clearInterval(t); cb(); }
+  }, 50);
+  setTimeout(function () { clearInterval(t); cb(); }, 5000); // 桥 5 秒还没来也继续（面板可先配置）
+}
+
+var FC_NAMES = {
+  1: '01 读线圈 (0x)',
+  2: '02 读离散量 (1x)',
+  3: '03 读保持寄存器 (4x)',
+  4: '04 读输入寄存器 (3x)'
+};
+var FMT_NAMES = { dec: 'DEC', hex: 'HEX', bin: 'BIN', i16: 'Int16', f32: 'Float32', ascii: 'ASCII' };
+/* 跨寄存器类型（Float32）的字节序：显示数组 [r0hi, r0lo, r1hi, r1lo] → ABCD 字节的取法。
+ * 设备字节序五花八门，读和写都必须走同一张表（同源），否则读对写错。 */
+var WORD_LAYOUTS = { ABCD: [0, 1, 2, 3], CDAB: [2, 3, 0, 1], BADC: [1, 0, 3, 2], DCBA: [3, 2, 1, 0] };
+var store = {
+  conn: { mode: 'tcp', host: '127.0.0.1', port: 502, timeout: 3000,
+          serialPath: 'COM1', baud: 9600, parity: 0, dataBits: 8, stopBits: 1 },
+  panels: [],   // {id, unit, fc, addr, qty, scan, fmt, running}
+  nextId: 1
+};
+
+/* ---------- 本地持久化：面板布局与连接参数（下次打开接着用） ---------- */
+function saveState() {
+  try {
+    localStorage.setItem('mbpoll.conn', JSON.stringify(store.conn));
+    localStorage.setItem('mbpoll.panels', JSON.stringify(store.panels.map(function (p) {
+      return { id: p.id, unit: p.unit, fc: p.fc, addr: p.addr, qty: p.qty, scan: p.scan, fmt: p.fmt, word: p.word || 'ABCD', running: p.running, recording: p.recording };
+    })));
+  } catch (e) { /* 无痕模式等场景存不了就算了 */ }
+}
+function loadState() {
+  try {
+    var c = localStorage.getItem('mbpoll.conn');
+    if (c) { Object.assign(store.conn, JSON.parse(c)); }
+    var ps = localStorage.getItem('mbpoll.panels');
+    if (ps) {
+      store.panels = JSON.parse(ps).map(function (d) {
+        d.okCount = 0; d.errCount = 0; d.lastErr = ''; d.lastMs = 0; d.inFlight = false;
+        d.timer = null; d.el = null; d.vals = [];
+        d.samples = [];           // 记录缓冲只在内存（导出即落盘，不随 localStorage 膨胀）
+        if (!(d.fc >= 1 && d.fc <= 4)) { d.fc = 3; }
+        if (!FMT_NAMES[d.fmt]) { d.fmt = 'dec'; }
+        if (!WORD_LAYOUTS[d.word]) { d.word = 'ABCD'; }
+        return d;
+      });
+    }
+  } catch (e) { store.panels = []; }
+  for (var i = 0; i < store.panels.length; i++) {
+    if (store.panels[i].id >= store.nextId) { store.nextId = store.panels[i].id + 1; }
+  }
+}
+
+/* ---------- 显示格式：一个 16 位寄存器的六种读法 ---------- */
+function fmtVal(v, fmt) {
+  v = v >>> 0;
+  switch (fmt) {
+    case 'hex': return '0x' + v.toString(16).toUpperCase().padStart(4, '0');
+    case 'bin': return v.toString(2).padStart(8, '0');
+    case 'i16': return v >= 32768 ? v - 65536 : v;
+    default: return v;
+  }
+}
+/* Float32 / ASCII 都是两个寄存器拼一个值：返回 [文本, 占几个寄存器] */
+function fmtPair(vals, i, fmt, word) {
+  if (fmt === 'f32') {
+    if (i % 2 !== 0 || i + 1 >= vals.length) return ['', 1];
+    var f = decodeF32(vals, i, word || 'ABCD');
+    return [(Math.abs(f) < 1e-6 && f !== 0) ? f.toExponential(4) : String(Math.round(f * 10000) / 10000), 2];
+  }
+  if (fmt === 'ascii') {
+    if (i % 2 !== 0 || i + 1 >= vals.length) return ['', 1];
+    var s = String.fromCharCode((vals[i] >> 8) & 255, vals[i] & 255, (vals[i + 1] >> 8) & 255, vals[i + 1] & 255);
+    return [s.replace(/[^\x20-\x7e]/g, '·'), 2];
+  }
+  return [fmtVal(vals[i], fmt), 1];
+}
+/* 按面板字节序把两个寄存器解成 Float32（读写同源的一侧） */
+function decodeF32(vals, i, word) {
+  var disp = [(vals[i] >> 8) & 255, vals[i] & 255, (vals[i + 1] >> 8) & 255, vals[i + 1] & 255];
+  var L = WORD_LAYOUTS[word] || WORD_LAYOUTS.ABCD;
+  var b = new Uint8Array(4);
+  b[0] = disp[L[0]]; b[1] = disp[L[1]]; b[2] = disp[L[2]]; b[3] = disp[L[3]];
+  return new Float32Array(b.buffer)[0];
+}
+/* 按面板字节序把 Float32 拆成两个寄存器（同一张表的反向用法） */
+function f32ToRegs(f, word) {
+  var e = new Uint8Array(4);
+  new Float32Array(e.buffer)[0] = f;
+  var L = WORD_LAYOUTS[word] || WORD_LAYOUTS.ABCD;
+  var disp = [0, 0, 0, 0];
+  for (var k = 0; k < 4; k++) { disp[L[k]] = e[k]; }
+  return [disp[0] << 8 | disp[1], disp[2] << 8 | disp[3]];
+}
+/* ---------- 轮询引擎：每个面板一条 setTimeout 链，周期 = max(扫描周期, 上一轮耗时) ---------- */
+var BAUDS = [300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 921600, 1000000];
+function connArgs() {
+  var c = store.conn;
+  c.mode = document.getElementById('mode').value;
+  c.host = document.getElementById('host').value.trim();
+  c.port = parseInt(document.getElementById('port').value, 10) || 502;
+  c.timeout = parseInt(document.getElementById('timeout').value, 10) || 3000;
+  c.serialPath = document.getElementById('serialPath').value.trim() || 'COM1';
+  c.baud = parseInt(document.getElementById('baud').value, 10) || 9600;
+  c.parity = parseInt(document.getElementById('parity').value, 10) || 0;
+  c.dataBits = parseInt(document.getElementById('dataBits').value, 10) || 8;
+  c.stopBits = parseInt(document.getElementById('stopBits').value, 10) || 1;
+  return c;
+}
+/* 两种模式共用的连接信封：TCP 忽略串口字段，RTU 忽略主机/端口 */
+function connFields(c) {
+  return { mode: c.mode, host: c.host, port: c.port, timeoutMs: c.timeout,
+           serialPath: c.serialPath, baud: c.baud, parity: c.parity, dataBits: c.dataBits, stopBits: c.stopBits };
+}
+function applyMode() {
+  var rtu = document.getElementById('mode').value === 'rtu';
+  document.getElementById('fHost').style.display = rtu ? 'none' : '';
+  document.getElementById('fPort').style.display = rtu ? 'none' : '';
+  document.getElementById('fSerial').style.display = rtu ? '' : 'none';
+  saveState();
+}
+function readOnce(p) {
+  var c = connArgs();
+  var args = connFields(c);
+  args.unit = p.unit; args.fc = p.fc; args.addr = p.addr; args.qty = p.qty;
+  return window.__CJ_TAURI__.invoke('mb:read', args);
+}
+function pollTick(p) {
+  if (!p.running || p.inFlight) { return; }
+  p.inFlight = true;
+  readOnce(p).then(function (r) {
+    p.inFlight = false;
+    if (r.exception >= 0) {
+      p.errCount++; p.lastErr = '异常码 ' + r.exception + '：' + (r.error || '');
+      setConn('err', '异常');
+    } else {
+      p.okCount++; p.lastErr = ''; p.lastMs = r.elapsedMs;
+      if (r.values && r.values.length) {
+        p.vals = r.values;
+        pushSample(p, r.values);
+        renderValues(p);
+      }
+      setConn('ok', '通信中');
+    }
+    renderFoot(p);
+    p.timer = setTimeout(function () { pollTick(p); }, Math.max(50, p.scan));
+  }).catch(function (e) {
+    p.inFlight = false;
+    p.errCount++;
+    p.lastErr = (e && e.message) ? e.message : String(e);
+    setConn('err', '通信失败');
+    renderFoot(p);
+    p.timer = setTimeout(function () { pollTick(p); }, Math.max(p.scan, 1000)); // 失败退避，别把死地址打爆
+  });
+}
+function startPoll(p) {
+  if (p.running) { return; }
+  p.running = true;
+  p.el.classList.add('running');
+  p.el.querySelector('.badge.run').textContent = '运行中';
+  syncDefFromInputs(p);
+  rebuildTable(p);
+  pollTick(p);
+  saveState();
+}
+function stopPoll(p) {
+  p.running = false;
+  if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+  if (p.el) { p.el.classList.remove('running'); p.el.querySelector('.badge.run').textContent = '已停止'; }
+  saveState();
+}
+
+/* ---------- 写交互：双击单元格（原版工具的核心手势）+ 模态确认 ---------- */
+/* 保持寄存器（fc3）：双击 → 模态框（旧值回显 + 确认）→ FC06 写单个；
+ * Float32/Int16 格式下双击偶数行：按显示类型输入 → 拆两个寄存器 FC16 对写；
+ * 线圈（fc1）：双击 → 确认取反 → FC05 写单个。写完立刻重读一轮，肉眼即见回环。 */
+function showModal(title, bodyHtml, onOk) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = bodyHtml;
+  document.getElementById('modalMask').classList.add('open');
+  var ok = document.getElementById('modalOk');
+  var fresh = ok.cloneNode(true);
+  ok.parentNode.replaceChild(fresh, ok);
+  fresh.addEventListener('click', function () { if (onOk() !== false) { closeModal(); } });
+  document.getElementById('modalCancel').onclick = closeModal;
+  document.getElementById('modalMask').onclick = function (e) { if (e.target === this) { closeModal(); } };
+  var first = document.getElementById('modalBody').querySelector('input');
+  if (first) { first.focus(); first.select(); }
+}
+function closeModal() { document.getElementById('modalMask').classList.remove('open'); }
+/* 浮点 ↔ 两个 16 位寄存器（大端 ABCD 序，与显示格式一致） */
+function f32ToRegs(f) {
+  var b = new Uint8Array(4);
+  new Float32Array(b.buffer)[0] = f;
+  return [b[0] << 8 | b[1], b[2] << 8 | b[3]];
+}
+function i16ToRegs(v) { return [v < 0 ? v + 65536 : v]; }
+/* 统一入口：写完立刻重读一轮 */
+function doWrite(p, args, note) {
+  var full = connFields(connArgs());
+  Object.assign(full, args);
+  return window.__CJ_TAURI__.invoke('mb:write', full).then(function () {
+    p.lastErr = '';
+    if (note) { p.lastErr = note; }   // 成功提示短暂留在状态行（下一次成功读会覆盖为空）
+    renderFoot(p);
+    if (p.running) { pollTick(p); }
+  }).catch(function (e) {
+    p.lastErr = '写失败：' + ((e && e.message) ? e.message : String(e));
+    renderFoot(p);
+  });
+}
+function onCellDblClick(p, rowIdx) {
+  var c = connArgs();
+  var addr = p.addr + rowIdx;
+  if (p.fc === 1) {
+    var to = p.vals[rowIdx] ? 'OFF' : 'ON';
+    showModal('写线圈 (FC05)', '<div id="modalOld">从站 ' + p.unit + ' · 0x' + (addr + 1) + '，当前 ' + (p.vals[rowIdx] ? 'ON' : 'OFF') + '</div><div>将置为 <b>' + to + '</b></div>',
+      function () { doWrite(p, { fc: 5, addr: addr, value: p.vals[rowIdx] ? 0 : 1 }); return true; });
+    return;
+  }
+  if (p.fc !== 3) { window.alert('功能码 ' + p.fc + ' 是只读区，不能写'); return; }
+  if (p.fmt === 'f32' && rowIdx % 2 === 0 && rowIdx + 1 < p.qty) {
+    var f = p.vals[rowIdx] !== undefined ? decodeF32(p.vals, rowIdx, p.word || 'ABCD') : 0;
+    showModal('写 Float32 (FC16 对写)', '<div id="modalOld">从站 ' + p.unit + ' · 4x' + (addr + 1) + '..' + (addr + 2) + '（两寄存器，' + (p.word || 'ABCD') + '），当前 ' + f + '</div>' +
+      '<div class="mrow"><span class="maddr">新浮点值</span><input id="mInput" type="text" value="' + f + '"></div>',
+      function () {
+        var v = parseFloat(document.getElementById('mInput').value);
+        if (isNaN(v)) { alert('浮点值非法'); return false; }
+        var regs = f32ToRegs(v, p.word || 'ABCD');
+        doWrite(p, { fc: 16, addr: addr, qty: 2, values: regs });
+        return true;
+      });
+    return;
+  }
+  if (p.fmt === 'i16') {
+    var cur16 = (p.vals[rowIdx] >= 32768 ? p.vals[rowIdx] - 65536 : (p.vals[rowIdx] || 0));
+    showModal('写 Int16 (FC06)', '<div id="modalOld">从站 ' + p.unit + ' · 4x' + (addr + 1) + '，当前 ' + cur16 + '</div>' +
+      '<div class="mrow"><span class="maddr">新值（-32768..32767）</span><input id="mInput" type="text" value="' + cur16 + '"></div>',
+      function () {
+        var v = parseInt(document.getElementById('mInput').value, 10);
+        if (isNaN(v) || v < -32768 || v > 32767) { alert('值非法（-32768..32767）'); return false; }
+        doWrite(p, { fc: 6, addr: addr, value: i16ToRegs(v)[0] });
+        return true;
+      });
+    return;
+  }
+  showModal('写寄存器 (FC06)', '<div id="modalOld">从站 ' + p.unit + ' · 4x' + (addr + 1) + '，当前 ' + (p.vals[rowIdx] || 0) + '</div>' +
+    '<div class="mrow"><span class="maddr">新值（0..65535，支持 0x）</span><input id="mInput" type="text" value="' + (p.vals[rowIdx] || 0) + '"></div>',
+    function () {
+      var input = document.getElementById('mInput').value.trim().toLowerCase();
+      var v = input.indexOf('0x') === 0 ? parseInt(input, 16) : parseInt(input, 10);
+      if (isNaN(v) || v < 0 || v > 65535) { alert('值非法：' + input); return false; }
+      doWrite(p, { fc: 6, addr: addr, value: v });
+      return true;
+    });
+}
+/* Float32 解码（显示层 fmtPair 用的同一套字节序，这里单独给写回显用） */
+function decodeF32(vals, i) {
+  var b = new Uint8Array(4);
+  b[0] = (vals[i] >> 8) & 255; b[1] = vals[i] & 255;
+  b[2] = (vals[i + 1] >> 8) & 255; b[3] = vals[i + 1] & 255;
+  return new Float32Array(b.buffer)[0];
+}
+/* ---------- FC16 批量写：整段寄存器一次写入（面板头部「批量写」按钮） ---------- */
+function openBatchEditor(p) {
+  if (p.fc !== 3) { window.alert('批量写只对保持寄存器（FC03 面板）开放'); return; }
+  syncDefFromInputs(p);
+  var qty = Math.min(p.qty, 64);
+  var html = '<div id="modalOld">从站 ' + p.unit + ' · 4x' + (p.addr + 1) + ' 起 ' + qty + ' 个寄存器，一次 FC16 写入；留空表示保持不变</div>';
+  for (var i = 0; i < qty; i++) {
+    html += '<div class="mrow"><span class="maddr">4x' + (p.addr + i + 1) + (p.el._alias && p.el._alias[i] ? ' · ' + p.el._alias[i] : '') + '</span>' +
+      '<input class="mval" data-i="' + i + '" value="' + (p.vals[i] !== undefined ? p.vals[i] : '') + '" placeholder="不变"></div>';
+  }
+  showModal('批量写寄存器 (FC16)', html, function () {
+    var writes = [];
+    document.querySelectorAll('#modalBody .mval').forEach(function (inp) {
+      var raw = inp.value.trim();
+      if (raw === '') { return; }
+      var v = raw.toLowerCase().indexOf('0x') === 0 ? parseInt(raw, 16) : parseInt(raw, 10);
+      if (isNaN(v) || v < 0 || v > 65535) { v = null; }
+      if (v !== null) { writes.push({ i: parseInt(inp.dataset.i, 10), v: v }); }
+    });
+    if (!writes.length) { return true; }
+    // 连续段合并成一次 FC16（断开的地址拆多次，最少流量）
+    writes.sort(function (a, b) { return a.i - b.i; });
+    var seg = [writes[0]];
+    function flushSeg() {
+      var base = seg[0].i, vals = [];
+      for (var k = seg[0].i; k <= seg[seg.length - 1].i; k++) {
+        var hit = null;
+        for (var j = 0; j < seg.length; j++) { if (seg[j].i === k) { hit = seg[j]; } }
+        vals.push(hit ? hit.v : (p.vals[k] || 0));   // 段内空洞用当前值垫
+      }
+      doWrite(p, { fc: 16, addr: p.addr + base, qty: vals.length, values: vals });
+    }
+    for (var m = 1; m <= writes.length; m++) {
+      if (m === writes.length || writes[m].i !== writes[m - 1].i + 1) { flushSeg(); if (m < writes.length) { seg = [writes[m]]; } }
+      else { seg.push(writes[m]); }
+    }
+    return true;
+  });
+}
+
+/* ---------- 数据记录：内存采样（上限 10000 条）+ CSV 导出（mb:export 落盘 logs/） ---------- */
+function pushSample(p, vals) {
+  if (!p.recording) { return; }
+  p.samples.push({ t: Date.now(), vals: vals.slice() });
+  if (p.samples.length > 10000) { p.samples.shift(); }   // 环形：丢最老的，别把内存吃穿
+  if (p.el) {
+    var b = p.el.querySelector('.btn-rec');
+    if (b) { b.textContent = '记录中(' + p.samples.length + ')'; }
+    p.el.querySelector('.btn-csv').style.display = p.samples.length ? '' : 'none';
+  }
+}
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+function tsFileName(now) {
+  return now.getFullYear() + pad2(now.getMonth() + 1) + pad2(now.getDate()) + '-' +
+    pad2(now.getHours()) + pad2(now.getMinutes()) + pad2(now.getSeconds());
+}
+function exportPanelCsv(p) {
+  if (!p.samples.length) { window.alert('该面板还没有记录数据：点「记录」开始采样。'); return; }
+  var lines = ['time,unit,fc,addr_base,' + range(0, p.qty).map(function (i) { return '4x' + (p.addr + i + 1); }).join(',')];
+  for (var i = 0; i < p.samples.length; i++) {
+    var s = p.samples[i];
+    lines.push(new Date(s.t).toISOString() + ',' + p.unit + ',' + p.fc + ',' + p.addr + ',' + s.vals.join(','));
+  }
+  var name = 'mbpoll-unit' + p.unit + '-addr' + p.addr + '-' + tsFileName(new Date()) + '.csv';
+  window.__CJ_TAURI__.invoke('mb:export', { name: name, content: lines.join('\r\n') + '\r\n' })
+    .then(function (r) { window.alert('已导出 ' + r.path + '（' + r.bytes + ' 字节，' + p.samples.length + ' 条采样）'); })
+    .catch(function (e) { window.alert('导出失败：' + ((e && e.message) ? e.message : String(e))); });
+}
+function range(n, m) { var a = []; for (var i = 0; i < m; i++) { a.push(n + i); } return a; }
+
+/* ---------- 面板 DOM：定义行 + 数据表格 + 状态行 ---------- */
+function panelTitle(p) {
+  var prefix = p.fc === 1 ? '0x' : p.fc === 2 ? '1x' : p.fc === 4 ? '3x' : '4x';
+  return '从站 ' + p.unit + ' · ' + prefix + (p.addr + 1) + ' × ' + p.qty + ' @' + p.scan + 'ms';
+}
+function syncDefFromInputs(p) {
+  var g = function (cls) { return p.el.querySelector('.' + cls); };
+  p.unit = parseInt(g('d-unit').value, 10) || 1;
+  p.fc = parseInt(g('d-fc').value, 10) || 3;
+  p.addr = parseInt(g('d-addr').value, 10) || 0;
+  p.qty = Math.min(parseInt(g('d-qty').value, 10) || 10, p.fc <= 2 ? 2000 : 125);
+  p.scan = Math.max(50, parseInt(g('d-scan').value, 10) || 1000);
+  p.fmt = g('d-fmt').value;
+  g('d-qty').value = p.qty;
+  // 字节序只在 Float32（跨寄存器）格式下有意义；批量写只对保持寄存器开放
+  p.el.querySelector('.l-word').style.display = (p.fmt === 'f32') ? '' : 'none';
+  p.word = p.el.querySelector('.d-word').value || 'ABCD';
+  p.el.querySelector('.btn-batch').style.display = (p.fc === 3) ? '' : 'none';
+  p.el.querySelector('.title').textContent = panelTitle(p);
+}
+function rebuildTable(p) {
+  var grid = p.el.querySelector('.grid');
+  var t = document.createElement('table');
+  t.innerHTML = '<thead><tr><th style="width:90px">地址</th><th style="width:110px">别名</th><th>值 (' + FMT_NAMES[p.fmt] + ')</th></tr></thead>';
+  var tb = document.createElement('tbody');
+  p.el._alias = p.el._alias || {};
+  for (var i = 0; i < p.qty; i++) {
+    (function (idx) {
+      var tr = document.createElement('tr');
+      var tdA = document.createElement('td'); tdA.textContent = (p.addr + idx) + ' ' + (p.fc === 1 ? '(0x' + (p.addr + idx + 1) + ')' : '');
+      var tdN = document.createElement('td');
+      var aliasInput = document.createElement('input');
+      aliasInput.style.width = '100px'; aliasInput.placeholder = '—';
+      aliasInput.value = p.el._alias[idx] || '';
+      aliasInput.addEventListener('change', function () { p.el._alias[idx] = aliasInput.value; saveAlias(p); });
+      tdN.appendChild(aliasInput);
+      var tdV = document.createElement('td');
+      tdV.className = 'val'; tdV.textContent = '—';
+      tdV.addEventListener('dblclick', function () { onCellDblClick(p, idx); });
+      tr.appendChild(tdA); tr.appendChild(tdN); tr.appendChild(tdV);
+      tb.appendChild(tr);
+    })(i);
+  }
+  t.appendChild(tb);
+  grid.innerHTML = '';
+  grid.appendChild(t);
+  p.vals = [];
+  renderValues(p);
+  renderFoot(p);
+}
+function saveAlias(p) {
+  try { localStorage.setItem('mbpoll.alias.' + p.id, JSON.stringify(p.el._alias)); } catch (e) {}
+}
+function loadAlias(p) {
+  try {
+    var a = localStorage.getItem('mbpoll.alias.' + p.id);
+    if (a) { p.el._alias = JSON.parse(a) || {}; }
+  } catch (e) {}
+}
+function renderValues(p) {
+  if (!p.el || !p.vals.length) { return; }
+  var rows = p.el.querySelectorAll('tbody tr');
+  var i = 0;
+  while (i < rows.length) {
+    var pair = fmtPair(p.vals, i, p.fmt, p.word);
+    var td = rows[i].children[2];
+    var text = pair[0];
+    if (p.fc === 1 || p.fc === 2) { text = pair[0] === '1' ? 'ON' : 'OFF'; }
+    if (td.textContent !== String(text)) {
+      td.textContent = text;
+      rows[i].classList.remove('flash');
+      void rows[i].offsetWidth;   // 重启动画
+      rows[i].classList.add('flash');
+    }
+    i += pair[1];
+  }
+}
+function renderFoot(p) {
+  var f = p.el.querySelector('.foot');
+  f.querySelector('.cnt').innerHTML = 'ok <b class="ok">' + p.okCount + '</b> / err <b class="err">' + p.errCount + '</b>' +
+    (p.lastMs ? ' · ' + p.lastMs + 'ms' : '');
+  f.querySelector('.err').textContent = p.lastErr;
+}
+function setConn(cls, text) {
+  var dot = document.getElementById('connDot');
+  dot.className = 'dot ' + cls;
+  document.getElementById('connText').textContent = text;
+}
+
+/* ---------- 面板的创建与删除 ---------- */
+function createPanelEl(p) {
+  var el = document.createElement('div');
+  el.className = 'panel';
+  el.innerHTML =
+    '<div class="head">' +
+      '<span class="title">' + panelTitle(p) + '</span>' +
+      '<span class="badge run">已停止</span>' +
+      '<label>从站ID <input class="d-unit" type="number" min="0" max="255" style="width:56px"></label>' +
+      '<label>功能码 <select class="d-fc"></select></label>' +
+      '<label>地址 <input class="d-addr" type="number" min="0" max="65535" style="width:70px"></label>' +
+      '<label>数量 <input class="d-qty" type="number" min="1" style="width:60px"></label>' +
+      '<label>周期ms <input class="d-scan" type="number" min="50" step="50" style="width:66px"></label>' +
+      '<label>格式 <select class="d-fmt"></select></label>' +
+      '<label style="display:none" class="l-word">字节序 <select class="d-word"></select></label>' +
+      '<button class="btn-run">启动</button>' +
+      '<button class="btn-read">单次读</button>' +
+      '<button class="btn-batch" style="display:none">批量写</button>' +
+      '<button class="btn-rec">记录</button>' +
+      '<button class="btn-csv" style="display:none">导出CSV</button>' +
+      '<button class="btn-del danger">删除</button>' +
+    '</div>' +
+    '<div class="grid"></div>' +
+    '<div class="foot"><span class="cnt">ok <b class="ok">0</b> / err <b class="err">0</b></span><span class="err"></span></div>';
+  var fcSel = el.querySelector('.d-fc');
+  for (var fc in FC_NAMES) { fcSel.innerHTML += '<option value="' + fc + '">' + FC_NAMES[fc] + '</option>'; }
+  var fmtSel = el.querySelector('.d-fmt');
+  for (var f in FMT_NAMES) { fmtSel.innerHTML += '<option value="' + f + '">' + FMT_NAMES[f] + '</option>'; }
+  var wordSel = el.querySelector('.d-word');
+  for (var w in WORD_LAYOUTS) { wordSel.innerHTML += '<option value="' + w + '">' + w + '</option>'; }
+  wordSel.value = p.word || 'ABCD';
+  el.querySelector('.d-unit').value = p.unit;
+  el.querySelector('.d-fc').value = String(p.fc);
+  el.querySelector('.d-addr').value = p.addr;
+  el.querySelector('.d-qty').value = p.qty;
+  el.querySelector('.d-scan').value = p.scan;
+  el.querySelector('.d-fmt').value = p.fmt;
+  // 运行中改定义：先停再按新定义起（原版工具 F8 同款语义）
+  el.querySelector('.d-fc').addEventListener('change', function () { if (p.running) { stopPoll(p); } });
+  el.querySelector('.btn-run').addEventListener('click', function () { p.running ? stopPoll(p) : startPoll(p); });
+  el.querySelector('.btn-batch').addEventListener('click', function () { openBatchEditor(p); });
+  el.querySelector('.btn-rec').addEventListener('click', function () {
+    p.recording = !p.recording;
+    var b = p.el.querySelector('.btn-rec');
+    b.textContent = p.recording ? '记录中(' + p.samples.length + ')' : '记录';
+    b.style.borderColor = p.recording ? 'var(--warn)' : '';
+    saveState();
+  });
+  el.querySelector('.btn-csv').addEventListener('click', function () { exportPanelCsv(p); });
+  el.querySelector('.btn-read').addEventListener('click', function () {
+    syncDefFromInputs(p); rebuildTable(p);
+    readOnce(p).then(function (r) {
+      if (r.exception >= 0) { p.lastErr = '异常码 ' + r.exception; }
+      else {
+        p.okCount++; p.lastErr = ''; p.lastMs = r.elapsedMs; p.vals = r.values; setConn('ok', '通信中');
+        pushSample(p, r.values);   // 单次读也进记录缓冲（记录开着时）
+      }
+      renderValues(p); renderFoot(p);
+    }).catch(function (e) {
+      p.errCount++; p.lastErr = (e && e.message) ? e.message : String(e); setConn('err', '通信失败'); renderFoot(p);
+    });
+  });
+  el.querySelector('.btn-del').addEventListener('click', function () {
+    if (!window.confirm('删除该面板？')) { return; }
+    stopPoll(p);
+    el.remove();
+    store.panels = store.panels.filter(function (x) { return x.id !== p.id; });
+    try { localStorage.removeItem('mbpoll.alias.' + p.id); } catch (e) {}
+    renderEmpty();
+    saveState();
+  });
+  p.el = el;
+  loadAlias(p);
+  return el;
+}
+function addPanel(def) {
+  var p = Object.assign({
+    id: store.nextId++, unit: 1, fc: 3, addr: 0, qty: 10, scan: 1000, fmt: 'dec', word: 'ABCD', running: false,
+    okCount: 0, errCount: 0, lastErr: '', lastMs: 0, inFlight: false, timer: null, el: null, vals: [],
+    recording: false, samples: []
+  }, def || {});
+  store.panels.push(p);
+  document.getElementById('panels').appendChild(createPanelEl(p));
+  renderEmpty();
+  saveState();
+  return p;
+}
+function renderEmpty() {
+  var box = document.getElementById('panels');
+  var empty = document.getElementById('empty');
+  if (store.panels.length === 0) {
+    if (!empty) {
+      empty = document.createElement('div');
+      empty.id = 'empty';
+      empty.innerHTML = '还没有监控面板。<br>点上方「+ 新增监控面板」，或运行 <b>run.bat selfcheck</b> 体验内置从站的读写闭环。<br>与 Modbus Poll 原版不同：这里可以同时开任意多组——每组一个面板，铺满整个窗口。';
+      box.appendChild(empty);
+    }
+  } else if (empty) {
+    empty.remove();
+  }
+}
+/* ---------- 自检：CJ_MB_SELFCHECK=1 且内置从站在跑时自动执行 ---------- */
+/* 断言全部打到 stderr（report 命令），PASS/FAIL 行是 run.bat 的取证凭证 */
+var SC = { pass: 0, fail: 0 };
+function scLine(ok, name, detail) {
+  if (ok) { SC.pass++; } else { SC.fail++; }
+  window.__CJ_TAURI__.invoke('report', { line: (ok ? 'PASS ' : 'FAIL ') + name + ' ' + (detail || '') });
+}
+function scAssert(name, actual, expect) {
+  scLine(String(actual) === String(expect), name, 'actual=' + actual + ' expect=' + expect);
+}
+function mbRead(args) { return window.__CJ_TAURI__.invoke('mb:read', args); }
+function mbWrite(args) { return window.__CJ_TAURI__.invoke('mb:write', args); }
+function scArgs(fc, addr, qty) {
+  return { host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: fc, addr: addr, qty: qty, timeoutMs: 2000 };
+}
+function selfCheck() {
+  window.__CJ_TAURI__.invoke('report', { line: 'selfcheck begin, slavePort=' + window.__MB_SLAVE_PORT__ });
+  /* 0) RTU 帧层自检向量：CRC16 实现错没错，不接串口也能断言 */
+  scAssert('rtu-crc-vector', window.__MB_CRC_OK__ === true, true);
+  /* 0.5) 导出/导入通道往返：写进 logs/ 再读回，逐字节一致（CSV / 点位表 / 报文导出共用这条通道） */
+  mbWrite({ host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: 16, addr: 30, qty: 1, values: [7], timeoutMs: 2000 }).then(function () {
+    return window.__CJ_TAURI__.invoke('mb:export', { name: 'mbpoll-selfcheck.json', content: '{"roundtrip":1234567890}' });
+  }).then(function () {
+    return window.__CJ_TAURI__.invoke('mb:import', { name: 'mbpoll-selfcheck.json' });
+  }).then(function (r) {
+    scAssert('export-import-roundtrip', r.content, '{"roundtrip":1234567890}');
+    /* 1) 读保持寄存器：从站初值 = (addr*3)%65536，逐项可断言 */
+    return mbRead(scArgs(3, 0, 10));
+  }).then(function (r) {
+    var ok = r.exception < 0 && r.values.length === 10;
+    scLine(ok, 'read-holding', 'values=' + JSON.stringify(r.values));
+    for (var i = 0; i < r.values.length; i++) {
+      scAssert('read-holding.v' + i, r.values[i], (i * 3) % 65536);
+    }
+    /* 2) 写单个寄存器（FC06）→ 回读 */
+    return mbWrite({ host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: 6, addr: 5, value: 4321, timeoutMs: 2000 });
+  }).then(function () {
+    return mbRead(scArgs(3, 5, 1));
+  }).then(function (r) {
+    scAssert('write-single-roundtrip', r.values[0], 4321);
+    /* 3) 写多个寄存器（FC16）→ 回读 */
+    return mbWrite({ host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: 16, addr: 20, qty: 3, values: [11, 22, 33], timeoutMs: 2000 });
+  }).then(function () {
+    return mbRead(scArgs(3, 20, 3));
+  }).then(function (r) {
+    scLine(r.values.length === 3 && r.values[0] === 11 && r.values[1] === 22 && r.values[2] === 33, 'write-multi-roundtrip', 'values=' + JSON.stringify(r.values));
+    /* 4) 线圈：写单个（FC05）→ 回读；再写一段（FC15）→ 回读 */
+    return mbWrite({ host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: 5, addr: 3, value: 1, timeoutMs: 2000 });
+  }).then(function () {
+    return mbRead(scArgs(1, 0, 8));
+  }).then(function (r) {
+    scLine(r.values[3] === 1 && r.values[0] === 0, 'coil-single-roundtrip', 'values=' + JSON.stringify(r.values));
+    return mbWrite({ host: '127.0.0.1', port: window.__MB_SLAVE_PORT__, unit: 1, fc: 15, addr: 10, qty: 4, values: [1, 0, 1, 1], timeoutMs: 2000 });
+  }).then(function () {
+    return mbRead(scArgs(1, 10, 4));
+  }).then(function (r) {
+    scLine(r.values.length === 4 && r.values[0] === 1 && r.values[1] === 0 && r.values[2] === 1 && r.values[3] === 1, 'coil-multi-roundtrip', 'values=' + JSON.stringify(r.values));
+    /* 5) 非法功能码应回异常（面板上要看得见异常码） */
+    return mbRead(scArgs(4, 0, 3));
+  }).then(function (r) {
+    scAssert('unsupported-fc-exception', r.exception, 1);
+    window.__CJ_TAURI__.invoke('report', { line: 'selfcheck done pass=' + SC.pass + ' fail=' + SC.fail });
+    /* 界面同步铺一组真实面板（不启动轮询），方便人工核对 */
+    addPanel({ unit: 1, fc: 3, addr: 0, qty: 10, scan: 1000, fmt: 'dec' });
+    setTimeout(function () { window.__CJ_TAURI__.invoke('mb:quit', {}); }, 500);
+  }).catch(function (e) {
+    window.__CJ_TAURI__.invoke('report', { line: 'FAIL selfcheck-error ' + ((e && e.message) ? e.message : String(e)) });
+    setTimeout(function () { window.__CJ_TAURI__.invoke('mb:quit', {}); }, 500);
+  });
+}
+
+/* ---------- 报文监视：轮询 mb:trace（取走即清，请求本身不走主站，不产生流量） ---------- */
+var traceOn = false;
+var traceTotal = 0;
+var traceAll = [];   // 全量帧文本（上限 400，与后端环形缓冲一致）；过滤只是渲染层
+function traceApplies(line) {
+  var f = document.getElementById('traceFilter').value.trim();
+  return f === '' || line.indexOf(f) !== -1;
+}
+function traceRender() {
+  var log = document.getElementById('traceLog');
+  log.innerHTML = '';
+  for (var i = 0; i < traceAll.length; i++) {
+    if (!traceApplies(traceAll[i])) { continue; }
+    var dir = traceAll[i].indexOf(' Tx ') === 0 ? 'tx' : traceAll[i].indexOf(' Rx ') === 0 ? 'rx' : 'meta';
+    var div = document.createElement('div');
+    div.className = dir;
+    div.textContent = traceAll[i];
+    log.appendChild(div);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+function traceLine(line) {
+  traceAll.push(line);
+  while (traceAll.length > 400) { traceAll.shift(); }
+  traceRender();
+}
+function tracePoll() {
+  if (!traceOn) { return; }
+  window.__CJ_TAURI__.invoke('mb:trace', {}).then(function (r) {
+    if (r.frames && r.frames.length) {
+      for (var i = 0; i < r.frames.length; i++) { traceLine(r.frames[i]); }
+      traceTotal += r.frames.length;
+      document.getElementById('traceCount').textContent = traceTotal + ' 帧';
+    }
+  }).catch(function () { }).finally(function () { setTimeout(tracePoll, 400); });
+}
+function toggleTrace() {
+  traceOn = !traceOn;
+  document.getElementById('traceDock').classList.toggle('open', traceOn);
+  document.getElementById('traceToggle').style.borderColor = traceOn ? 'var(--accent)' : '';
+  if (traceOn) { tracePoll(); }
+}
+
+/* ---------- 别名点位表：整份工作区（面板定义 + 别名 + 连接参数）JSON 导出/导入 ---------- */
+function collectAliases(p) {
+  var a = {};
+  if (p.el && p.el._alias) {
+    for (var k in p.el._alias) { if (p.el._alias[k]) { a[k] = p.el._alias[k]; } }
+  }
+  return a;
+}
+function exportPoints() {
+  var doc = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    conn: store.conn,
+    panels: store.panels.map(function (p) {
+      return { unit: p.unit, fc: p.fc, addr: p.addr, qty: p.qty, scan: p.scan, fmt: p.fmt, word: p.word || 'ABCD', aliases: collectAliases(p) };
+    })
+  };
+  var name = 'mbpoll-points-' + tsFileName(new Date()) + '.json';
+  window.__CJ_TAURI__.invoke('mb:export', { name: name, content: JSON.stringify(doc, null, 2) })
+    .then(function (r) { window.alert('点位表已导出 ' + r.path + '（' + doc.panels.length + ' 个面板）'); })
+    .catch(function (e) { window.alert('导出失败：' + ((e && e.message) ? e.message : String(e))); });
+}
+function importPoints() {
+  var name = window.prompt('导入 logs/ 目录下的点位表文件名：', 'mbpoll-points.json');
+  if (!name) { return; }
+  name = name.trim();
+  window.__CJ_TAURI__.invoke('mb:import', { name: name }).then(function (r) {
+    var doc;
+    try { doc = JSON.parse(r.content); } catch (e) { window.alert('点位表不是合法 JSON：' + e.message); return; }
+    if (!doc || !Array.isArray(doc.panels)) { window.alert('点位表格式不对（缺 panels 数组）'); return; }
+    if (!window.confirm('导入将替换当前全部 ' + store.panels.length + ' 个面板（共 ' + doc.panels.length + ' 个），继续？')) { return; }
+    // 全部停掉再重建：运行状态按导入文件里的定义重置为停止（避免半路起一堆轮询）
+    for (var i = 0; i < store.panels.length; i++) { stopPoll(store.panels[i]); store.panels[i].el.remove(); }
+    store.panels = [];
+    document.getElementById('panels').innerHTML = '';
+    for (var j = 0; j < doc.panels.length; j++) {
+      var d = doc.panels[j];
+      var p = addPanel({ unit: d.unit, fc: d.fc, addr: d.addr, qty: d.qty, scan: d.scan, fmt: d.fmt, word: d.word });
+      if (d.aliases) {
+        p.el._alias = d.aliases;
+        try { localStorage.setItem('mbpoll.alias.' + p.id, JSON.stringify(d.aliases)); } catch (e) {}
+        rebuildTable(p);   // 别名要重刷进表格
+      }
+    }
+    if (doc.conn) {
+      Object.assign(store.conn, doc.conn);
+      document.getElementById('mode').value = store.conn.mode;
+      document.getElementById('host').value = store.conn.host;
+      document.getElementById('port').value = store.conn.port;
+      document.getElementById('timeout').value = store.conn.timeout;
+      document.getElementById('serialPath').value = store.conn.serialPath;
+      document.getElementById('baud').value = String(store.conn.baud);
+      document.getElementById('parity').value = String(store.conn.parity);
+      document.getElementById('dataBits').value = String(store.conn.dataBits);
+      document.getElementById('stopBits').value = String(store.conn.stopBits);
+      applyMode();
+    }
+    saveState();
+    window.alert('已导入 ' + doc.panels.length + ' 个面板（含别名与连接参数）。');
+  }).catch(function (e) {
+    window.alert('导入失败：' + ((e && e.message) ? e.message : String(e)));
+  });
+}
+
+/* ---------- 启动 ---------- */
+function init() {
+  loadState();
+  // 串口参数区：波特率档位 + 已存连接参数回填 + 模式切换
+  var baudSel = document.getElementById('baud');
+  for (var b = 0; b < BAUDS.length; b++) { baudSel.innerHTML += '<option value="' + BAUDS[b] + '">' + BAUDS[b] + '</option>'; }
+  document.getElementById('mode').value = store.conn.mode;
+  document.getElementById('host').value = store.conn.host;
+  document.getElementById('port').value = store.conn.port;
+  document.getElementById('timeout').value = store.conn.timeout;
+  document.getElementById('serialPath').value = store.conn.serialPath;
+  baudSel.value = String(store.conn.baud);
+  if (!baudSel.value) { baudSel.value = '9600'; }
+  document.getElementById('parity').value = String(store.conn.parity);
+  document.getElementById('dataBits').value = String(store.conn.dataBits);
+  document.getElementById('stopBits').value = String(store.conn.stopBits);
+  applyMode();
+  document.getElementById('mode').addEventListener('change', applyMode);
+  if (store.panels.length === 0) {
+    // 默认给一组：读保持寄存器 40001 起 10 个，并直接开跑——
+    // 与 Modbus Poll 原版一致：连接参数就绪后窗口即开始轮询，不用每次手点启动
+    startPoll(addPanel({ unit: 1, fc: 3, addr: 0, qty: 10, scan: 1000, fmt: 'dec' }));
+  } else {
+    for (var i = 0; i < store.panels.length; i++) {
+      var p = store.panels[i];
+      document.getElementById('panels').appendChild(createPanelEl(p));
+      if (p.running) { p.running = false; startPoll(p); }  // 上次在跑的面板接着跑
+    }
+  }
+  renderEmpty();
+  document.getElementById('addPanel').addEventListener('click', function () { addPanel(); });
+  document.getElementById('stopAll').addEventListener('click', function () {
+    for (var i = 0; i < store.panels.length; i++) { stopPoll(store.panels[i]); }
+  });
+  document.getElementById('traceToggle').addEventListener('click', toggleTrace);
+  document.getElementById('traceFilter').addEventListener('input', traceRender);
+  document.getElementById('traceExport').addEventListener('click', function () {
+    if (!traceAll.length) { window.alert('监视缓冲是空的。'); return; }
+    var name = 'mbpoll-trace-' + tsFileName(new Date()) + '.txt';
+    window.__CJ_TAURI__.invoke('mb:export', { name: name, content: traceAll.join('\r\n') + '\r\n' })
+      .then(function (r) { window.alert('已导出 ' + r.path + '（' + r.bytes + ' 字节）'); })
+      .catch(function (e) { window.alert('导出失败：' + ((e && e.message) ? e.message : String(e))); });
+  });
+  document.getElementById('traceClear').addEventListener('click', function () {
+    traceAll = [];
+    document.getElementById('traceLog').innerHTML = '';
+    document.getElementById('traceCount').textContent = '0 帧';
+  });
+  document.getElementById('traceClose').addEventListener('click', toggleTrace);
+  document.getElementById('pointsExport').addEventListener('click', exportPoints);
+  document.getElementById('pointsImport').addEventListener('click', importPoints);
+  window.__CJ_TAURI__.invoke('mb:config', {}).then(function (cfg) {
+    window.__MB_SLAVE_PORT__ = cfg.slavePort || 15020;
+    window.__MB_CRC_OK__ = cfg.crcOk;
+    var note = document.getElementById('selfcheckNote');
+    if (cfg.slaveEnabled) {
+      note.textContent = '内置从站 127.0.0.1:' + window.__MB_SLAVE_PORT__ + ' 在跑，可用它先试读写';
+    }
+    if (cfg.selfCheck && cfg.slaveEnabled) { selfCheck(); }
+  }).catch(function () { /* config 拿不到不影响正常使用 */ });
+}
+waitForBridge(init);
+  </script>
+</body>
+</html>

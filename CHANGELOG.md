@@ -16,6 +16,18 @@
 
 ### Added
 
+- **示例 `examples/modbus-poll`（Modbus Poll 调试工具，Modbus TCP）**：多面板并行监控（对标原版
+  MDI 多窗口、一屏任意多组）、FC 01/02/03/04 读 + 05/06/15/16 写、双击写入（线圈取反 / 寄存器
+  改值 / Float32-Int16 按显示类型对写）+ 写前模态确认（旧值回显）、FC16 批量写（留空保持、连续段
+  自动合并）、报文监视（Tx/Rx 十六进制环形缓冲，`mb:trace` 取走即清）、Modbus TCP 连接池（按
+  host:port 复用 + 互斥串行 + 自动重连）、内置从站模拟器（`CJ_MB_SLAVE=1`，自检读写闭环）。
+  另加 **Modbus RTU 串口**传输层（复用框架 serial 桥 + CRC16 帧层，与 TCP 同一个 `MbTransport`
+  契约；串口链路待真实设备验证，CRC 已用标准向量 `123456789 → 0x4B37` 在自检中断言）。
+  已对真实 Modbus Slave（modbustools）实测：FC03/FC06/FC16 原始帧互通 + GUI 轮询 15+ 次零失败。
+  后续增强：**数据记录**（每面板记录开关 + CSV 导出）、**Float32 字节序选项**（ABCD/CDAB/BADC/DCBA，
+  读写同一张表）、**报文监视增强**（相对时间戳 + 过滤框 + 导出文本）、**点位表导入导出**
+  （面板定义 + 别名 + 连接参数整份 JSON，`mb:export` / `mb:import` 落 `logs/`，文件名白名单）。
+
 - **AtomCode skills（`skills/`，已 marketplace 化）**：把框架的开发工作流、实机取证、踩坑速查与
   回贡献流程沉淀成 AI 可复用的指令，`atomcode plugin install cj-tauri-skills@cj-tauri-skills` 一行装上
   （或 `bash scripts/install-skills.sh` 只装 skills）。四个 skill：`cj-tauri-app-dev`（起工程 /

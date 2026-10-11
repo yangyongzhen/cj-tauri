@@ -80,12 +80,12 @@ public interface WebViewHost {
      * 与 `WindowRecord.label` 是同一个值：注册表是路由的权威来源，宿主自己也留一份——
      * 给前端注入 label（`window.__CJ_TAURI_LABEL__`）以及将来的窗口内自省都用它。
      */
-    public func label(): String
+    func label(): String
 
     /**
      * 启动宿主：创建窗口 + WebView，加载 HTML，进入事件循环
      */
-    public func start(html: String): Unit
+    func start(html: String): Unit
 
     /**
      * 按 URL 启动宿主（http(s):// 或 file://）
@@ -93,7 +93,7 @@ public interface WebViewHost {
      * 与 start(html) 二选一：同一次启动里两者都设时 URL 优先。
      * URL 页面有真实来源，相对路径资源、动态 import、前端路由才成立（file:// 下禁止 fetch/XHR）。
      */
-    public func startUrl(url: String): Unit
+    func startUrl(url: String): Unit
 
     /**
      * 注册一段「页面脚本执行前」注入的初始化脚本（多次调用按注册顺序注入）
@@ -103,29 +103,29 @@ public interface WebViewHost {
      * 因此它对 HTML 与 URL 两种页面来源**一视同仁**——插件的 jsShim 走的就是这条通道（RFC §5.4 的 v2 方案），
      * 不再靠字符串拼 HTML。空串忽略；脚本是普通 JS 片段，不要自带 <script> 标签。
      */
-    public func addInitScript(js: String): Unit
+    func addInitScript(js: String): Unit
 
     /**
      * 重新加载当前页面（整页 reload，对标浏览器刷新）
      *
      * 页面尚未加载时为空操作；开发者工具里的刷新按钮等价于此。
      */
-    public func reload(): Unit
+    func reload(): Unit
 
     /**
      * 应用窗口配置（标题 / 尺寸）；必须在 start() 之前调用，宿主据此创建窗口
      */
-    public func setWindowConfig(config: WindowConfig): Unit
+    func setWindowConfig(config: WindowConfig): Unit
 
     /**
      * 是否允许打开开发者工具；必须在 start() 之前调用
      */
-    public func setDevTools(enabled: Bool): Unit
+    func setDevTools(enabled: Bool): Unit
 
     /**
      * 运行时打开开发者工具（WebView2 DevTools / WebKit Inspector）
      */
-    public func openDevTools(): Unit
+    func openDevTools(): Unit
 
     /**
      * 设置本窗口的菜单栏（RFC-002 §5.2 的线路文本；空串 = 清空菜单栏）
@@ -135,7 +135,7 @@ public interface WebViewHost {
      * 平台没有菜单能力（`hostCapabilities()` 不含 `CJ_CAP_MENU`）时不影响其它功能——
      * 「能力位为 0 就别建菜单」是调用方的约定，宿主不替应用猜。
      */
-    public func setMenu(wire: String): Unit
+    func setMenu(wire: String): Unit
 
     /**
      * 运行期改单个菜单项的状态（按 id 找；找不到只记一行日志，不报错）
@@ -143,7 +143,7 @@ public interface WebViewHost {
      * 只改状态、不改结构：结构变化走 `setMenu` 整棵重建。状态的真身在平台对象上
      * （Windows 的 HMENU、GTK 的 GtkCheckMenuItem），模型本身是只读的——理由见 src/menu.cj。
      */
-    public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit
+    func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit
 
     /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
@@ -151,7 +151,7 @@ public interface WebViewHost {
      * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。
      * 注意与命令级的能力安全模型无关：这里说的是宿主本事，不是页面权限。
      */
-    public func hostCapabilities(): Int32
+    func hostCapabilities(): Int32
 
     /**
      * 装配本窗口的 shell 事件回调（菜单点击等；载荷是 C 桥的 JSON 信封）
@@ -160,7 +160,7 @@ public interface WebViewHost {
      * **多窗口下必须按宿主身份路由**：C 侧回调首参是句柄，只有本窗口的句柄才转给本实例的
      * 这个回调——这正是「回调带宿主身份」的落地方式（见 docs/RFC-菜单-托盘-拖放.md §5.5）。
      */
-    public func setShellHandler(handler: (String) -> Unit): Unit
+    func setShellHandler(handler: (String) -> Unit): Unit
 
     /**
      * 装配本窗口的销毁回调（窗口关闭 / 退出收尾时恰好触发一次）
@@ -169,7 +169,7 @@ public interface WebViewHost {
      * 因为「是哪扇窗」在装配时就已确定（应用可经 `app.hostOf(label)` 逐窗安装）。
      * 与 `setShellHandler` 同为**可变槽位**：在 `start()` 之后再装同样生效（路由闭包读字段，不是快照）。
      */
-    public func setDestroyHandler(handler: () -> Unit): Unit
+    func setDestroyHandler(handler: () -> Unit): Unit
 
     /**
      * 原生文件选择对话框（阻塞到用户关闭）：返回选中的路径，取消 / 失败返回空串。
@@ -178,7 +178,7 @@ public interface WebViewHost {
      * 例如 "文本文件|*.txt|所有文件|*.*"；空串表示不限制。
      * 必须在 start() / startUrl() 之后调用——对话框要拿已创建的应用窗口当父窗口。
      */
-    public func showFileDialog(save: Bool, title: String, filter: String): String
+    func showFileDialog(save: Bool, title: String, filter: String): String
 
     /**
      * 原生消息对话框（阻塞到用户关闭）：返回用户是否点了「确定」。
@@ -186,12 +186,12 @@ public interface WebViewHost {
      * kind 取 "info" / "warning" / "error" / "confirm"（其它值按 info 处理）。
      * info / warning / error 只有一个「确定」，弹出即成立；只有 confirm 会返回 false。
      */
-    public func showMessageDialog(kind: String, title: String, message: String): Bool
+    func showMessageDialog(kind: String, title: String, message: String): Bool
 
     /**
      * 原生 → JS：在 WebView 中执行脚本
      */
-    public func runJs(js: String): Unit
+    func runJs(js: String): Unit
 
     /**
      * 停止本窗口的事件循环（低层原语）
@@ -200,19 +200,19 @@ public interface WebViewHost {
      * 原语留在宿主上是因为「循环归谁所有」只有实现方知道（两平台的收尾方式不同：
      * Linux 只收主循环、窗口留给收尾销毁，Windows 直接 DestroyWindow），上层不该自己拼。
      */
-    public func quit(): Unit
+    func quit(): Unit
 
     /**
      * 装配前端消息回调（WebView 送来的 JSON 字符串 → IPC hub）
      */
-    public func setMessageHandler(handler: (String) -> Unit): Unit
+    func setMessageHandler(handler: (String) -> Unit): Unit
 
     /**
      * 宿主事件循环是否已退出（窗口关闭等），app.run 据此阻塞与收尾
      *
      * 同为低层原语：应用级等待用 `AppHost.waitForExit()`，调用方不必自己写轮询。
      */
-    public func shouldQuit(): Bool
+    func shouldQuit(): Bool
 
     /**
      * 释放宿主资源（宿主编由 C 侧分配与回收，跨 FFI 不换分配器）：幂等、无需检查调用时机
@@ -221,7 +221,7 @@ public interface WebViewHost {
      * 释放后该实例不可再启动（原生窗口已随销毁路径在关窗时收尾）。
      * 为什么「关窗」不等于「释放」：见 docs/架构演进-多平台与多窗口.md §6.1。
      */
-    public func dispose(): Unit
+    func dispose(): Unit
 }
 
 /**
@@ -238,17 +238,17 @@ public interface AppHost {
     /**
      * 退出应用：收掉所有窗口的事件循环，`run()` / `runUrl()` 随即返回
      */
-    public func quit(): Unit
+    func quit(): Unit
 
     /**
      * 阻塞到应用退出（窗口关闭 / quit）后返回；`run()` / `runUrl()` 内部调它
      */
-    public func waitForExit(): Unit
+    func waitForExit(): Unit
 
     /**
      * 按 label 取窗口宿主（对标 Tauri 的 `app.get_webview_window(label)`）；未注册返回 None
      */
-    public func hostOf(label: String): Option<WebViewHost>
+    func hostOf(label: String): Option<WebViewHost>
 }
 
 /**

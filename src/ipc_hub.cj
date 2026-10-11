@@ -15,7 +15,7 @@ public interface CommandHandler {
      * @param ipc   IPC 上下文（可发事件、取窗口信息）
      * @return 成功返回值；如需失败可在实现中抛 CommandException
      */
-    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue
+    func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue
 }
 
 /**

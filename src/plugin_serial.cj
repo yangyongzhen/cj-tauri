@@ -2,6 +2,7 @@ package cjTauri
 
 import std.collection.*
 import std.fs.*
+import std.sort.*
 import stdx.encoding.json.*
 
 /**
@@ -69,7 +70,7 @@ func serialPortList(): ArrayList<String> {
             }
         }
     }
-    found.sort()
+    sort(found)
     return found
 }
 public class SerialPlugin <: Plugin {
@@ -313,6 +314,7 @@ class SerialCommands <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc
         match (cmd) {
             case "serial:list" => this.listCmd()
             case "serial:open" => this.openCmd(args)

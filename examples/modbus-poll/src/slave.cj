@@ -13,8 +13,6 @@ import std.collection.*
 import std.env.*
 import std.net.*
 import std.sync.*
-import std.time.*
-import cjTauri.*
 
 let MB_SLAVE_DEFAULT_PORT: Int64 = 15020
 
@@ -52,7 +50,7 @@ func mbSlavePortParse(v: String): Int64 {
 
 /** 从站的数据区：保持寄存器 + 线圈（写入会改，没写过的地址按公式现算） */
 class MbSlaveData {
-    let lock: ReentrantMutex = ReentrantMutex()
+    let lock: Mutex = Mutex()
     var holding: HashMap<Int64, Int64> = HashMap<Int64, Int64>()
     var coils: HashMap<Int64, Int64> = HashMap<Int64, Int64>()
 

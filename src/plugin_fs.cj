@@ -70,6 +70,7 @@ class FsCommands <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc
         match (cmd) {
             case "fs:readText" => this.readText(args)
             case "fs:writeText" => this.writeText(args)

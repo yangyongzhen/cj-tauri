@@ -24,3 +24,6 @@ cjpm.lock
 
 # 系统文件
 .DS_Store
+
+# 自检/导出的本地产物（mb:export 落盘目录）
+logs/

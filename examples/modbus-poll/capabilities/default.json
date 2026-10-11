@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "mb:read",
+    "mb:write",
+    "mb:trace",
+    "mb:export",
+    "mb:import",
+    "mb:config",
+    "report",
+    "mb:quit",
+    "system:version"
+  ],
+  "events": []
+}

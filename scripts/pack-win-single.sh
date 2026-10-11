@@ -218,9 +218,16 @@ BUILT="$WORK/app/target/release/bin/main.exe"
 
 SIZE_RAW="$(stat -c%s "$BUILT")"
 cp "$BUILT" "$EXE"
-# strip 失败不是致命问题（只是大一点），保留未 strip 的副本继续
+# strip 失败不是致命问题（只是大一点），保留未 strip 的副本继续。
+# 已知坑：llvm-mingw 的 strip.exe 是包装器，实际调用同目录的 llvm-strip——有的发行包里
+# 这个真身缺失（2026-10-11 实测 C:\tool\llvm-mingw-* 报 "llvm-strip: No such file or directory"），
+# 而 `strip 2>/dev/null` 会把真实报错吞掉，看起来像「strip 对这个 exe 无效」。
+# 所以失败后回退 SDK 自带的 llvm-objcopy --strip-all（同为 llvm 工具链，对 PE 等效）。
 if strip "$EXE" 2>/dev/null; then
     echo "[pack-single] strip: $SIZE_RAW → $(stat -c%s "$EXE") 字节"
+elif command -v llvm-objcopy >/dev/null 2>&1 && [ -f "$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe" ] \
+     && "$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe" --strip-all "$EXE" 2>/dev/null; then
+    echo "[pack-single] strip(llvm-objcopy 回退): $SIZE_RAW → $(stat -c%s "$EXE") 字节"
 else
     echo "[pack-single] 警告: strip 失败，保留未裁剪的 exe（$SIZE_RAW 字节）" >&2
 fi

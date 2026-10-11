@@ -195,7 +195,7 @@ class MbResponse {
 class MbClient <: MbTransport {
     let host: String
     let port: UInt16
-    let lock: ReentrantMutex = ReentrantMutex()
+    let lock: Mutex = Mutex()
     var sock: ?TcpSocket = None
     var nextTxn: Int64 = 1
 
@@ -350,7 +350,7 @@ class MbClient <: MbTransport {
  * 而且 trace 请求本身不经过 MbClient，不会自我污染。
  */
 class MbTrace {
-    let lock: ReentrantMutex = ReentrantMutex()
+    let lock: Mutex = Mutex()
     var frames: ArrayList<String> = ArrayList<String>()
     var seq: Int64 = 0
     var startMs: Int64 = -1
@@ -438,7 +438,7 @@ class MbRtuClient <: MbTransport {
     let dataBits: Int32
     let parity: Int32
     let stopBits: Int32
-    let lock: ReentrantMutex = ReentrantMutex()
+    let lock: Mutex = Mutex()
     var handle: Int64 = -1
 
     init(path: String, baud: Int32, dataBits: Int32, parity: Int32, stopBits: Int32) {

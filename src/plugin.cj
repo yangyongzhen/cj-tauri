@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import std.sort.*
 import stdx.encoding.json.*
 
 /**
@@ -18,30 +19,30 @@ import stdx.encoding.json.*
  */
 public interface Plugin {
     /** 插件名：作为命令/事件的命名空间（如 "fs"），不得为空、不得含 ':' */
-    public func name(): String
+    func name(): String
 
     /** 命令短名 → 处理器；框架注册为 "<插件名>:<短名>" */
-    public func commands(): HashMap<String, CommandHandler>
+    func commands(): HashMap<String, CommandHandler>
 
     /** 可能推送的事件短名；框架登记为 "<插件名>:<短名>"，用于缺权限提示。默认无事件 */
-    public func events(): ArrayList<String> {
+    func events(): ArrayList<String> {
         return ArrayList<String>()
     }
 
     /** 前端 JS 片段：定义 window.__CJ_TAURI__.<插件名>；没有就返回空串 */
-    public func jsShim(): String {
+    func jsShim(): String {
         return ""
     }
 
     /** 初始化：记录 app 引用、做一次性准备。默认空实现 */
-    public func setup(app: TauriApp): Unit {}
+    func setup(app: TauriApp): Unit { let _ = app }
 
     /**
      * 命名权限集（v1.1）：短集名 → 成员（写短名会自动补 "<插件名>:"，写全名则原样保留）。
      * 应用在 capabilities 的 permissions 里按 "<插件名>:<短集名>" 引用，一次放行一组。
      * 默认无。**集声明不等于放行**——清单不引用它，一条也不会生效。
      */
-    public func permissions(): HashMap<String, ArrayList<String>> {
+    func permissions(): HashMap<String, ArrayList<String>> {
         return HashMap<String, ArrayList<String>>()
     }
 }
@@ -231,7 +232,7 @@ func sortedStrings(items: ArrayList<String>): ArrayList<String> {
     for (s in items) {
         out.add(s)
     }
-    out.sort()
+    sort(out)
     return out
 }
 

@@ -227,6 +227,8 @@ func modbusExceptionText(code: Int64): String {
 /** mb:read —— 按面板定义读一轮 */
 class MbReadCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let def = mbParseDef(args, false)
         let r = def.transport().request(def.fc, def.unit, def.addr, def.qty, Array<Int64>(), def.timeoutMs)
         if (r.exception >= 0) {
@@ -241,6 +243,8 @@ class MbReadCommand <: CommandHandler {
 /** mb:write —— 写单个/多个线圈或寄存器 */
 class MbWriteCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let def = mbParseDef(args, true)
         let r = def.transport().request(def.fc, def.unit, def.addr, def.qty, def.values, def.timeoutMs)
         if (r.exception >= 0) {
@@ -255,6 +259,9 @@ class MbWriteCommand <: CommandHandler {
 /** mb:trace —— 拉走报文监视缓冲（前端轮询取走即清，不产生额外流量） */
 class MbTraceCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         let frames = MB_TRACE.drain()
         var arr = ArrayList<JsonValue>()
         for (f in frames) {
@@ -307,6 +314,8 @@ func mbExportPath(name: String): String {
 /** mb:export —— 把页面生成的 CSV / 点位表 / 报文文本落盘到 logs/（跨机器的交接物都在这） */
 class MbExportCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let name = mbArgString(args, "name", "").trimAscii()
         if (!mbValidExportName(name)) {
             throw CommandException("非法的导出文件名：\"${name}\"（只接受字母数字 . _ -，扩展名 .csv/.json/.txt）")
@@ -337,6 +346,8 @@ class MbExportCommand <: CommandHandler {
 /** mb:import —— 读回 logs/ 里之前导出的文件（点位表导入 / 记录回看），只读不写 */
 class MbImportCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let name = mbArgString(args, "name", "").trimAscii()
         if (!mbValidExportName(name)) {
             throw CommandException("非法的导入文件名：\"${name}\"（只接受字母数字 . _ -，扩展名 .csv/.json/.txt）")
@@ -362,6 +373,9 @@ class MbImportCommand <: CommandHandler {
 /** mb:config —— 告诉页面自检环境（内置从站有没有、端口多少） */
 class MbConfigCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
+        let _ = args
         let out = JsonObject()
         out.put("slaveEnabled", JsonBool(mbSlaveEnabled()))
         out.put("slavePort", JsonInt(mbSlavePort()))
@@ -387,6 +401,8 @@ class MbConfigCommand <: CommandHandler {
 /** report —— 页面自检结果回投（stderr 即时落盘，是实机取证的凭证） */
 class MbReportCommand <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         eprintln("[frontend] " + mbArgString(args, "line", "(空)"))
         return JsonBool(true)
     }
@@ -399,6 +415,8 @@ class MbQuitCommand <: CommandHandler {
         this.app = app
     }
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
         eprintln("[mbpoll] 页面请求退出（window=${ipc.window}）")
         this.app.quit()
         return JsonBool(true)

@@ -141,6 +141,7 @@ class ShellCommands <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc
         match (cmd) {
             case "shell:open" => JsonBool(this.open(args))
             case "shell:exec" => this.exec(args)

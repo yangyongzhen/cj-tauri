@@ -9,7 +9,6 @@ package mbpoll_app
 // 内置从站：CJ_MB_SLAVE=1 时在本进程里起一个 Modbus TCP 从站（127.0.0.1，默认 15020），
 // 页面自检连它做读写往返闭环；调真实设备时它也可以当对照组。
 
-import std.fs.*
 import stdx.encoding.json.*
 import cjTauri.*
 

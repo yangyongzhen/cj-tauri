@@ -91,6 +91,10 @@
   引入新的第三方仓颉包必须先在本文件登记。
 - 命名：函数/变量 `camelCase`，类型/接口 `PascalCase`，常量/全局 `UPPER_SNAKE_CASE`（如 `CJ_TAURI_VERSION`）；
   标识符用英文，**注释用中文**（与既有代码一致，不要中英混写同一句）。
+- **编译零警告**：交付前 `cjpm build` 必须零警告（框架与示例同标准）。未使用的参数不改接口签名、
+  就地 `let _ = <参数>` 显式弃用；未使用的 import 直接删；接口成员不写冗余 `public`（隐式公开）；
+  废弃 API（如 `ArrayList.sort` → `std.sort.sort`）按提示迁移。不允许带着警告交付，也不允许用
+  `-Woff` 全局压警告了事。
 - 注释写「为什么」和坑，不逐行复述代码；公开 API 用 `/** */` 文档注释说明契约与调用时机。
 - JSON 统一用 stdx 的 `stdx.encoding.json`（标准库无 `std.json`）。
 - 前端只经 `window.__CJ_TAURI__` 的 `invoke` / `listen` / `emit`；业务代码里不要自己 `postMessage`。
@@ -228,6 +232,15 @@
   （`hostIsWindows()`）追加同一个开关（Linux 分支一行不动）——否则用户拿到的第一份产物照样弹黑窗，
   产物同样是 GUI。动手时要认准目标段——**Linux 段那串 `-lwebkit2gtk-4.1 …` 不能加**（与子系统无关，
   加了也会被链接器拒）；数「改了几个」时记得把 `dist-single/work/` 下的副本排除掉，否则会多算 2 个。
+- **单文件包 strip 悄悄失败，exe 卡在 28MB**（2026-10-11 实测）：llvm-mingw 的 `strip.exe` 是包装器，
+  实际调用同目录的 `llvm-strip`——有的发行包里这个真身缺失（本机 `C:\tool\llvm-mingw-*` 报
+  `llvm-strip: No such file or directory`），而 `pack-win-single.sh` 里的 `strip 2>/dev/null` 把真实报错
+  吞掉，表象成了「strip 对这个 exe 无效」，产物一直停在未裁剪的 ~29MB（music/typing-poem 的 ~6MB
+  是早前在别的机器上 strip 成功的）。判据：`strip --version` 报 `llvm-strip: No such file or directory`
+  即中招。修法：脚本已加回退——strip 失败就用 SDK 自带的
+  `$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe --strip-all`（同为 llvm 工具链，对 PE 等效），
+  实测 29.3MB → 5.9MB。**教训：`2>/dev/null` 包住失败步骤时，失败会换一个更贵的样子出现（体积、
+  产物异常），排查先去裸跑一遍那条命令看真实报错。**
 - **新示例要进单文件包，先备两样**：`src/packed_assets.cj` 空存根（`public let PACKED_*_B64: String = ""`，
   **声明了哪几个常量打包器就生成哪几个**——没有 three.js 就不写那一条）与 `src/packed_resources.cj`
   （`decodeBase64` / `splitBy` / `textOrFile`），再把页面与能力清单的取用改成「内嵌优先、否则读盘」；

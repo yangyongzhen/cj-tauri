@@ -30,6 +30,7 @@ public class SystemCommands <: CommandHandler {
     }
 
     private func ping(args: JsonObject): JsonValue {
+        let _ = args
         return JsonString("pong")
     }
 

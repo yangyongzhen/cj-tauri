@@ -88,6 +88,7 @@ class DialogCommands <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc
         match (cmd) {
             case "dialog:open" => JsonString(this.pickFile(args, false))
             case "dialog:save" => JsonString(this.pickFile(args, true))

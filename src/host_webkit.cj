@@ -1,7 +1,5 @@
 package cjTauri
 
-import std.collection.*
-
 /**
  * C 桥 FFI 声明（native/libcjtbridge.so）
  * 所有 GTK/WebKit 调用在 C 桥的原生 pthread 内执行（见 native/bridge_linux.c 头注释）。

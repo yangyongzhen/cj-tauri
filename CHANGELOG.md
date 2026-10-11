@@ -29,6 +29,11 @@
   （官网 / API / 中心仓 / 主库与三方库组织 / 社区优质项目 / 官方示例）与
   CangjieSkills 语言技能包安装；`cj-tauri-app-dev` 加「步骤 0：环境先过关」，
   `cj-tauri-troubleshoot` 速查表补环境类三条（127 无输出 / stdx 指错 / 不必上 MSVC）。
+- **skills 跨生态兼容（Claude Code）**：新增 `.claude-plugin/marketplace.json`（AtomCode 的 plugin
+  协议与 CC 兼容，同一仓两边都能装）；skills README 与使用指南补「其他市场」小节——
+  skills CLI（`npx skills add yangyongzhen/cj-tauri`，vercel-labs/skills 跨 75+ agent）、
+  自动索引公开仓库的目录站（Skill Navigator / agentskills.cc）、仓颉官方 SIG 技能包
+  CangjieSkills（可 PR 贡献）。
 - **官方 `serial` 插件（串口读写）**：`serial:list` / `serial:open` / `serial:read` / `serial:write` /
   `serial:close` 五条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
   `list` 枚举本机串口设备节点（`/dev` 顶层按设备类前缀收 + `/dev/serial/by-{id,path}/` 整目录收录，

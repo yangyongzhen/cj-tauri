@@ -40,6 +40,17 @@ bash scripts/install-skills.sh --project  # 装到项目级 .atomcode/skills/（
 
 把 `skills/<名字>/` 整个目录拷到 `~/.atomcode/skills/`（全局）或 `.atomcode/skills/`（项目级）即可。
 
+## 其他市场与跨生态安装
+
+skill 的格式（目录 + `SKILL.md`）是通用的，本仓同时兼容多个生态与市场（均已核实）：
+
+| 渠道 | 说明 |
+|---|---|
+| **Claude Code**（`.claude-plugin/marketplace.json` 已备） | `/plugin marketplace add yangyongzhen/cj-tauri` → `/plugin install cj-tauri-skills@cj-tauri-skills`（AtomCode 的 plugin 协议与 CC 兼容，同一仓两边都能装） |
+| **skills CLI**（vercel-labs/skills，跨 75+ agent） | `npx skills add yangyongzhen/cj-tauri`——该 CLI 会自动扫仓库的 `skills/` 目录，GitHub 镜像同步后即可用 |
+| **目录站**（自动收录 GitHub 仓库） | [Skill Navigator](https://www.skillnavigator.directory/)（索引 8800+ 仓库，按 star 排名）、[agentskills.cc](https://agentskills.cc/)（按分类与平台浏览）——公开仓库会被自动索引 |
+| **CangjieSkills**（仓颉官方 SIG 技能包） | https://atomgit.com/Cangjie-SIG/CangjieSkills （Star 139、活跃收 PR）——仓颉语言知识库技能包，cj-tauri skills 可考虑以 PR 形式贡献进去 |
+
 ## 使用
 
 - 斜杠命令：`/cj-tauri-app-dev`、`/cj-tauri-verify`…（补全菜单里直接选）；

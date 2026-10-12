@@ -45,6 +45,17 @@ public interface Plugin {
     func permissions(): HashMap<String, ArrayList<String>> {
         return HashMap<String, ArrayList<String>>()
     }
+
+    /**
+     * 本插件是否吃「路径 scope」这层校验（RFC-003 第 4 期，默认 false）。
+     *
+     * 声明 true 意味着：命令里带路径的参数一律经 `IpcContext.resolveScopedPath(插件名, 路径)` 取值
+     * （越界即拒），且清单没为它写 scopes 时框架会在启动时提示「按旧行为全量放行」。
+     * 为什么不由框架猜「哪个参数是路径」：只有插件自己知道参数语义，猜出来的白名单等于没有白名单。
+     */
+    func scopeAware(): Bool {
+        return false
+    }
 }
 
 /**
@@ -255,5 +266,34 @@ public func warnUnauthorizedPlugins(plugins: ArrayList<Plugin>, caps: Capability
                 eprintln("[cj-tauri]   请在 capabilities 目录的 json 里把 \"${name}\" 加进 events")
             }
         }
+    }
+}
+
+/**
+ * 提示「吃 scope 的插件没有被声明 scope」——旧清单缺省行为：全量放行（RFC-003 第 4 期）。
+ *
+ * 只在「该插件至少有一条命令被授权」时提示：没用到它的应用不必被这行日志打扰。
+ * 声明了 scope 的插件（caps.hasScopeForPlugin 为真）不提示。
+ */
+public func warnUnscopedPlugins(plugins: ArrayList<Plugin>, caps: CapabilityRegistry): Unit {
+    for (p in plugins) {
+        if (!p.scopeAware()) {
+            continue
+        }
+        var authorized = false
+        for (name in pluginCommandNames(p)) {
+            if (caps.canInvoke(name)) {
+                authorized = true
+                break
+            }
+        }
+        if (!authorized) {
+            continue
+        }
+        if (caps.hasScopeForPlugin(p.name())) {
+            continue
+        }
+        eprintln("[cj-tauri] 插件 ${p.name()} 的路径参数未声明 scope：按旧行为全量放行")
+        eprintln("[cj-tauri]   建议在 capabilities 的 json 里加 \"scopes\": { \"${p.name()}\": { \"allow\": [\"<放行路径>\"] } }")
     }
 }

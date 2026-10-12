@@ -14,6 +14,9 @@ import stdx.encoding.json.*
  *     → 启动时给出「缺哪条、加到哪」的提示；
  *  3. 前端脚本第一行就读到 __CJ_TAURI__.fs（证明 shim 早于页面脚本）；
  *  4. fs:readText / fs:exists 成功，fs:writeText 被拒 —— 默认最小权限的对照组。
+ *  5. 路径 scope 对照组（RFC-003 第 4 期）：清单只放行 $CWD/capabilities 目录，
+ *     读 src/main.cj 或从 ../.. 绕出去的文件必须被拒
+ *     → stderr 有 [cj-tauri] scope denied (fs): <原文> -> <规范化路径> 一行。
  *
  * 另一条取证路径：`CJ_FS_URL_MODE=1` 会把同一份页面落成 /tmp/cj-fs-url-mode.html 并按 file:// 加载。
  * 页面 HTML 不在本进程里了，走的仍是宿主 document-start 预执行脚本通道（RFC §5.4 的 v2）——
@@ -25,6 +28,8 @@ public class ReportCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         if (let Some(line) <- args.get("line")) {
             match (line.kind()) {
                 case JsonKind.JsString => eprintln("[frontend] " + line.asString().getValue())
@@ -68,7 +73,8 @@ main(): Int64 {
   <h1>cj-tauri 插件 fs</h1>
   <div class="card">
     <p>一行 <b>.plugin(FsPlugin())</b> 接入；权限仍由 capabilities 决定。
-      <br><span class="muted">本示例故意只放行 fs:readText / fs:exists，fs:writeText 不在清单里。</span></p>
+      <br><span class="muted">本示例故意只放行 fs:readText / fs:exists，fs:writeText 不在清单里；
+      路径 scope 只放行 capabilities/ 目录（越界的读一律被拒）。</span></p>
     <p><button id="again">重跑一遍</button></p>
     <pre id="log">readText / exists / writeText(对照) …</pre>
   </div>
@@ -114,14 +120,25 @@ main(): Int64 {
         })
         .catch(function (e) { show('fs:readText FAIL => ' + e.message); });
 
-      fs.exists({ path: 'no-such-file-xyz.txt' })
-        .then(function (v) { show('fs:exists(missing) => ' + v); })
+      fs.exists({ path: 'capabilities/no-such-file.txt' })
+        .then(function (v) { show('fs:exists(missing, 在 scope 内) => ' + v); })
         .catch(function (e) { show('fs:exists(missing) FAIL => ' + e.message); });
 
       // 2) 对照组：没在 capability 里放行的命令必须被拒
       fs.writeText({ path: '/tmp/cj-plugin-should-not-exist.txt', contents: 'x' })
         .then(function (v) { show('DENY-FAIL fs:writeText => ' + JSON.stringify(v)); })
         .catch(function (e) { show('DENY-OK fs:writeText: ' + e.message); });
+
+      // 3) scope 对照组（RFC-003 第 4 期）：命令放行了，路径出白名单照样拒——
+      //    文件是真实存在的，所以这条拒只能来自 scope，不是「文件不存在」
+      fs.readText({ path: 'src/main.cj' })
+        .then(function (t) { show('SCOPE-FAIL fs:readText(src/main.cj) => ' + t.length + ' chars'); })
+        .catch(function (e) { show('SCOPE-OK fs:readText(src/main.cj): ' + e.message); });
+
+      // 4) `..` 也绕不过：规范化之后按绝对路径判定
+      fs.readText({ path: '../../src/version.cj' })
+        .then(function (t) { show('SCOPE-FAIL fs:readText(../../src/version.cj) => ' + t.length + ' chars'); })
+        .catch(function (e) { show('SCOPE-OK fs:readText(../../src/version.cj): ' + e.message); });
 
       setTimeout(function () { show('[verify] ALL DONE'); }, 1500);
     }

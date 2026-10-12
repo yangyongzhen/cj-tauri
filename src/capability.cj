@@ -29,6 +29,12 @@ public class Capability {
     public let events: HashSet<String>
     /** 引用到的命名权限集（原始名，如 "fs:readonly"）；展开规则见 CapabilityRegistry */
     public let permissions: HashSet<String>
+    /**
+     * 路径 scope（RFC-003 第 4 期）：插件名 → 路径白名单规则。
+     * 没有某插件的条目 = 该插件按旧行为全量放行（启动时有 stderr 提示）；
+     * 有条目就走「先 deny 后 allow」的二次校验，见 src/scope.cj。
+     */
+    public let scopes: HashMap<String, ScopeRule>
 
     public init(identifier: String) {
         this.identifier = identifier
@@ -36,6 +42,7 @@ public class Capability {
         this.commands = HashSet<String>()
         this.events = HashSet<String>()
         this.permissions = HashSet<String>()
+        this.scopes = HashMap<String, ScopeRule>()
     }
 
     public func allowCommand(cmd: String): Unit {
@@ -147,6 +154,20 @@ public class Capability {
                     case _ => ()
                 }
             }
+            // scopes：插件名 → 路径白名单（RFC-003 第 4 期）。键不认识也照收——
+            // 判定只在「插件真的来问」时发生，写错的键不会放行任何东西，只会让本该严的规则不生效
+            if (let Some(scopes) <- obj.get("scopes")) {
+                match (scopes.kind()) {
+                    case JsonKind.JsObject =>
+                        // JsonObject 没有 keys()，取 fields 这张表来遍历（plugin_store.cj 同样写法）
+                        for ((k, v) in scopes.asObject().getFields()) {
+                            if (let Some(rule) <- parseScopeRule(v)) {
+                                cap.scopes.add(k, rule)
+                            }
+                        }
+                    case _ => ()
+                }
+            }
             return Some(cap)
         } catch (e: Exception) {
             return None
@@ -247,6 +268,46 @@ public class CapabilityRegistry {
             }
         }
         return this.coveredByPermissionSet(event)
+    }
+
+    /**
+     * 某个插件的路径 scope（RFC-003 第 4 期）：把所有清单里给它的规则**并集**起来。
+     * 返回 None = 没有任何清单为它写 scope → 调用方按旧行为全量放行。
+     *
+     * 为什么是并集而不是「逐清单分别判定」：与 canInvoke / canEmit 的口径一致——
+     * 现有能力模型就是「任一清单放行即放行」，scope 跟着同一条口径走才解释得清。
+     * （列级 + 窗口级 scopes 是 Tauri v2 更细的模型，本轮不做，见 RFC-003 第 4 期。）
+     */
+    public func scopeForPlugin(plugin: String): Option<ScopeRule> {
+        var found = false
+        let merged = ScopeRule()
+        for (c in this.caps) {
+            match (c.scopes.get(plugin)) {
+                case Some(rule) =>
+                    found = true
+                    for (a in rule.allow) {
+                        merged.allow.add(a)
+                    }
+                    for (d in rule.deny) {
+                        merged.deny.add(d)
+                    }
+                case None => ()
+            }
+        }
+        if (!found) {
+            return None
+        }
+        return Some(merged)
+    }
+
+    /** 是否有任何清单为某插件声明过 scope（启动提示与判定分支共用这一个口径） */
+    public func hasScopeForPlugin(plugin: String): Bool {
+        for (c in this.caps) {
+            if (c.scopes.contains(plugin)) {
+                return true
+            }
+        }
+        return false
     }
 
     public func size(): Int64 {

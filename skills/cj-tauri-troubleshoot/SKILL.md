@@ -50,6 +50,12 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 单文件 exe 28MB 不瘦身 | llvm-mingw 的 `strip.exe` 包装器缺 `llvm-strip` 真身，`strip 2>/dev/null` 吞了报错；回退 SDK 的 `llvm-objcopy --strip-all`（脚本已内置），排查先裸跑 strip 看真实报错 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 
+### 运行期 / 页面
+
+| 症状 | 原因与修法 |
+|---|---|
+| 前端收到 `path is outside the authorized scope`，stderr 有 `[cj-tauri] scope denied (fs)` | **不是 bug**：清单给该插件写了 `scopes`，这条路径不在 `allow` 里（或命中了 `deny`）。要么把路径加进 `scopes`，要么改用白名单内的路径；`..` 与软链接都会被规范化拆穿，绕不过去。没写 `scopes` 的旧清单是全量放行的（启动有一行 stderr 提示） |
+
 ### 多窗口 / 回调
 
 | 症状 | 原因与修法 |
@@ -57,6 +63,14 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 后装配的窗口收不到自己的事件 | 静态单槽被覆盖；宿主级回调一律**按句柄路由**（报文自带 label 的消息回调才可用单槽） |
 | 新增宿主回调后 C 侧签名不对 | `cj_on_*_fn` 首参必须 `struct cj_host *`（回调要自带身份） |
 | 改了 C 桥导出后链接炸一串 undefined reference | 桥是本地产物不入库；先 `bash native/build_linux.sh`（或 `native\build_win.bat`）重建再构建/测试 |
+
+### C 桥 / 宿主层（改 `native/*.c` 时）
+
+| 症状 | 原因与修法 |
+|---|---|
+| UI 线程回调里崩 `munmap_chunk(): invalid pointer` / double free | 投递归 UI 线程的载荷**必须堆分配**（谁 post 谁分配、UI 线程接管所有权）；把栈上的结构体指针递过去，回调再 `free()` 必崩 |
+| GLib 回调被反复重入（同一动作执行两次、double free） | `g_idle_add` 的回调必须返回 `gboolean`；裸 `void` 函数的「返回值」是寄存器垃圾，非 0 即被当 `G_SOURCE_CONTINUE` 重入——用跳板包一层返回 `G_SOURCE_REMOVE` |
+| 宿主调用「调过了但没生效」 | 一律「检查 API 返回值 + 事后查询复核」打进同一行日志（如 `SetMenu` 静默失败、`GetMenu` 恒 NULL） |
 
 ## 规则
 

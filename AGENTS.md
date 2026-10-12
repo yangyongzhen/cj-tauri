@@ -68,6 +68,18 @@
   里的明文名字**同权**（`CapabilityRegistry.coveredByPermissionSet`，单层展开、不递归）。
   与插件的铁律一致：**集声明 ≠ 放行**，清单不引用就不生效；引用了没有插件提供的集名只提示不报错
   （`warnUnknownPermissionSets`，在插件装配完之后才可能判定）。旧清单全写明文的行为不变，两者可混用。
+- **路径 scope（RFC-003 第 4 期）**：**命令放行 ≠ 参数放行**。清单可给某插件写 `scopes`
+  （`"scopes": { "fs": { "allow": ["$HOME/notes/**"], "deny": ["**/id_rsa"] } }`），`Capability` 解析成
+  `HashMap<String, ScopeRule>`（`src/scope.cj` 的 `parseScopeRule` / `scopeAllows`；注册中心按插件名查
+  `CapabilityRegistry.scopeForPlugin`）。插件是否吃这层限制由 `Plugin.scopeAware()` 声明（默认 false）；
+  声明的插件在自己 handler 里对**页面可控的路径参数**调 `IpcContext.resolveScopedPath(插件名, 原文)`，
+  拿它替换自己拼路径——判定逻辑只在共享层（`src/scope.cj`），**别在平台实现里另判一份**。
+  语义：**先 deny 后 allow**（deny 命中即拒）、allow 必须显式命中（空 allow = 该插件路径全拒）、模式
+  `*` / `**` / `?` 与变量 `$HOME` / `$TEMP` / `$CWD`（`$CWD` 取自 `scopeCwdPath()`，认不出的变量原样保留）；
+  匹配前规范化（存在走 `std.fs.canonicalize` 顺带解析软链接，不存在走词法折叠 `.` / `..`）。
+  **没写 scope 的旧清单行为不变**（全量放行 + 启动打一行 stderr 提示，`warnUnscopedPlugins`）；
+  越界被拒打 `[cj-tauri] scope denied (<插件名>): <原文> -> <规范化路径>`，回给前端的是业务错误
+  `"<插件名>: path is outside the authorized scope"`。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
 - **CLI 取应用装配结果**（插件清单）：走环境变量 `CJ_TAURI_MANIFEST`（`json` / `text`）——`run()` / `runUrl()`
   在 `prepare()` 之后若见它，就把清单打到 stdout 并**直接返回、不创建窗口**（`src/app.cj` 的模式解析 + 渲染），
@@ -126,6 +138,13 @@
   （`ld.lld: error: undefined symbol: cjTauri:cj_bridge_create`，编译期不报）。办法是**框架包内包一层**
   （如 `host.cj` 的 `createBareHostHandle()`——子包可见、不算对外 API）；`@C` 函数相反，有函数体就能跨包调。
 
+- **跨平台文件别按单平台的 warning 清 import**：`@When` 分支只在其中一个平台编译，另一平台看这个 import
+  就是「未使用」。实测 2026-10-08：`host_webkit.cj` 的 `ArrayList` import 被 Windows 侧按 zero-warning
+  清掉，Linux 侧当场编炸。清理前先想「这个符号是不是只有对面平台的分支在用」；拿不准就留一行注释说明。
+- **`@Expect` 宏对 enum 实参推不出泛型**：单测断言里直接 `@Expect(x == SomeEnum.A)` 会报泛型推断失败；
+  `JsonKind` 则**没有 `==`**（比较要走 match 分支）。这类断言改成显式 match / 布尔表达式再断言。
+- **并发原语比想象中少**：`SyncCounter` **没有 `inc()`**（只有 `add`），`Thread` **没有 `wait`/`join`**。
+  并发测试用 `SyncCounter` 计数（`add(1)`），异步开线程用 `spawn { => ... }`（`src/ipc_hub.cj` 有先例）。
 - **`stdx.net.http` 的 `ClientBuilder` 不带默认 TLS**：发 https 请求直接抛
   `HttpException: TLS must be configured when HTTPS requests are sent.`，必须显式
   `ClientBuilder().tlsConfig(TlsClientConfig())`（默认走系统证书库校验，不要图省事关校验）。

@@ -16,6 +16,25 @@
 
 ### Added
 
+- **官方 `clipboard` 插件（系统剪贴板，RFC-003 第 3 期）**：`clipboard:write` / `clipboard:read`
+  两条命令，命名权限集 `clipboard:readonly`（read）与 `clipboard:default`（write + read）。
+  读空剪贴板 / 非文本回 `null`（合法结果，不是失败）。平台差异落在 C 桥
+  （`cj_bridge_clipboard_*`：core 校验 + 平台层按调用线程分流），仓颉侧共享层只做参数校验；
+  文本超 8 MiB 在 core 即拒并打 stderr。Linux 实机验证：应用存活时外部回读的 token 与写入一致。
+- **官方 `notification` 插件（系统通知，RFC-003 第 3 期）**：`notification:notify`（`{title, body?}`），
+  命名权限集 `notification:default`。**发后即忘**（投 UI 线程，不占等待槽）；Linux 走 freedesktop
+  通知规范（会话总线 GDBus），Windows 侧桩返回平台未实现。没有通知服务时命令**失败并给可读原因**
+  （发不出去要知道，不静默）；能力位 `CJ_CAP_NOTIFICATION` 如实上报。Linux 实机验证：会话总线上的
+  通知桩实收 NOTIFY。
+- **`fs` 插件路径 scope（RFC-003 第 4 期，安全补齐）**：capability 清单新增 `scopes` 字段
+  （`"scopes": { "fs": { "allow": [...], "deny": [...] } }`）——命令放行之后**路径再收一层白名单**，
+  堵住「页面能读任意可读文件」的缺口。判定**先 deny 后 allow**（deny 命中即拒，allow 必须显式命中，
+  空 allow = 该插件路径全拒）；模式支持 `*` / `**` / `?` 与 `$HOME` `$TEMP` `$CWD`（变量认不出即原样保留、
+  随之匹配不上＝拒）；匹配前规范化（存在的路径走 canonicalize 顺带解析软链接，不存在的路径词法折叠
+  `.` 与 `..`），`../../` 绕不过。**没写 scope 的旧清单一律维持原行为**（全量放行，只在启动时打一行
+  stderr 提示）；越界被拒时 stderr 有 `[cj-tauri] scope denied (fs): <原文> -> <规范化路径>`。
+  `examples/plugin-fs` 加上 scope 对照组（白名单内读回、越界与 `..` 绕行均被拒，Xvfb 实机取证）。
+  单元测试 175 → **189**（14 条 scope 用例：模式解析 / deny 优先 / 变量展开 / 规范化 / 未授权对照组）。
 - **官方 `store` 插件（持久化键值，RFC-003 第 2 期，对标 tauri-plugin-store）**：`store:get` /
   `store:set` / `store:delete` / `store:keys` / `store:clear` 五条命令，值是**任意 JSON**；
   命名权限集 `store:readonly`（get + keys）与 `store:default`。纯仓颉零 C 桥：内存 JsonObject +

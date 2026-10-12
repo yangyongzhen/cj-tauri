@@ -46,6 +46,11 @@
   skills CLI（`npx skills add yangyongzhen/cj-tauri`，vercel-labs/skills 跨 75+ agent）、
   自动索引公开仓库的目录站（Skill Navigator / agentskills.cc）、仓颉官方 SIG 技能包
   CangjieSkills（可 PR 贡献）。
+- **文档：新增《`docs/RFC-插件路线图.md`》（RFC-003）**：对照 Tauri 2 官方插件清单与仓内实况逐项盘点
+  常用插件缺口（P0：Store / Clipboard / Notifications；P1：Global Shortcut / Window State /
+  Single Instance / Logging / fs scope 补齐；P2：HTTP 白名单代理 / OS Information；P3：SQL /
+  Updater 等重型件），定五期落地顺序（先收口托盘 + 拖放能力位，Store 纯仓颉最快见效）与每期判据，
+  架构红线（平台差异只进 `@When` 与 C 桥、回调按句柄路由、零第三方依赖优先）逐期适用。
 - **官方 `serial` 插件（串口读写）**：`serial:list` / `serial:open` / `serial:read` / `serial:write` /
   `serial:close` 五条命令，前端 `window.__CJ_TAURI__.serial.*`（插件 shim 经宿主**预执行脚本**通道注入，页面第一行可读）。
   `list` 枚举本机串口设备节点（`/dev` 顶层按设备类前缀收 + `/dev/serial/by-{id,path}/` 整目录收录，

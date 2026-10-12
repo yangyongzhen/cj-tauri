@@ -189,6 +189,7 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_DIALOG (WM_APP + 6)
 #define WM_CJT_MENU (WM_APP + 7)       /* 运行期换菜单：lParam = strdup 的线路文本（UI 线程释放）*/
 #define WM_CJT_MENU_ITEM (WM_APP + 8)  /* 运行期改单项状态：lParam = menu_state_msg*（UI 线程释放）*/
+#define WM_CJT_UI (WM_APP + 9)         /* 通用 UI 投递（剪贴板等）：lParam = cj_ui_msg*（UI 线程释放）*/
 
 /* 运行期改单项状态：跨线程传递的小包裹（谁 post 谁分配，UI 线程处理完释放）*/
 typedef struct menu_state_msg {
@@ -197,7 +198,15 @@ typedef struct menu_state_msg {
     int checked;
 } menu_state_msg;
 
+/* 通用 UI 投递的包裹：PostMessage 一次带一个 fn + ud（UI 线程处理完释放）*/
+typedef struct cj_ui_msg {
+    cj_ui_fn fn;
+    void *ud;
+} cj_ui_msg;
+
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+/* 错误格式化助手（定义在串口区，剪贴板也用它） */
+static void serial_err(char *err, int err_len, const char *fmt, ...);
 /* 菜单实现集中在文件末尾；宿主线程与窗口过程要用，先声明 */
 static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire);
 static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked);
@@ -562,6 +571,134 @@ void cj_plat_post_dialog(cj_host *h, dlg_req *req) {
     }
 }
 
+int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    cj_ui_msg *m;
+
+    if (!p || !p->hwnd) {
+        fprintf(stderr, "[cj-bridge] post ui failed: window not ready\n");
+        return 0;
+    }
+    m = (cj_ui_msg *)malloc(sizeof(cj_ui_msg));
+    if (!m) {
+        return 0;
+    }
+    m->fn = fn;
+    m->ud = ud;
+    if (!PostMessageW(p->hwnd, WM_CJT_UI, 0, (LPARAM)m)) {
+        fprintf(stderr, "[cj-bridge] post ui failed: %lu\n", (unsigned long)GetLastError());
+        free(m);
+        return 0;
+    }
+    return 1;
+}
+
+/* ===== 剪贴板（plugin_clipboard 的平台层）：Win32 clipboard =====
+   调用方保证已在宿主 UI 线程上（core 的 UI 线程分流负责）。OpenClipboard 带重试：
+   剪贴板是系统单例，别的进程可能正占着（MSDN 建议的做法）。 */
+
+static int clip_open_retry(HWND hwnd) {
+    int i;
+    for (i = 0; i < 10; i++) {
+        if (OpenClipboard(hwnd)) return 1;
+        Sleep(2);
+    }
+    return 0;
+}
+
+int cj_plat_clipboard_write_text(cj_host *h, const char *text, char *err, int err_len) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    int wlen;
+    wchar_t *wtext;
+    HGLOBAL glob;
+    wchar_t *dst;
+    size_t bytes;
+
+    if (!clip_open_retry(p ? p->hwnd : NULL)) {
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: OpenClipboard 失败（被别的进程占用？）");
+        return -3;
+    }
+    EmptyClipboard();
+    wlen = MultiByteToWideChar(CP_UTF8, 0, text ? text : "", -1, NULL, 0);
+    if (wlen <= 0) {
+        CloseClipboard();
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: 文本不是合法 UTF-8");
+        return -1;
+    }
+    bytes = (size_t)wlen * sizeof(wchar_t);
+    glob = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!glob) {
+        CloseClipboard();
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: GlobalAlloc 失败");
+        return -3;
+    }
+    dst = (wchar_t *)GlobalLock(glob);
+    if (!dst) {
+        GlobalFree(glob);
+        CloseClipboard();
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: GlobalLock 失败");
+        return -3;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, text ? text : "", -1, dst, wlen);
+    GlobalUnlock(glob);
+    /* SetClipboardData 交出所有权：成功后 glob 归系统，不再 free */
+    if (!SetClipboardData(CF_UNICODETEXT, glob)) {
+        GlobalFree(glob);
+        CloseClipboard();
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: SetClipboardData 失败");
+        return -3;
+    }
+    CloseClipboard();
+    return 0;
+}
+
+char *cj_plat_clipboard_read_text(cj_host *h, char *err, int err_len) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    HANDLE hd;
+    const wchar_t *wtext;
+    int len;
+    char *out;
+
+    if (!clip_open_retry(p ? p->hwnd : NULL)) {
+        if (err && err_len > 0) serial_err(err, err_len, "clipboard: OpenClipboard 失败（被别的进程占用？）");
+        return NULL;
+    }
+    hd = GetClipboardData(CF_UNICODETEXT);
+    if (!hd) {
+        CloseClipboard();
+        return NULL; /* 空 / 非文本，不是错误 */
+    }
+    wtext = (const wchar_t *)GlobalLock(hd);
+    if (!wtext) {
+        CloseClipboard();
+        return NULL;
+    }
+    len = WideCharToMultiByte(CP_UTF8, 0, wtext, -1, NULL, 0, NULL, NULL);
+    out = NULL;
+    if (len > 0) {
+        out = (char *)malloc((size_t)len);
+        if (out) {
+            WideCharToMultiByte(CP_UTF8, 0, wtext, -1, out, len, NULL, NULL);
+        }
+    }
+    GlobalUnlock(hd);
+    CloseClipboard();
+    return out; /* NULL = 空 / 非文本 / 转换失败 */
+}
+
+/* ===== 通知（plugin_notification 的平台层）：本平台暂未实现 =====
+   Windows 原生通知要 WinRT 的 ToastNotifier（xminwinrt 只有子集），桩阶段按「未实现」口径
+   返回 -4，仓颉侧与能力位（不置 CJ_CAP_NOTIFICATION）保持一致——如实上报，不假装成功。 */
+
+int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
+                                char *err, int err_len) {
+    (void)h; (void)title; (void)body;
+    if (err && err_len > 0) {
+        serial_err(err, err_len, "%s", "notification: 本平台未实现（Windows 桩阶段）");
+    }
+    return -4;
+}
+
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     /* 句柄从窗口自己的 USERDATA 取：PostMessage 按窗口寻址，谁收到就是谁的宿主 */
     cj_host *h = (cj_host *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -652,6 +789,16 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         /* lParam 是调用方（仓颉线程）堆上的请求：宿主线程只填结果，释放仍归调用方 */
         if (lp) {
             cj_core_dialog_tick(h, (dlg_req *)lp);
+        }
+        return 0;
+    case WM_CJT_UI:
+        /* 通用 UI 投递：lParam 是调用方栈上的包裹（fn + ud），处理完就地释放 */
+        if (lp) {
+            cj_ui_msg *m = (cj_ui_msg *)lp;
+            if (m->fn) {
+                m->fn(m->ud);
+            }
+            free(m);
         }
         return 0;
     case WM_DESTROY:
@@ -1263,7 +1410,8 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
-    /* 本平台的静态能力：菜单栏已落地；托盘 / 拖放到 7.B / 7.C 做完再把对应的位置打开 */
+    /* 本平台的静态能力：菜单栏已落地；托盘 / 拖放到 7.B / 7.C 做完再把对应的位置打开；
+       通知未实现（见 cj_plat_notification_notify），不置 CJ_CAP_NOTIFICATION */
     return CJ_CAP_MENU;
 }
 

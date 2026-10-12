@@ -32,6 +32,10 @@ class FakeHost <: WebViewHost {
     public var shellHandler: (String) -> Unit = { _ => }
     // 销毁回调：用例可以自己调它，模拟「桥通知本窗销毁了」
     public var destroyHandler: () -> Unit = { => }
+    // 剪贴板 / 通知：写与通知按「调一次记一次」，读值可注入（默认空，用例按需设）
+    public var clipboardWritten: String = ""
+    public var clipboardReadValue: Option<String> = None<String>
+    public var notifiedArgs: String = ""
     // 能力位：桩给「有菜单」，用例要测「平台没这个本事」时自行覆盖它
     public var caps: Int32 = CJ_CAP_MENU
 
@@ -97,6 +101,20 @@ class FakeHost <: WebViewHost {
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         this.messageDialogArgs = "${kind}|${title}|${message}"
         return false
+    }
+
+    public func clipboardWriteText(text: String): Bool {
+        this.clipboardWritten = text
+        return true
+    }
+
+    public func clipboardReadText(): Option<String> {
+        return this.clipboardReadValue
+    }
+
+    public func notify(title: String, body: String): Bool {
+        this.notifiedArgs = "${title}|${body}"
+        return true
     }
 
     public func runJs(js: String): Unit {

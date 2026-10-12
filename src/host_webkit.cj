@@ -267,6 +267,42 @@ public class WebKitHost <: WebViewHost {
         return ok != 0
     }
 
+    public func clipboardWriteText(text: String): Bool {
+        var rc: Int32 = -1
+        unsafe {
+            rc = cj_bridge_clipboard_write_text(this.handle, LibC.mallocCString(text))
+        }
+        if (rc != 0) {
+            eprintln("[cj-tauri] clipboard write failed: code=${rc}")
+        }
+        return rc == 0
+    }
+
+    public func clipboardReadText(): Option<String> {
+        let cs = unsafe { cj_bridge_clipboard_read_text(this.handle) }
+        if (cs.isNull()) {
+            return None<String> // 空 / 非文本 / 平台失败，协议层不区分
+        }
+        let text = cs.toString()
+        unsafe {
+            cj_bridge_clipboard_free(cs) // 归还缓冲：malloc 家族分配，必须走桥的 free
+        }
+        return Some(text)
+    }
+
+    public func notify(title: String, body: String): Bool {
+        var rc: Int32 = -1
+        unsafe {
+            rc = cj_bridge_notification_notify(this.handle, LibC.mallocCString(title),
+                                               LibC.mallocCString(body))
+        }
+        if (rc != 0) {
+            // -4 = 本平台未实现：这是静态事实，stderr 一行说清，不算异常
+            eprintln("[cj-tauri] notification failed: code=${rc}")
+        }
+        return rc == 0
+    }
+
     /**
      * 创建宿主编（幂等）：首次启动时分配，dispose() 后置空
      */

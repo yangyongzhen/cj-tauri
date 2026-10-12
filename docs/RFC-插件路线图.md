@@ -57,10 +57,24 @@ SQL（sqlx 级别）、Stronghold（加密库）、**Updater**（要签名与分
 **不是新插件，是核心能力位收口**——`system:host` 里 `tray=0 / dragDrop=0` 挂了很久，对桌面应用常用度高于
 上表多数插件。按 RFC-002 §7 落地；前置：`native/build_win.bat` 补 `-lshell32`（托盘要 `Shell_NotifyIconW`）。
 
-### 第 2 期：Store（纯仓颉，最快见效）
+### 第 2 期：Store（纯仓颉，最快见效）——**已交付（2026-10-09）**
 
-无 C 桥改动。判据：单测覆盖读写删/并发写/损坏文件回落；`examples/music` 改用它（手搓 JSON 删除）；
-两平台 `cjpm build` 过。
+**设计定稿（2026-10-09，开工前按约定补）**：
+
+- **命令面**：`store:get { key, default? }` / `store:set { key, value }`（**值是任意 JSON**——music
+  存的是整段歌曲数组）/ `store:delete { key }` / `store:keys` → `{ keys: [...] }` / `store:clear` →
+  `{ cleared: N }`（返回清掉几条，便于页面提示）；
+- **命名权限集**：`store:readonly`（get + keys）与 `store:default`（全部）——照 `fs` 先例；
+- **落盘位置**：`StorePlugin()` 默认 `<工作目录>/store.json`（与 capabilities/ 同一套项目根约定），
+  `StorePlugin(path)` 自定义路径；v1 一应用一个 store（插件按 name 装配，多实例会撞名），多 store 留待有真实诉求；
+- **原子写**：先写 `path.tmp` 再 `std.fs.rename(..., overwrite: true)`（契约已查证）；rename 失败
+  回落直写并打 stderr——与 music 现状同级兜底；
+- **并发**：命令跑在 worker 线程，set/delete/clear 走内存对象 + 锁（`std.sync`，API 以仓内已验证
+  用法为准，实现时先 grep 再写）；
+- **损坏文件**：读失败不是致命错误——一行 stderr + 从空开始（music 先例），save 会覆盖掉坏文件。
+- **判据**：单测覆盖读写删 / keys / 并发写 / 损坏文件回落 / 原子写（tmp 不残留）；
+  `examples/music` 改用它（手搓 JSON 删除，收藏文件形状不变：顶层 `songs` / `recent` 两个键，
+  老用户文件无缝迁移）；两平台 `cjpm build` 过 + Linux 实机闭环。
 
 ### 第 3 期：Clipboard + Notifications（一组新 C 桥导出）
 

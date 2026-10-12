@@ -16,6 +16,18 @@
 
 ### Added
 
+- **官方 `store` 插件（持久化键值，RFC-003 第 2 期，对标 tauri-plugin-store）**：`store:get` /
+  `store:set` / `store:delete` / `store:keys` / `store:clear` 五条命令，值是**任意 JSON**；
+  命名权限集 `store:readonly`（get + keys）与 `store:default`。纯仓颉零 C 桥：内存 JsonObject +
+  Mutex + **原子写**（先写 `path.tmp` 再 `rename(overwrite:true)`，中途被杀不留半个 JSON；rename
+  失败回落直写并打 stderr）；损坏文件不是致命错误（一行 stderr + 从空开始，下次写覆盖）。
+  落盘默认 `<工作目录>/store.json`（`StorePlugin(path)` 可自定义）。`examples/music` 已从手搓
+  JSON 存储迁到它（`fav:get` / `fav:set` 对外契约与收藏文件形状不变，老文件无缝迁移），Linux
+  实机两轮回归：全新启动自检收藏落盘 + 原子写无 tmp 残留 + 重启后数据从盘上回来。
+  顺带修掉一个跨平台编译坑：`host_webkit.cj` 的 `std.collection.*` import 在 Linux 侧必需
+  （Windows 侧看是 unused——按单平台 warning 清理跨平台文件的 import 会把另一平台编炸）。
+  单元测试 143 → **155**（12 条 store 用例：读写删 / keys 排序 / 原子写残留 / 损坏回落 /
+  8 worker 并发写 / 命令校验 / 权限集闸门）。
 - **示例 `examples/modbus-poll`（Modbus Poll 调试工具，Modbus TCP）**：多面板并行监控（对标原版
   MDI 多窗口、一屏任意多组）、FC 01/02/03/04 读 + 05/06/15/16 写、双击写入（线圈取反 / 寄存器
   改值 / Float32-Int16 按显示类型对写）+ 写前模态确认（旧值回显）、FC16 批量写（留空保持、连续段

@@ -5,8 +5,9 @@ import std.env.*
 import std.io.*
 import stdx.encoding.json.*
 import stdx.net.http.*
+// TlsClientConfig 就在 stdx.net.tls 主包里（文档已核）；stdx.net.tls.common 子包在
+// 本机 Linux stdx 1.0.5.1 里不存在（Windows stdx 才有）——music 首次在 Linux 侧编译时踩到
 import stdx.net.tls.*
-import stdx.net.tls.common.*
 import cjTauri.*
 
 /**

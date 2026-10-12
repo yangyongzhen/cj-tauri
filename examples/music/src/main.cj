@@ -36,10 +36,12 @@ main(): Int64 {
     eprintln("[music] 后台接口：${musicApiBase()}（可用环境变量 CJ_MUSIC_API 覆盖）")
     eprintln("[music] 本机收藏库：${MUSIC_LIBRARY_PATH}")
 
-    // 收藏库在启动时读一次、之后由命令层读写（每条命令共享同一个实例）
-    let store = MusicStore(MUSIC_LIBRARY_PATH)
-    let n = store.countOf("songs")
-    let m = store.countOf("recent")
+    // 收藏库在启动时读一次、之后由命令层读写（每条命令共享同一个实例）。
+    // 存储本体已换成框架的 StoreBackend（RFC-003 第 2 期）：原子写 + 并发锁；
+    // 文件形状不变（顶层 songs/recent 两个键），老用户的收藏文件无缝迁移。
+    let store = StoreBackend(MUSIC_LIBRARY_PATH)
+    let n = storeArrayCount(store, "songs")
+    let m = storeArrayCount(store, "recent")
     eprintln("[music] 收藏已载入：songs=${n} recent=${m}")
 
     // 播放器要并排放「列表 + 歌词 + 封面」，窗口给宽一点；能力清单由框架在 run() 时自动扫 capabilities/

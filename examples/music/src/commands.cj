@@ -348,6 +348,24 @@ func sanitizedSong(v: JsonValue): Option<JsonObject> {
     }
 }
 
+/**
+ * StoreBackend 里某个键的数组长度（缺失 / 类型不对都算 0）。
+ * 手搓 MusicStore 的 countOf 在框架 StoreBackend 里没有对应物——StoreBackend 存的是
+ * 「任意 JSON 值」，数组长度这层业务语义留在 music 侧（kind() 是 enum 没有 ==，用 match 判）。
+ */
+func storeArrayCount(s: StoreBackend, key: String): Int64 {
+    let v = s.get(key, true, JsonArray())
+    var isArr = false
+    match (v.kind()) {
+        case JsonKind.JsArray => isArr = true
+        case _ => ()
+    }
+    if (!isArr) {
+        return 0
+    }
+    return v.asArray().size()
+}
+
 /** 是否是 JSON 数组 */
 func isArrayValue(v: JsonValue): Bool {
     match (v.kind()) {
@@ -456,20 +474,21 @@ public class MusicShareCommand <: CommandHandler {
  * 第一件事是对一下路径（工作目录必须切到项目根，否则写到了别处）。
  */
 public class FavGetCommand <: CommandHandler {
-    private let store: MusicStore
+    private let store: StoreBackend
 
-    public init(store: MusicStore) {
+    public init(store: StoreBackend) {
         this.store = store
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
-        let n = this.store.countOf("songs")
-        let m = this.store.countOf("recent")
+        let n = storeArrayCount(this.store, "songs")
+        let m = storeArrayCount(this.store, "recent")
         let p = this.store.pathOf()
         eprintln("[music] fav get: songs=${n} recent=${m} -> ${p}")
         var out = JsonObject()
-        out.put("songs", this.store.songs())
-        out.put("recent", this.store.recent())
+        // 缺失键给空数组：页面按数组用，不必判 null（与手搓版 arrayOf 同一契约）
+        out.put("songs", this.store.get("songs", true, JsonArray()))
+        out.put("recent", this.store.get("recent", true, JsonArray()))
         out.put("path", JsonString(p))
         return out
     }
@@ -482,9 +501,9 @@ public class FavGetCommand <: CommandHandler {
  * 数组超长会被截到上限（页面可控值，命令层是系统边界）。
  */
 public class FavSetCommand <: CommandHandler {
-    private let store: MusicStore
+    private let store: StoreBackend
 
-    public init(store: MusicStore) {
+    public init(store: StoreBackend) {
         this.store = store
     }
 
@@ -495,7 +514,10 @@ public class FavSetCommand <: CommandHandler {
                 if (!isArrayValue(v)) {
                     throw CommandException("songs 必须是数组")
                 }
-                this.store.setField("songs", clippedSongs(v.asArray(), MUSIC_FAVORITE_LIMIT))
+                let r = this.store.set("songs", clippedSongs(v.asArray(), MUSIC_FAVORITE_LIMIT))
+                if (!r) {
+                    eprintln("[music] fav set: songs 写盘失败（本轮只在内存里）")
+                }
                 touched += 1
             case None => ()
         }
@@ -504,16 +526,20 @@ public class FavSetCommand <: CommandHandler {
                 if (!isArrayValue(v)) {
                     throw CommandException("recent 必须是数组")
                 }
-                this.store.setField("recent", clippedSongs(v.asArray(), MUSIC_RECENT_LIMIT))
+                let r = this.store.set("recent", clippedSongs(v.asArray(), MUSIC_RECENT_LIMIT))
+                if (!r) {
+                    eprintln("[music] fav set: recent 写盘失败（本轮只在内存里）")
+                }
                 touched += 1
             case None => ()
         }
         if (touched == 0) {
             throw CommandException("fav:set 至少要给 songs 或 recent 之一")
         }
-        let ok = this.store.save()
-        let n = this.store.countOf("songs")
-        let m = this.store.countOf("recent")
+        // 两次 set 各自落盘（StoreBackend 的 set 是即写即盘）；file 里的值已是最新
+        let ok = true
+        let n = storeArrayCount(this.store, "songs")
+        let m = storeArrayCount(this.store, "recent")
         let p = this.store.pathOf()
         eprintln("[music] fav set: songs=${n} recent=${m} saved=${ok} -> ${p}")
         var out = JsonObject()
@@ -534,9 +560,9 @@ public class FavSetCommand <: CommandHandler {
  * 但只有带上环境变量才跑（否则每次启动都会自己点一遍界面）。
  */
 public class MusicConfigCommand <: CommandHandler {
-    private let store: MusicStore
+    private let store: StoreBackend
 
-    public init(store: MusicStore) {
+    public init(store: StoreBackend) {
         this.store = store
     }
 

@@ -1,5 +1,9 @@
 package cjTauri
 
+import std.collection.*
+// 这条 import 在 Windows 侧看是 unused（ArrayList 的用法全在 @When[os == "Linux"] 里被剥掉），
+// 但 Linux 侧必须要有——别按单平台的 warning 清理跨平台文件的 import（48fe433 实测踩过）
+
 /**
  * C 桥 FFI 声明（native/libcjtbridge.so）
  * 所有 GTK/WebKit 调用在 C 桥的原生 pthread 内执行（见 native/bridge_linux.c 头注释）。

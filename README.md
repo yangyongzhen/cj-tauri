@@ -91,6 +91,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [hello](examples/hello) | 最小闭环：`invoke` 命令 + 事件推送 + 越权拒绝 |
 | [todo_check](examples/todo_check) / [vue_todo](examples/vue_todo) | 待办清单（零 Node 版与 Vue 3 + Vite 工程版，同一套命令） |
 | [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | 官方插件四件套：文件读写 / 原生对话框 / 打开链接与子进程 / 串口，各带权限对照 |
+| 框架内置 `store` 插件 | 持久化键值（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它 |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
 
@@ -178,7 +179,7 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 - ✅ 脚手架 CLI（仓颉原生）：`create / dev / build / run / info`，npm 包跨平台分发
 - ✅ 插件体系 v1 + 官方五插件（fs / dialog / shell / serial / menu），双平台实机证据
 - ✅ 命令异步分发（慢命令不冻窗口）、多窗口按 label 路由、插件清单 `info --json` 机器可读
-- ✅ 工程化：144 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
+- ✅ 工程化：155 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
 - 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件（托盘 / 全局快捷键）
 
 ## 仓库与推送

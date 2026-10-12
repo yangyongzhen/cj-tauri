@@ -109,7 +109,20 @@ else
     ok "无 target/、*.dll、*.log、cjpm.lock"
 fi
 
-# ------------------------------------------------- 6. C 桥公共核心自检
+# ------------------------------------------- 6. 插件/命令不得引用核心内部件
+# 架构契约（AGENTS §2）：依赖方向单向 app → host / ipc_hub → capability，
+# 插件与命令通过回调注入协作，不得偷用核心内部符号（HostGlobals 等）。
+section "插件与命令不引用核心内部件"
+before=$fails
+hits=$(git grep -nE 'HostGlobals|IpcHub\(' -- 'src/plugin_*.cj' 'src/api_*.cj' || true)
+if [ -n "$hits" ]; then
+    bad "以下插件/命令文件引用了核心内部符号："
+    printf '%s\n' "$hits" | sed 's/^/        /'
+else
+    ok "$(git ls-files 'src/plugin_*.cj' 'src/api_*.cj' | wc -l) 个插件/命令文件无核心内部件引用"
+fi
+
+# ------------------------------------------------- 7. C 桥公共核心自检
 section "C 桥公共核心自检"
 before=$fails
 # 桩平台编译 native/tests/test_bridge_core.c + native/bridge_core.c 并跑断言；

@@ -9,7 +9,7 @@
 
 | cj-tauri 已有 | 对标 Tauri | 备注 |
 |---|---|---|
-| `fs` 插件 | File System | **缺 scope**：页面能读任意可读文件（仓内已核实无路径限制），安全补齐见 §3.2 第 4 期 |
+| `fs` 插件 | File System | 路径 scope **已补齐**（第 4 期，2026-10-12）：`scopes` 字段按插件名收路径白名单 |
 | `dialog` 插件 | Dialog | 已实机验证（Linux/WebKitGTK） |
 | `shell` 插件（open + exec） | Opener + Shell | argv 直传不过 shell 已实测 |
 | `menu` 插件 | （Tauri 里是核心功能） | Windows 14/14、Linux 21/21 实机证据 |
@@ -25,8 +25,8 @@
 | 插件 | Tauri 对应 | 缺口说明 | 实现要点 |
 |---|---|---|---|
 | **Store（持久化 KV）** | tauri-plugin-store | `examples/music` 已在用 JSON 手搓收藏/最近播放——框架级补上后这类代码可删 | **纯仓颉**（JSON 落盘 + 原子写 + 内存缓存），零 C 桥；命令 `store:get/set/delete/keys`，路径固定在应用数据目录 |
-| **Clipboard（剪贴板）** | tauri-plugin-clipboard | 最基础的桌面能力 | C 桥导出 `cj_bridge_clipboard_{set_text,get_text}`；Linux `gtk_clipboard_get/set(GDK_SELECTION_CLIPBOARD)`（UI 线程），Windows `OpenClipboard`/`SetClipboardData(CF_UNICODETEXT)` |
-| **Notifications** | tauri-plugin-notification | 桌面常用 | Linux `notify-notification`（libnotify）或 `org.freedesktop.Notifications` D-Bus；Windows toast（`Windows.UI.Notifications` 或 shell API）——**新增能力位** `CJ_CAP_NOTIFICATION` |
+| **Clipboard（剪贴板）** ✅ 已交付（第 3 期） | tauri-plugin-clipboard | 最基础的桌面能力 | C 桥导出 `cj_bridge_clipboard_*`；Linux `gtk_clipboard_get/set(GDK_SELECTION_CLIPBOARD)`（UI 线程），Windows `OpenClipboard`/`SetClipboardData(CF_UNICODETEXT)` |
+| **Notifications** ✅ 已交付（第 3 期） | tauri-plugin-notification | 桌面常用 | Linux `org.freedesktop.Notifications` D-Bus（GDBus，纯平台 API）；Windows 桩——**新增能力位** `CJ_CAP_NOTIFICATION` |
 
 ### P1 —— 工具类应用刚需
 
@@ -76,15 +76,68 @@ SQL（sqlx 级别）、Stronghold（加密库）、**Updater**（要签名与分
   `examples/music` 改用它（手搓 JSON 删除，收藏文件形状不变：顶层 `songs` / `recent` 两个键，
   老用户文件无缝迁移）；两平台 `cjpm build` 过 + Linux 实机闭环。
 
-### 第 3 期：Clipboard + Notifications（一组新 C 桥导出）
+### 第 3 期：Clipboard + Notifications（一组新 C 桥导出）——**已交付（2026-10-12，Linux 实机；Windows 侧同名桩）**
 
 照 menu 的分层样板：`WebViewHost` 加方法 → 两平台实现 → core 加同名导出 + 能力位。
 判据：`system:host` 如实上报新能力位；Linux/Windows 各一条实机证据（剪贴板写后系统其它程序能读到、
 通知真弹出）；能力清单不声明即拒（最小权限不破）。
 
-### 第 4 期：fs scope（安全补齐，趁插件生态还小）
+**交付结果**：`clipboard:write` / `clipboard:read` 与 `notification:notify`（各带命名权限集）；
+平台差异全在 C 桥，仓颉侧共享层只做参数校验。Linux 证据——应用存活时外部回读剪贴板 token 一致、
+会话总线上的通知桩实收 NOTIFY（截图与日志归档在 `/tmp/cj-tauri-shots/`）；**Windows 实机未做**
+（同名桩 + 能力位如实上报，等 Windows 机）；桩自检 139 → **151**。实机还抓到并修掉两处真崩溃：
+把**栈上**的投递载荷交给 UI 线程而回调里 `free()`（`munmap_chunk(): invalid pointer`）、
+`g_idle_add` 的 `void` 回调把寄存器垃圾当返回值（GLib 反复重入 → double free）。
 
-判据：默认清单行为不破坏（旧清单全量 + stderr 提示）；新 scope 语法有单测与未授权对照组。
+### 第 4 期：fs scope（安全补齐，趁插件生态还小）——**已交付（2026-10-12，Linux 实机）**
+
+**为什么**：`fs` 插件只做「命令是否放行」的粗粒度校验——清单放行 `fs:readText` 之后，页面就能读**任意**可读
+文件（`/etc/passwd`、源码、私钥）。Tauri v2 的对策是 fs 的 `scope`（按路径白名单二次校验），本期补上。
+
+**语法**（capabilities 清单里新增可选字段 `scopes`，键是插件名——与 `commands` 的命名空间对齐）：
+
+```json
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": ["fs:readText", "fs:writeText"],
+  "scopes": {
+    "fs": { "allow": ["$HOME/notes/**", "data/*.json"], "deny": ["**/id_rsa"] }
+  }
+}
+```
+
+**实现要点**：
+
+- **落在仓颉侧共享层**（`src/scope.cj`），不是插件里手搓：路径变量展开、规范化、glob 匹配、判定顺序
+  都只有一份，插件只调 `IpcContext.resolveScopedPath("<插件名>", 页面给的路径)` 取值——
+  插件作者不会漏做、也不会各写一套（core 侧放白名单，与 C 桥那条红线同一条道理）。
+- **判定顺序**：先 `deny` 后 `allow`——命中 deny 一律拒（含同时命中 allow 的情况）；allow 必须显式命中。
+  写了 `scopes.fs` 但 `allow` 为空集 = 该插件路径全拒（显式的最小权限，不做「空即放行」那种反向默认）。
+- **路径变量**：`$HOME` / `$TEMP` / `$CWD`（`$CWD` = 进程工作目录，即项目根）。未知变量**保留原文**，
+  于是模式匹配不上 = 失败即拒（fail closed），不做「看不懂就当放行」。
+- **规范化先于匹配**：已存在的路径走 `std.fs.canonicalize`（连带解析符号链接——白名单目录里的软链接指到
+  `/etc/passwd` 也会被拒）；不存在的路径（写新文件的场景）退化为词法规范化（折叠 `.` 与 `..`）。
+  相对路径按工作目录解析，与 `capabilities/`、`ui/` 的相对路径口径一致。
+- **匹配语义**：`*` 不跨分隔符、`**` 跨分隔符、`?` 匹配单个码点（不是单字节——汉字是 3 字节，按字节匹配会错）；
+  Windows 下两侧大小写折叠（`@When[os == "Windows"]`），Linux 保持大小写敏感。
+- **兼容策略**：某插件**没有任何**清单给它写 `scopes` → 维持旧行为（全量放行），但启动时由
+  `warnUnscopedPlugins` 打 stderr 提示（只在「该插件有命令被授权」时提示，免得没用到也刷屏）。
+  插件侧用 `Plugin.scopeAware()` 声明自己吃这层校验（默认 `false`，只有 `fs` 目前为 `true`）——
+  框架不该替一个不知道路径是什么的插件猜「哪个参数是路径」。
+- **拒绝要有凭证**：拒的时候 stderr 一行 `[cj-tauri] scope denied (<插件>): <原文> -> <规范化结果>`
+  （照 `command rejected` 那套前缀口径），前端拿到的是可读的业务错误。
+
+**判据**：默认清单行为不破坏（旧清单全量 + stderr 提示）；新 scope 语法有单测与未授权对照组
+（同名命令：允许路径通、越界路径拒、deny 优先、`..` 与软链接绕不过、未声明 scope 时旧行为照旧）。
+
+**交付结果**：`src/scope.cj`（`parseScopeRule` / `scopeAllows` / `globMatch` / `expandScopeVars` /
+`normalizeScopePath`）+ `Capability.scopes` + `IpcContext.resolveScopedPath` + `Plugin.scopeAware()`
+（`fs` 为 true，其余默认 false）。单测 155 → **189**（14 条 scope 用例，含未授权对照组与 `..` 对照组）。
+`examples/plugin-fs` 清单只放行 `$CWD/capabilities/**`，Xvfb 实机取证：白名单内 `fs:readText` 读回
+224 字符；`src/main.cj` 与 `../../src/version.cj` 两条越界读被拒，stderr 各一行 `scope denied (fs)`。
+实现期补的一条 glob 语义：**`**/` 允许匹配零个目录**（`/a/**/b` 能匹配 `/a/b`，照 gitignore 口径），
+否则「白名单目录直接放文件」的写法会莫名其妙全拒。列级 / 窗口级细分（Tauri v2 更细的模型）本轮不做。
 
 ### 第 5 期起：Global Shortcut / Window State / Single Instance / Logging / HTTP 白名单
 

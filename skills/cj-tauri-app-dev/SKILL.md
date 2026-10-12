@@ -51,7 +51,15 @@ cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / 
 
 铁律：**插件只声明「我提供什么」，不自动放行**；清单不引用就不生效。
 官方插件样板：`src/plugin_fs.cj`（文件）、`plugin_dialog.cj`（对话框）、`plugin_shell.cj`（子进程）、
-`plugin_serial.cj`（串口）、`plugin_menu.cj`（菜单）。
+`plugin_serial.cj`（串口）、`plugin_store.cj`（持久化 KV）、`plugin_clipboard.cj`（剪贴板）、
+`plugin_notification.cj`（系统通知）、`plugin_menu.cj`（菜单）。
+
+**带路径参数的插件还有第三层闸门（路径 scope，RFC-003 第 4 期）**：命令放行 ≠ 路径放行。
+清单可加 `"scopes": { "fs": { "allow": ["$HOME/notes/**"], "deny": ["**/id_rsa"] } }`；
+插件侧用 `Plugin.scopeAware()` 声明「我懂 scope」，再对页面可控的路径参数调
+`IpcContext.resolveScopedPath("<插件名>", path)` 取规范化后的真实路径（判定只有共享层一份，
+别在插件里另写）。语义：**先 deny 后 allow**、allow 必须显式命中（空 allow = 全拒）、
+`*` / `**` / `?` 与 `$HOME` / `$TEMP` / `$CWD`。没写 `scopes` 的清单行为不变（全量放行 + 启动提示）。
 
 ### 4. 写前端
 

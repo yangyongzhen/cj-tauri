@@ -29,7 +29,8 @@
 - **静态编译的后端**：仓颉无 VM、无 GC 抖动顾虑，协议层两百行可审计；
 - **零 Chromium 捆绑**：直接用系统 WebView（Linux WebKitGTK / Windows WebView2），单示例产物 4~10MB；
 - **能力安全模型**：`capabilities/` 白名单默认最小权限，未声明命令一律拒绝，与宿主实现解耦；
-- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `menu` 官方插件，一行接入，权限仍由清单决定；
+- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` 官方插件，
+  一行接入，权限（命令级白名单 + 命名权限集 + 路径 scope）仍由清单决定；
 - **全链路可验证**：桥 stderr 即时取证 + 页面自检断言回传，每个示例都能无人值守自检；
 - **配套脚手架**：`cj-tauri create/dev/build/run/info`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完。
 
@@ -90,8 +91,9 @@ cli\cj-tauri.bat create myapp && cd myapp
 |---|---|
 | [hello](examples/hello) | 最小闭环：`invoke` 命令 + 事件推送 + 越权拒绝 |
 | [todo_check](examples/todo_check) / [vue_todo](examples/vue_todo) | 待办清单（零 Node 版与 Vue 3 + Vite 工程版，同一套命令） |
-| [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | 官方插件四件套：文件读写 / 原生对话框 / 打开链接与子进程 / 串口，各带权限对照 |
+| [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | 官方插件四件套：文件读写（含**路径 scope 对照**）/ 原生对话框 / 打开链接与子进程 / 串口，各带权限对照 |
 | 框架内置 `store` 插件 | 持久化键值（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它 |
+| 框架内置 `clipboard` / `notification` 插件 | 系统剪贴板读写 / 系统通知（RFC-003 第 3 期）：Linux 实机取证（外部回读剪贴板、会话总线上实收通知），Windows 侧同名桩且能力位如实上报 |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
 
@@ -177,9 +179,10 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 
 - ✅ Linux（WebKitGTK）与 Windows（WebView2）双平台宿主，IPC/能力模型完全共用
 - ✅ 脚手架 CLI（仓颉原生）：`create / dev / build / run / info`，npm 包跨平台分发
-- ✅ 插件体系 v1 + 官方五插件（fs / dialog / shell / serial / menu），双平台实机证据
+- ✅ 插件体系 v1 + 官方插件（fs / dialog / shell / serial / store / clipboard / notification / menu）；
+  命令级白名单、命名权限集、**路径 scope**（RFC-003 第 4 期）三层闸门，Windows + Linux 实机证据
 - ✅ 命令异步分发（慢命令不冻窗口）、多窗口按 label 路由、插件清单 `info --json` 机器可读
-- ✅ 工程化：155 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
+- ✅ 工程化：189 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
 - 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件（托盘 / 全局快捷键）
 
 ## 仓库与推送

@@ -72,6 +72,17 @@ public class IpcContext {
     public func hostCapabilities(): Int32 {
         return this.hub.hostCapabilities(this.window)
     }
+
+    /**
+     * 解析并校验一个路径参数（RFC-003 第 4 期）。
+     *
+     * 带路径参数的插件**一律**用它取代自己拼路径：清单里为插件写了 scope 就按
+     * allow/deny 判定，越界抛业务错误；没写就维持旧行为（全量放行，启动时有提示）。
+     * 返回值是规范化后的路径（绝对、已解析软链接），直接交给 std.fs 用即可。
+     */
+    public func resolveScopedPath(plugin: String, rawPath: String): String {
+        return this.hub.resolveScopedPath(plugin, rawPath)
+    }
 }
 
 /**
@@ -121,6 +132,25 @@ public class IpcHub {
 
     public func hasCommand(cmd: String): Bool {
         return this.commands.contains(cmd)
+    }
+
+    /**
+     * 路径 scope 校验（RFC-003 第 4 期）：IpcContext.resolveScopedPath 的实现体。
+     *
+     * 校验只在**真的有插件来问**时发生——没有为它声明 scope 的插件完全不受影响（旧清单行为不变）。
+     * 拒绝时 stderr 留一行凭证（前缀统一好 grep），前端拿到的是可读的业务错误而不是宿主崩溃。
+     */
+    public func resolveScopedPath(plugin: String, rawPath: String): String {
+        let resolved = normalizeScopePath(rawPath)
+        match (this.capabilities.scopeForPlugin(plugin)) {
+            case Some(rule) =>
+                if (!scopeAllows(rule, resolved)) {
+                    eprintln("[cj-tauri] scope denied (${plugin}): ${rawPath} -> ${resolved}")
+                    throw CommandException("${plugin}: path is outside the authorized scope")
+                }
+            case None => ()
+        }
+        return resolved
     }
 
     /**

@@ -513,6 +513,8 @@ public class TauriApp <: AppHost {
         }
         // 集注册完才可能判定「清单引用的集有没有插件提供」，故放在插件装配之后
         warnUnknownPermissionSets(this.capabilities)
+        // 路径 scope 的缺省行为提示（RFC-003 第 4 期）：没为吃 scope 的插件写规则 = 全量放行，如实告知
+        warnUnscopedPlugins(this.plugins, this.capabilities)
 
         // 装配：宿主消息 → IPC hub；hub 输出 → 宿主 JS
         this.wireHostCallbacks(this.host)

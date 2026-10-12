@@ -3,5 +3,10 @@
   "windows": ["main"],
   "commands": ["report", "system:version"],
   "permissions": ["fs:readonly"],
+  "scopes": {
+    "fs": {
+      "allow": ["$CWD/capabilities/**"]
+    }
+  },
   "events": []
 }

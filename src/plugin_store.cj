@@ -213,6 +213,7 @@ public class StoreCommands <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = ipc // store 的命令都是纯本地读写，不回头投事件，用不上上下文
         match (cmd) {
             case "store:get" => this.getCmd(args)
             case "store:set" => this.setCmd(args)

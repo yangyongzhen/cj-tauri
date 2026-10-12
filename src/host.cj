@@ -189,6 +189,24 @@ public interface WebViewHost {
     func showMessageDialog(kind: String, title: String, message: String): Bool
 
     /**
+     * 写文本进系统剪贴板（上限 8 MiB，C 侧 core 校验）
+     *
+     * 与对话框同类：宿主能力，要在 start() 之后调用（未就绪时返回 false）。
+     */
+    func clipboardWriteText(text: String): Bool
+
+    /**
+     * 读系统剪贴板文本：空 / 非文本 / 平台失败都返回 None，不区分（协议层没有可读的失败明细）
+     */
+    func clipboardReadText(): Option<String>
+
+    /**
+     * 发一条系统通知（发后即忘：提交即返回，显示成败不回传）。
+     * 本平台未实现时返回 false（`system:host` 的能力位会同口径如实上报）。
+     */
+    func notify(title: String, body: String): Bool
+
+    /**
      * 原生 → JS：在 WebView 中执行脚本
      */
     func runJs(js: String): Unit

@@ -977,8 +977,10 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
-    /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；托盘 / 拖放到 7.B / 7.C */
-    return CJ_CAP_MENU;
+    /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；托盘 / 拖放到 7.B / 7.C；
+       通知走 freedesktop Notifications（会话总线），Xvfb 下无通知守护进程时命令会失败——
+       能力位表示「协议层可用」，运行期成败由命令如实回传，两者不混 */
+    return CJ_CAP_MENU | CJ_CAP_NOTIFICATION;
 }
 
 /* =========================================================================
@@ -1265,4 +1267,124 @@ int cj_plat_serial_list(char *out, int out_len) {
         serial_err(out, out_len, "%s", "serial: list 在本平台未实现（走仓颉侧 /dev 扫描）");
     }
     return -4;
+}
+
+/* ===== 通用 UI 线程投递（剪贴板等宿主能力共用；对话框走的是自己的专用通道）===== */
+
+/* 通用投递的载荷 + 跳板：core 侧回调是 void 返回的，直接塞给 g_idle_add 会被
+   GLib 按 GSourceFunc 解读返回值——void 函数留在返回寄存器里的**垃圾**若非 0，
+   GLib 就认为「还要再跑」，同一个载荷被反复重入（实测：剪贴板读被跑两遍、
+   通知载荷 double free）。跳板一律返回 G_SOURCE_REMOVE，只执行一次。 */
+typedef struct ui_post_msg {
+    cj_ui_fn fn;
+    void *ud;
+} ui_post_msg;
+
+static gboolean ui_post_trampoline(gpointer data) {
+    ui_post_msg *m = (ui_post_msg *)data;
+    if (m) {
+        m->fn(m->ud);
+        free(m);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    ui_post_msg *m;
+    if (!p || !p->view) {
+        /* GTK 主循环还没起来（或已退出）：idle 回调永远不会执行 */
+        fprintf(stderr, "[cj-bridge] post ui failed: gtk loop not ready\n");
+        return 0;
+    }
+    m = (ui_post_msg *)malloc(sizeof(ui_post_msg));
+    if (!m) {
+        return 0;
+    }
+    m->fn = fn;
+    m->ud = ud;
+    g_idle_add(ui_post_trampoline, m);
+    return 1;
+}
+
+/* ===== 剪贴板（plugin_clipboard 的平台层）：GTK clipboard =====
+   调用方保证已在 GTK 线程上（core 的 UI 线程分流负责），这里不做线程判断。
+   gtk_clipboard_wait_* 是同步 API：在 GTK 线程上阻塞等 X11 往返——对话框轮已证过
+   「worker 等 UI 线程」这条链可行，这里反过来「UI 线程短暂阻塞等剪贴板」是 GTK 应用的常规做法。 */
+
+int cj_plat_clipboard_write_text(cj_host *h, const char *text, char *err, int err_len) {
+    GtkClipboard *cb;
+
+    (void)h;
+    cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (!cb) {
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "clipboard: 取不到默认剪贴板");
+        return -3;
+    }
+    gtk_clipboard_set_text(cb, text ? text : "", -1);
+    gtk_clipboard_store(cb); /* 关窗后仍留给系统（X11 上不 store 会随窗口一起消失）*/
+    return 0;
+}
+
+char *cj_plat_clipboard_read_text(cj_host *h, char *err, int err_len) {
+    GtkClipboard *cb;
+    gchar *text;
+    char *out = NULL;
+
+    (void)h;
+    cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    if (!cb) {
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "clipboard: 取不到默认剪贴板");
+        return NULL;
+    }
+    text = gtk_clipboard_wait_for_text(cb);
+    if (text) {
+        out = strdup(text); /* 返回值要经 cj_bridge_clipboard_free 释放（malloc 家族）*/
+        g_free(text);
+    }
+    return out; /* NULL = 空 / 非文本，不是错误 */
+}
+
+/* ===== 通知（plugin_notification 的平台层）：freedesktop Notifications =====
+   走 GDBus 同步调用 org.freedesktop.Notifications.Notify（发后即忘：不等动作回执）。
+   调用方保证已在 GTK 线程上。GIO 与 GTK 同源，无需额外链接。 */
+
+int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
+                                char *err, int err_len) {
+    GBusType bus_type;
+    GDBusConnection *conn;
+    GVariant *result;
+    GVariantBuilder actions_b;
+    GVariantBuilder hints_b;
+    GError *gerr = NULL;
+    const char *app_name = "cj-tauri";
+    const char *unused = "";
+
+    (void)h;
+    /* 会话总线（桌面通知走 session，不是 system）；无桌面环境时失败——如实报，不降级 */
+    bus_type = G_BUS_TYPE_SESSION;
+    conn = g_bus_get_sync(bus_type, NULL, &gerr);
+    if (!conn) {
+        if (err && err_len > 0) serial_err(err, err_len, "notification: 会话总线不可用: %s",
+                                           gerr ? gerr->message : "?");
+        if (gerr) g_error_free(gerr);
+        return -3;
+    }
+    g_variant_builder_init(&actions_b, G_VARIANT_TYPE("as"));
+    g_variant_builder_init(&hints_b, G_VARIANT_TYPE("a{sv}"));
+    result = g_dbus_connection_call_sync(
+        conn, "org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications", "Notify",
+        g_variant_new("(susssasa{sv}i)", app_name, (guint32)0, unused, title ? title : "",
+                      body ? body : "", &actions_b, &hints_b, (gint32)-1),
+        NULL, G_DBUS_CALL_FLAGS_NONE, 2000, NULL, &gerr);
+    g_object_unref(conn);
+    if (!result) {
+        if (err && err_len > 0) serial_err(err, err_len, "notification: Notify 调用失败: %s",
+                                           gerr ? gerr->message : "?");
+        if (gerr) g_error_free(gerr);
+        return -3;
+    }
+    g_variant_unref(result);
+    return 0;
 }

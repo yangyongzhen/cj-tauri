@@ -48,9 +48,11 @@ cj_host *cj_bridge_create(void) {
     h->devtools = 1;
     h->js_lock = cj_plat_sync_create();
     h->dlg_lock = cj_plat_sync_create();
-    if (!h->js_lock || !h->dlg_lock) {
+    h->clip_lock = cj_plat_sync_create();
+    if (!h->js_lock || !h->dlg_lock || !h->clip_lock) {
         if (h->js_lock) cj_plat_sync_destroy(h->js_lock);
         if (h->dlg_lock) cj_plat_sync_destroy(h->dlg_lock);
+        if (h->clip_lock) cj_plat_sync_destroy(h->clip_lock);
         free(h);
         fprintf(stderr, "[cj-bridge] create host failed: sync init failed\n");
         return NULL;
@@ -70,6 +72,7 @@ void cj_bridge_destroy(cj_host *h) {
     }
     if (h->js_lock) cj_plat_sync_destroy(h->js_lock);
     if (h->dlg_lock) cj_plat_sync_destroy(h->dlg_lock);
+    if (h->clip_lock) cj_plat_sync_destroy(h->clip_lock);
     cj_js_queue_free(h);
     /* dlg_cur 此时应为空：窗口销毁路径已作废并交了槽位；故意不碰，免得与等待方抢 free */
     free(h->win_title);
@@ -272,6 +275,264 @@ void cj_core_window_destroyed(cj_host *h) {
     }
     /* 有对话框开着时先作废并唤醒等待方：事件循环退出后挂起的回调不再执行，等待方会永远挂住 */
     cj_core_dialog_abort(h);
+    /* 剪贴板同理：投递进 UI 线程的读写不会再被执行 */
+    cj_core_clipboard_abort(h);
+}
+
+/* ===== 剪贴板（plugin_clipboard）：单槽 + UI 线程投递 ===== */
+
+/* UI 线程在 GTK 线程上执行真正的剪贴板调用（经平台原语），结果放回槽位并唤醒等待方 */
+/* 返回 1 = 成功（含读出空），0 = 平台失败。UI 线程直行路径靠它取结果。 */
+int cj_core_clipboard_tick(cj_host *h, int is_write, char *text) {
+    int ok = 0;
+    char *readback = NULL;
+
+    if (!h) {
+        free(text);
+        return 0;
+    }
+    if (is_write) {
+        ok = (cj_plat_clipboard_write_text(h, text ? text : "", NULL, 0) == 0);
+        if (ok) {
+            fprintf(stderr, "[cj-bridge] clipboard write: %d bytes\n",
+                    text ? (int)strlen(text) : 0);
+        } else {
+            fprintf(stderr, "[cj-bridge] clipboard write failed\n");
+        }
+        free(text);
+    } else {
+        readback = cj_plat_clipboard_read_text(h, NULL, 0);
+        ok = 1; /* 读失败按「空结果」处理：NULL 是合法回值（剪贴板为空/非文本）*/
+        fprintf(stderr, "[cj-bridge] clipboard read: %s\n",
+                readback ? "got text" : "empty");
+    }
+
+    cj_plat_sync_lock(h->clip_lock);
+    h->clip_ok = ok;
+    h->clip_text = readback;
+    h->clip_ready = 1;
+    h->clip_busy = 0;
+    cj_plat_sync_signal(h->clip_lock);
+    cj_plat_sync_unlock(h->clip_lock);
+    return ok;
+}
+
+/* 作废进行中的剪贴板请求并唤醒等待方（ok=0；等待方知道宿主已不在，不再碰槽位）*/
+void cj_core_clipboard_abort(cj_host *h) {
+    if (!h || !h->clip_lock) return;
+    cj_plat_sync_lock(h->clip_lock);
+    if (h->clip_busy && !h->clip_ready) {
+        h->clip_ok = 0;
+        h->clip_text = NULL;
+        h->clip_ready = 1;
+        h->clip_busy = 0;
+        cj_plat_sync_signal(h->clip_lock);
+    }
+    cj_plat_sync_unlock(h->clip_lock);
+}
+
+/* UI 线程投递的载荷：一个指针 + 一个标志 */
+typedef struct clip_call {
+    cj_host *h;
+    int is_write;
+    char *text;
+} clip_call;
+
+static void clip_idle(void *d) {
+    clip_call *c = (clip_call *)d;
+    if (c) {
+        cj_core_clipboard_tick(c->h, c->is_write, c->text);
+        free(c);
+    }
+}
+
+static int clipboard_execute(cj_host *h, int is_write, char *text, char **out_text) {
+    if (!h || !h->clip_lock) {
+        free(text);
+        return -1;
+    }
+    if (h->window_gone) {
+        free(text);
+        return -3; /* 宿主已销毁：不再往已退出的 GTK 循环投东西 */
+    }
+    cj_plat_sync_lock(h->clip_lock);
+    if (h->clip_busy) {
+        cj_plat_sync_unlock(h->clip_lock);
+        free(text);
+        return -3; /* 剪贴板是单槽：同时只允许一次（并发写抢剪贴板本身就没有意义）*/
+    }
+    h->clip_busy = 1;
+    h->clip_ready = 0;
+    h->clip_ok = 0;
+    h->clip_text = NULL;
+    cj_plat_sync_unlock(h->clip_lock);
+
+    if (cj_plat_is_ui_thread(h)) {
+        /* 已在 UI 线程（对话框同类）：直接做，不投递——投递 + 等待会自锁（AGENTS §4）*/
+        int ok = cj_core_clipboard_tick(h, is_write, text);
+        if (!ok) {
+            return -3;
+        }
+        if (out_text) {
+            *out_text = h->clip_text; /* 所有权交调用方（tick 已把槽位清待取）*/
+            h->clip_text = NULL;
+        }
+    } else {
+        /* 投递的载荷必须堆分配：UI 线程处理完由 clip_idle free（通知路径同款）。
+           早前这里是**栈上**结构体 + clip_idle 里 free，实机当场 munmap_chunk 崩掉
+           （AGENTS §4：跨线程投递的载荷谁 post 谁分配，UI 线程释放）。 */
+        clip_call *call = (clip_call *)malloc(sizeof(clip_call));
+        if (!call) {
+            free(text);
+            cj_core_clipboard_abort(h);
+            return -3;
+        }
+        call->h = h;
+        call->is_write = is_write;
+        call->text = text;
+        if (!cj_plat_post_ui(h, clip_idle, call)) {
+            /* 没投出去 = 回调永不执行：载荷与 text 仍归本函数，就地回收 */
+            free(call);
+            free(text);
+            cj_core_clipboard_abort(h);
+            return -3;
+        }
+        /* 等结果：窗口先关的话，cj_core_window_destroyed 会作废并唤醒（ok=0）*/
+        cj_plat_sync_lock(h->clip_lock);
+        cj_plat_sync_wait(h->clip_lock, &h->clip_ready);
+        if (out_text && h->clip_ok) {
+            *out_text = h->clip_text; /* 所有权交调用方 */
+            h->clip_text = NULL;
+        }
+        cj_plat_sync_unlock(h->clip_lock);
+        if (!h->clip_ok) {
+            return -3;
+        }
+    }
+    return 0;
+}
+
+int cj_bridge_clipboard_write_text(cj_host *h, const char *text) {
+    char *copy = NULL;
+    size_t len;
+    int rc;
+
+    if (!text) {
+        return -1;
+    }
+    len = strlen(text);
+    if (len >= (8u << 20)) {
+        fprintf(stderr, "[cj-bridge] clipboard write rejected: %zu bytes exceeds 8 MiB limit\n", len);
+        return -1;
+    }
+    copy = (char *)malloc(len + 1);
+    if (!copy) {
+        return -3;
+    }
+    memcpy(copy, text, len + 1);
+    rc = clipboard_execute(h, 1, copy, NULL);
+    if (rc == 0) {
+        /* 成功行在 tick 里打（字节口径以投递载荷为准）；这里只补参数被拒的取证 */
+    }
+    return rc;
+}
+
+char *cj_bridge_clipboard_read_text(cj_host *h) {
+    char *out = NULL;
+    int rc;
+
+    rc = clipboard_execute(h, 0, NULL, &out);
+    if (rc == 0) {
+        return out; /* 可能为 NULL = 剪贴板为空 / 非文本 */
+    }
+    return NULL;
+}
+
+void cj_bridge_clipboard_free(char *s) {
+    free(s);
+}
+
+/* ===== 通知（plugin_notification）：校验 + 发后即忘 ===== */
+
+/* UI 线程投递的载荷（谁 post 谁分配，UI 线程处理完释放）*/
+typedef struct note_call {
+    cj_host *h;
+    char *title;
+    char *body;
+} note_call;
+
+static void note_idle(void *d) {
+    note_call *c = (note_call *)d;
+    if (c) {
+        int ok = cj_plat_notification_notify(c->h, c->title, c->body, NULL, 0) == 0;
+        fprintf(stderr, "[cj-bridge] notification: title=%d bytes -> %s\n",
+                c->title ? (int)strlen(c->title) : 0, ok ? "sent" : "failed");
+        free(c->title);
+        free(c->body);
+        free(c);
+    }
+}
+
+int cj_bridge_notification_notify(cj_host *h, const char *title, const char *body) {
+    char *t_copy = NULL;
+    char *b_copy = NULL;
+    size_t t_len, b_len;
+
+    if (!h || !title || !title[0]) {
+        return -1;
+    }
+    t_len = strlen(title);
+    b_len = body ? strlen(body) : 0;
+    if (t_len > 256 || b_len > (8u << 10)) {
+        fprintf(stderr, "[cj-bridge] notification rejected: title=%zu (<=256) body=%zu (<=8192)\n",
+                t_len, b_len);
+        return -1;
+    }
+    if (h->window_gone) {
+        return -3;
+    }
+    t_copy = (char *)malloc(t_len + 1);
+    if (t_copy) {
+        memcpy(t_copy, title, t_len + 1);
+    }
+    if (body && b_len) {
+        b_copy = (char *)malloc(b_len + 1);
+        if (b_copy) {
+            memcpy(b_copy, body, b_len + 1);
+        }
+    }
+    if (!t_copy || (body && b_len && !b_copy)) {
+        free(t_copy);
+        free(b_copy);
+        return -3;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        int ok = cj_plat_notification_notify(h, t_copy, b_copy, NULL, 0) == 0;
+        fprintf(stderr, "[cj-bridge] notification: title=%d bytes -> %s\n",
+                (int)t_len, ok ? "sent" : "failed");
+        free(t_copy);
+        free(b_copy);
+        return ok ? 0 : -3;
+    }
+    /* 发后即忘：投递后立即返回。载荷归 UI 线程释放（不等待、不占剪贴板那套同步槽）*/
+    {
+        note_call *call = (note_call *)malloc(sizeof(note_call));
+        if (!call) {
+            free(t_copy);
+            free(b_copy);
+            return -3;
+        }
+        call->h = h;
+        call->title = t_copy;
+        call->body = b_copy;
+        if (!cj_plat_post_ui(h, note_idle, call)) {
+            free(t_copy);
+            free(b_copy);
+            free(call);
+            return -3;
+        }
+    }
+    return 0;
 }
 
 /* 线路格式的共享解析（契约见 bridge_core.h 的 cj_menu_row_fn 注释）。

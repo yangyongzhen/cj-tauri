@@ -79,6 +79,7 @@ typedef void (*cj_on_shell_fn)(struct cj_host *host, const char *json);
 #define CJ_CAP_MENU      1
 #define CJ_CAP_TRAY      2
 #define CJ_CAP_DRAG_DROP 4
+#define CJ_CAP_NOTIFICATION 8 /* 平台通知可用（Linux = freedesktop Notifications）*/
 
 /* ===== 回投队列节点（core 拥有；UTF-8 存储，宽字符转换由平台在 cj_plat_post_js 里做）===== */
 typedef struct js_node {
@@ -118,6 +119,15 @@ typedef struct cj_host {
     int dlg_busy;   /* 有人正在进行中 */
     int dlg_ready;  /* 结果就绪（与 dlg_lock 配套的谓词）*/
     dlg_req *dlg_cur; /* 进行中的请求；窗口先关时由 cj_core_window_destroyed 作废 */
+
+    /* --- 剪贴板单槽（同一时刻只允许一次读写；窗口销毁时作废等待方）---
+       读结果经 cb_text 交回（core malloc，调用方 cj_bridge_clipboard_free 释放），
+       cb_ok=0 表示失败/作废（cb_text 为 NULL）。 */
+    cj_sync *clip_lock;
+    int clip_ready;
+    int clip_ok;
+    char *clip_text;   /* 读操作的结果（UI 线程 malloc，等待方负责释放）*/
+    int clip_busy;
 
     /* --- 窗口配置：由仓颉侧在 cj_bridge_start 之前经 cj_bridge_set_window 注入 --- */
     char *win_title;
@@ -180,6 +190,12 @@ void cj_plat_wake_ui(cj_host *h);/* 让 UI 线程尽快跑一次 cj_core_flush_j
 void cj_plat_post_js(cj_host *h, const char *script_utf8); /* UI 线程执行一段 JS（含失败日志）*/
 int  cj_plat_is_ui_thread(cj_host *h);                     /* 1 = 调用方已站在 UI 线程上 */
 void cj_plat_post_dialog(cj_host *h, dlg_req *req);        /* 投到 UI 线程 → cj_core_dialog_tick */
+
+/* 通用「投到 UI 线程执行」原语（剪贴板等后续宿主能力共用；对话框那套是它之前的专用通道）：
+   在 UI 线程上回调 fn(ud)（一次），投不出去返回 0（调用方自行作废等待）。
+   平台实现：Linux = g_idle_add；Windows = PostMessageW 新消息，UI 线程取 lParam 调 fn。 */
+typedef void (*cj_ui_fn)(void *ud);
+int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud);
 int  cj_plat_run_dialog(cj_host *h, dlg_req *req);         /* UI 线程直接弹原生对话框，写 req */
 void cj_plat_open_devtools(cj_host *h);
 void cj_plat_load_url(cj_host *h, const char *url);
@@ -240,6 +256,8 @@ void cj_core_set_ready(cj_host *h);       /* 窗口 + WebView 就绪（平台在
 void cj_core_flush_js(cj_host *h);        /* UI 线程：取队列拼批回投（idle / WM_CJT_FLUSH 里调）*/
 void cj_core_dialog_tick(cj_host *h, dlg_req *req); /* UI 线程：弹对话框 → 回调 → 唤醒等待方 */
 void cj_core_dialog_abort(cj_host *h);    /* 作废进行中的对话框并唤醒等待方（ok=0，幂等）*/
+int cj_core_clipboard_tick(cj_host *h, int is_write, char *text); /* UI 线程：执行剪贴板调用 → 唤醒等待方（返回 1=成功）*/
+void cj_core_clipboard_abort(cj_host *h); /* 作废进行中的剪贴板请求并唤醒等待方（幂等）*/
 void cj_core_window_destroyed(cj_host *h);/* 窗口销毁：置标志 + 通知 onDestroy（一次）+ 作废对话框 */
 
 /* ---- 菜单线路格式的共享解析（两平台翻译层共用，避免各写一遍前缀/分割逻辑）----
@@ -374,5 +392,40 @@ CJ_BRIDGE_API int cj_bridge_serial_list(char *out, int out_len);
 /* 最近一次失败的明细（UTF-8，**线程局部**——命令各自跑在 worker 线程上，静态单槽会被互相覆盖）。
    每次串口导出调用都会先清空它，失败时写入；返回的指针在该线程下次调用前有效。 */
 CJ_BRIDGE_API const char *cj_bridge_serial_last_error(void);
+
+/* =========================================================================
+ *  剪贴板（plugin_clipboard）：宿主能力——GTK 的 clipboard 依赖 gtk_init 后的环境，
+ *  且 GTK 规定剪贴板调用必须在 GTK 线程上，所以**带 cj_host**（借它的 UI 线程分流），
+ *  与对话框同一套「已在 UI 线程就直接做、否则投递 + 有界等待」的样板。
+ *  返回码口径：0 = 成功，-1 = 参数非法，-3 = 宿主未就绪 / 平台失败，-4 = 本平台未实现。
+ * ========================================================================= */
+
+/* 写文本：text 须为合法 UTF-8，长度上限 8 MB（core 校验）。0 = 成功。 */
+CJ_BRIDGE_API int cj_bridge_clipboard_write_text(cj_host *h, const char *text);
+
+/* 读文本：返回 malloc 的 UTF-8 字符串（可能为 NULL = 剪贴板为空 / 不是文本）。
+   用 cj_bridge_clipboard_free 释放，**不许**在仓颉侧 free。 */
+CJ_BRIDGE_API char *cj_bridge_clipboard_read_text(cj_host *h);
+
+/* 释放 read_text 返回的缓冲（NULL 安全，幂等）。 */
+CJ_BRIDGE_API void cj_bridge_clipboard_free(char *s);
+
+/* 平台原语：真正的剪贴板读写。err 口径同其余原语（-4 未实现由平台自己报）。 */
+int cj_plat_clipboard_write_text(cj_host *h, const char *text, char *err, int err_len);
+char *cj_plat_clipboard_read_text(cj_host *h, char *err, int err_len);
+
+/* =========================================================================
+ *  系统通知（plugin_notification）：与剪贴板同一类宿主能力，但**发后即忘**——
+ *  通知提交后显示与否不回传（freedesktop 协议本就不给同步回执），core 校验 + 投
+ *  UI 线程即返回，成败只在 stderr 留行。返回码：0 = 已提交，-1 = 参数非法，
+ *  -3 = 宿主未就绪 / 平台失败，-4 = 本平台未实现。
+ * ========================================================================= */
+
+/* 发一条通知：title 非空且 ≤256 字节，body ≤8 KiB（core 校验）。0 = 已提交。 */
+CJ_BRIDGE_API int cj_bridge_notification_notify(cj_host *h, const char *title, const char *body);
+
+/* 平台原语：真正发通知（UI 线程调用）。 */
+int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
+                                char *err, int err_len);
 
 #endif /* CJ_BRIDGE_CORE_H */

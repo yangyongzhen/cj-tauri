@@ -130,6 +130,49 @@ void cj_plat_post_js(cj_host *h, const char *script_utf8) {
 int cj_plat_is_ui_thread(cj_host *h) { (void)h; return g_is_ui_thread; }
 void cj_plat_post_dialog(cj_host *h, dlg_req *req) { (void)h; (void)req; g_post_dialog_calls++; }
 
+/* ---- 剪贴板桩：记调用次数与最后一次写的文本；读返回桩文本 ---- */
+static int g_clip_write_calls = 0;
+static int g_clip_read_calls = 0;
+static char *g_clip_last_written = NULL;
+static int g_clip_write_ok = 1; /* 用例可扳成 0 模拟平台失败 */
+
+int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud) {
+    (void)h;
+    fn(ud); /* 桩平台没有真 UI 线程：就地执行（core 的 is_ui_thread 桩可扳成 0 验投递路径）*/
+    return 1;
+}
+
+int cj_plat_clipboard_write_text(cj_host *h, const char *text, char *err, int err_len) {
+    (void)h; (void)err; (void)err_len;
+    g_clip_write_calls++;
+    if (!g_clip_write_ok) return -3;
+    free(g_clip_last_written);
+    g_clip_last_written = strdup(text ? text : "");
+    return 0;
+}
+
+char *cj_plat_clipboard_read_text(cj_host *h, char *err, int err_len) {
+    (void)h; (void)err; (void)err_len;
+    g_clip_read_calls++;
+    if (!g_clip_last_written) return NULL;
+    return strdup(g_clip_last_written);
+}
+
+/* ---- 通知桩：记调用次数与最后一次的标题；用例可扳失败 ---- */
+static int g_note_calls = 0;
+static char *g_note_last_title = NULL;
+static int g_note_ok = 1;
+
+int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
+                                char *err, int err_len) {
+    (void)h; (void)body; (void)err; (void)err_len;
+    g_note_calls++;
+    if (!g_note_ok) return -3;
+    free(g_note_last_title);
+    g_note_last_title = strdup(title ? title : "");
+    return 0;
+}
+
 int cj_plat_run_dialog(cj_host *h, dlg_req *req) {
     (void)h;
     g_run_dialog_calls++;
@@ -686,6 +729,58 @@ int main(void) {
         CHECK(g_serial_read_calls == 1 && g_serial_write_calls == 1 && g_serial_close_calls == 1,
               "参数非法的调用没有触达平台");
         CHECK(1, "串口导出不需要宿主（本用例跑在两个宿主都已销毁之后）");
+    }
+
+    /* --- 20. 剪贴板：参数校验在 core，平台失败码原样返回 --- */
+    case_begin("clipboard 校验与转发");
+    CHECK(cj_bridge_clipboard_write_text(NULL, "x") == -1, "NULL 文本被拒（-1）");
+    {
+        char *big = (char *)malloc((8u << 20) + 1);
+        cj_host *hc = cj_bridge_create(); /* 剪贴板是宿主能力：要一个活句柄（不 start，window_gone=0）*/
+        if (big && hc) {
+            memset(big, 'a', (8u << 20));
+            big[8u << 20] = '\0';
+            CHECK(cj_bridge_clipboard_write_text(hc, big) == -1, "超 8 MiB 被拒");
+            free(big);
+        }
+        if (hc) {
+            g_clip_write_calls = 0;
+            g_clip_read_calls = 0;
+            free(g_clip_last_written);
+            g_clip_last_written = NULL;
+            CHECK(cj_bridge_clipboard_write_text(hc, "hello clip") == 0, "写文本成功");
+            CHECK(g_clip_write_calls == 1 && g_clip_last_written &&
+                  strcmp(g_clip_last_written, "hello clip") == 0, "文本原样到达平台");
+            {
+                char *got = cj_bridge_clipboard_read_text(hc);
+                CHECK(got && strcmp(got, "hello clip") == 0, "读回刚写的文本");
+                cj_bridge_clipboard_free(got);
+                CHECK(g_clip_read_calls == 1, "读触达平台一次");
+            }
+            cj_bridge_clipboard_free(NULL);
+            CHECK(1, "free(NULL) 幂等安全");
+            g_clip_write_ok = 0;
+            CHECK(cj_bridge_clipboard_write_text(hc, "x") == -3, "平台失败码返回 -3");
+            g_clip_write_ok = 1;
+            /* 通知：参数校验 + 发后即忘（投递即返回 0，平台成败看 stderr）*/
+            g_note_calls = 0;
+            CHECK(cj_bridge_notification_notify(hc, "", "b") == -1, "空标题被拒");
+            CHECK(cj_bridge_notification_notify(hc, NULL, "b") == -1, "NULL 标题被拒");
+            {
+                char long_title[258];
+                memset(long_title, 't', sizeof(long_title));
+                long_title[sizeof(long_title) - 1] = '\0';
+                CHECK(cj_bridge_notification_notify(hc, long_title, "b") == -1, "超长标题被拒");
+            }
+            CHECK(g_note_calls == 0, "被拒的通知不触达平台");
+            CHECK(cj_bridge_notification_notify(hc, "hello", "body") == 0, "合法通知提交成功（发后即忘）");
+            CHECK(g_note_calls == 1 && g_note_last_title && strcmp(g_note_last_title, "hello") == 0,
+                  "标题原样到达平台");
+            g_note_ok = 0;
+            CHECK(cj_bridge_notification_notify(hc, "x", NULL) == -3, "UI 直行路径平台失败如实回 -3");
+            g_note_ok = 1;
+            cj_bridge_destroy(hc);
+        }
     }
 
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,

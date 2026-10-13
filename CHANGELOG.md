@@ -11,13 +11,12 @@
 
 ### Added
 
-- **推广渠道与提交素材（`docs/推广渠道与提交素材.md`）**：把「去哪儿自荐、谁能提交、需要什么条件」落成可执行
-  清单——核对过的入口（awesome-cangjie、HelloGitHub 投稿模板、仓颉官方社区 / Cangjie-SIG、G-Star 的硬门槛、
-  技术社区发文）、可直接复制的统一文案（一句话 / 短简介 / 亮点三条 / 长简介 / 10 个 GitHub topics），
-  以及实测出来的**配图口径**：AtomGit 的 `/raw/`、`/-/raw/`、`/blob/`、`raw.atomgit.com/` 四种形态都只
-  返回前端 HTML（`text/html`，取不到文件字节），不能当图床；GitHub 镜像的 raw 实测 `200 image/png`
-  （示波器截图 92686 字节、架构图 379460 字节，与仓内文件一致）。同轮把 npm 包 `keywords` 从 7 个扩到
-  16 个（下次发布生效），并把 AtomGit 仓库介绍换成可检索文案。
+- **npm 元数据与配图口径**：npm 包 `keywords` 从 7 个扩到 16 个（下次发布生效），AtomGit 仓库介绍换成
+  可检索文案。并实测确认**仓颉官方社区的入口**：邮件列表在 `lists.cangjie-lang.net`（Mailman 3 /
+  Postorius，网页注册即可订阅），`dev@` 用于社区开发讨论、`core@` 用于整体技术治理与管理；参与贡献需先
+  签 CLA（`clasign.cangjie-lang.cn`）。配图口径上，**AtomGit 的 raw 直链取不到文件**（`/raw/`、`/-/raw/`、
+  `/blob/`、`raw.atomgit.com/` 四种形态都只返回前端 HTML），对外发文配图改用 GitHub 镜像的 raw
+  （实测 `200 image/png`，示波器截图 92686 字节、架构图 379460 字节，与仓内文件一致）。
 - **入门文章（`docs/仓颉版Tauri-入门与串口波形示波器实战.md`）**：把「npm 起工程 → 串口实时波形示波器
   → 实机取证」写成一篇可对外发表的长文。里面讲的是**实际行为**而不是设想：`npx cj-tauri create/dev` 的
   SDK 前置与三级 CLI 解析、缺 SDK 时给的是可操作提示（`--version` 无 SDK 也能查）、能力清单与命名权限集

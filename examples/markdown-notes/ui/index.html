@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cj-tauri Markdown 笔记</title>
+<style>
+  /* 深色主题：WebKitGTK 下 <select> 会被原生浅色 combo 盖掉（AGENTS §4），
+     所以整个界面不用 select，全部按钮化。 */
+  :root {
+    --bg: #12151f; --panel: #1a1f2e; --panel2: #161b28; --line: #262d40;
+    --fg: #e7ecf5; --dim: #8b93b0; --accent: #4fd1c5; --accent2: #e94560;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg); overflow: hidden;
+    font: 14px/1.6 system-ui, "Segoe UI", "Noto Sans SC", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  /* 标题不参与收缩：三栏布局里让标题被压成两行过（AGENTS §4 的排版坑），
+     收缩交给内容区，标题一律 flex: 0 0 auto + nowrap。 */
+  header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--panel2);
+  }
+  header h1 { font-size: 15px; margin: 0; white-space: nowrap; flex: 0 0 auto; color: var(--accent); }
+  header .sub { font-size: 12px; color: var(--dim); white-space: nowrap; flex: 1 1 auto; min-width: 0;
+                overflow: hidden; text-overflow: ellipsis; }
+  button {
+    background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 11px; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #0d1226; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { opacity: .86; color: #0d1226; }
+  button.danger:hover { border-color: var(--accent2); color: var(--accent2); }
+  main { flex: 1 1 auto; display: flex; min-height: 0; }
+  .side {
+    flex: 0 0 236px; min-width: 150px; background: var(--panel);
+    border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0;
+  }
+  .side-head, .pane-head {
+    flex: 0 0 auto; padding: 7px 12px; font-size: 12px; letter-spacing: .04em;
+    color: var(--dim); border-bottom: 1px solid var(--line); display: flex;
+    align-items: center; gap: 8px; white-space: nowrap;
+  }
+  .side-head span, .pane-head span { flex: 0 0 auto; }
+  .side-head .grow, .pane-head .grow { flex: 1 1 auto; min-width: 0; }
+  .files { flex: 1 1 auto; overflow: auto; padding: 6px; }
+  .file {
+    padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg);
+  }
+  .file:hover { background: var(--panel2); }
+  .file.active { background: #24304a; color: var(--accent); }
+  .file .size { color: var(--dim); font-size: 11px; margin-left: 6px; }
+  .file.dir { color: var(--dim); cursor: default; }
+  .pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  #editor {
+    flex: 1 1 auto; width: 100%; border: 0; outline: none; resize: none; padding: 14px;
+    background: var(--panel2); color: var(--fg); tab-size: 2;
+    font: 13px/1.75 ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+  }
+  #preview { flex: 1 1 auto; overflow: auto; padding: 12px 20px 40px; }
+  footer {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 5px 14px;
+    border-top: 1px solid var(--line); background: var(--panel2); font-size: 12px; color: var(--dim);
+  }
+  footer .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  footer .ok { color: var(--accent); }
+  footer .bad { color: var(--accent2); }
+  /* 预览区排版（自己渲染的 Markdown 子集，样式也自己给） */
+  #preview h1, #preview h2, #preview h3, #preview h4 {
+    color: var(--accent); margin: 1.1em 0 .5em; line-height: 1.3; white-space: normal;
+  }
+  #preview h1 { font-size: 21px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  #preview h2 { font-size: 17px; }
+  #preview h3 { font-size: 15px; }
+  #preview p, #preview li { white-space: normal; overflow-wrap: anywhere; }
+  #preview p { margin: .6em 0; }
+  #preview ul, #preview ol { padding-left: 22px; margin: .5em 0; }
+  #preview blockquote {
+    margin: .7em 0; padding: 2px 12px; border-left: 3px solid var(--accent);
+    background: #1c2334; color: #cfd7e8; border-radius: 0 6px 6px 0;
+  }
+  #preview pre {
+    background: #0d1226; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; overflow: auto;
+  }
+  #preview code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+  #preview p code, #preview li code {
+    background: #232b40; border-radius: 4px; padding: 1px 5px; color: #ffd479;
+  }
+  #preview pre code { color: #c8e1ff; background: none; padding: 0; }
+  #preview hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
+  #preview a { color: var(--accent); }
+  #preview img.missing { display: none; }
+  #preview .missing-note { color: var(--dim); font-size: 12px; }
+  #toast {
+    position: fixed; right: 18px; bottom: 44px; max-width: 460px; padding: 9px 14px;
+    background: #2a1b24; border: 1px solid var(--accent2); color: #ffd5dd;
+    border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; display: none;
+  }
+  .empty { color: var(--dim); font-size: 13px; padding: 10px; white-space: normal; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Markdown 笔记</h1>
+    <span class="sub" id="wsHint">工作区 notes/（由 run.sh 播种）· 路径出白名单一律被拒</span>
+    <button id="btnNew">新建</button>
+    <button id="btnRename">重命名</button>
+    <button id="btnDelete" class="danger">删除</button>
+    <button id="btnReload">刷新</button>
+    <button id="btnSave" class="primary">保存 (Ctrl+S)</button>
+  </header>
+  <main>
+    <div class="side">
+      <div class="side-head"><span>文件</span><span class="grow"></span><span id="fileCount">0</span></div>
+      <div class="files" id="files"><div class="empty">等待桥…</div></div>
+    </div>
+    <div class="pane">
+      <div class="pane-head"><span id="editingName">未打开文件</span><span class="grow"></span><span id="dirtyMark"></span></div>
+      <textarea id="editor" spellcheck="false" placeholder="从左边选一份笔记，或者点「新建」…"></textarea>
+    </div>
+    <div class="pane">
+      <div class="pane-head"><span>预览</span><span class="grow"></span><span id="mdStat">—</span></div>
+      <div id="preview"></div>
+    </div>
+  </main>
+  <footer>
+    <span class="grow" id="status">等待桥…</span>
+    <span id="version">—</span>
+  </footer>
+  <div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------ 基座
+  // 工作区固定为 notes/：前端只写相对路径（"notes/x.md"），能不能碰由**清单里的 scope**说了算——
+  // 页面自己绝不拼绝对路径，也不做任何「路径检查」（那属于共享层 src/scope.cj 的职责）。
+  var WS = 'notes';
+  var LAST_KEY = 'last-open';        // store 里记最近打开的笔记，重启还在
+  var state = { files: [], current: null, saved: '' };
+
+  function $(id) { return document.getElementById(id); }
+
+  /** 页面日志回投仓颉侧 → stderr 留证：失败只在页面上可见是最难排查的形状（AGENTS §4） */
+  function report(line) {
+    try {
+      var b = window.__CJ_TAURI__;
+      if (b && b.invoke) { b.invoke('report', { line: String(line) }); }
+    } catch (e) { /* 回投失败不能反过来扰动界面 */ }
+  }
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = String(msg);
+    el.style.display = 'block';
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { el.style.display = 'none'; }, 7000);
+  }
+
+  function status(text, cls) {
+    var el = $('status');
+    el.textContent = text;
+    el.className = 'grow' + (cls ? ' ' + cls : '');
+  }
+
+  // 桥是宿主在 document-start 注入的，但应用前端**不要在模块作用域直接读它**（AGENTS §4）：
+  // 这里统一等它出现再开工。
+  function waitForBridge(cb) {
+    if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { cb(); return; }
+    setTimeout(function () { waitForBridge(cb); }, 50);
+  }
+
+  function invoke(cmd, args) { return window.__CJ_TAURI__.invoke(cmd, args); }
+
+  /** 统一取错误文案：桥回的是业务错误原文，别把它吞成 "undefined" */
+  function errText(e) { return (e && e.message) ? e.message : String(e); }
+
+  // ------------------------------------------------- Markdown 子集渲染器
+  // 支持：标题 / 无序·有序列表 / 引用 / 围栏代码 / 分隔线 / 段落；
+  //       行内：**粗** *斜* `码` ~~删~~ [文字](链接)。
+  // 有意不做：表格、嵌套列表、原始 HTML 透传、图片渲染（run(html) 的页面没有真实来源，
+  //           相对路径的图取不回来——与其留白框，不如显式降级成一行说明）。
+  // 全程 createElement + textContent，**不拼 innerHTML**：笔记正文因此不可能是注入点。
+  function renderInline(text) {
+    var frag = document.createDocumentFragment();
+    var pending = '';
+    var i = 0;
+
+    function flush() {
+      if (pending) { frag.appendChild(document.createTextNode(pending)); pending = ''; }
+    }
+
+    while (i < text.length) {
+      var ch = text.charAt(i);
+      var two = text.slice(i, i + 2);
+
+      // 行内代码最先判：它内部不再解析（`**` 在代码里就是两个星号）
+      if (ch === '`') {
+        var ic = text.indexOf('`', i + 1);
+        if (ic > i) {
+          flush();
+          var codeEl = document.createElement('code');
+          codeEl.textContent = text.slice(i + 1, ic);
+          frag.appendChild(codeEl);
+          i = ic + 1;
+          continue;
+        }
+      }
+      if (two === '**') {
+        var ib = text.indexOf('**', i + 2);
+        if (ib > i + 1) {
+          flush();
+          var strong = document.createElement('strong');
+          strong.appendChild(renderInline(text.slice(i + 2, ib)));
+          frag.appendChild(strong);
+          i = ib + 2;
+          continue;
+        }
+      }
+      if (two === '~~') {
+        var idel = text.indexOf('~~', i + 2);
+        if (idel > i + 1) {
+          flush();
+          var del = document.createElement('del');
+          del.appendChild(renderInline(text.slice(i + 2, idel)));
+          frag.appendChild(del);
+          i = idel + 2;
+          continue;
+        }
+      }
+      if (ch === '*') {
+        var iem = text.indexOf('*', i + 1);
+        if (iem > i + 1) {
+          flush();
+          var em = document.createElement('em');
+          em.appendChild(renderInline(text.slice(i + 1, iem)));
+          frag.appendChild(em);
+          i = iem + 1;
+          continue;
+        }
+      }
+      if (ch === '[') {
+        var rb = text.indexOf(']', i + 1);
+        if (rb > i && text.charAt(rb + 1) === '(') {
+          var rp = text.indexOf(')', rb + 2);
+          if (rp > rb) {
+            flush();
+            var a = document.createElement('a');
+            a.textContent = text.slice(i + 1, rb);
+            a.href = text.slice(rb + 2, rp);
+            a.title = a.href;
+            frag.appendChild(a);
+            i = rp + 1;
+            continue;
+          }
+        }
+      }
+      pending += ch;
+      i++;
+    }
+    flush();
+    return frag;
+  }
+
+  /**
+   * 块级渲染：逐行扫描，一段一段吐节点。
+   * 只认自己列出的语法——认不出的行一律当普通段落（原文可见），
+   * 这样「渲染器少支持一种语法」不会变成「内容凭空消失」。
+   */
+  function renderMarkdown(src) {
+    var out = document.createDocumentFragment();
+    var lines = String(src).split(/\r?\n/);
+    var i = 0;
+    var inFence = false;
+    var fenceLang = '';
+    var fenceBuf = [];
+
+    function flushFence() {
+      var pre = document.createElement('pre');
+      var code = document.createElement('code');
+      if (fenceLang) { code.setAttribute('data-lang', fenceLang); }
+      code.textContent = fenceBuf.join('\n');
+      pre.appendChild(code);
+      out.appendChild(pre);
+      fenceBuf = [];
+      fenceLang = '';
+    }
+
+    while (i < lines.length) {
+      var line = lines[i];
+
+      var fence = /^\s*```\s*([A-Za-z0-9_+-]*)\s*$/.exec(line);
+      if (fence) {
+        if (inFence) { flushFence(); inFence = false; } else { inFence = true; fenceLang = fence[1]; }
+        i++;
+        continue;
+      }
+      if (inFence) { fenceBuf.push(line); i++; continue; }
+      if (/^\s*$/.test(line)) { i++; continue; }
+
+      var h = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (h) {
+        // h5/h6 并到 h4：预览栏不宽，再深的层级只剩噪声（并了但内容不丢）
+        var lvl = Math.min(h[1].length, 4);
+        var hn = document.createElement('h' + lvl);
+        hn.appendChild(renderInline(h[2]));
+        out.appendChild(hn);
+        i++;
+        continue;
+      }
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        out.appendChild(document.createElement('hr'));
+        i++;
+        continue;
+      }
+
+      if (/^\s*>\s?/.test(line)) {
+        var bq = document.createElement('blockquote');
+        while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
+          var qp = document.createElement('p');
+          qp.appendChild(renderInline(lines[i].replace(/^\s*>\s?/, '')));
+          bq.appendChild(qp);
+          i++;
+        }
+        out.appendChild(bq);
+        continue;
+      }
+
+      if (/^\s*[-*+]\s+/.test(line)) {
+        var ul = document.createElement('ul');
+        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
+          var li = document.createElement('li');
+          li.appendChild(renderInline(lines[i].replace(/^\s*[-*+]\s+/, '')));
+          ul.appendChild(li);
+          i++;
+        }
+        out.appendChild(ul);
+        continue;
+      }
+
+      if (/^\s*\d+[.)]\s+/.test(line)) {
+        var ol = document.createElement('ol');
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+          var li2 = document.createElement('li');
+          li2.appendChild(renderInline(lines[i].replace(/^\s*\d+[.)]\s+/, '')));
+          ol.appendChild(li2);
+          i++;
+        }
+        out.appendChild(ol);
+        continue;
+      }
+
+      // 整行图片：显式降级成一行说明（见文件头的「有意不做」），不留白框
+      var img = /^!\[([^\]]*)\]\(([^)]*)\)\s*$/.exec(line);
+      if (img) {
+        var note = document.createElement('div');
+        note.className = 'missing-note';
+        note.textContent = '［图片未渲染：' + (img[1] || img[2]) +
+          ' —— run(html) 的页面没有真实来源，取不到相对路径的图］';
+        out.appendChild(note);
+        i++;
+        continue;
+      }
+
+      // 普通段落：连续非空、且不像别的块起头的行合并成一段
+      var buf = [line];
+      i++;
+      while (i < lines.length && !/^\s*$/.test(lines[i]) &&
+             !/^\s*(```|#{1,6}\s|[-*+]\s|\d+[.)]\s|>|!\[)/.test(lines[i])) {
+        buf.push(lines[i]);
+        i++;
+      }
+      var para = document.createElement('p');
+      para.appendChild(renderInline(buf.join(' ')));
+      out.appendChild(para);
+    }
+    if (inFence) { flushFence(); }   // 没闭合的围栏：把已收集的行照样吐出来，别让内容消失
+    return out;
+  }
+
+  // ------------------------------------------------------------ 文件树 / 状态
+  function fmtSize(n) {
+    if (typeof n !== 'number' || isNaN(n) || n < 0) { return ''; }
+    if (n < 1024) { return n + ' B'; }
+    return (n / 1024).toFixed(1) + ' KB';
+  }
+
+  function noteCount() {
+    var n = 0;
+    for (var i = 0; i < state.files.length; i++) { if (!state.files[i].dir) { n++; } }
+    return n;
+  }
+
+  function renderFileList() {
+    var box = $('files');
+    while (box.firstChild) { box.removeChild(box.firstChild); }
+    $('fileCount').textContent = String(state.files.length);
+
+    if (!state.files.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'notes/ 里没东西。点「新建」写第一篇；工作区由 run.sh 播种' +
+        '（mkdir -p notes + 一份欢迎笔记），示例自己**不建目录**——那属于装配期的事。';
+      box.appendChild(empty);
+      return;
+    }
+
+    for (var i = 0; i < state.files.length; i++) {
+      var f = state.files[i];
+      var row = document.createElement('div');
+      row.className = 'file' + (f.dir ? ' dir' : '') + (state.current === f.name ? ' active' : '');
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = f.dir ? f.name + '/' : f.name;
+      row.appendChild(nameSpan);
+      if (f.dir) {
+        row.title = '子目录（本示例的工作区是平铺的，不展开）';
+      } else {
+        var sizeSpan = document.createElement('span');
+        sizeSpan.className = 'size';
+        sizeSpan.textContent = fmtSize(Number(f.size));
+        row.appendChild(sizeSpan);
+        (function (n) { row.onclick = function () { openNote(n); }; })(f.name);
+      }
+      box.appendChild(row);
+    }
+  }
+
+  /** 列目录：失败也把**原文**显示出来——「工作区不存在」和「路径越界」是两种不同的失败，别吞成一句「加载失败」 */
+  function refreshList() {
+    return invoke('fs:list', { path: WS }).then(function (items) {
+      var arr = (items && items.length !== undefined) ? items : [];
+      state.files = arr.slice().sort(function (a, b) {
+        if (!!a.dir !== !!b.dir) { return a.dir ? -1 : 1; }   // 目录在前
+        return String(a.name) < String(b.name) ? -1 : 1;      // 仓颉侧不保证顺序，这里定序
+      });
+      renderFileList();
+      status('notes/ 共 ' + state.files.length + ' 项（' + noteCount() + ' 篇笔记）', '');
+      return state.files;
+    }).catch(function (e) {
+      state.files = [];
+      renderFileList();
+      status('列目录失败：' + errText(e), 'bad');
+      toast('列目录失败：' + errText(e));
+      return [];
+    });
+  }
+
+  function setPreview(text) {
+    var box = $('preview');
+    while (box.firstChild) { box.removeChild(box.firstChild); }
+    box.appendChild(renderMarkdown(text));
+    $('mdStat').textContent = text.length + ' 字符';
+  }
+
+  function markDirty() {
+    $('dirtyMark').textContent = ($('editor').value === state.saved) ? '' : '未保存';
+  }
+
+  /** 记住「上次打开」：失效不影响正事，但失败要留一行（别让 store 挂了没人知道） */
+  function rememberLast(name) {
+    return invoke('store:set', { key: LAST_KEY, value: name }).catch(function (e) {
+      report('STORE-WARN 记不住 last-open：' + errText(e));
+    });
+  }
+
+  function openNote(name) {
+    return invoke('fs:readText', { path: WS + '/' + name }).then(function (text) {
+      state.current = name;
+      state.saved = text;
+      $('editor').value = text;
+      $('editingName').textContent = WS + '/' + name;
+      setPreview(text);
+      markDirty();
+      renderFileList();
+      rememberLast(name);
+      return text;
+    }).catch(function (e) {
+      status('打开 ' + name + ' 失败：' + errText(e), 'bad');
+      toast('打开失败：' + errText(e));
+      return null;
+    });
+  }
+
+  // ------------------------------------------------------------------ 动作
+  // 全程**不用 window.prompt / confirm**：WebKitGTK 的脚本对话框要靠宿主的 script-dialog 信号
+  // 才弹得出来，没接就是「点了没反应」——这类宿主依赖换成页内实现（行内输入框 + 按钮二次确认）。
+  function nextFreeName(base) {
+    var taken = {};
+    for (var i = 0; i < state.files.length; i++) { taken[state.files[i].name] = true; }
+    if (!taken[base + '.md']) { return base + '.md'; }
+    for (var n = 2; n < 999; n++) {
+      if (!taken[base + '-' + n + '.md']) { return base + '-' + n + '.md'; }
+    }
+    return base + '-' + Date.now() + '.md';
+  }
+
+  var NEW_TEMPLATE = [
+    '# 新笔记',
+    '',
+    '写点什么：**粗体**、*斜体*、`行内码`、~~删除线~~、[链接](https://atomgit.com)。',
+    '',
+    '- 列表第一项',
+    '- 列表第二项',
+    '',
+    '> 引用一句。',
+    '',
+    '```js',
+    'var hello = "world";',
+    '```',
+    ''
+  ].join('\n');
+
+  function newNote() {
+    var name = nextFreeName('新笔记');
+    return invoke('fs:writeText', { path: WS + '/' + name, contents: NEW_TEMPLATE }).then(function () {
+      return refreshList();
+    }).then(function () {
+      return openNote(name);
+    }).then(function () {
+      status('已新建 ' + WS + '/' + name, 'ok');
+    }).catch(function (e) {
+      status('新建失败：' + errText(e), 'bad');
+      toast('新建失败：' + errText(e));
+    });
+  }
+
+  function saveNote() {
+    if (!state.current) {
+      toast('还没打开任何笔记：先「新建」一份');
+      return Promise.resolve(false);
+    }
+    var text = $('editor').value;
+    var saving = state.current;
+    return invoke('fs:writeText', { path: WS + '/' + saving, contents: text }).then(function () {
+      state.saved = text;
+      markDirty();
+      status('已保存 ' + WS + '/' + saving + '（' + text.length + ' 字符）', 'ok');
+      return refreshList().then(function () { return true; });
+    }).catch(function (e) {
+      status('保存失败：' + errText(e), 'bad');
+      toast('保存失败：' + errText(e));
+      return false;
+    });
+  }
+
+  function startRename() {
+    if (!state.current) {
+      toast('先打开一份笔记再重命名');
+      return;
+    }
+    if ($('renameInput')) { return; }
+    var old = state.current;
+    var host = $('editingName');
+    var input = document.createElement('input');
+    input.id = 'renameInput';
+    input.value = old;
+    input.style.cssText = 'background:#0d1226;color:#e7ecf5;border:1px solid #4fd1c5;' +
+      'border-radius:6px;padding:2px 6px;font-size:13px;width:240px;';
+    host.textContent = '';
+    host.appendChild(document.createTextNode('重命名 → '));
+    host.appendChild(input);
+    input.focus();
+    input.select();
+    input.onkeydown = function (ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); commitRename(old, input.value); }
+      else if (ev.key === 'Escape') { ev.preventDefault(); cancelRename(old); }
+    };
+  }
+
+  function cancelRename(old) { $('editingName').textContent = WS + '/' + old; }
+
+  /** 重命名 = 写新 + 删旧两步（文件系统没有 rename 命令可用，插件的面就这么薄） */
+  function commitRename(old, raw) {
+    var next = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!next) { toast('名字不能为空'); return; }
+    // 页面**不做路径判定**（那是共享层 scope 的事），但「想跳目录」这种明显的越界意图
+    // 根本别发出去——发出去也只会被拒，白白多一条误导性日志。
+    if (next.indexOf('/') >= 0 || next.indexOf('\\') >= 0 || next.indexOf('..') >= 0) {
+      toast('文件名里不能带路径分隔符');
+      return;
+    }
+    if (!/\.md$/i.test(next)) { next += '.md'; }
+    if (next === old) { cancelRename(old); return; }
+    var text = $('editor').value;
+    invoke('fs:writeText', { path: WS + '/' + next, contents: text }).then(function () {
+      return invoke('fs:remove', { path: WS + '/' + old });
+    }).then(function () {
+      state.current = next;
+      state.saved = text;
+      $('editingName').textContent = WS + '/' + next;
+      markDirty();
+      rememberLast(next);
+      return refreshList();
+    }).then(function () {
+      status('已重命名 ' + old + ' → ' + next, 'ok');
+    }).catch(function (e) {
+      cancelRename(old);
+      status('重命名失败：' + errText(e), 'bad');
+      toast('重命名失败：' + errText(e));
+    });
+  }
+
+  var pendingDelete = null;
+
+  function resetDeleteBtn() { $('btnDelete').textContent = '删除'; }
+
+  /** 删除用按钮**二次确认**（不用 confirm：同 prompt 的宿主依赖问题），4 秒没按就自动收回 */
+  function requestDelete() {
+    if (!state.current) {
+      toast('先打开一份笔记再删除');
+      return;
+    }
+    if (pendingDelete === state.current) {
+      pendingDelete = null;
+      clearTimeout(requestDelete._t);
+      resetDeleteBtn();
+      doDelete(state.current);
+      return;
+    }
+    pendingDelete = state.current;
+    $('btnDelete').textContent = '确认删除？';
+    clearTimeout(requestDelete._t);
+    requestDelete._t = setTimeout(function () {
+      pendingDelete = null;
+      resetDeleteBtn();
+    }, 4000);
+  }
+
+  function doDelete(name) {
+    invoke('fs:remove', { path: WS + '/' + name }).then(function () {
+      state.current = null;
+      state.saved = '';
+      $('editor').value = '';
+      $('editingName').textContent = '未打开文件';
+      setPreview('');
+      markDirty();
+      rememberLast('');
+      return refreshList();
+    }).then(function () {
+      status('已删除 ' + WS + '/' + name, 'ok');
+    }).catch(function (e) {
+      status('删除失败：' + errText(e), 'bad');
+      toast('删除失败：' + errText(e));
+    });
+  }
+
+  function bindUi() {
+    $('btnNew').onclick = function () { newNote(); };
+    $('btnSave').onclick = function () { saveNote(); };
+    $('btnReload').onclick = function () {
+      // 有未保存改动就别刷（刷掉的是用户刚敲的字）；也不用弹窗问，直接拒绝并说清怎么办
+      if ($('editor').value !== state.saved) {
+        toast('有未保存的改动：先 Ctrl+S 保存，或手动改回原样再刷新');
+        return;
+      }
+      refreshList().then(function () {
+        if (state.current) { return openNote(state.current); }
+        status('已刷新', 'ok');
+        return null;
+      });
+    };
+    $('btnRename').onclick = function () { startRename(); };
+    $('btnDelete').onclick = function () { requestDelete(); };
+    $('editor').addEventListener('input', function () {
+      markDirty();
+      setPreview($('editor').value);
+    });
+    document.addEventListener('keydown', function (ev) {
+      if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === 's') {
+        ev.preventDefault();
+        saveNote();
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------ 启动
+  function boot() {
+    bindUi();
+    status('桥已就绪，正在列目录…', '');
+
+    invoke('system:version').then(function (v) {
+      var text = (typeof v === 'string') ? v
+        : (v && v.version ? v.version : JSON.stringify(v));
+      $('version').textContent = 'cj-tauri ' + text;
+    }).catch(function () { $('version').textContent = 'cj-tauri ?'; });
+
+    refreshList().then(function () {
+      report('UI-READY notes 列表已取回：' + state.files.length + ' 项');
+      return invoke('store:get', { key: LAST_KEY, default: '' });
+    }).then(function (last) {
+      if (last && typeof last === 'string') {
+        for (var i = 0; i < state.files.length; i++) {
+          if (state.files[i].name === last && !state.files[i].dir) {
+            return openNote(last).then(function () { status('已恢复上次打开：' + last, 'ok'); });
+          }
+        }
+      }
+      for (var j = 0; j < state.files.length; j++) {
+        if (!state.files[j].dir) { return openNote(state.files[j].name); }
+      }
+      status('notes/ 还是空的 —— 点「新建」写第一篇', '');
+      return null;
+    }).then(function () {
+      return invoke('notes:env', {}).then(function (env) {
+        if (env && env.selfcheck) { runSelfCheck(); }
+        return null;
+      });
+    }).catch(function (e) {
+      status('初始化失败：' + errText(e), 'bad');
+      toast('初始化失败：' + errText(e));
+    });
+  }
+
+  waitForBridge(boot);
+
+  // ---------------------------------------------------------------- 页内自检
+  // 只在 CJ_MARKDOWN_SELFCHECK=1 时跑（开关经 notes:env 拿到，页面读不到进程环境）。
+  // 每条断言都回投 stderr（report）——页面自检绿不绿，**日志里必须留痕**：
+  // 「日志里没有失败行」和「自检根本没跑」在端到端里长得一样，所以最后那条 DONE 带计数。
+  function scAssert(results, name, cond, extra) {
+    var ok = !!cond;
+    results.total++;
+    if (ok) { results.passed++; } else { results.failed++; results.names.push(name); }
+    report('SELFCHECK ' + (ok ? 'PASS' : 'FAIL') + ' ' + name + (extra ? ' :: ' + extra : ''));
+    return ok;
+  }
+
+  /** 期望被拒的调用：**成功了才算失败**（越界没被拦住，比拒绝更严重） */
+  function expectReject(results, name, p, needle) {
+    return p.then(function (v) {
+      scAssert(results, name, false, '竟然成功了：' + JSON.stringify(v));
+      return null;
+    }, function (e) {
+      var msg = errText(e);
+      scAssert(results, name, !needle || msg.indexOf(needle) >= 0, '已拒：' + msg);
+      return null;
+    });
+  }
+
+  function runSelfCheck() {
+    var results = { total: 0, passed: 0, failed: 0, names: [] };
+    var probe = WS + '/.selfcheck-probe.md';
+    var probe2 = WS + '/.selfcheck-probe2.md';
+    var probeText = '# 探针\n\n写入后原样读回：**粗体** `code`。\n';
+
+    report('SELFCHECK BEGIN（自检开关来自 notes:env）');
+
+    // ---- 1) 桥与插件 shim：必须早于页面脚本（晚于页面脚本就读到 undefined，AGENTS §4）
+    var b = window.__CJ_TAURI__ || {};
+    scAssert(results, 'shim-fs-serial', !!(b.fs && b.store),
+      'fs=' + (typeof b.fs) + ' store=' + (typeof b.store));
+
+    // ---- 2) 布局：三栏都得有宽度。三栏 flex 里被压扁/折行过一次（AGENTS §4 排版坑），
+    //         所以这里按**几何**断言，而不是「元素存在就算过」。
+    var sideBox = document.querySelector('.side').getBoundingClientRect();
+    var panes = document.querySelectorAll('.pane');
+    var edBox = panes[0].getBoundingClientRect();
+    var pvBox = panes[1].getBoundingClientRect();
+    scAssert(results, 'layout-three-columns',
+      sideBox.width > 100 && edBox.width > 200 && pvBox.width > 200,
+      'side=' + Math.round(sideBox.width) + ' editor=' + Math.round(edBox.width) +
+      ' preview=' + Math.round(pvBox.width) + ' viewport=' + window.innerWidth);
+
+    // ---- 3) Markdown 子集：拿固定素材渲染进**离屏**容器（不动用户正在看的预览），再按 DOM 结构断言
+    var holder = document.createElement('div');
+    holder.id = 'selfcheck-holder';
+    holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:640px;';
+    document.body.appendChild(holder);
+
+    var fixture = [
+      '# 标题一', '',
+      '段落里有 **粗体**、*斜体*、`code`、~~删除~~ 和 [链接](https://atomgit.com)。', '',
+      '## 标题二', '',
+      '- 甲', '- 乙', '- 丙', '',
+      '1. 一', '2. 二', '',
+      '> 引用行', '',
+      '---', '',
+      '```js', 'var x = 1;', '```', '',
+      '![图](local.png)', ''
+    ].join('\n');
+    holder.appendChild(renderMarkdown(fixture));
+
+    var h1n = holder.querySelectorAll('h1').length;
+    var h2n = holder.querySelectorAll('h2').length;
+    var uln = holder.querySelectorAll('ul li').length;
+    var oln = holder.querySelectorAll('ol li').length;
+    var bqn = holder.querySelectorAll('blockquote').length;
+    var hrn = holder.querySelectorAll('hr').length;
+    scAssert(results, 'md-blocks', h1n === 1 && h2n === 1 && uln === 3 && oln === 2 && bqn === 1 && hrn === 1,
+      'h1=' + h1n + ' h2=' + h2n + ' ul.li=' + uln + ' ol.li=' + oln + ' bq=' + bqn + ' hr=' + hrn);
+
+    var strongN = holder.querySelectorAll('strong').length;
+    var emN = holder.querySelectorAll('em').length;
+    var delN = holder.querySelectorAll('del').length;
+    var inlineCodeN = holder.querySelectorAll('p code').length;
+    var link = holder.querySelector('a');
+    scAssert(results, 'md-inline',
+      strongN === 1 && emN === 1 && delN === 1 && inlineCodeN === 1 &&
+      !!link && link.getAttribute('href') === 'https://atomgit.com' && link.textContent === '链接',
+      'strong=' + strongN + ' em=' + emN + ' del=' + delN + ' p.code=' + inlineCodeN +
+      ' href=' + (link ? link.getAttribute('href') : 'null'));
+
+    var pre = holder.querySelector('pre code');
+    scAssert(results, 'md-fence', !!pre && pre.textContent.indexOf('var x = 1;') >= 0,
+      'pre.code=' + (pre ? JSON.stringify(pre.textContent) : 'null'));
+
+    scAssert(results, 'md-image-degraded', holder.querySelectorAll('.missing-note').length === 1,
+      '整行图片降级成一行说明，不留白框');
+
+    // ---- 4) 正文不可能成为注入点：渲染器全程 createElement/textContent，不拼 innerHTML
+    var evil = document.createElement('div');
+    evil.appendChild(renderMarkdown('<img src=x onerror=alert(1)>\n\n**<b>hi</b>**\n'));
+    scAssert(results, 'md-no-html-injection',
+      evil.querySelectorAll('img').length === 0 && evil.querySelectorAll('b').length === 0 &&
+      evil.textContent.indexOf('<img src=x onerror=alert(1)>') >= 0,
+      '尖括号原样当文本：' + JSON.stringify(evil.textContent.slice(0, 40)));
+
+    // ---- 5) fs 正例：写 → 读回逐字相同 → 列表里看得见（`list` 是这一轮给 fs 补的命令）
+    invoke('fs:writeText', { path: probe, contents: probeText }).then(function () {
+      scAssert(results, 'fs-writeText', true, probe);
+      return invoke('fs:readText', { path: probe });
+    }).then(function (back) {
+      scAssert(results, 'fs-readText-roundtrip', back === probeText,
+        '读回 ' + (back ? back.length : -1) + ' 字符 / 期望 ' + probeText.length + ' 字符');
+      return invoke('fs:list', { path: WS });
+    }).then(function (items) {
+      var arr = (items && items.length !== undefined) ? items : [];
+      var names = arr.map(function (x) { return String(x.name); });
+      var shapeOk = arr.length > 0;
+      for (var i = 0; i < arr.length; i++) {
+        if (typeof arr[i].name !== 'string' || typeof arr[i].dir !== 'boolean' || typeof arr[i].size !== 'number') {
+          shapeOk = false;
+        }
+      }
+      scAssert(results, 'fs-list-shape', shapeOk, '项=' + arr.length + ' :: ' + names.join(','));
+      scAssert(results, 'fs-list-sees-probe', names.indexOf('.selfcheck-probe.md') >= 0, names.join(','));
+      return null;
+    }).then(function () {
+      // ---- 6) 重命名 = 写新 + 删旧（插件的面里没有 rename，就这两步），顺便验 remove 真删得掉
+      return invoke('fs:writeText', { path: probe2, contents: '# 改名后的探针\n' });
+    }).then(function () {
+      return invoke('fs:remove', { path: probe });
+    }).then(function () {
+      return invoke('fs:list', { path: WS });
+    }).then(function (items) {
+      var arr = (items && items.length !== undefined) ? items : [];
+      var names = arr.map(function (x) { return String(x.name); });
+      scAssert(results, 'fs-remove-rename-plan', names.indexOf('.selfcheck-probe.md') < 0 &&
+        names.indexOf('.selfcheck-probe2.md') >= 0, names.join(','));
+      return invoke('fs:remove', { path: probe2 });   // 收尾：工作区恢复原样
+    }).then(function () {
+      // ---- 7) 反面用例：删不存在的文件必须报错（静默回 true 等于把失败伪装成成功）
+      return expectReject(results, 'fs-remove-missing-rejected',
+        invoke('fs:remove', { path: WS + '/.no-such-file.md' }), 'no such file');
+    }).then(function () {
+      // ---- 8) 反面用例：remove 不接受目录（std.fs 的 remove 连空目录一起删，插件显式挡在前面）
+      return expectReject(results, 'fs-remove-dir-refused',
+        invoke('fs:remove', { path: WS }), 'is a directory');
+    }).then(function () {
+      // ---- 9) scope：命令放行 ≠ 路径放行。src/ 不在 allow 里，读与列目录都必须拒，
+      //         而且这条拒在桥 stderr 里留 `scope denied (fs)`（E2E 侧按整行前缀断言）。
+      return expectReject(results, 'scope-deny-readText',
+        invoke('fs:readText', { path: 'src/main.cj' }), 'outside the authorized scope');
+    }).then(function () {
+      return expectReject(results, 'scope-deny-list',
+        invoke('fs:list', { path: 'src' }), 'outside the authorized scope');
+    }).then(function () {
+      // ---- 10) 越界绕一下也不行：`..` 规范化之后照样按绝对路径判
+      return expectReject(results, 'scope-deny-dotdot',
+        invoke('fs:readText', { path: WS + '/../src/main.cj' }), 'outside the authorized scope');
+    }).then(function () {
+      return null;
+    }).catch(function (e) {
+      // fs 这批断了也要留一条：链子静默断掉 = 后面几条断言根本没跑（日志里却看不出少了几条）
+      scAssert(results, 'fs-chain-unhandled', false, errText(e));
+    }).then(function () {
+      // ---- 11) store 接着跑：**串行**，不另起一条并行链。
+      //         并行时的形状很坑：收尾的 DONE 会先于后发的断言落盘，计数看着是绿的却少算几条，
+      //         失败也可能落在 DONE 之后——「聚合行比明细先出现」本身就是取证陷阱
+      //         （日志里没有失败行 ≠ 没失败，AGENTS §4）。实测第一轮就这么绿过一次。
+      return invoke('store:set', { key: 'selfcheck', value: 'v1' });
+    }).then(function () {
+      return invoke('store:get', { key: 'selfcheck' });
+    }).then(function (v) {
+      scAssert(results, 'store-set-get', v === 'v1', 'v=' + JSON.stringify(v));
+      return invoke('store:delete', { key: 'selfcheck' }).then(function () { return null; },
+        function (e) { report('STORE-WARN delete：' + errText(e)); return null; });
+    }).then(function () {
+      // 读已删的键：报错或回空都算「没拿到旧值」——两种实现都不该让这条断言假红
+      return invoke('store:get', { key: 'selfcheck' }).then(function (v) { return v; },
+        function () { return null; });
+    }).then(function (v) {
+      scAssert(results, 'store-delete', v !== 'v1', '删后 v=' + JSON.stringify(v));
+      return null;
+    }).catch(function (e) {
+      scAssert(results, 'store-chain-unhandled', false, errText(e));
+    }).then(function () {
+      // ---- 12) 界面自身：先刷新一次文件树，再按**结构**断言。
+      //         自检前半段的探针文件都直接走 invoke、没经过界面，所以这里必须先 refreshList，
+      //         否则断言的只是「开机那一刻恰好有几行」——那种断言在改动之后会假绿。
+      return refreshList().then(function () { return null; });
+    }).then(function () {
+      var rows = document.querySelectorAll('#files .file').length;
+      var entries = state.files.length;
+      var nodes = $('preview').childNodes.length;
+      scAssert(results, 'ui-tree-rows-match-list', rows === entries, '行=' + rows + ' 列表=' + entries);
+      scAssert(results, 'ui-preview-nodes', nodes > 0, 'nodes=' + nodes);
+
+      if (holder.parentNode) { holder.parentNode.removeChild(holder); }
+      report('SELFCHECK DONE passed=' + results.passed + ' failed=' + results.failed +
+        (results.failed ? ' :: ' + results.names.join(',') : ''));
+      status('页内自检：' + results.passed + ' 通过 / ' + results.failed + ' 失败',
+        results.failed ? 'bad' : 'ok');
+      return null;
+    });
+  }
+})();
+</script>
+</body>
+</html>

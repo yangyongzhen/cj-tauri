@@ -113,6 +113,34 @@
 
 ### Added
 
+- **新示例 `markdown-notes`（Markdown 笔记）+ `fs` 插件补 `list` / `remove`**：示例是
+  **左文件树 / 中编辑 / 右实时预览**三栏，工作区就是一个目录（`notes/`），零 Node、零前端构建、
+  **不引第三方 Markdown 库**——渲染器与界面都在一份 `ui/index.html` 里（**独立文件**、不内联进仓颉
+  三引号字符串：AGENTS §4 那条「三引号先吃反斜杠转义」会让整段 `<script>` 静默语法错误，
+  独立文件还能被 `node --check` 静态验语法）。支持标题 / 强调 / 行内码 / 删除线 / 链接 / 无序与有序
+  列表 / 引用 / 围栏代码块 / 分隔线；**表格、任务清单、原始 HTML 透传、图片渲染有意不做**
+  ——正文因此不构成注入点：渲染全走 `createElement` + `textContent`、不拼 `innerHTML`
+  （页内有一条断言拿 `<img src=x onerror=…>` 验这个），图片在 `run(html)` 的内联来源下取不回来，
+  故显式降级成一行说明而不是留个白框。保存 `Ctrl+S`、重命名 = **写新 + 删旧**（插件的面里没有 rename）、
+  删除要按两次确认；全程不用 `window.prompt`/`confirm`（WebKitGTK 的脚本对话框要宿主接
+  `script-dialog` 信号才弹得出来，没接就是「点了没反应」），改成页内行内输入框与按钮二次确认；
+  `store` 记住上次打开的笔记。
+  **路径 scope 是这一款的展示点**：清单 `scopes.fs` 只放行 `$CWD/notes` 及其下，越界读、越界列目录、
+  `notes/../src/main.cj` 三种形状**都由共享层**（`src/scope.cj`）拒，页面自己不做任何路径判定
+  （命令放行 ≠ 参数放行）。为支撑示例，框架 `fs` 插件补两条命令：`fs:list`（列目录，返回
+  `name` / `size` / `isDirectory`，按名字排序）与 `fs:remove`（可选 `recursive`）——两条都
+  **scope 感知**，并加入命名集 `fs:readonly`（3 成员，只读）/ `fs:default`（5 成员）；`fs:remove`
+  对**目录**默认拒（调用前先 `isDirectory()` 挡，避免 `std.fs.remove` 能删空目录这件事变成静默删树）。
+  **页内自检 21 条**（`CJ_MARKDOWN_SELFCHECK=1`，开关经 `notes:env` 命令交给页面——页面读不到进程环境）
+  与实机 E2E 入口 `scripts/e2e/test-linux-markdown-notes.sh` **25/25 断言全过**，两侧都有证据：
+  页面侧明细经 `report` 回投成 `[frontend] SELFCHECK PASS|FAIL …`，桥侧留同一次拒绝的
+  `[cj-tauri] scope denied (fs): …`。证据 `dist/e2e-evidence/linux-linux-markdown-notes.json`。
+  **Windows 侧未验证**（未实机跑、未进单文件打包）。示例说明见 `examples/markdown-notes/README.md`。
+- **文档：新增 `docs/工具计划.md`（工具类示例选题与顺序）**：四条选型判据 + 八款总表——
+  入选 **Markdown 笔记/编辑器**（`fs` 路径 scope + `store`，自写 Markdown 子集）/ **HTTP API 客户端** /
+  **SQLite 数据库浏览器**（FFI 到原生库）/ **剪贴板历史管理器**（需先补全局快捷键与托盘两个能力位），
+  备选系统资源监视器 / 双栏文件管理器 / 托盘常驻小工具 / 消息队列调试台；每款入选项含形态、复用与新增、
+  展示点、无人值守验收判据与「不做」清单。本轮只有文档，无代码与能力位变更。
 - **Redis 客户端调试工具（`examples/redis-client/`）+ `redis` 官方插件**：框架侧新增 **RESP2 客户端**
   （`src/plugins/plugin_redis.cj`，纯仓颉 `std.net` TCP 自实现；协议编解码单独一层
   `src/plugins/redis_codec.cj`——五种 RESP2 类型 + **三态读取**「有值 / 尚不完整 / 畸形」，TCP 粘包靠它兜住）。

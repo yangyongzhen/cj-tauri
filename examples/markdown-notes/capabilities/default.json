@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["report", "notes:env", "system:version"],
+  "permissions": ["fs:default", "store:default"],
+  "scopes": {
+    "fs": {
+      "allow": ["$CWD/notes", "$CWD/notes/**"],
+      "deny": ["**/*.secret.md"]
+    }
+  },
+  "events": []
+}

@@ -26,6 +26,11 @@ __pycache__/
 # 本机运行数据（示例落盘的成绩等，不进仓）
 *.local.json
 
+# store 插件的运行期数据：文件名是硬编码的 store.json，落在应用的 cwd（示例根）下
+examples/*/store.json
+# Markdown 笔记示例的工作区：由 run.sh / E2E 入口播种（mkdir -p notes + 欢迎笔记），不入库
+examples/markdown-notes/notes/
+
 # 系统文件
 .DS_Store
 

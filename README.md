@@ -111,6 +111,10 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 架构
 
+![cj-tauri 架构图：前端桥 → IPC 消息桥 → 能力安全模型 → 内置 / 插件命令 → WebView 宿主（Linux / Windows / 鸿蒙）→ 共享 C 层](docs/images/architecture.png)
+
+文字版（同上，便于搜索与复制）：
+
 ```
 前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对标 @tauri-apps/api）
         │  JSON over postMessage（Linux: WebKitUserContentManager；Windows: chrome.webview.postMessage）

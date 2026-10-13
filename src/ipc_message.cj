@@ -245,6 +245,7 @@ public class IpcMessage {
     private static func eventJson(event: String, payload: JsonValue, window: String, coalesce: Bool): JsonObject {
         var obj = JsonObject()
         obj.put("type", JsonString("event"))
+        obj.put("protocol", JsonString(CJ_IPC_PROTOCOL))
         obj.put("event", JsonString(event))
         obj.put("payload", payload)
         if (coalesce) {

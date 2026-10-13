@@ -28,6 +28,7 @@ class FakeHost <: WebViewHost {
     // 菜单：线路文本 / 单项状态按原样记下（桩不建真菜单，用例断言的是投下来的内容）
     public var menuWire: String = ""
     public var menuItemStateArgs: String = ""
+    public var dragDropArgs: String = ""
     // shell 事件回调（菜单点击等）：用例可以自己调它，模拟「桥把事件送进来了」
     public var shellHandler: (String) -> Unit = { _ => }
     // 销毁回调：用例可以自己调它，模拟「桥通知本窗销毁了」
@@ -79,6 +80,10 @@ class FakeHost <: WebViewHost {
 
     public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
         this.menuItemStateArgs = "${id}|${enabled}|${checked}"
+    }
+
+    public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {
+        this.dragDropArgs = "${enabled}|${files}"
     }
 
     public func hostCapabilities(): Int32 {

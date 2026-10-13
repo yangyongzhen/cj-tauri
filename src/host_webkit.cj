@@ -107,6 +107,9 @@ foreign func cj_bridge_set_menu(h: CPointer<Unit>, wire: CString): Unit
 foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabled: Int32,
                                            checked: Int32): Unit
 
+/** 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关） */
+foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
+
 /**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
@@ -219,6 +222,22 @@ public class WebKitHost <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_menu_item_state(this.handle, LibC.mallocCString(id), e, c)
+        }
+    }
+
+    public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调——策略由桥记 pending，建 view 时挂 drag dest
+        this.ensureHandle()
+        var en: Int32 = 0
+        var fi: Int32 = 0
+        if (enabled) {
+            en = 1
+        }
+        if (files) {
+            fi = 1
+        }
+        unsafe {
+            cj_bridge_set_drag_drop(this.handle, en, fi)
         }
     }
 

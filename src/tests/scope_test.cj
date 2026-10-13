@@ -248,3 +248,59 @@ func testScopeAwareIsDeclaredOnlyByFsPlugin(): Unit {
     // 只有 fs 声明吃 scope：别的插件不该被这层校验影响（框架不替插件猜哪个参数是路径）
     @Expect(FsPlugin().scopeAware(), true)
 }
+
+@Test
+func testScopeSymlinkEscapeIsDenied(): Unit {
+    // SEC-003（软链接逃逸）：白名单目录里一条指向外面的软链接——
+    // 规范化会解析软链接，落点出白名单就必须拒（读和写都拒）
+    let base = scopeCwdPath()
+    let outside = "${base}/target-sym-escape.txt"
+    // 上轮运行可能留下同名目录/软链接（Directory.create 遇已存在会抛），先清场
+    removeIfExists("${base}/target/scope-sym/escape.txt")
+    removeIfExists("${base}/target/scope-sym")
+    removeIfExists(outside)
+    Directory.create("${base}/target/scope-sym", recursive: true)
+    let hi: Array<UInt8> = [104u8, 105u8] // "hi"
+    File.writeTo(outside, hi)
+    // 建完链路再把软链接指过去（目标已存在，Windows 也稳）
+    SymbolicLink.create("${base}/target/scope-sym/escape.txt", to: outside)
+    let ctx = fsCtxWithScopes([scopeCwdPath() + "/target/**"], [])
+    let msg = fsErrorMessage(fsHandler("readText"), "fs:readText",
+        fsWriteArgs("target/scope-sym/escape.txt", ""), ctx)
+    @Expect(msg.contains("outside the authorized scope"), true)
+    removeIfExists(outside)
+}
+
+@Test
+func testScopeSymlinkInsideIsAllowed(): Unit {
+    // 对照组：软链接落点还在白名单内 → 放行（证「拒」确实来自越界判定，不是见了软链接就拒）
+    let base = scopeCwdPath()
+    removeIfExists("${base}/target/scope-sym2/link.txt")
+    removeIfExists("${base}/target/scope-sym2/inner.txt")
+    removeIfExists("${base}/target/scope-sym2")
+    Directory.create("${base}/target/scope-sym2", recursive: true)
+    let inner: Array<UInt8> = [104u8, 105u8]
+    File.writeTo("${base}/target/scope-sym2/inner.txt", inner)
+    SymbolicLink.create("${base}/target/scope-sym2/link.txt", to: "${base}/target/scope-sym2/inner.txt")
+    let ctx = fsCtxWithScopes([scopeCwdPath() + "/target/**"], [])
+    let out = fsHandler("readText").handle("fs:readText", fsWriteArgs("target/scope-sym2/link.txt", ""), ctx)
+    @Expect(out.asString().getValue(), "hi")
+}
+
+@Test
+func testScopePercentEncodedPathIsNotPreDecoded(): Unit {
+    // SEC-003（百分比编码）：scope 判定不做 %XX 解码——`a%2F..%2Fb` 是一个字面量文件名，
+    // 不是 `a/../b` 的伪装。反转义应当在「插件自己处理 URI 载荷」时做（如 drop 链路在 C 桥 core），
+    // scope 层对着的是「应用/插件已经解析完的路径」，两层各管各的语义，不重复解码也不漏解码
+    let ctx = fsCtxWithScopes([scopeCwdPath() + "/target/**"], [])
+    // 文件名里塞 %2e%2e（`..` 的百分比编码）：scope 层不做 %XX 解码，
+    // 它就是一个字面量文件名——不会被当 `../` 穿越判定，正常落在 target/ 下
+    @Expect(isJsonBool(fsHandler("writeText").handle("fs:writeText",
+        fsWriteArgs("target/percent%2e%2e-escape.txt", "ok"), ctx)), true)
+    @Expect(exists(scopeCwdPath() + "/target/percent%2e%2e-escape.txt"), true)
+    // 对照：真正的 `..` 穿越会被拒（既有用例已覆盖，这里验证编码形态不享受同款待遇）
+    let msg = fsErrorMessage(fsHandler("writeText"), "fs:writeText",
+        fsWriteArgs("target/../../percent-real-escape.txt", "nope"), ctx)
+    @Expect(msg.contains("outside the authorized scope"), true)
+    @Expect(exists(scopeCwdPath() + "/percent-real-escape.txt"), false)
+}

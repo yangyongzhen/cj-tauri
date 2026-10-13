@@ -180,6 +180,19 @@ void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int 
     cj_plat_menu_item_state(h, id, enabled ? 1 : 0, checked ? 1 : 0);
 }
 
+/* ===== 拖放（RFC-002 §5；v1 载荷只有文件路径）===== */
+
+void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files) {
+    if (!h) return;
+    fprintf(stderr, "[cj-bridge] set drag drop: enabled=%d files=%d\n",
+            enabled ? 1 : 0, files ? 1 : 0);
+    h->pending_drop_enabled = enabled ? 1 : 0;
+    h->pending_drop_files = files ? 1 : 0;
+    /* 两头都能用：未就绪时平台只记（本函数已写进 pending 字段，建 view 时读）；
+       就绪后平台投 UI 线程重挂 drag dest */
+    cj_plat_set_drag_drop(h, enabled ? 1 : 0, files ? 1 : 0);
+}
+
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */
 
 void cj_bridge_start(cj_host *h, const char *html) {
@@ -632,6 +645,114 @@ void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked) 
              idbuf, enabled ? "true" : "false", checked ? "true" : "false");
     /* 带上宿主句柄：仓颉侧按句柄分发到对应窗口，不再依赖进程级静态槽 */
     h->on_shell(h, payload);
+}
+
+/* ===== 拖放落地（RFC-002 §5；URI 解析在 core，桩自检可测）===== */
+
+#define DROP_MAX_PATHS   32
+#define DROP_MAX_PATH_SZ 4096
+
+/* 把一行 URI 变成路径（就地写到 out，返回写入字节数，超上限返回 -1）。
+   file:// URI：剥前缀 + %XX 十六进制解码（file:// 路径里空格等必须转义成 %20）；
+   非 file:// URI：原样保留（v1 载荷语义由页面决定，core 不猜）。 */
+static int drop_uri_to_path(const char *uri, char *out, int out_cap) {
+    int o = 0;
+    const char *p = uri;
+    static const char hex[] = "0123456789ABCDEF";
+    if (strncmp(uri, "file://", 7) == 0) {
+        p = uri + 7;
+        /* file://localhost/... 也算本地路径（RFC 1738 形态，GTK 偶发） */
+        if (strncmp(p, "localhost/", 10) == 0) {
+            p += 9; /* 保留后面的 '/' */
+        }
+    }
+    for (; *p; p++) {
+        if (o >= out_cap - 1) {
+            return -1; /* 超限：丢弃这条（调用方记日志） */
+        }
+        if (p[0] == '%' && p[1] && p[2]) {
+            const char *h1 = strchr(hex, p[1]);
+            const char *h2 = strchr(hex, p[2]);
+            if (h1 && h2) {
+                /* 十六进制位必须严格配对解析；大小写都收（strchr 命中即合法） */
+                out[o++] = (char)((h1 - hex) * 16 + (h2 - hex));
+                p += 2;
+                continue;
+            }
+            /* 伪 % 序列：原样保留，交给页面/文件系统报错，core 不替它猜 */
+        }
+        out[o++] = p[0];
+    }
+    out[o] = '\0';
+    return o;
+}
+
+void cj_core_drop_files(cj_host *h, const char *uri_list) {
+    char paths[DROP_MAX_PATHS][DROP_MAX_PATH_SZ];
+    const char *escaped[DROP_MAX_PATHS];
+    char escaped_buf[DROP_MAX_PATHS][DROP_MAX_PATH_SZ];
+    int count = 0, dropped = 0;
+    const char *line;
+    if (!h || !uri_list) return;
+
+    line = uri_list;
+    while (line && *line && count < DROP_MAX_PATHS) {
+        const char *eol = strchr(line, '\n');
+        size_t len = eol ? (size_t)(eol - line) : strlen(line);
+        char uri[DROP_MAX_PATH_SZ];
+        int n;
+        if (len >= sizeof(uri)) {
+            len = sizeof(uri) - 1; /* 截断后多半解析不出合法路径，走正常丢弃路径 */
+        }
+        memcpy(uri, line, len);
+        uri[len] = '\0';
+        line = eol ? eol + 1 : NULL;
+        /* 去 \r（text/uri-list 行尾常是 \r\n）与空白 */
+        while (len > 0 && (uri[len - 1] == '\r' || uri[len - 1] == ' ')) {
+            uri[--len] = '\0';
+        }
+        /* 注释行（# 开头）与空行跳过（RFC 2483 的 text/uri-list 规范） */
+        if (len == 0 || uri[0] == '#') {
+            continue;
+        }
+        n = drop_uri_to_path(uri, paths[count], DROP_MAX_PATH_SZ);
+        if (n < 0) {
+            dropped++;
+            fprintf(stderr, "[cj-bridge] drop: path too long, dropped: %.60s...\n", uri);
+            continue;
+        }
+        count++;
+    }
+    /* 行数超上限：多出的丢弃并计数（本循环因 count 满退出，剩余行都算 dropped） */
+    if (line && *line) {
+        for (; line; line = strchr(line, '\n') ? strchr(line, '\n') + 1 : NULL) {
+            if (*line && *line != '#') {
+                dropped++;
+            }
+        }
+    }
+
+    fprintf(stderr, "[cj-bridge] drop: paths=%d first=%.80s%s\n",
+            count, count > 0 ? paths[0] : "",
+            dropped > 0 ? " (some dropped)" : "");
+    if (!h->on_shell || count == 0) {
+        return; /* 未注册回调或空拖放：日志已落盘，够诊断 */
+    }
+    /* 拼 JSON：paths 数组每项转义（文件名可含引号/反斜杠） */
+    {
+        char payload[8192];
+        int o = 0, i;
+        o += snprintf(payload + o, sizeof(payload) - (size_t)o,
+                      "{\"kind\":\"drop\",\"paths\":[");
+        for (i = 0; i < count && o < (int)sizeof(payload) - 16; i++) {
+            cj_json_escape_into(escaped_buf[i], DROP_MAX_PATH_SZ, paths[i]);
+            escaped[i] = escaped_buf[i];
+            o += snprintf(payload + o, sizeof(payload) - (size_t)o,
+                          "%s\"%s\"", i > 0 ? "," : "", escaped[i]);
+        }
+        snprintf(payload + o, sizeof(payload) - (size_t)o, "]}");
+        h->on_shell(h, payload);
+    }
 }
 
 void cj_core_dialog_abort(cj_host *h) {

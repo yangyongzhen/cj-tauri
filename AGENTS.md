@@ -42,7 +42,10 @@
   会覆盖先装配的，先装配的窗口从此收不到自己的事件。按句柄认领的三类是 shell 事件 / 窗口销毁 /
   对话框结果；**唯一例外是消息回调**（报文自带 window label，框架给所有窗装同一只派发器，有意保留单槽）。
   当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过），
-  托盘 / 文件拖入未实现。事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
+  **文件拖入已完成**（`DragDropPolicy` + `setDragDrop`，start 前定稿；URI 解析在 C 桥 core，
+  报文 `drop` → 前端 `dragdrop:files`，Linux 实机取证、Windows 同名桩），
+  **托盘暂缓**（用户裁定：Linux 依赖 libayatana-appindicator3；Windows 侧也未做，`tray=0` 如实）。
+  事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
   应用侧一律挂**可叠加**的 `app.onShellEvent((json, label) => …)`，并自动投前端事件
   （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；
   菜单/状态改动走应用层 API（`setMenu(To)` / `setMenuItemState*`），别再直接调宿主——应用层要用

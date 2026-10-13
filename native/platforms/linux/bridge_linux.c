@@ -192,6 +192,7 @@ static void menu_clear_slots(plat_host *p);
 /* 菜单几何的「事后读回」（低优先级 idle 里读 GTK 的分配值）：建完菜单、以及每次用户点击之后
    各投一次，实机驱动脚本按它把鼠标点到项的中心——见函数定义处的注释 */
 static void menu_post_layout(cj_host *h);
+static void drag_dest_apply(cj_host *h, plat_host *p, int enabled, int files);
 
 void cj_plat_init(cj_host *h) {
     plat_host *p;
@@ -571,6 +572,11 @@ static void *gtk_thread_main(void *arg) {
         menu_apply_wire(h, p, h->pending_menu_text);
     }
     gtk_widget_show_all(p->window);
+    /* 拖放策略：装配期已 set_drag_drop 过的（pending 字段非 0）这时挂 drag dest；
+       运行期再改的走 cj_plat_set_drag_drop 投 UI 线程重挂。默认关（0=不注册），现有应用零改动 */
+    if (h->pending_drop_enabled) {
+        drag_dest_apply(h, p, h->pending_drop_enabled, h->pending_drop_files);
+    }
     cj_core_set_ready(h);
 
     /* 页面来源：URL 优先（cj_bridge_load_url），否则内联 HTML（cj_bridge_start） */
@@ -975,12 +981,99 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
     }
 }
 
+/* ===== 拖放策略（7.B Linux 侧）：两头都支持——未就绪只记（建 view 时读 pending 字段），
+   就绪后投 UI 线程重挂 drag dest（GTK 对象只能在 GTK 线程碰）===== */
+
+typedef struct drag_idle {
+    cj_host *h;
+    int enabled;
+    int files;
+} drag_idle;
+
+static gboolean drag_idle_cb(gpointer data) {
+    drag_idle *m = (drag_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        if (p) drag_dest_apply(m->h, p, m->enabled, m->files);
+    }
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->window) {
+        /* 未就绪：core 已把策略写进 h->pending_drop_*，建 view 时读 */
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        drag_dest_apply(h, p, enabled, files);
+        return;
+    }
+    {
+        drag_idle *m = (drag_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->enabled = enabled ? 1 : 0;
+        m->files = files ? 1 : 0;
+        g_idle_add(drag_idle_cb, m);
+    }
+}
+
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
-    /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；托盘 / 拖放到 7.B / 7.C；
-       通知走 freedesktop Notifications（会话总线），Xvfb 下无通知守护进程时命令会失败——
-       能力位表示「协议层可用」，运行期成败由命令如实回传，两者不混 */
-    return CJ_CAP_MENU | CJ_CAP_NOTIFICATION;
+    /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；拖放已落地（7.B，
+       gtk_drag_dest，无新依赖）；托盘不做（Linux 依赖 libayatana-appindicator3，用户裁定暂缓——
+       RFC-003 第 1 期本侧只收拖放）；通知走 freedesktop Notifications（会话总线），
+       Xvfb 下无通知守护进程时命令会失败——能力位表示「协议层可用」，运行期成败由命令如实回传 */
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
+}
+
+/* ===== 拖放（RFC-002 §5；7.B Linux 侧）===== */
+
+/* drag-data-received：把 text/uri-list 原文交 core 解析（解码/上限/报文都在 core），
+   本回调只做「取数据 + 转交 + finish」。动作语义由 core/上层定，这里不区分 copy/move。 */
+static void on_drag_data_received(GtkWidget *widget, GdkDragContext *ctx,
+                                  gint x, gint y, GtkSelectionData *sel,
+                                  guint info, guint time, gpointer ud) {
+    cj_host *h = (cj_host *)ud;
+    (void)widget; (void)x; (void)y; (void)info;
+    if (sel) {
+        const guchar *data = gtk_selection_data_get_data(sel);
+        gint len = gtk_selection_data_get_length(sel);
+        if (data && len > 0) {
+            char *uri_list = (char *)g_malloc((gsize)len + 1);
+            if (uri_list) {
+                memcpy(uri_list, data, (size_t)len);
+                uri_list[len] = '\0';
+                cj_core_drop_files(h, uri_list);
+                g_free(uri_list);
+            }
+        }
+    }
+    gtk_drag_finish(ctx, sel != NULL && gtk_selection_data_get_length(sel) > 0,
+                    FALSE, time);
+}
+
+/* 挂/摘 drag dest（装配期与运行期共用：enabled=0 摘除）。files=0 也先照挂——
+   v1 载荷只有文件路径，files 开关留给将来的文本载荷；策略语义在仓颉侧把关 */
+static void drag_dest_apply(cj_host *h, plat_host *p, int enabled, int files) {
+    (void)files;
+    if (!p || !p->view) return;
+    if (enabled) {
+        static const GtkTargetEntry targets[] = {
+            { (gchar *)"text/uri-list", 0, 0 },
+        };
+        gtk_drag_dest_set(p->view, GTK_DEST_DEFAULT_ALL, targets, 1, GDK_ACTION_COPY);
+        g_signal_connect(p->view, "drag-data-received",
+                         G_CALLBACK(on_drag_data_received), h);
+        fprintf(stderr, "[cj-bridge] drag dest attached (uri-list)\n");
+    } else {
+        gtk_drag_dest_unset(p->view);
+        fprintf(stderr, "[cj-bridge] drag dest detached\n");
+    }
 }
 
 /* =========================================================================

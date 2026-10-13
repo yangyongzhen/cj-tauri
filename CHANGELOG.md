@@ -113,6 +113,15 @@
 
 ### Added
 
+- **官网落地页（`website/`）**：单页深色站点，**中英双语**（中文即页面正文，英文放 `data-en*` 属性上，由
+  `assets/app.js` 切换；断网、`file://` 直开、关掉 JS 三种情况下页面都完整）、**零外部依赖**（不引 CDN、
+  不引 Web Font、无统计脚本，图标一律内联 SVG）。发布走 `.github/workflows/pages.yml`：`main` 上任何
+  改动 `website/**` 的提交都会把该目录整份推到 `gh-pages` 分支（每次一个孤儿提交，历史不累积），
+  GitHub Pages 认这个分支——推上去即发布，不需要人去动仓库设置。
+  配套 **`scripts/site-check.sh` 站点自检**（不需要 SDK / 浏览器：引用存在性、零外部依赖、中英文案覆盖、
+  死锚点、标签页与面板配对、class 与 CSS 对齐、OG 卡片尺寸），其快速档已并入 `scripts/check-static.sh`，
+  官网改动因此同样被常规门禁拦住；`--shots` 抓中英两态截图（需本机有 firefox）、`--links` 联网核对外链。
+  站内数字全部取自 `docs/分发形态实测.md` 的现场实测，没量到的格子如实留空。
 - **官方插件 `sqlite`（`src/plugins/plugin_sqlite.cj` + `src/plugins/sqlite_ffi.cj`）**：
   **仓库首个「`foreign func` 直连第三方原生库」**的样板——不经 C 桥，仓颉侧直接调系统 `libsqlite3`
   （示例 `cjpm.toml` 的 `link-option` 加 `-lsqlite3`）。七条命令 `sqlite:env` / `info` / `tables` /

@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-en="cj-tauri · Build desktop apps in Cangjie, ship them as HTML/CSS/JS">cj-tauri · 仓颉版 Tauri：用仓颉写桌面应用，前端还是 HTML/CSS/JS</title>
+<meta name="description" data-en="A Tauri-like hybrid desktop framework written in Huawei's Cangjie language: statically compiled native backend + system WebView frontend. 5.5–9.5 MB artifacts, no Chromium bundled, Windows (WebView2) and Linux (WebKitGTK) verified on real hardware. MIT licensed." content="用华为仓颉语言实现的类 Tauri 混合桌面框架：仓颉静态编译后端 + 系统 WebView 前端。产物 5.5–9.5 MB、不捆绑 Chromium，Windows（WebView2）与 Linux（WebKitGTK）已实机跑通，MIT 开源。">
+<meta name="keywords" content="仓颉,Cangjie,cj-tauri,桌面应用,WebView,WebView2,WebKitGTK,Tauri,IPC,插件体系,capability,跨平台,鸿蒙,ArkWeb">
+<meta name="author" content="cj-tauri contributors">
+<meta name="theme-color" content="#06070b">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://yangyongzhen.github.io/cj-tauri/">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="cj-tauri">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:url" content="https://yangyongzhen.github.io/cj-tauri/">
+<meta property="og:title" content="cj-tauri · 仓颉版 Tauri：用仓颉写桌面应用，前端还是 HTML/CSS/JS">
+<meta property="og:description" content="仓颉静态编译后端 + 系统 WebView 前端，产物 5.5–9.5 MB，不捆绑 Chromium；Windows 与 Linux 已实机跑通。">
+<meta property="og:image" content="https://yangyongzhen.github.io/cj-tauri/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="cj-tauri · 仓颉版 Tauri">
+<meta name="twitter:description" content="用仓颉写桌面应用：静态编译后端 + 系统 WebView 前端，产物 5.5–9.5 MB，不带 Chromium。">
+<meta name="twitter:image" content="https://yangyongzhen.github.io/cj-tauri/assets/og.png">
+<link rel="stylesheet" href="assets/style.css">
+<noscript><style>.reveal{opacity:1;transform:none}.nav__links{display:flex!important}</style></noscript>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "cj-tauri",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, Linux",
+  "softwareVersion": "0.8.0",
+  "license": "https://opensource.org/licenses/MIT",
+  "description": "仓颉语言实现的类 Tauri 混合桌面框架：静态编译后端 + 系统 WebView 前端 + IPC 双向桥 + 能力白名单安全模型。",
+  "url": "https://yangyongzhen.github.io/cj-tauri/",
+  "sameAs": [
+    "https://atomgit.com/qq8864/cj-tauri",
+    "https://github.com/yangyongzhen/cj-tauri",
+    "https://www.npmjs.com/package/cj-tauri"
+  ],
+  "programmingLanguage": "Cangjie",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-en="Skip to content">跳到主内容</a>
+
+<header class="nav" id="top">
+  <div class="wrap nav__inner">
+    <a class="brand" href="#top" aria-label="cj-tauri 首页" data-en-aria="cj-tauri home">
+      <img class="brand__mark" src="assets/favicon.svg" alt="" width="30" height="30">
+      <span class="brand__name">cj-tauri</span>
+      <span class="brand__ver">v0.8.0</span>
+    </a>
+    <nav class="nav__links" id="navLinks" aria-label="主导航" data-en-aria="Main navigation">
+      <a class="nav__link" href="#features" data-en="Why cj-tauri">特性</a>
+      <a class="nav__link" href="#arch" data-en="Architecture">架构</a>
+      <a class="nav__link" href="#code" data-en="Code">代码</a>
+      <a class="nav__link" href="#plugins" data-en="Plugins">插件</a>
+      <a class="nav__link" href="#examples" data-en="Examples">示例</a>
+      <a class="nav__link" href="#numbers" data-en="Numbers">数据</a>
+      <a class="nav__link" href="#start" data-en="Get started">上手</a>
+    </nav>
+    <div class="nav__actions">
+      <div class="lang" role="group" aria-label="语言 / Language" data-no-i18n>
+        <button class="lang__btn" type="button" data-lang="zh" aria-pressed="true">中文</button>
+        <button class="lang__btn" type="button" data-lang="en" aria-pressed="false">EN</button>
+      </div>
+      <a class="icon-link" href="https://github.com/yangyongzhen/cj-tauri" title="GitHub 镜像" data-en-title="GitHub mirror" aria-label="GitHub 镜像" data-en-aria="GitHub mirror" target="_blank" rel="noopener">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.42 7.42 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      </a>
+      <a class="btn btn--primary btn--sm" href="https://atomgit.com/qq8864/cj-tauri" target="_blank" rel="noopener" data-en="Repository">主仓库</a>
+      <button class="burger" id="burger" type="button" aria-label="菜单" data-en-aria="Menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ==================== 首屏 ==================== -->
+  <section class="hero">
+    <div class="wrap hero__grid">
+      <div>
+        <span class="badge-pill"><span class="dot" style="color:var(--ok)"></span> <b>v0.8.0</b> · MIT · <span data-en="Windows &amp; Linux verified on real hardware">Windows 与 Linux 已实机跑通</span></span>
+        <h1 class="hero__title" style="margin-top:20px">
+          <span data-en="Build desktop apps in Cangjie,">用仓颉写桌面应用，</span>
+          <em class="grad-text" data-en="keep your HTML/CSS/JS">前端还是 HTML/CSS/JS</em>
+        </h1>
+        <p class="hero__lead" data-en="cj-tauri is a Tauri-like framework for the Cangjie language: the backend compiles to a static native executable, the frontend runs inside the system WebView (WebView2 on Windows, WebKitGTK on Linux), and the two are wired by a bidirectional IPC bridge plus a capability whitelist. No Chromium bundled, 5.5–9.5 MB artifacts, double-click to run.">
+          cj-tauri 是仓颉语言里的类 Tauri 框架：后端静态编译成原生可执行文件，前端跑在<strong>系统 WebView</strong>里
+          （Windows 走 WebView2、Linux 走 WebKitGTK），中间是一条 IPC 双向桥加一套能力白名单。
+          不捆绑 Chromium，产物 5.5–9.5 MB，双击即用。
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#start">
+            <svg class="btn__ico" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M11 2 4 11h4l-1 7 7-9h-4l1-7Z"/></svg>
+            <span data-en="Get started in 5 minutes">5 分钟上手</span>
+          </a>
+          <a class="btn btn--ghost" href="#examples" data-en="See 22 examples">看 22 个示例</a>
+          <a class="btn btn--ghost" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/modbus-poll/dist-single/modbus-poll.exe" target="_blank" rel="noopener" data-en="Download a .exe">下载单文件 exe</a>
+        </div>
+        <div class="hero__trust">
+          <p class="hero__trust-label" data-en="Project status — every claim below has on-device evidence">工程现状：下面每一条都取过实机证据</p>
+          <div class="chips">
+            <span class="chip chip--ok"><span class="dot"></span><span data-en="Windows · WebView2 verified">Windows WebView2 实机</span></span>
+            <span class="chip chip--ok"><span class="dot"></span><span data-en="Linux · WebKitGTK verified">Linux WebKitGTK 实机</span></span>
+            <span class="chip chip--ok"><span class="dot"></span><span data-en="0 third-party runtime DLLs">0 个第三方运行时 DLL</span></span>
+            <span class="chip"><span data-en="261 unit tests">261 个单元测试</span></span>
+            <span class="chip"><span data-en="8 E2E entries">8 条 E2E 入口</span></span>
+            <span class="chip chip--mute"><span data-en="HarmonyOS · architecture reserved">鸿蒙 ArkWeb 架构预留</span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="mock">
+        <figure class="win" style="margin:0">
+          <div class="win__bar">
+            <span class="win__dots"><i></i><i></i><i></i></span>
+            <span class="win__title">modbus-poll — cj-tauri app</span>
+          </div>
+          <span class="win__body">
+            <img src="assets/screenshots/modbus-poll.png" width="1400" height="875"
+                 alt="用 cj-tauri 写的 Modbus Poll 调试工具：多面板并行监控与报文监视" data-en-alt="A Modbus polling tool built with cj-tauri: parallel panels and a live frame monitor">
+          </span>
+        </figure>
+        <div class="float float--a"><span class="float__n">5.59 MB</span><span class="float__l" data-en="single-file .exe">单文件 exe</span></div>
+        <div class="float float--b"><span class="float__n">0</span><span class="float__l" data-en="third-party DLLs">第三方 DLL</span></div>
+        <div class="float float--c"><span class="float__n">54 ms</span><span class="float__l" data-en="cold start (Linux)">冷启动（Linux）</span></div>
+      </div>
+    </div>
+  </section>
+  <!-- ==================== 三件套 ==================== -->
+  <section class="section border-top" id="pillars">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Three pieces">三件套</span>
+        <h2 class="sec-title" data-en="A WebView host, an IPC bridge, and a capability model">WebView 宿主 + IPC 双向桥 + 能力安全模型</h2>
+        <p class="sec-lead" data-en="Tauri maps three ideas onto Rust; cj-tauri maps the same three onto Cangjie. Everything else — routing, validation, plugin wiring — is shared across platforms and lives above them.">
+          对标 Tauri 的三件套：宿主负责开窗与注入，桥负责一问一答与事件回投，能力模型负责「谁能调什么」。
+          平台差异被压到两处——仓颉侧 <code>@When</code> 条件编译与 C 桥的 <code>native/bridge_*.c</code>，
+          其余全部跨平台共用。
+        </p>
+      </div>
+      <div class="cards reveal">
+        <article class="card">
+          <div class="card__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.4" cy="6.6" r=".9" fill="currentColor" stroke="none"/></svg>
+          </div>
+          <h3 class="card__title" data-en="WebView host">WebView 宿主</h3>
+          <p class="card__text" data-en="Opens the native window and injects the bridge script — no Chromium shipped. Linux uses WebKitGTK 4.1, Windows uses WebView2, HarmonyOS ArkWeb has a reserved architecture slot; host-level capabilities (menus, drag-and-drop, dialogs) are negotiated before the page loads.">
+            开原生窗口、在 document-start 注入桥接脚本，不捆绑 Chromium。Linux 走 WebKitGTK 4.1、
+            Windows 走 WebView2、鸿蒙 ArkWeb 预留架构位；菜单、文件拖入、原生对话框这类宿主能力
+            一律赶在页面加载前定稿。
+          </p>
+          <p class="card__meta">host.cj · host_webkit.cj · host_webview2.cj</p>
+        </article>
+        <article class="card">
+          <div class="card__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13l-3-3"/><path d="M20 16H7l3 3"/></svg>
+          </div>
+          <h3 class="card__title" data-en="Bidirectional IPC bridge">IPC 双向桥</h3>
+          <p class="card__text" data-en="The frontend only talks through window.__CJ_TAURI__ with invoke / listen / emit (the same shape as @tauri-apps/api). Requests are validated on the calling thread, executed on worker threads, and results flow back by promise id — slow commands never freeze the host UI.">
+            前端只经 <code>window.__CJ_TAURI__</code> 的 <code>invoke</code> / <code>listen</code> / <code>emit</code>
+            与后端对话（形状对齐 <code>@tauri-apps/api</code>）。命令在调用线程只做校验，通过后派到 worker 线程执行，
+            结果按 promise id 回投——慢命令不会把宿主 UI 钉住。
+          </p>
+          <p class="card__meta">src/ipc_hub.cj · json over postMessage</p>
+        </article>
+        <article class="card">
+          <div class="card__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v6c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6l-7-3Z"/><path d="m9.2 12 2 2 3.6-4"/></svg>
+          </div>
+          <h3 class="card__title" data-en="Capability security model">能力安全模型</h3>
+          <p class="card__text" data-en="Commands and events must be declared in capabilities/*.json before they run — default deny, and plugins only declare what they provide instead of granting themselves access. On top of that: named permission sets and path scopes (deny first, then allow, after path normalization).">
+            命令与事件必须写进 <code>capabilities/*.json</code> 才放行：默认最小权限，插件只声明「我提供什么」、
+            不自动放行自己。之上还有命名权限集与<strong>路径 scope</strong>（先 deny 后 allow，匹配前先规范化路径，
+            越界被拒会在桥 stderr 留证据）。
+          </p>
+          <p class="card__meta">src/capability.cj · src/scope.cj</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 为什么是 cj-tauri ==================== -->
+  <section class="section section--alt" id="features">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Why cj-tauri">为什么是 cj-tauri</span>
+        <h2 class="sec-title" data-en="Six things we can back with evidence">六件能拿证据说话的事</h2>
+        <p class="sec-lead" data-en="Nothing here is a roadmap promise: sizes are measured from the shipped artifacts, imports are read out of the PE headers, and every example writes its own verdict.">
+          下面没有「计划支持」：体积是对着随仓库分发的产物量的，依赖是从 PE 导入表读出来的，
+          示例跑完会自己给自己下结论。
+        </p>
+      </div>
+      <div class="grid grid--3 reveal">
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m8 5-5 7 5 7M16 5l5 7-5 7"/></svg><span data-en="Statically compiled backend">静态编译的后端</span></h3>
+          <p class="feat__p" data-en="Cangjie has no VM: the runtime is linked into the artifact, so a machine that has never installed the SDK can still run the binary. The IPC protocol layer is a couple hundred auditable lines.">
+            仓颉无虚拟机，运行时就静态链在产物里——从没装过 SDK 的机器也能直接跑。协议层两百行左右，可审计。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg><span data-en="No Chromium bundled">零 Chromium 捆绑</span></h3>
+          <p class="feat__p" data-en="Four shipped artifacts measure 5.50 / 5.59 / 9.42 / 9.50 MB, and their PE import tables contain only Windows system DLLs — not a single third-party runtime (msvcp*, vcruntime*, libgcc*, libwinpthread*).">
+            四份产物实测 5.50 / 5.59 / 9.42 / 9.50 MB，PE 导入表里全是 Windows 系统 DLL——
+            第三方运行时（<code>msvcp*</code> / <code>vcruntime*</code> / <code>libgcc*</code> / <code>libwinpthread*</code>）一个都没有。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span data-en="Least privilege by default">默认最小权限</span></h3>
+          <p class="feat__p" data-en="Miss the declaration in the manifest and the command simply is not allowed — the rejection is logged, not swallowed. Path arguments can be pinned to a workspace with allow/deny globs, and *.rsa-style denials are matched first.">
+            清单里没声明的命令一律拒绝，而且拒绝会留日志、不静默。页面可控的路径参数可以钉在工作区内
+            （allow / deny 通配 + 变量），先判 deny 再判 allow。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><circle cx="12" cy="12" r="3"/></svg><span data-en="Plugin system">插件体系</span></h3>
+          <p class="feat__p" data-en="Ten official plugins — files, dialogs, subprocess, serial, key-value store, clipboard, notifications, native menus, MQTT and Redis. Each declares its commands, events and frontend shim; the manifest still decides what actually runs.">
+            十个官方插件：文件、原生对话框、子进程、串口、键值存储、剪贴板、通知、原生菜单、MQTT、Redis。
+            插件声明命令、事件与前端 shim，真正放不放行仍由清单说了算。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="m7.5 12 2.5 2.5L7.5 17"/><path d="M13 17h3.5"/></svg><span data-en="Verifiable end to end">全链路可验证</span></h3>
+          <p class="feat__p" data-en="The bridge logs to stderr line by line, pages report their own assertions back, and each example ships an unattended E2E entry that writes a JSON evidence file next to the CI scripts. &quot;No error in the log&quot; is never treated as success.">
+            桥逐行写 stderr，页面把自检断言回投，每个示例都带一条无人值守 E2E 入口并把证据 JSON 落进
+            <code>dist/e2e-evidence/</code>。「日志里没有错误行」从不当作成功。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14v11H5z"/><path d="M8 8V5h8v3M9.5 13h5"/></svg><span data-en="Batteries-included CLI">配套脚手架</span></h3>
+          <p class="feat__p" data-en="create / dev / build / run / info / doctor in one CLI, available as npx cj-tauri. Templates cover plain HTML, Vue 3 and React 18 — dev takes over the Vite server so HMR works inside the native window. doctor tells you exactly what is missing and how to fix it.">
+            一条 CLI：<code>create / dev / build / run / info / doctor</code>，<code>npx cj-tauri</code> 即可用。
+            模板覆盖零 Node 的 HTML、Vue 3、React 18；<code>dev</code> 接管 Vite dev server，
+            HMR 在原生窗口里生效；<code>doctor</code> 逐行说明缺什么、怎么补。
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+  <!-- ==================== 架构 ==================== -->
+  <section class="section" id="arch">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Architecture">架构</span>
+        <h2 class="sec-title" data-en="One JSON message, from the page down to native">一条 JSON 从页面走到原生</h2>
+        <p class="sec-lead" data-en="The page never sees platform code: it posts JSON, the bridge validates it, a worker runs the handler, and the result comes back by promise id. Platform-specific code exists in exactly two places, and the picture below ships with the repository so it can never drift from the implementation.">
+          页面看不到任何平台代码：它只 postMessage 一份 JSON，桥负责校验，worker 执行 handler，
+          结果按 promise id 回投。平台相关的代码只可能在两处出现，下面这张图随仓库版本化，不会和实现对不上。
+        </p>
+      </div>
+      <figure class="arch reveal" style="margin:0">
+        <img src="assets/architecture.svg" width="1000" height="620"
+             alt="cj-tauri 架构图：前端桥 → IPC 消息桥 → 能力安全模型 → 内置/插件命令 → WebView 宿主（Linux/Windows/鸿蒙）→ 共享 C 层"
+             data-en-alt="cj-tauri architecture: frontend bridge, IPC hub, capability model, built-in and plugin commands, WebView hosts (Linux/Windows/HarmonyOS), shared C layer">
+        <figcaption class="arch__cap" data-en="Source: docs/images/architecture.svg (versioned with the code)">图片来源：<code>docs/images/architecture.svg</code>（与代码同仓版本化）</figcaption>
+      </figure>
+
+      <div class="grid grid--4 reveal" style="margin-top:24px">
+        <article class="feat">
+          <h3 class="feat__h"><span class="chip chip--mute">01</span><span data-en="Frontend">前端</span></h3>
+          <p class="feat__p" data-en="Plain HTML/CSS/JS — or Vue / React when you use those templates. It calls invoke/listen/emit on the injected window.__CJ_TAURI__ object, the same shape as @tauri-apps/api.">
+            普通 HTML/CSS/JS（用模板时就是 Vue / React）。注入的 <code>window.__CJ_TAURI__</code> 上挂
+            <code>invoke</code> / <code>listen</code> / <code>emit</code>，形状对齐 <code>@tauri-apps/api</code>。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><span class="chip chip--mute">02</span><span data-en="IPC hub">IPC 消息桥</span></h3>
+          <p class="feat__p" data-en="src/ipc_hub.cj checks registration and authorization synchronously, then spawns the handler onto a worker thread. Unknown or unauthorized commands are rejected on the spot, with a log line you can grep.">
+            <code>src/ipc_hub.cj</code> 同步做「注册 / 授权」两项校验，通过后把 handler 派到 worker 线程。
+            未注册或未授权当场拒绝，并在 stderr 留下可 grep 的一行。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><span class="chip chip--mute">03</span><span data-en="Capability model">能力模型</span></h3>
+          <p class="feat__p" data-en="src/capability.cj loads every capabilities/*.json at startup; commands, events, named permission sets and path scopes are all resolved there — shared by both platforms, no per-platform re-implementation.">
+            <code>src/capability.cj</code> 启动时扫 <code>capabilities/</code> 下的所有 json：命令、
+            事件、命名权限集、路径 scope 全在共享层解析，两个平台不各判一份。
+          </p>
+        </article>
+        <article class="feat">
+          <h3 class="feat__h"><span class="chip chip--mute">04</span><span data-en="Host + C bridge">宿主 + C 桥</span></h3>
+          <p class="feat__p" data-en="Linux runs every GTK/WebKit call inside the native pthread created by the C bridge (Cangjie's lightweight coroutine stacks get rejected by the JSC stack check); Windows drives the WebView2 message loop on the host thread. Both export the same cj_bridge_* names.">
+            Linux 的每个 GTK/WebKit 调用都在 C 桥创建的原生 pthread 里执行（仓颉轻量线程的堆上协程栈会被
+            JSC 的栈边界校验 abort）；Windows 在宿主线程跑 WebView2 消息循环。两平台导出同一套
+            <code>cj_bridge_*</code> 名字，上层没有平台分叉的调用点。
+          </p>
+        </article>
+      </div>
+    </div>
+  </section>
+  <!-- ==================== 代码 ==================== -->
+  <section class="section section--alt" id="code">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Code">代码</span>
+        <h2 class="sec-title" data-en="Three files and you have a desktop app">三个文件，一个桌面应用</h2>
+        <p class="sec-lead" data-en="A command on the Cangjie side, one line in the manifest to allow it, one invoke on the page. There is nothing else to wire by hand.">
+          仓颉侧写一个命令、清单里放行一行、页面上 invoke 一次——没有别的仪式，也不用改构建脚本。
+        </p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="代码示例" data-en-aria="Code samples">
+        <button class="tab" role="tab" id="tab-cj" aria-controls="panel-cj" aria-selected="true" data-tab="panel-cj" data-en="Cangjie backend">仓颉后端</button>
+        <button class="tab" role="tab" id="tab-cap" aria-controls="panel-cap" aria-selected="false" data-tab="panel-cap" data-en="Capability manifest">能力清单</button>
+        <button class="tab" role="tab" id="tab-js" aria-controls="panel-js" aria-selected="false" data-tab="panel-js" data-en="Frontend">前端</button>
+        <button class="tab" role="tab" id="tab-cli" aria-controls="panel-cli" aria-selected="false" data-tab="panel-cli" data-en="CLI">命令行</button>
+      </div>
+
+      <div class="panels">
+        <div class="panel" id="panel-cj" role="tabpanel" aria-labelledby="tab-cj">
+          <div class="code">
+            <div class="code__bar"><span>src/main.cj</span><span class="code__lang">Cangjie</span></div>
+<pre class="code__body"><span class="t-c">// 1) 实现命令：handle 在 worker 线程上执行，返回的 JsonValue 回投给页面</span>
+<span class="t-k">public class</span> <span class="t-f">GreetCommand</span> &lt;: <span class="t-p">CommandHandler</span> {
+    <span class="t-k">public func</span> <span class="t-f">handle</span>(cmd: <span class="t-p">String</span>, args: <span class="t-p">JsonObject</span>, ipc: <span class="t-p">IpcContext</span>): <span class="t-p">JsonValue</span> {
+        <span class="t-k">return</span> <span class="t-p">JsonString</span>(<span class="t-s">"Hello, ${argString(args, "name", "world")}!"</span>)
+    }
+}
+
+<span class="t-f">main</span>(): <span class="t-p">Int64</span> {
+    <span class="t-c">// 2) 装配：建窗口 + 注册命令；capabilities/ 由 run() 自动扫描</span>
+    <span class="t-k">let</span> app = <span class="t-p">TauriApp</span>()
+        .<span class="t-f">window</span>(<span class="t-p">WindowConfig</span>(<span class="t-s">"hello"</span>, <span class="t-n">1000</span>, <span class="t-n">700</span>))
+        .<span class="t-f">register</span>(<span class="t-s">"greet"</span>, <span class="t-p">GreetCommand</span>())
+    <span class="t-c">// 3) 启动：run() 自己不返回，窗口关闭后收尾</span>
+    app.<span class="t-f">run</span>(HTML)
+    <span class="t-k">return</span> <span class="t-n">0</span>
+}</pre>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-cap" role="tabpanel" aria-labelledby="tab-cap" hidden>
+          <div class="code">
+            <div class="code__bar"><span>capabilities/default.json</span><span class="code__lang">JSON</span></div>
+<pre class="code__body">{
+  <span class="t-p">"identifier"</span>: <span class="t-s">"default"</span>,
+  <span class="t-p">"windows"</span>: [<span class="t-s">"main"</span>],
+
+  <span class="t-c">// 命令级白名单：没写在这里的命令一律 command not allowed</span>
+  <span class="t-p">"commands"</span>: [<span class="t-s">"report"</span>, <span class="t-s">"notes:env"</span>, <span class="t-s">"system:version"</span>],
+  <span class="t-p">"events"</span>: [],
+
+  <span class="t-c">// 命名权限集：一次放行一组，与明文写法同权（集声明 ≠ 放行）</span>
+  <span class="t-p">"permissions"</span>: [<span class="t-s">"fs:default"</span>, <span class="t-s">"store:default"</span>],
+
+  <span class="t-c">// 路径 scope：命令放行 ≠ 参数放行；先判 deny，再判 allow</span>
+  <span class="t-p">"scopes"</span>: {
+    <span class="t-p">"fs"</span>: {
+      <span class="t-p">"allow"</span>: [<span class="t-s">"$CWD/notes"</span>, <span class="t-s">"$CWD/notes/**"</span>],
+      <span class="t-p">"deny"</span>:  [<span class="t-s">"**/*.secret.md"</span>]
+    }
+  }
+}</pre>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-js" role="tabpanel" aria-labelledby="tab-js" hidden>
+          <div class="code">
+            <div class="code__bar"><span>ui/index.html</span><span class="code__lang">JavaScript</span></div>
+<pre class="code__body"><span class="t-c">// 桥在 document-start 注入，页面脚本执行时就已经存在；</span>
+<span class="t-c">// 应用侧仍建议等一次（模板里的 waitForBridge），免得构建形态不同步。</span>
+<span class="t-k">const</span> cj = window.__CJ_TAURI__;
+
+<span class="t-c">// 调后端命令：与 @tauri-apps/api 同形，返回 Promise</span>
+<span class="t-k">const</span> msg = <span class="t-k">await</span> cj.<span class="t-f">invoke</span>(<span class="t-s">"greet"</span>, { name: <span class="t-s">"仓颉"</span> });
+
+<span class="t-c">// 订阅后端事件（事件名同样要在能力清单的 events 里声明）</span>
+cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
+  document.<span class="t-f">querySelector</span>(<span class="t-s">"#out"</span>).textContent = e.data;
+});
+
+<span class="t-c">// 插件自带前端命名空间，例如原生文件对话框：</span>
+<span class="t-k">const</span> picked = <span class="t-k">await</span> cj.dialog.<span class="t-f">open</span>({ filter: <span class="t-s">"文本文件|*.txt|所有文件|*.*"</span> });</pre>
+          </div>
+        </div>
+
+        <div class="panel" id="panel-cli" role="tabpanel" aria-labelledby="tab-cli" hidden>
+          <div class="code">
+            <div class="code__bar"><span data-en="Terminal">终端</span><span class="code__lang">Shell</span></div>
+<pre class="code__body"><span class="t-c"># 免安装脚手架：create 出来的工程自带能力清单与 GUI 子系统开关</span>
+<span class="t-cmd">npx cj-tauri create myapp</span>
+<span class="t-cmd">cd myapp</span>
+
+<span class="t-c"># 开发：接管 Vite dev server（Vue / React 模板），HMR 在原生窗口里生效</span>
+<span class="t-cmd">npx cj-tauri dev</span>
+
+<span class="t-c"># 换机器第一件事：doctor 逐行说缺什么、怎么补</span>
+<span class="t-cmd">npx cj-tauri doctor</span>
+<span class="t-out">[ok]   cangjie sdk  1.2.0   /opt/cangjie/cangjie</span>
+<span class="t-out">[ok]   stdx         found   $CANGJIE_STDX</span>
+<span class="t-out">[miss] webkit2gtk-4.1     sudo apt install libwebkit2gtk-4.1-dev</span></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- ==================== 插件 ==================== -->
+  <section class="section" id="plugins">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Plugins">插件</span>
+        <h2 class="sec-title" data-en="Ten official plugins, all opt-in">十个官方插件，全都要显式放行</h2>
+        <p class="sec-lead" data-en="A plugin declares what it provides — commands, events and a frontend namespace — and the manifest still decides whether it may run. Two of them (MQTT and Redis) implement their protocols in pure Cangjie on top of the IPC layer, so they are a good read if you are sizing up the framework.">
+          插件只声明「我提供什么」（命令、事件、前端命名空间），放不放行仍由能力清单说了算。
+          其中 MQTT 与 Redis 的协议是纯仓颉实现，想评估这个框架的工程底子可以直接读它们。
+        </p>
+      </div>
+      <div class="plugins reveal">
+        <div class="plug"><p class="plug__n">fs</p><p class="plug__d" data-en="read / write / list / remove, path-scoped">读 / 写 / 列目录 / 删除，受路径 scope 约束</p></div>
+        <div class="plug"><p class="plug__n">dialog</p><p class="plug__d" data-en="native open / save / message">原生打开、保存、消息框</p></div>
+        <div class="plug"><p class="plug__n">shell</p><p class="plug__d" data-en="open links, spawn argv (never a shell string)">打开链接、子进程（argv 直传，不过 shell）</p></div>
+        <div class="plug"><p class="plug__n">serial</p><p class="plug__d" data-en="serial I/O with a self-check probe">串口收发，带探针自检闭环</p></div>
+        <div class="plug"><p class="plug__n">store</p><p class="plug__d" data-en="key-value JSON, atomic writes">键值存储，写盘走 tmp + rename</p></div>
+        <div class="plug"><p class="plug__n">clipboard</p><p class="plug__d" data-en="system clipboard read / write">系统剪贴板读写</p></div>
+        <div class="plug"><p class="plug__n">notification</p><p class="plug__d" data-en="system notifications (Linux verified, Windows stub)">系统通知（Linux 实机取证，Windows 桩如实报）</p></div>
+        <div class="plug"><p class="plug__n">menu</p><p class="plug__d" data-en="native menu bar with click events">原生菜单栏，点选事件回投前端</p></div>
+        <div class="plug"><p class="plug__n">mqtt</p><p class="plug__d" data-en="MQTT 3.1.1 in pure Cangjie"><span class="grad-text">MQTT 3.1.1，协议纯仓颉实现</span></p></div>
+        <div class="plug"><p class="plug__n">redis</p><p class="plug__d" data-en="RESP2 client in pure Cangjie"><span class="grad-text">RESP2 客户端，纯仓颉实现</span></p></div>
+      </div>
+      <p class="note" data-en="Three layers of control: a command/event whitelist, named permission sets (fs:readonly, sqlite:default, …) and per-plugin path scopes with allow/deny globs. Missing any one of them means the call does not happen — and the rejection is logged with a greppable prefix instead of failing silently.">
+        三层控制：命令 / 事件白名单、命名权限集（<code>fs:readonly</code>、<code>sqlite:default</code> …）、
+        以及按插件的路径 scope（allow / deny 通配）。少一层调用就不发生——而且拒绝会打上可 grep 的前缀，
+        不静默失败。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 示例 ==================== -->
+  <section class="section section--alt" id="examples">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Examples">示例</span>
+        <h2 class="sec-title" data-en="22 runnable examples — the ones below are on-device screenshots">22 个可直接运行的示例，下面都是实机截图</h2>
+        <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence.">
+          不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台……
+          每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。
+        </p>
+      </div>
+      <div class="gal reveal">
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/modbus-poll" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/modbus-poll.png" loading="lazy" width="1400" height="875" alt="Modbus Poll 调试工具主界面" data-en-alt="Modbus polling tool main screen"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="Modbus poll — TCP/RTU debugger">Modbus 调试工具</h3>
+            <p class="gal__desc" data-en="Parallel monitor panels, FC 01-04/05/06/15/16, frame monitor, CSV logging — the pain points of Modbus Poll, addressed.">多面板并行监控、读写 FC 01-04/05/06/15/16、报文监视逐帧滚动、数据记录 CSV——对标 Modbus Poll 并补齐其痛点。</p>
+            <span class="gal__tag">examples/modbus-poll · 5.59 MB single exe</span>
+          </span>
+        </a>
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/serial-waveform" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/serial-waveform.png" loading="lazy" width="1200" height="750" alt="串口实时波形示波器" data-en-alt="Serial realtime waveform oscilloscope"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="Serial oscilloscope">串口实时波形示波器</h3>
+            <p class="gal__desc" data-en="400 Hz sample stream decoded by the serial plugin, drawn on a double-buffered canvas; the page computes its own rate, crossings and dropped frames — 404.2 samples/s measured on Linux.">串口插件解出 400 Hz 样本流，canvas 双缓冲自绘；页面自算速率、上穿与丢帧——Linux 实测 404.2 样本/s。</p>
+            <span class="gal__tag">examples/serial-waveform · verdict=ok</span>
+          </span>
+        </a>
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/music" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/music.jpg" loading="lazy" width="1200" height="750" alt="音乐播放器界面" data-en-alt="Music player interface"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="Music player">音乐播放器</h3>
+            <p class="gal__desc" data-en="Leaderboards, playlists, favourites and synced lyrics with four themes. Cover art is fetched by the host with the right Referer and downscaled before it reaches the page.">榜单、歌单、收藏与同步歌词，4 套主题色。封面由宿主带正确 Referer 取回并缩略后再交给页面。</p>
+            <span class="gal__tag">examples/music · store plugin</span>
+          </span>
+        </a>
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/movie" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/movie.jpg" loading="lazy" width="1200" height="750" alt="观影应用界面" data-en-alt="Movie app interface"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="Movie app">观影应用</h3>
+            <p class="gal__desc" data-en="Charts, search, details and playback — every request goes out from the Cangjie side, the page never calls fetch. Useful as a reference for doing network I/O behind the bridge.">榜单、搜索、详情与播放，所有请求都由仓颉侧发出，页面零 fetch——想看清「网络请求放在后端」长什么样，看它。</p>
+            <span class="gal__tag">examples/movie · 9.42 MB single exe</span>
+          </span>
+        </a>
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/typing-poem" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/typing-poem.jpg" loading="lazy" width="1200" height="750" alt="古诗词打字练习 3D 界面" data-en-alt="Poetry typing practice with 3D cards"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="Poetry typing practice">古诗词打字练习</h3>
+            <p class="gal__desc" data-en="108 poems with per-character pinyin, three.js 3D cards, 404-line self-check. Also the example that proves the viewport must be re-checked every frame on WebView2.">108 首诗逐字拼音、three.js 3D 卡面、404 行自检断言。也是它抓出了「WebView2 视口必须每帧自检」这个坑。</p>
+            <span class="gal__tag">examples/typing-poem · three.js r160</span>
+          </span>
+        </a>
+        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/hello" target="_blank" rel="noopener">
+          <span class="gal__shot"><img src="assets/screenshots/hello.png" loading="lazy" width="1200" height="750" alt="hello 示例：invoke 与事件推送" data-en-alt="hello example: invoke and events"></span>
+          <span class="gal__body">
+            <h3 class="gal__title" data-en="hello — the minimal loop">最小闭环</h3>
+            <p class="gal__desc" data-en="One invoke, one event stream, and a deliberate unauthorized call to show what a rejection looks like. The best file to read first if you want the whole IPC path in one screen.">一次 invoke、一路事件推送，外加一次故意越权调用把拒绝长什么样摊开。想一屏看完 IPC 全路径，先读它。</p>
+            <span class="gal__tag">examples/hello · command not allowed</span>
+          </span>
+        </a>
+      </div>
+
+      <ul class="more-list reveal" style="margin-top:18px">
+        <li><b>sqlite-browser</b><span data-en="SQLite browser — Cangjie FFI straight to libsqlite3 (first in this repo), ATTACH denied by an authorizer">SQLite 浏览器——仓颉 FFI 直连 <code>libsqlite3</code>（仓库首例），<code>ATTACH</code> 由 authorizer 按语句拒</span></li>
+        <li><b>http-client</b><span data-en="HTTP API client (Postman-like) — requests sent from Cangjie, allowlist and body cap enforced there too">HTTP API 客户端（Postman 那一类）——请求由仓颉侧直发，白名单与响应体上限也在仓颉侧兜底</span></li>
+        <li><b>redis-client</b><span data-en="Redis console — key-space browsing, typed values, pub/sub timeline">Redis 调试台——键空间浏览、类型化取值、发布订阅消息流</span></li>
+        <li><b>mqtt-client</b><span data-en="MQTT console — connect, subscribe, publish, frame timeline">MQTT 调试台——连接、订阅、发布、报文流时间线</span></li>
+        <li><b>markdown-notes</b><span data-en="Markdown notes with live preview — self-written renderer, no innerHTML, workspace pinned by path scope">Markdown 笔记——自写渲染器、不拼 <code>innerHTML</code>，工作区由路径 scope 钉死</span></li>
+        <li><b>serial-assistant</b><span data-en="Serial debug assistant — TX/RX colouring, timed send, probe self-check">串口调试助手——TX/RX 分色日志、定时发送、探针自检</span></li>
+        <li><b>plugin-fs / dialog / shell / serial</b><span data-en="The four plugin walkthroughs, each with a permission comparison">插件四件套——每个都带权限对照</span></li>
+        <li><b>menu · ipc-bench · todo_check · vue_todo</b><span data-en="Native menu bar, IPC benchmark probe, and the same todo app in plain HTML and Vue 3 + Vite">原生菜单栏、IPC 性能探针，以及同一套待办命令的零 Node 版与 Vue 3 + Vite 版</span></li>
+      </ul>
+    </div>
+  </section>
+  <!-- ==================== 实测数据 ==================== -->
+  <section class="section" id="numbers">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Measured, not promised">实测数据</span>
+        <h2 class="sec-title" data-en="Numbers we can point at a script for">这些数字都有脚本能现场复核</h2>
+        <p class="sec-lead" data-en="Cangjie compiles ahead of time, so there is no VM to warm up and no interpreter in the artifact. The figures below come from the shipped binaries and the bridge's own stderr log — the exact method is written down, including which cell is still empty.">
+          仓颉是提前编译的，没有虚拟机要预热、产物里也没有解释器。下面这些数字来自随仓库分发的产物与桥自己的
+          stderr 日志，口径写在文档里，<strong>连还没量到的那一格也照实标出来</strong>。
+        </p>
+      </div>
+      <div class="stats reveal">
+        <div class="stat">
+          <p class="stat__n">5.50<span class="stat__u" data-en="–9.50 MB">–9.50 MB</span></p>
+          <p class="stat__l" data-en="Four shipped single-file .exe artifacts (typing-poem / modbus-poll / movie / music)">四份随仓库分发的单文件 exe（typing-poem / modbus-poll / movie / music）</p>
+        </div>
+        <div class="stat">
+          <p class="stat__n">0<span class="stat__u" data-en=" third-party DLLs"> 个第三方 DLL</span></p>
+          <p class="stat__l" data-en="Read out of the PE import tables — only Windows system DLLs, no msvcp*/vcruntime*/libgcc*">从 PE 导入表读出来的——只有 Windows 系统 DLL，没有 msvcp*/vcruntime*/libgcc*</p>
+        </div>
+        <div class="stat">
+          <p class="stat__n">54<span class="stat__u" data-en="ms median">ms 中位数</span></p>
+          <p class="stat__l" data-en="Cold start on Linux (process start → the bridge logs the window title); 48/54/57 ms over 3 runs">Linux 冷启动（进程启动 → 桥打出窗口标题行），3 次取样 48/54/57 ms</p>
+        </div>
+        <div class="stat">
+          <p class="stat__n">261<span class="stat__u" data-en=" tests / 8 E2E"> 单测 / 8 E2E</span></p>
+          <p class="stat__l" data-en="Cangjie-side unit tests plus a stub-platform self-check for the shared C core, and eight unattended E2E entries">仓颉侧单元测试 + 共享 C 核心的桩平台自检，另有 8 条无人值守 E2E 入口</p>
+        </div>
+      </div>
+
+      <figure class="arch reveal" style="margin:22px 0 0">
+        <img src="assets/dist-size-compare.svg" width="900" height="420"
+             alt="产物体积对比图：四份 Windows 单文件 exe 与 Linux 目录式产物"
+             data-en-alt="Artifact size comparison: four Windows single-file executables and the Linux directory layout">
+        <figcaption class="arch__cap" data-en="Generated from the same measurements by scripts/dist-report.sh — the chart and the numbers cannot disagree.">由 <code>scripts/dist-report.sh</code> 用同一份实测数据生成——图和数不会对不上。</figcaption>
+      </figure>
+      <p class="note" data-en="What is still unmeasured: cold start on Windows (this machine is Linux, so the cell stays empty rather than borrowing the Linux number), and the clipboard / notification / serial capabilities on Windows. The method is already scripted; only the machine is missing.">
+        还没量到的：Windows 侧冷启动（本机是 Linux，这一格就空着，不拿 Linux 的数字替它说话），
+        以及 Windows 侧的剪贴板 / 通知 / 串口能力位。方法已经写进脚本，缺的是机器。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 上手 ==================== -->
+  <section class="section section--alt" id="start">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Get started">上手</span>
+        <h2 class="sec-title" data-en="From zero to a native window in three steps">三步，从零到一个原生窗口</h2>
+        <p class="sec-lead" data-en="You need the Cangjie SDK and stdx; on Windows also mingw gcc and the WebView2 runtime, on Linux libwebkit2gtk-4.1-dev. If something is missing, doctor names it and tells you the command to fix it instead of leaving you with a stack trace.">
+          需要仓颉 SDK 与 stdx；Windows 另需 mingw gcc 与 WebView2 运行时，Linux 需要
+          <code>libwebkit2gtk-4.1-dev</code>。缺东西时 <code>doctor</code> 会点名并给出安装命令，
+          而不是丢一段堆栈给你。
+        </p>
+      </div>
+      <div class="steps reveal">
+        <div class="step">
+          <span class="step__n">1</span>
+          <div>
+            <h3 class="step__h" data-en="Check the toolchain">先自检环境</h3>
+            <p class="step__p" data-en="Run doctor once on a new machine: it resolves the framework, project, stdx, SDK, cjpm and the C bridge one line at a time.">
+              换机器第一件事跑一次：框架、工程、stdx、SDK、cjpm、C 桥逐行给出结论。
+            </p>
+            <div class="term">
+              <div class="term__bar">doctor</div>
+<pre><span class="t-cmd">$ npx cj-tauri doctor</span>
+<span class="t-out">[ok]   cangjie sdk     1.2.0    /opt/cangjie/cangjie</span>
+<span class="t-out">[ok]   cjpm            found</span>
+<span class="t-out">[ok]   c bridge        libcjtbridge.so (22 exports)</span>
+<span class="t-out">[miss] webkit2gtk-4.1  sudo apt install libwebkit2gtk-4.1-dev</span></pre>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step__n">2</span>
+          <div>
+            <h3 class="step__h" data-en="Create a project">创建工程</h3>
+            <p class="step__p" data-en="Three templates: a zero-Node inline HTML app, Vue 3, or React 18. The generated project already carries a capability manifest and the GUI subsystem switch.">
+              三个模板：零 Node 的内联 HTML、Vue 3、React 18。生成的工程自带能力清单，GUI 子系统开关也已配好
+              （双击不弹控制台黑窗）。
+            </p>
+            <div class="term">
+              <div class="term__bar">create</div>
+<pre><span class="t-cmd">$ npx cj-tauri create myapp</span>
+<span class="t-out">  scaffolding app (inline HTML template) ...</span>
+<span class="t-out">  capabilities/default.json written</span>
+<span class="t-out">  next: cd myapp &amp;&amp; npx cj-tauri dev</span></pre>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="step__n">3</span>
+          <div>
+            <h3 class="step__h" data-en="Develop and build">开发与构建</h3>
+            <p class="step__p" data-en="dev takes over the Vite server for Vue/React templates so HMR happens inside the native window; build and run do what you would expect, and info prints the resolved plugin manifest as JSON.">
+              <code>dev</code> 对 Vue / React 模板会接管 Vite dev server，HMR 直接在原生窗口里生效；
+              <code>build</code> / <code>run</code> 如你所想，<code>info --json</code> 把装配好的插件清单打成 JSON。
+            </p>
+            <div class="term">
+              <div class="term__bar" data-en="day to day">日常</div>
+<pre><span class="t-cmd">$ npx cj-tauri dev</span>          <span class="t-out"># HMR in the native window</span>
+<span class="t-cmd">$ npx cj-tauri build</span>        <span class="t-out"># cjpm build + packaging</span>
+<span class="t-cmd">$ npx cj-tauri run</span>          <span class="t-out"># launch from the project root</span>
+<span class="t-cmd">$ npx cj-tauri info --json</span>  <span class="t-out"># resolved plugins / commands</span></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note" data-en="No SDK yet? Grab a prebuilt single-file Windows tool from the repository and just double-click it — that path needs neither Node nor the SDK.">
+        还没装 SDK？也可以直接从仓库拿一个预构建好的 Windows 单文件工具双击运行——那条路既不需要 Node 也不需要 SDK。
+      </p>
+    </div>
+  </section>
+
+  <!-- ==================== 平台状态 ==================== -->
+  <section class="section" id="status">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Platform status">平台状态</span>
+        <h2 class="sec-title" data-en="What works, what is a stub, what does not exist">跑通的、桩的、没做的，分开写</h2>
+        <p class="sec-lead" data-en="A framework's capability table is only useful when it is honest, so this one keeps the uncomfortable cells visible instead of rounding them up.">
+          能力表只有照实写才有用，所以这一版把不好看的那几格留着，不四舍五入。
+        </p>
+      </div>
+      <div class="plat reveal">
+        <div class="plat__i">
+          <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="Windows (WebView2)">Windows（WebView2）</span></p>
+          <p class="plat__s" data-en="Verified on real hardware: window, IPC, capability checks, native menus (clicked through), file drag-and-drop, single-file packaging.">实机跑通：窗口、IPC、能力校验、原生菜单（点选取证）、文件拖入、单文件打包。</p>
+        </div>
+        <div class="plat__i">
+          <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="Linux (WebKitGTK)">Linux（WebKitGTK）</span></p>
+          <p class="plat__s" data-en="Verified on real hardware, including clipboard readback and a real notification on the session bus; all eight E2E entries run here.">实机跑通，含外部回读剪贴板、会话总线上实收通知；8 条 E2E 入口都在这里跑。</p>
+        </div>
+        <div class="plat__i">
+          <p class="plat__h"><span class="dot" style="color:var(--c3)"></span><span data-en="HarmonyOS ArkWeb">鸿蒙 ArkWeb</span></p>
+          <p class="plat__s" data-en="Architecture slot reserved: the contract README and the scaffold exist, every capability bit reports 0, nothing is faked.">架构预留位：契约 README 与脚手架先行，能力位如实报 0，禁假实现。</p>
+        </div>
+        <div class="plat__i">
+          <p class="plat__h"><span class="dot" style="color:var(--muted)"></span><span data-en="macOS">macOS</span></p>
+          <p class="plat__s" data-en="Not implemented, and no unverified platform identifier is invented for it either.">没做过；也没有为它发明一个未验证的平台标识。</p>
+        </div>
+        <div class="plat__i">
+          <p class="plat__h"><span class="dot" style="color:var(--muted)"></span><span data-en="System tray">系统托盘</span></p>
+          <p class="plat__s" data-en="Deferred by decision: on Linux it pulls in libayatana-appindicator3, and the Windows side is not written — the capability reports tray=0.">用户裁定暂缓：Linux 侧要引 libayatana-appindicator3，Windows 侧也未做，能力位 <code>tray=0</code>。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 文档 ==================== -->
+  <section class="section section--alt" id="docs">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="kicker" data-en="Docs">文档</span>
+        <h2 class="sec-title" data-en="Design decisions are written down, not implied">设计决策都写下来了</h2>
+        <p class="sec-lead" data-en="Every non-obvious choice — why the Linux host lives in a C pthread, why the tray is deferred, how path scopes normalise — has a paragraph and a decision number in the repository.">
+          每个不显然的选择——Linux 宿主为什么跑在 C pthread 上、托盘为什么暂缓、路径 scope 怎么规范化——
+          在仓库里都有一段说明和一个决策编号。
+        </p>
+      </div>
+      <div class="docs reveal">
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/使用文档.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="User guide">使用文档</span>
+            <span class="doc-link__d" data-en="Environment setup, CLI, capability manifests">环境准备、CLI、能力清单</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/RFC-插件体系.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="Plugin system RFC">插件体系 RFC</span>
+            <span class="doc-link__d" data-en="Plugins, permission sets, frontend shims">插件、命名权限集、前端 shim</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/IPC-通信机制.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="IPC mechanism">IPC 通信机制</span>
+            <span class="doc-link__d" data-en="Requests, events, thread model">请求、事件、线程模型</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/设计决策记录.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="Decision log">设计决策记录</span>
+            <span class="doc-link__d" data-en="D-0xx entries with the options that lost">D-0xx 决策，含被否掉的选项</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/分发形态实测.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="Distribution measurements">分发形态实测</span>
+            <span class="doc-link__d" data-en="Size, imports and cold-start methods">体积、导入表与冷启动口径</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+        <a class="doc-link" href="https://atomgit.com/qq8864/cj-tauri/blob/main/docs/需求追踪.md" target="_blank" rel="noopener">
+          <span>
+            <span class="doc-link__t" data-en="Requirements &amp; acceptance">需求追踪与验收矩阵</span>
+            <span class="doc-link__d" data-en="Every requirement mapped to its evidence">每条需求对应的验收证据</span>
+          </span>
+          <span class="doc-link__arrow">→</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <a class="brand" href="#top">
+          <img class="brand__mark" src="assets/favicon.svg" alt="" width="30" height="30">
+          <span class="brand__name">cj-tauri</span>
+        </a>
+        <p class="foot__desc" data-en="A Tauri-like hybrid desktop framework written in Cangjie: statically compiled backend, system WebView frontend, IPC bridge and capability whitelist. MIT licensed. No Chromium was harmed in the making of these binaries.">
+          用仓颉写的类 Tauri 混合桌面框架：静态编译后端 + 系统 WebView 前端 + IPC 桥 + 能力白名单。MIT 开源。
+          产物里没有一个字节是 Chromium。
+        </p>
+      </div>
+      <div>
+        <p class="foot__h" data-en="Project">项目</p>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri" target="_blank" rel="noopener" data-en="Repository (AtomGit)">主仓库（AtomGit）</a>
+        <a class="foot__a" href="https://github.com/yangyongzhen/cj-tauri" target="_blank" rel="noopener" data-en="Mirror (GitHub)">镜像（GitHub）</a>
+        <a class="foot__a" href="https://www.npmjs.com/package/cj-tauri" target="_blank" rel="noopener">npm · cj-tauri</a>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/blob/main/CHANGELOG.md" target="_blank" rel="noopener">CHANGELOG</a>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/blob/main/LICENSE" target="_blank" rel="noopener" data-en="MIT license">MIT 许可证</a>
+      </div>
+      <div>
+        <p class="foot__h" data-en="Docs">文档</p>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/blob/main/README.md" target="_blank" rel="noopener" data-en="README (Chinese)">README（中文）</a>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/blob/main/README_EN.md" target="_blank" rel="noopener" data-en="README (English)">README（英文）</a>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples" target="_blank" rel="noopener" data-en="Examples">示例目录</a>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/tree/main/docs" target="_blank" rel="noopener" data-en="All docs">全部文档</a>
+      </div>
+      <div>
+        <p class="foot__h" data-en="Community">社区</p>
+        <a class="foot__a" href="https://atomgit.com/qq8864/cj-tauri/issues" target="_blank" rel="noopener" data-en="Issues &amp; ideas">Issues 与建议</a>
+        <a class="foot__a" href="https://cangjie-lang.cn" target="_blank" rel="noopener" data-en="Cangjie language site">仓颉语言官网</a>
+        <a class="foot__a" href="https://gitcode.com/Cangjie-SIG" target="_blank" rel="noopener" data-en="Cangjie SIG">仓颉 SIG</a>
+        <a class="foot__a" href="mailto:dev@cangjie-lang.net">dev@cangjie-lang.net</a>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span data-en="© 2026 cj-tauri contributors · MIT">© 2026 cj-tauri contributors · MIT</span>
+      <span data-en="This page is fully static: no CDN, no web fonts, no analytics — the source lives in the repository under website/.">
+        本页是纯静态页：不引 CDN、不引 Web Font、没有任何统计脚本——源文件在仓库的 <code>website/</code> 下。
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/app.js" defer></script>
+</body>
+</html>

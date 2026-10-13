@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>cj-tauri e2e fixture</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #eee; padding: 32px; }
+  h1 { color: #7ce7ff; font-size: 20px; }
+  pre { background: #16213e; border-radius: 8px; padding: 16px; font-size: 13px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <h1>cj-tauri E2E 探针</h1>
+  <pre id="out">等待桥…</pre>
+<script>
+// 等桥出现再动手：模块/页面脚本早于 document-start 注入的桥时不成立，桥就绪时间不保证。
+// 这是 AGENTS §4 的既有约定（模板里的 waitForBridge），探针页必须照办，否则拿到 undefined。
+function waitForBridge(cb, tries) {
+  tries = tries || 0;
+  if (window.__CJ_TAURI__) { cb(); return; }
+  if (tries > 200) { document.getElementById('out').textContent = 'bridge timeout'; return; }
+  setTimeout(function () { waitForBridge(cb, tries + 1); }, 25);
+}
+
+function render(lines) {
+  document.getElementById('out').textContent = lines.join(String.fromCharCode(10));
+}
+
+waitForBridge(function () {
+  var t = window.__CJ_TAURI__;
+  var lines = [];
+  var done = 0;
+  // 一轮往返 = 3 条命令；全部回齐后再整体回投一条给 probe:echo，
+  // 让仓颉侧打一行「整条结论」，E2E 就只认那一行（不必猜中间顺序）。
+  function finish() {
+    done++;
+    if (done < 3) { render(lines); return; }
+    render(lines);
+    t.invoke('probe:echo', { line: lines.join(' | ') });
+  }
+
+  t.invoke('system:version').then(function (v) {
+    lines.push('version=' + v.version + ' platform=' + v.platform + ' protocol=' + v.protocol);
+    finish();
+  }).catch(function (e) { lines.push('version FAIL: ' + e.message); finish(); });
+
+  t.invoke('system:ping').then(function (v) {
+    lines.push('ping=' + v);
+    finish();
+  }).catch(function (e) { lines.push('ping FAIL: ' + e.message); finish(); });
+
+  // 未授权命令：清单里没有 system:devtools，应被拒——拒绝路径也要在实机上验一遍，
+  // 否则「拦得住」只是纸面结论（AGENTS §4：没抓到 reject ≠ 成功，但抓到 reject 才是凭证）。
+  t.invoke('system:devtools').then(function () {
+    lines.push('DENY-FAIL devtools 被放行');
+    finish();
+  }).catch(function (e) {
+    lines.push('DENY-OK devtools: ' + e.message);
+    finish();
+  });
+});
+</script>
+</body>
+</html>

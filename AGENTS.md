@@ -362,6 +362,15 @@
   ② X11 是 SSH 转发时 `import -window root` 要抓远端整屏，抓屏本身会把 X 客户端冻住几秒——别在「命令进行中」
   抓屏，否则会污染「心跳是否中断」这类证据（实测先以为 UI 被卡住，其实是抓屏）。③ 等窗口别用固定 `sleep`：
   `cjpm run` 可能要先重编译，改为轮询 `xdotool search --name`。
+- **`DISPLAY` 存在 ≠ 显示器可用**（2026-10-13 实测）：SSH 转发的 `DISPLAY` 失效时变量**还在**
+  （本机是 `localhost:15.0`），只看「变量非空」就放行，应用会死在 `cannot open display`，
+  而验收脚本还会把这次失败记成「窗口起不来」。判定要**真去连**——`xdpyinfo` /
+  `xdotool getdisplaygeometry` / `xset q` 谁在就用谁——连不上再回落 Xvfb
+  （`scripts/e2e/lib.sh` 的 `e2e_ensure_display`，且回落时 `env -u DISPLAY` 摘掉那个坏值）。
+- **跑仓颉应用时 stdx 的动态库必须进 `LD_LIBRARY_PATH`**（2026-10-13 实测）：stdx 不在 SDK 目录里，
+  仓颉运行时也不查 `PATH`；缺它的表象是「应用启动即退、stderr 只有一行
+  `cannot open shared object file: libstdx.encoding.json.so`」，极易被读成构建问题。
+  兜底探测见 `scripts/e2e/lib.sh` 的 `e2e_ensure_sdk`（`$HOME/.cangjie/stdx/*/dynamic/stdx` 或 `CANGJIE_STDX`）。
 - **工作目录 = 项目根**：`capabilities/`、`ui/` 都按相对路径读取，启动器/脚本必须切到项目根再启动应用。
 - npm 发布的 2FA 现状（2026-10-02 实测）：npm 已停用**新** TOTP 动态码绑定（2025-09-29），passkey 账号
   根本拿不到 6 位码；且自 2026-09-09 起「用过恢复码」会给**所有账号**套 **72 小时只读持有**——期间发布、
@@ -453,7 +462,11 @@
 - [ ] `cjpm build` 通过（涉及 CLI / 示例时各自再跑一次）
 - [ ] `bash scripts/test.sh` 全绿（改动涉及 IPC 分发 / 能力校验 / 版本常量时；纯文档改动可跳过）
 - [ ] `bash scripts/check-static.sh` 全绿（不需要 SDK；CI 跑的就是它，纯文档改动也要过——围栏检查盯着文档）
-- [ ] 实机验证过的话：`bash scripts/e2e-evidence.sh` 出一份 `dist/e2e-evidence/*.json`（证据可对账，判据见 §1 第 5 条）
+- [ ] 实机验证过的话：`bash scripts/e2e/run-all.sh` 跑一遍实机入口（`scripts/e2e/`，**平台守卫不匹配是
+      FAIL 不是跳过**；本机必须跑的平台用 `CJ_TAURI_E2E_REQUIRE=linux` 声明），产出
+      `dist/e2e-evidence/*.json`（证据可对账，判据见 §1 第 5 条）
+- [ ] 新增实机入口放 `scripts/e2e/test-<平台>-*.sh`：必须 `source lib.sh` 并调用 `e2e_require_platform`
+      （`check-static` 第 9 项守这条），驱动 `scripts/e2e/fixture-app/` 探针应用而不是临时脚本
 - [ ] 实机跑通：桥 stderr 无 `hr=` 非 0，无 `command not allowed` / `command not registered` 误报
 - [ ] 新命令/新 API 三处联动齐全（注册 + 能力清单 + 前端调用）
 - [ ] `CHANGELOG.md` 的 `[Unreleased]` 已写；`README.md` / `docs/使用文档.md` 已同步

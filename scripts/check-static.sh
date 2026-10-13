@@ -11,6 +11,8 @@
 #   7. dist/e2e-evidence/*.json 可对账（结构 + summary 全绿；没有就跳过）
 #   8. C 桥公共核心自检（native/tests/test_bridge_core.c + 桩平台）：只需 C 编译器，
 #      不需要 SDK / 图形栈；本机没有 C 编译器时该项自行跳过（退出码仍为 0）
+#   9. E2E 入口卫生（scripts/e2e/test-*.sh）：必须 source 公共层并声明平台守卫——
+#      没有守卫的入口会把「跑在错的机器上」变成静默通过
 #
 # 用法：bash scripts/check-static.sh
 # 退出码：0 = 全部通过；1 = 有失败项（每项失败都会打印 FAIL 行）
@@ -184,6 +186,28 @@ if bash scripts/test-bridge-core.sh; then
     ok "bridge_core 纯逻辑自检通过（回投批处理 / 对话框状态机 / 生命周期标志）"
 else
     bad "bridge_core 自检失败（明细见上）"
+fi
+
+# ------------------------------------------------- 9. E2E 入口卫生
+# 两个要求，缺一个都会让「实机验证」退化成自说自话：
+#   - source scripts/e2e/lib.sh：平台判定、断言收集、证据收口、应用收尾都在公共层，
+#     各入口自己再写一份，语义迟早分叉；
+#   - 调用 e2e_require_platform：没有守卫的入口在别的平台上照样返回 0，
+#     「没跑」就被记成「通过」（本仓历史上最容易出的假绿）。
+# 这里用 shell 通配而不是 git ls-files：入口可能是本轮新增、尚未入跟踪的文件。
+section "E2E 入口守卫"
+before=$fails
+e2e_entries=0
+for f in scripts/e2e/test-*.sh; do
+    [ -e "$f" ] || continue
+    e2e_entries=$((e2e_entries + 1))
+    grep -q 'source .*lib\.sh' "$f" || bad "$f 没有 source scripts/e2e/lib.sh（公共层未复用）"
+    grep -q 'e2e_require_platform' "$f" || bad "$f 没有调用 e2e_require_platform（平台守卫缺失）"
+done
+if [ "$e2e_entries" -eq 0 ]; then
+    bad "scripts/e2e/ 下没有任何 test-*.sh 入口（实机验证无从执行）"
+elif [ "$fails" -eq "$before" ]; then
+    ok "$e2e_entries 个 E2E 入口都复用了公共层并声明了平台守卫"
 fi
 
 # ------------------------------------------------------------------ 汇总

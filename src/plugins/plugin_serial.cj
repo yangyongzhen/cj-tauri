@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import std.fs.*
@@ -35,7 +37,7 @@ let SERIAL_LIST_PREFIXES: Array<String> = [
  * Windows 优先走 C 桥的 QueryDosDeviceW 枚举（返回的是「COM 名」，页面直接当 path 用，
  * C 桥 open 会自动补 \\.\\ 前缀）；C 桥返回 -4（未实现）或异常时回落到 /dev 目录扫描——
  * 后者在 Windows 下天然为空，不算错误。 */
-func serialPortList(): ArrayList<String> {
+public func serialPortList(): ArrayList<String> {
     let viaC = serialListC()
     if (let Some(list) <- viaC) {
         return list

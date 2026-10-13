@@ -1,4 +1,5 @@
-package cjTauri
+package cjTauri.plugins
+
 
 import std.collection.*
 

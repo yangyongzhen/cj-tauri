@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import stdx.encoding.json.*
@@ -83,7 +85,7 @@ class DialogCommands <: CommandHandler {
     public init() {}
 
     /** 由 DialogPlugin.setup() 调用 */
-    func attachHost(h: WebViewHost): Unit {
+    public func attachHost(h: WebViewHost): Unit {
         this.host = Some(h)
     }
 

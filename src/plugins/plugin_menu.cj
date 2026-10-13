@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import stdx.encoding.json.*
@@ -79,7 +81,7 @@ public class MenuPlugin <: Plugin {
 /**
  * menu 插件的命令处理器（两个命令共用一份，按全名分派，与内置 SystemCommands / FsCommands 同形）
  */
-class MenuCommands <: CommandHandler {
+public class MenuCommands <: CommandHandler {
     private var app: Option<TauriApp> = None
 
     public init() {}

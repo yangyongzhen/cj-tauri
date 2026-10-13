@@ -112,14 +112,28 @@ fi
 # ------------------------------------------- 6. 插件/命令不得引用核心内部件
 # 架构契约（AGENTS §2）：依赖方向单向 app → host / ipc_hub → capability，
 # 插件与命令通过回调注入协作，不得偷用核心内部符号（HostGlobals 等）。
+# 插件物理边界在 src/plugins/ 子包（package cjTauri.plugins），门禁按包边界查——
+# 子包内任何文件引用核心内部符号都算违规，不依赖 plugin_ 前缀命名约定。
 section "插件与命令不引用核心内部件"
 before=$fails
-hits=$(git grep -nE 'HostGlobals|IpcHub\(' -- 'src/plugin_*.cj' 'src/api_*.cj' || true)
+hits=$(git grep -nE 'HostGlobals|IpcHub\(' -- 'src/plugins/*.cj' 'src/api_*.cj' || true)
 if [ -n "$hits" ]; then
     bad "以下插件/命令文件引用了核心内部符号："
     printf '%s\n' "$hits" | sed 's/^/        /'
 else
-    ok "$(git ls-files 'src/plugin_*.cj' 'src/api_*.cj' | wc -l) 个插件/命令文件无核心内部件引用"
+    ok "$(git ls-files 'src/plugins/*.cj' 'src/api_*.cj' | wc -l) 个插件/命令文件无核心内部件引用"
+fi
+
+# 6b. 包边界：src/ 顶层不得再出现插件实现文件（防止回流平铺），插件实现只准在 src/plugins/
+section "插件实现文件物理边界"
+before=$fails
+# git 的通配会跨目录（src/*.cj 连 src/plugins/ 一起列），按显式列表过滤顶层
+stray=$(git ls-files 'src' | grep '^src/[^/]*\.cj$' | grep -E '(^src/plugin_|_bridge\.cj$)' | grep -v '^src/clipboard_bridge.cj' || true)
+if [ -n "$stray" ]; then
+    bad "src/ 顶层发现插件实现/FFI 桥文件（应移入 src/plugins/；例外：clipboard_bridge.cj 属核心宿主 FFI）："
+    printf '%s\n' "$stray" | sed 's/^/        /'
+else
+    ok "插件实现全部在 src/plugins/ 子包，src/ 顶层只留框架核心"
 fi
 
 # ------------------------------------------------- 7. C 桥公共核心自检

@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import stdx.encoding.json.*
@@ -63,13 +65,13 @@ public class NotificationPlugin <: Plugin {
 /**
  * 通知命令处理器：notify 收 { title, body? }。body 省略 / null 都合法。
  */
-class NotificationCommands <: CommandHandler {
+public class NotificationCommands <: CommandHandler {
     private var host: Option<WebViewHost> = None
 
     public init() {}
 
     /** 由 NotificationPlugin.setup() 调用 */
-    func attachHost(h: WebViewHost): Unit {
+    public func attachHost(h: WebViewHost): Unit {
         this.host = Some(h)
     }
 

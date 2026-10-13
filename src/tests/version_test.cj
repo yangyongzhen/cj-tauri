@@ -24,8 +24,18 @@ func testSystemVersionReportsConstant(): Unit {
     // 命令报告的版本必须就是常量本身（防止有人改了其中一处）
     @Expect(o.get("version").getOrThrow().asString().getValue(), CJ_TAURI_VERSION)
     @Expect(o.get("name").getOrThrow().asString().getValue(), "cj-tauri")
+    @Expect(o.get("protocol").getOrThrow().asString().getValue(), CJ_IPC_PROTOCOL)
     @Expect(o.get("platform").getOrThrow().asString().getValue(), currentPlatform())
     @Expect(currentPlatform().size > 0, true)
+}
+
+@Test
+func testIpcProtocolConstantPresent(): Unit {
+    // 协议版本常量：非空、纯数字（抬版本时按「删字段/改语义必须 +1」的纪律走）
+    @Expect(CJ_IPC_PROTOCOL.size > 0, true)
+    for (b in CJ_IPC_PROTOCOL.toArray()) {
+        @Expect(b >= 48u8 && b <= 57u8, true)
+    }
 }
 
 @Test

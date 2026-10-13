@@ -24,6 +24,7 @@ public class SystemCommands <: CommandHandler {
         var obj = JsonObject()
         obj.put("name", JsonString("cj-tauri"))
         obj.put("version", JsonString(CJ_TAURI_VERSION))
+        obj.put("protocol", JsonString(CJ_IPC_PROTOCOL))
         obj.put("cangjie", JsonString("1.0.5"))
         obj.put("platform", JsonString(currentPlatform()))
         return obj

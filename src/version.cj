@@ -11,6 +11,18 @@ package cjTauri
  */
 public let CJ_TAURI_VERSION = "0.8.0"
 
+/**
+ * IPC 报文协议版本（报文形状是跨层契约，加版本字段是协议治理惯例）：事件 / 回执信封的 `protocol` 字段
+ * 与 `system:version` 返回的 `protocol` 字段都来自这里——单一代码来源，改协议时同步抬版本。
+ *
+ * 为什么同进程也要有：报文形状现在是跨层契约（C 桥 bridge_js.h 的页面侧解析、CLI 的
+ * manifest 消费、将来 HarmonyOS/独立进程形态的跨进程边界），有版本字段才能在「旧页面
+ * 配新框架」这类错配时给出可诊断的信号，而不是行为悄悄漂移。
+ * v1：`type` + `event`/`id` + `payload` (+ 可选 `coalesce`/`window`)；本字段加入记 v1，
+ * 此后任何「删字段 / 改语义」必须抬到 v2。
+ */
+public let CJ_IPC_PROTOCOL = "1"
+
 /** 当前宿主平台标识（`system:version` 的 platform 字段） */
 @When[os == "Linux"]
 public func currentPlatform(): String {

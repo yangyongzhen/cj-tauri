@@ -189,6 +189,15 @@ public interface WebViewHost {
     func showFileDialog(save: Bool, title: String, filter: String): String
 
     /**
+     * 带默认文件名的文件对话框：除预置名字外与 `showFileDialog` 完全同语义。
+     *
+     * 预置名字的用途是**自动化取证**——探针对原生框发 IDOK 时框里得已有名字才能关，
+     * 返回值因此可预期（预置什么回什么），多窗并发的「结果各归各窗」才验得动。
+     * 平台不支持预置（如 GTK 轮未接）时行为退化为 `showFileDialog`，如实降级。
+     */
+    func showFileDialogPreset(save: Bool, title: String, filter: String, defaultName: String): String
+
+    /**
      * 原生消息对话框（阻塞到用户关闭）：返回用户是否点了「确定」。
      *
      * kind 取 "info" / "warning" / "error" / "confirm"（其它值按 info 处理）。

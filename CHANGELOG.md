@@ -12,11 +12,34 @@
 ### Added
 
 - **Windows 实机 E2E 入口（`scripts/e2e/test-windows-bridge.sh`）**：与 Linux 入口同构（同一
-  fixture 探针、同一套公共层与证据 JSON），**10 条断言**：能力清单加载 / 桥注入 / 页面→宿主 IPC /
-  端到端往返 / 未授权命令被拒 / `system:host` 能力位如实上报（`host=windows menu=true tray=false
-  dragDrop=false`）/ 剪贴板写读回环（值一致）/ 通知桩如实拒绝 / 串口枚举链路（`serial:list ports=2`）。
-  探针应用同步扩面：装配 `ClipboardPlugin` / `NotificationPlugin` / `SerialPlugin` 并调
-  `system:host`——能力位的「真实现能通、桩如实拒」两平台各有一份对账 JSON。
+  fixture 探针、同一套公共层与证据 JSON），断言随能力位落地扩到 **11 条**：能力清单加载 / 桥注入 /
+  页面→宿主 IPC / 端到端往返 / 未授权命令被拒 / `system:host` 能力位如实上报（`host=windows
+  menu=true tray=false dragDrop=true`）/ 剪贴板写读回环（值一致）/ 拖放目标已挂载
+  （`drag dest attached (CF_HDROP)`）/ 通知 toast 已投递（`notification SENT-OK`）/ 串口枚举链路
+  （`serial:list ports=`）。探针应用同步扩面：装配 `ClipboardPlugin` / `NotificationPlugin` /
+  `SerialPlugin` 并 `setDragDrop(DragDropPolicy(true, true))`，再调 `system:host`——能力位的
+  「真实现能通、桩如实拒」两平台各有一份对账 JSON。
+- **Windows 拖放真实现（OLE `IDropTarget`）**：同名桩转正，平台能力位置 `dragDrop` 位
+  （`[cj-bridge] host capabilities: 0x5 (menu=1 tray=0 dragDrop=1)`）。照 wry 的两条要点写：
+  装配期先 `put_AllowExternalDrop(FALSE)` 关掉 WebView2 自带的外部拖放（不关它先吃掉 drop，
+  默认行为是导航到那个文件），再 `EnumChildWindows` 逐子窗口 `RevokeDragDrop` / `RegisterDragDrop`
+  挂上我们的目标；`Drop` 只认 `CF_HDROP`（其余格式如实不收），URI 解析仍在共享层
+  （`native/core/bridge_core.c`），报文 `drop` → 前端 `dragdrop:files` 与 Linux 侧同一形状。
+  链接行补 `-lshell32`（`native/build_win.bat`）。**改了 C 桥：拉取后先重建平台桥**。
+- **Windows 通知真实现（PowerShell Toast）**：同名桩转正，`notification:notify` 在 Windows 上真投递
+  ——一句 PowerShell 借 `Windows.UI.Notifications.ToastNotificationManager` 弹 toast（AUMID 用
+  PowerShell 自己的，未注册 AUMID 的 toast 在 Win10+ 不显示），标题 / 正文经 base64 传给
+  `-EncodedCommand`（避开命令行引号与编码），XML 转义在桥内做。发送语义仍是 **fire-and-forget**
+  （`CreateProcessW` 成功即返回 0，toast 可不可见由系统托盘设置决定），投递前照旧先查
+  `CJ_CAP_NOTIFICATION` 能力位，未声明当场回 `-4`。
+- **`WebViewHost.showFileDialogPreset(save, title, filter, defaultName)`**：带默认文件名的文件对话框，
+  与 `showFileDialog` 完全同语义、多一个预置名。用途是**自动化取证**——对原生框发 IDOK 时框里得已有
+  名字才能关，返回值因此可预期（预置什么回什么）。Windows 侧经已有的 `message` 参数通道把名字交给桥
+  （文件类对话框把它当预置名）；GTK 轮未接，如实降级为普通文件框（接口成员增删，测试桩 `FakeHost`
+  同步实现）。配套用例：`examples/multi-window` 两窗**同时**开文件框、各预置 `probe-<label>.txt`，
+  经 `dismiss-dialogs.ps1` 自动确认后各窗必须拿回自己的名字（`FILE-DONE which=main ok=true
+  path=…\probe-main.txt`）——文件框结果不是调用返回值，而是桥按**宿主句柄**经 `onDialog` 写进
+  **本宿主自己的** `dialogResult`，串台会当场现形（27 项断言、`exit=0`）。
 - **`dist-report.sh` 的 Windows 冷启动数据**：单文件 exe（modbus-poll）中位数 **704 ms**
   （3 次：8467 / 675 / 704；首跑含磁盘缓存冷态），口径与 Linux 侧一致（同一行 needle）。
 - **npm 元数据与配图口径**：npm 包 `keywords` 从 7 个扩到 16 个（下次发布生效），AtomGit 仓库介绍换成

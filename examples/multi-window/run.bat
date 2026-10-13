@@ -23,7 +23,15 @@ REM   set MW_MODE=single, then run.bat     -> single-window control group
 REM
 REM Two-window mode also covers the two-window callback concurrency case:
 REM   phase 2  asks for one native message box from EACH window at the same
-REM            time (the hard evidence is "inflight=2", see src\main.cj), and
+REM            time (the hard evidence is "inflight=2", see src\main.cj),
+REM   phase 2b asks for one native FILE dialog from EACH window at the same
+REM            time, each preset with its own probe-<label>.txt. Unlike a
+REM            message box (whose answer IS the call's return value), a file
+REM            dialog's path comes back through the handle-routed onDialog
+REM            callback into that host's OWN dialogResult field, so a mix-up in
+REM            the handle routing would hand one window the other's name --
+REM            each window getting its own preset back ("FILE-DONE which=main
+REM            ok=true") is the proof the result did not cross, and
 REM   phase 3  closes only "second" and proves run() does not return while
 REM            "main" is still alive ("ALIVE second=1 main=0").
 REM Those boxes need clicking, so this script starts dismiss-dialogs.ps1 in the
@@ -120,6 +128,21 @@ call :check "both boxes open"      "inflight=2"
 call :check "main box answered"    "ASK-DONE which=main ok=true"
 call :check "second box answered"  "ASK-DONE which=second ok=true"
 call :check "observer reported"    "DIALOG-PHASE observer_asks=1"
+REM Phase 2b (two-window callback concurrency, the SHARED result slot this time): both
+REM windows open a native FILE dialog at once, each preset with its own probe-<label>.txt.
+REM A file dialog's result does NOT travel as a return value -- it goes through the shared
+REM HostGlobals.dialogResult slot -- so a mix-up would hand one window the other's name.
+REM The preset name therefore IS the assertion: main must get probe-main.txt back and
+REM second probe-second.txt, and both ok=true proves the slot did not cross.
+call :check "main opened file box"   "window=main FILE-ASK which=main"
+call :check "second opened file box" "window=second FILE-ASK which=second"
+call :check "file boxes coexisted"  "FILE-DONE which="
+call :check "main file ok"          "FILE-DONE which=main ok=true"
+call :check "second file ok"        "FILE-DONE which=second ok=true"
+call :check "preset main intact"    "probe-main.txt"
+call :check "preset second intact"  "probe-second.txt"
+call :check "observer file result"  "window=second FILE-RESULT which=second ok=true"
+call :check "file phase done"       "FILE-PHASE observer_files=1"
 REM Phase 3: closing one window must not return from run() while the other is alive.
 call :check "closed only second"   "CLOSE-WINDOW which=second requested"
 call :check "main still up"        "ALIVE second=1 main=0"

@@ -75,12 +75,13 @@ waitForBridge(function () {
     finish();
   }).catch(function (e) { lines.push('clipboard FAIL: ' + e.message); finish(); });
 
-  // 通知（Windows 桩）：应如实拒绝，而不是假装成功——回 catch 才是凭证。
-  t.invoke('notification:notify', { title: 'e2e', body: 'probe' }).then(function () {
-    lines.push('notification STUB-FAIL 被放行');
+  // 通知：真实现（Windows PowerShell toast / Linux freedesktop）应发送成功；
+  // 若平台是桩则如实拒绝——两平台的合法形状都回投，判据在 E2E 断言里按平台写。
+  t.invoke('notification:notify', { title: 'cj-tauri e2e', body: 'probe' }).then(function () {
+    lines.push('notification SENT-OK');
     finish();
   }).catch(function (e) {
-    lines.push('notification STUB-OK: ' + e.message);
+    lines.push('notification REJECTED: ' + e.message);
     finish();
   });
 

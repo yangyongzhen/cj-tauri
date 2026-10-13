@@ -45,6 +45,9 @@ main(): Int64 {
         .plugin(ClipboardPlugin())
         .plugin(NotificationPlugin())
         .plugin(SerialPlugin())
+        // 拖放策略在 start 前定稿（RFC-002 §5）：Linux 实机已取证挂载/落地全链；
+        // Windows 走 OLE IDropTarget 真实现——挂载日志与能力位随 E2E 对账。
+        .setDragDrop(DragDropPolicy(true, true))
     eprintln("[e2e] fixture-app before run")
     app.run(html)
     eprintln("[e2e] fixture-app after run")

@@ -1,0 +1,69 @@
+# 官网发布：把 website/ 的内容推到 gh-pages 分支，Pages 的源就是该分支根目录。
+#
+# 为什么不用 upload-pages-artifact + deploy-pages：那条路要求仓库设置里把 Pages 的
+# 源切成「GitHub Actions」（要人手工点一次设置，首次还可能因为 token 权限不足失败）；
+# 推 gh-pages 分支是 GitHub 自动识别的传统路径——推上去即发布，不需要任何人动设置。
+# 仓库的发布约定见 AGENTS.md §5，站点本身的说明见 website/README.md。
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 站点是「整份替换」的产物，同时跑多次只留最后一次的结果，不排队
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 没有仓颉 SDK 也能跑：站点自检是纯静态断言 + python3
+      - name: site self-check
+        env:
+          SITE_CHECK_QUICK: "1"
+        run: bash scripts/site-check.sh
+
+      - name: publish website/ to gh-pages
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 独立 worktree 里造孤儿分支：主工作区（= main 的检出）完全不受影响。
+          # 先清掉残留，保证同一台机器上重跑同样成立（CI 每次都是全新 runner，
+          # 但这份脚本要在本地能反复复现——踩过一次「残留 worktree 让第二次必失败」）。
+          git worktree remove --force /tmp/ghp >/dev/null 2>&1 || true
+          rm -rf /tmp/ghp
+          git worktree prune
+          # 同一个 checkout 上重跑时本地已有 gh-pages 分支，孤儿分支要先删（CI 每次全新克隆，用不到这行）
+          git branch -D gh-pages >/dev/null 2>&1 || true
+          git worktree add --detach /tmp/ghp
+          cd /tmp/ghp
+          git checkout --orphan gh-pages
+          git rm -rf . >/dev/null 2>&1 || true
+
+          # 发布面的内容 = website/ 的内容（根目录即站点根）
+          cp -r "$GITHUB_WORKSPACE/website/." .
+          # 站点说明是给贡献者看的，不上线
+          rm -f README.md
+
+          git add -A
+          # 每次发布都是一个「没有父提交的孤儿提交」：gh-pages 上永远只有最新一份，历史不累积。
+          # 内容没变时不必另做判断——那也只是把一份等价提交再推一次，Pages 侧无副作用
+          # （本地干跑实测：同一秒内重跑，提交对象逐字节相同，push 直接报 Everything up-to-date）。
+          git commit -q -m "site: publish website/ from ${GITHUB_SHA:0:7}"
+          git push --force origin gh-pages
+          echo "已发布：$(git log --oneline -1)"

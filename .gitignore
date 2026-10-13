@@ -30,6 +30,9 @@ __pycache__/
 examples/*/store.json
 # Markdown 笔记示例的工作区：由 run.sh / E2E 入口播种（mkdir -p notes + 欢迎笔记），不入库
 examples/markdown-notes/notes/
+# HTTP 客户端示例的工作区：envs / collections / history 由应用运行期写入（E2E 跑前会清干净，
+# 自检断言只在干净工作区口径下成立），不入库
+examples/http-client/data/
 
 # 系统文件
 .DS_Store

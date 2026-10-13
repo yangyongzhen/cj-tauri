@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["report", "http:allow", "http:send", "system:version"],
+  "permissions": ["fs:default"],
+  "scopes": {
+    "fs": {
+      "allow": ["$CWD/data", "$CWD/data/**"]
+    }
+  },
+  "events": []
+}

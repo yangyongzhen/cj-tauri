@@ -113,6 +113,30 @@
 
 ### Added
 
+- **HTTP API 客户端示例（`examples/http-client/`）**：Postman 那一类的调试客户端——**左拼请求 / 中看响应 /
+  右管集合与历史**三栏，零 Node、零前端库、**页面里一次 `fetch` 都没有**（网络请求全在仓颉侧直发：
+  `stdx.net.http` + 显式 `TlsClientConfig()`，TLS 走**系统证书库校验**，没有「关校验」的开关）。
+  命令是**示例自己注册**的（`http:send` / `http:allow`）、**不是插件**：HTTP 客户端的能力面就是「任意 URL」，
+  做成插件等于给所有应用开一条通用出网通道（理由见 `docs/设计决策记录.md` D-017）。语义上有三处刻意选择：
+  **4xx/5xx 当结果而不是异常**（三分 `Exchange` / `Refused` / `Failed`，只有 scheme 不支持、host 不在白名单、
+  传输层失败才 reject）、响应头**逐条不合并**（同名出现两次就渲染两行并标记）、
+  二进制体**只报字节数不回投原始字节**（把非法 UTF-8 塞进 IPC 只会变成乱码）。大响应体按 `CJ_HTTP_BODY_LIMIT`
+  （默认 1 MiB）截断并如实回投 `bodyTruncated` / `bodyLimit` / `contentLength`；出网白名单 `CJ_HTTP_ALLOW`
+  缺省**只放本机**（fail-safe，不配就发不出对外请求）；集合 / 历史 / 变量集落 `data/` 且受清单 `scopes.fs` 约束
+  （`../etc/hostname` 这类越界读由共享层拒）。示例自带**自写的** mock 对端（`mock-http.py`，python3 标准库、
+  零第三方依赖，9 条路径分支、`--selftest` 16/16 自证）。示例说明见 `examples/http-client/README.md`。
+- **HTTP 客户端页内自检 34 条 + 实机 E2E 入口 `scripts/e2e/test-linux-http-client.sh`（55/55 断言全过）**：
+  验的是完整一跳「页面 → 桥 → IPC → 能力校验 → `http:send` → 仓颉侧 HTTP → mock 对端 → 回投 → 渲染」，
+  且**三侧证据合一**（页面 `[frontend] SELFCHECK PASS|FAIL …`、桥 `[http-client] GET … -> 200 78B truncated=false`、
+  对端 `[mock-http] REQ/RESP …`，收尾时对端日志并入同一份证据日志）。四条**外部对账**（判据不是「页面说自己成了」）：
+  自检计数 **34/0**；**截断三侧**（对端说发出 2097152 字节 / 桥侧说只读了 1048576 且 `truncated=true` /
+  页面说 `bodyBytes` 同值且 `contentLength` 报全量）；**对端 `REQ=11 RESP=10`**（差的那 1 条正是被超时中断的
+  `/slow`，超时路径在对端侧看得见）；**请求体字节数双侧一致**（页面按 UTF-8 自算 22 字节 = 对端 `Content-Length`）。
+  负向断言：`command not allowed` / `not registered` 误报零条、`scope denied` 恰好 1 次（自检里那次故意越界）、
+  被拒的 `http:send` 都在桥侧留了原因。证据 `dist/e2e-evidence/linux-linux-http-client.json`。
+  **Windows 侧未验证**（未实机跑、未进单文件打包）。
+- **文档：`docs/工具计划.md` 的 ② 标为已交付**（连同与当初设想的差异一起记档：体只做 raw 文本、查询串直接写在
+  地址里、白名单是示例自己的而不是框架能力位、E2E 对端是自写的 `mock-http.py` 而非 `http.server`）。
 - **新示例 `markdown-notes`（Markdown 笔记）+ `fs` 插件补 `list` / `remove`**：示例是
   **左文件树 / 中编辑 / 右实时预览**三栏，工作区就是一个目录（`notes/`），零 Node、零前端构建、
   **不引第三方 Markdown 库**——渲染器与界面都在一份 `ui/index.html` 里（**独立文件**、不内联进仓颉

@@ -11,6 +11,9 @@ working on real hardware; HarmonyOS ArkWeb is scaffolded.
 - Repos: **[AtomGit](https://atomgit.com/qq8864/cj-tauri)** ｜ [GitHub](https://github.com/yangyongzhen/cj-tauri) (dual-hosted, one push updates both)
 - Version: **0.8.0** ([CHANGELOG](CHANGELOG.md)) · License: MIT
 - npm: `npx cj-tauri create myapp` ([npmjs.com/cj-tauri](https://www.npmjs.com/package/cj-tauri))
+- Site: **[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)** (bilingual,
+  sources in `website/`, checked by `bash scripts/site-check.sh`; GitHub Pages is the one non-AtomGit
+  public link in this project)
 
 ## Screenshots
 

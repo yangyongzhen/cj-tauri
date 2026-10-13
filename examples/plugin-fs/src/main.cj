@@ -1,6 +1,7 @@
 package plugin_fs
 
 import cjTauri.*
+import cjTauri.plugins.*
 import std.env.*
 import std.fs.*
 import stdx.encoding.json.*

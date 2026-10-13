@@ -3,6 +3,7 @@ package serialAssistant
 import std.fs.*
 import std.env.*
 import cjTauri.*
+import cjTauri.plugins.*
 import stdx.encoding.json.*
 
 /**

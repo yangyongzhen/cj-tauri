@@ -62,7 +62,11 @@
   3. 在能力清单的 `commands` 里声明 `"<插件名>:<短名>"`。
   插件**只声明「我提供什么」，不自动放行**（默认最小权限不破）；`jsShim()` 返回的前端片段由框架
   汇总插到第一个 `</head>` 之前（早于页面脚本），`runUrl()` 下无法并入需在 stderr 提示。
-  实现文件放 `src/plugin_<名字>.cj`（如 `src/plugin_fs.cj`），可跑样板 `examples/plugin-fs/`，设计见 `docs/RFC-插件体系.md`。
+  实现文件放 `src/plugins/plugin_<名字>.cj`（**插件子包** `package cjTauri.plugins`，如
+  `src/plugins/plugin_fs.cj`；FFI 声明也随插件放同目录——但**核心宿主消费**的 FFI 例外，如
+  `src/clipboard_bridge.cj` 属核心包，判定标准是「谁调用谁包内」），可跑样板 `examples/plugin-fs/`，
+  设计见 `docs/RFC-插件体系.md`。子包可见父包全部 `public` 符号，反向（核心 import 插件）禁止；
+  单测要直接构造的命令 handler / 辅助函数须 `public`（跨包不再同包可见）。
 - **命名权限集（v1.1）**：插件用 `Plugin.permissions()` 声明「短集名 → 成员」，框架装配时注册成 `<插件名>:<短集名>`；
   应用的 `capabilities/*.json` 用 `"permissions": ["fs:readonly"]` 引用，成员展开后与 `commands`/`events`
   里的明文名字**同权**（`CapabilityRegistry.coveredByPermissionSet`，单层展开、不递归）。

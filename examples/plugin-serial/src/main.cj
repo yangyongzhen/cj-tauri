@@ -1,6 +1,7 @@
 package plugin_serial
 
 import cjTauri.*
+import cjTauri.plugins.*
 import std.env.*
 import stdx.encoding.json.*
 

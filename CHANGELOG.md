@@ -16,6 +16,15 @@
 
 ### Added
 
+- **插件物理隔离：`src/plugins/` 子包（重构）**：9 个 `plugin_*.cj` 与串口 FFI 声明从 `src/` 顶层
+  迁入独立子包 `package cjTauri.plugins`，`src/` 顶层只留框架核心（16 个文件）。依赖方向不变：
+  插件 import 核心（父包 `public` 符号），核心零引用插件——`check-static.sh` 的边界断言随之从
+  「按 `plugin_` 前缀文件名 grep」升级为「按包路径查」，并新增「`src/` 顶层不得回流插件实现文件」
+  一项。随迁要点：`clipboard_bridge.cj` 的 FFI 声明是**核心宿主消费**的，留在核心包
+  （判定标准「谁调用谁包内」，`foreign func` 不能跨包）；单测/示例直接构造的命令 handler
+  （`MenuCommands` / `ClipboardCommands` / `NotificationCommands`）与辅助符号改为 `public`（跨包
+  不再同包可见）。全部门禁复跑通过：单测 189/189、桩自检 151/151、框架/CLI/示例构建零警告、
+  `examples/plugin-fs` 实机（scope 放行/拒绝对照）不回归。
 - **官方 `clipboard` 插件（系统剪贴板，RFC-003 第 3 期）**：`clipboard:write` / `clipboard:read`
   两条命令，命名权限集 `clipboard:readonly`（read）与 `clipboard:default`（write + read）。
   读空剪贴板 / 非文本回 `null`（合法结果，不是失败）。平台差异落在 C 桥

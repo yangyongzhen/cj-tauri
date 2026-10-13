@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import std.fs.*
@@ -71,13 +73,13 @@ public class ShellPlugin <: Plugin {
  * executeWithOutput 已经把输出全量收进内存，这里挡的是「再把它整个塞进一条 IPC 消息」——
  * 一条命令把几十 MB 灌进 WebView 没有意义，只会把窗口卡住。
  */
-let SHELL_MAX_CAPTURE_BYTES: Int64 = 262144
+public let SHELL_MAX_CAPTURE_BYTES: Int64 = 262144
 
 /**
  * 把捕获到的字节解成字符串：非 UTF-8 时退化成摘要而不是抛异常（子进程往 stdout 写什么我们管不着），
  * 超出上限的截断并加一行标注，让前端知道「这不是全部」。
  */
-func decodeCaptured(bytes: Array<Byte>): String {
+public func decodeCaptured(bytes: Array<Byte>): String {
     let limit = if (bytes.size > SHELL_MAX_CAPTURE_BYTES) {
         SHELL_MAX_CAPTURE_BYTES
     } else {

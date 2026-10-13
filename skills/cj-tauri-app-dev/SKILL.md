@@ -44,15 +44,16 @@ cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / 
 ### 3. 加插件（同样三处联动）
 
 1. 实现 `Plugin`（必写 `name()` + `commands()`；要推事件 / 前端 shim 再写 `events()` / `jsShim()`），
-   实现文件放 `src/plugin_<名字>.cj`；
+   实现文件放 `src/plugins/plugin_<名字>.cj`（**插件子包** `package cjTauri.plugins`，文件头写
+   `package cjTauri.plugins` + `import cjTauri.*`）；
 2. `TauriApp().plugin(XxxPlugin())`——命令自动注册成 `"<插件名>:<短名>"`；
 3. capabilities 里声明 `"<插件名>:<短名>"`，或引用插件 `permissions()` 声明的**命名权限集**
    （`"permissions": ["fs:readonly"]`，成员展开后与明文名同权，单层展开不递归）。
 
 铁律：**插件只声明「我提供什么」，不自动放行**；清单不引用就不生效。
-官方插件样板：`src/plugin_fs.cj`（文件）、`plugin_dialog.cj`（对话框）、`plugin_shell.cj`（子进程）、
-`plugin_serial.cj`（串口）、`plugin_store.cj`（持久化 KV）、`plugin_clipboard.cj`（剪贴板）、
-`plugin_notification.cj`（系统通知）、`plugin_menu.cj`（菜单）。
+官方插件样板：`src/plugins/` 子包下的 `plugin_fs.cj`（文件）、`plugin_dialog.cj`（对话框）、
+`plugin_shell.cj`（子进程）、`plugin_serial.cj`（串口）、`plugin_store.cj`（持久化 KV）、
+`plugin_clipboard.cj`（剪贴板）、`plugin_notification.cj`（系统通知）、`plugin_menu.cj`（菜单）。
 
 **带路径参数的插件还有第三层闸门（路径 scope，RFC-003 第 4 期）**：命令放行 ≠ 路径放行。
 清单可加 `"scopes": { "fs": { "allow": ["$HOME/notes/**"], "deny": ["**/id_rsa"] } }`；

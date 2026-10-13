@@ -1,4 +1,6 @@
-package cjTauri
+package cjTauri.plugins
+
+import cjTauri.*
 
 import std.collection.*
 import stdx.encoding.json.*
@@ -70,13 +72,13 @@ public class ClipboardPlugin <: Plugin {
 /**
  * 剪贴板命令处理器：write 收 { text }，read 无参。
  */
-class ClipboardCommands <: CommandHandler {
+public class ClipboardCommands <: CommandHandler {
     private var host: Option<WebViewHost> = None
 
     public init() {}
 
     /** 由 ClipboardPlugin.setup() 调用 */
-    func attachHost(h: WebViewHost): Unit {
+    public func attachHost(h: WebViewHost): Unit {
         this.host = Some(h)
     }
 

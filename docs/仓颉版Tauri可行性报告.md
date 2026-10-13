@@ -172,8 +172,8 @@ Eclipse 基金会于 2026 年 4 月宣布将 **Ionic/Capacitor 与 Tauri 双双�
 
 ### P1（框架成型）
 
-- 能力权限清单 + 校验（对标 Tauri 的 capability 文件机制）；
-- 脚手架 CLI：`cj-tauri create / dev / build`（对标 `create-tauri-app`）；
+- 能力权限清单 + 校验（对应 Tauri 的 capability 文件机制）；
+- 脚手架 CLI：`cj-tauri create / dev / build`（对应 `create-tauri-app`）；
 - 插件机制：让社区能向系统 API"插电"。
 
 ### P2（跨端扩展）

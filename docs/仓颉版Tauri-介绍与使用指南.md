@@ -56,7 +56,7 @@
  前端页面 (HTML/CSS/JS)
    │   window.__CJ_TAURI__.invoke('greet', { name: '仓颉' })
    ▼
- 注入的桥 JS（对标 @tauri-apps/api）
+ 注入的桥 JS（对应 @tauri-apps/api）
    │   JSON over postMessage
    ▼
  WebView 宿主抽象 host.cj
@@ -261,7 +261,7 @@ import cjTauri.*
 import stdx.encoding.json.*
 import std.fs.File
 
-// 一个命令 = 一个 CommandHandler 子类（对标 tauri command）
+// 一个命令 = 一个 CommandHandler 子类（对应 tauri command）
 public class GreetCommand <: CommandHandler {
     public init() {}
 
@@ -278,7 +278,7 @@ public class GreetCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    // 1) 装配应用（对标 tauri::Builder）：配置窗口 + 注册命令
+    // 1) 装配应用（对应 tauri::Builder）：配置窗口 + 注册命令
     //    能力清单不需要手写读文件：run() 会自动扫描工作目录下的 capabilities/ 全部 json
     let app = TauriApp()
         .window(WindowConfig("我的应用", 1000, 700))   // 标题 / 宽 / 高；不调用则用默认 cj-tauri 900×640

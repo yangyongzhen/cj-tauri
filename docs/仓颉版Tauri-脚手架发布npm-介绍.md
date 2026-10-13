@@ -4,7 +4,7 @@
 > npm 包地址：<https://www.npmjs.com/package/cj-tauri>
 
 [cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是**仓颉语言的 Tauri**：用华为仓颉语言实现的混合开发框架，
-**仓颉后端（静态编译）+ 系统 WebView 前端**，对标 Tauri 的三件套——WebView 宿主、IPC 双向桥、
+**仓颉后端（静态编译）+ 系统 WebView 前端**，与 Tauri 一致的三件套——WebView 宿主、IPC 双向桥、
 能力安全模型。之前想试试它，你得先 clone 仓库、认出 `cli/cj-tauri.sh` 和 `cli/cj-tauri.bat`
 两套启动器、再手动对齐 SDK 路径——门槛都在「跑起来之前」。
 
@@ -112,7 +112,7 @@ window.__CJ_TAURI__.listen('tick', console.log);   // 仓颉 → JS 事件
 
 | 类别 | 示例 | 说明 |
 |---|---|---|
-| 调试工具 | `modbus-poll` | **Modbus TCP/RTU 调试工具**：多面板并行监控、报文监视、CSV 记录、内置从站自检——对标 Modbus Poll 并补齐其痛点 |
+| 调试工具 | `modbus-poll` | **Modbus TCP/RTU 调试工具**：多面板并行监控、报文监视、CSV 记录、内置从站自检——对齐 Modbus Poll 并补齐其痛点 |
 | 调试工具 | `serial-assistant` | 串口调试助手：TX/RX 分色日志、定时发送、探针自检 |
 | 应用 | `music` / `movie` | 音乐播放器（同步歌词 + 4 套主题色）/ 观影应用（榜单/搜索/播放） |
 | 应用 | `typing-poem` | 古诗词打字练习（小学生向，three.js 3D 卡面 + 逐字拼音） |

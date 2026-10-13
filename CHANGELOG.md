@@ -443,14 +443,16 @@
 
 ### Changed
 
-- **对外口径统一为「仓颉语言的 Tauri」**：原先散在 `README.md` / 官网 / npm 描述 / skills / 示例 README
-  与 6 篇发表稿里的**「类 Tauri」「Tauri-like」「对标 Tauri」「照搬 / 复刻 / 模仿 Tauri」**等措辞，全部改为
-  「仓颉语言的 Tauri」「Tauri 那套架构在仓颉里独立实现」「与 Tauri 对应 / 同构」——避免被读成对 Tauri 的
-  简单翻版。**源码注释里的「对标 tauri …」保持不变**：它解释的是「这一处代码与 tauri 的哪个 API 对应」，
-  是给贡献者的对照说明，不涉及来源主张。
-- **`npm/package.json` 的 `description` 同步**（下次 `npm publish` 生效）；官网 7 处、`README.md` 3 处、
-  `npm/README.md`、`skills/` 三处、`examples/music/README.md`、`AGENTS.md` §0 定位句，以及
-  `docs/` 下 6 篇发表稿的同类措辞一并对齐。
+- **对外口径统一为「仓颉语言的 Tauri」**：README / 官网 / npm 描述 / skills / 示例 README 与 `docs/` 各篇文稿
+  里的定位表述，一律改成「**仓颉语言的 Tauri**」「Tauri 那套架构在仓颉里独立实现」「与 Tauri 对应 / 同构」——
+  讲的是同一套架构在仓颉里的实现，而不是指向某个项目的来源。
+  文档中原先把各处设计与 Tauri 逐条对照的「对标」措辞，也按语境换成「对应 / 对齐 / 沿用」；**只保留两处**
+  （`docs/进度记录.md` 与 `docs/会话交接.md` 中引用该命名约定本身的元语句，去掉那里等于删掉约定本身）。
+  **源码注释里的「对标 tauri …」同样保留**：它解释的是「这一处代码与 tauri 的哪个 API 对应」，是给贡献者
+  的对照说明。
+- **`npm/package.json` 的 `description` 同步**（下次 `npm publish` 生效）；官网 7 处、`README.md` 6 处、
+  `npm/README.md`、`skills/` 三处、`examples/music/README.md`、`AGENTS.md` 两处，以及 `docs/` 下各篇文稿
+  一并对齐。
   注：已发布到 CSDN 的那几篇线上正文标题仍是旧措辞，需人工同步（本仓库只改本地稿）。
 
 ## [0.8.0] - 2026-10-08

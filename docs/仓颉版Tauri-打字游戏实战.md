@@ -13,7 +13,7 @@
 
 **能不能把古诗词本身当作打字素材？屏幕上出现一句"曲项向天歌"，字上面标着拼音，孩子照着拼音敲 `qu xiang xiang tian ge`——打完这一句，这句诗也就记住了。**
 
-需求清楚了，接下来是技术选型。桌面应用，我希望是**一个双击就能开的窗口**，不需要装 Node、不需要联网、开机就有，最好体积小一点（给孩子用的东西，我不想要一个 200 MB 的 Electron）。这时候正好想起了自己一直在写的 [cj-tauri](https://atomgit.com/qq8864/cj-tauri)——用华为仓颉语言实现的、对标 Tauri 的混合开发框架。
+需求清楚了，接下来是技术选型。桌面应用，我希望是**一个双击就能开的窗口**，不需要装 Node、不需要联网、开机就有，最好体积小一点（给孩子用的东西，我不想要一个 200 MB 的 Electron）。这时候正好想起了自己一直在写的 [cj-tauri](https://atomgit.com/qq8864/cj-tauri)——用华为仓颉语言实现的、把 Tauri 那套架构搬到仓颉的混合开发框架。
 
 于是就有了 `examples/typing-poem`：**仓颉做后端（诗库、成绩、逻辑），系统 WebView 做前端（three.js 渲染 3D 诗词卡片）**。
 
@@ -101,7 +101,7 @@ public class GreetCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    // 2. 装配：窗口 + 注册命令（对标 tauri::Builder）
+    // 2. 装配：窗口 + 注册命令（对应 tauri::Builder）
     let app = TauriApp()
         .window(WindowConfig("myapp", 1000, 700))
         .register("greet", GreetCommand())

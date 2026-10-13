@@ -8,7 +8,7 @@
 
 **仓颉语言的 Tauri 2**：用华为仓颉语言实现的混合开发框架——**仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS）**。
 
-三件套对标关系：WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
+三件套对应关系：WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
 配套仓颉原生脚手架 CLI 与工程模板：`cli/templates/app/`（内联 HTML 的零 Node 样板，`create` 缺省用它）、
 `cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者带 `ui/` 前端工程，
 `cj-tauri dev` 会接管它们的 Vite dev server（`CJ_TAURI_DEV_URL`）。

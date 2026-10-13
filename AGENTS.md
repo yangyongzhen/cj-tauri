@@ -23,10 +23,12 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 132 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，99 项断言，不依赖 SDK / 图形栈），入口是
+   当前 193 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，162 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
+   实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
+   版本 / 每条断言的命中次数），`check-static.sh` 会校验它的结构——矩阵里的 `supported` 指证据时指这份。
 
 ## 2. 架构契约（改哪里、怎么改）
 
@@ -448,6 +450,7 @@
 - [ ] `cjpm build` 通过（涉及 CLI / 示例时各自再跑一次）
 - [ ] `bash scripts/test.sh` 全绿（改动涉及 IPC 分发 / 能力校验 / 版本常量时；纯文档改动可跳过）
 - [ ] `bash scripts/check-static.sh` 全绿（不需要 SDK；CI 跑的就是它，纯文档改动也要过——围栏检查盯着文档）
+- [ ] 实机验证过的话：`bash scripts/e2e-evidence.sh` 出一份 `dist/e2e-evidence/*.json`（证据可对账，判据见 §1 第 5 条）
 - [ ] 实机跑通：桥 stderr 无 `hr=` 非 0，无 `command not allowed` / `command not registered` 误报
 - [ ] 新命令/新 API 三处联动齐全（注册 + 能力清单 + 前端调用）
 - [ ] `CHANGELOG.md` 的 `[Unreleased]` 已写；`README.md` / `docs/使用文档.md` 已同步

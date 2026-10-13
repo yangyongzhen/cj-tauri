@@ -32,7 +32,8 @@
 - **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` 官方插件，
   一行接入，权限（命令级白名单 + 命名权限集 + 路径 scope）仍由清单决定；
 - **全链路可验证**：桥 stderr 即时取证 + 页面自检断言回传，每个示例都能无人值守自检；
-- **配套脚手架**：`cj-tauri create/dev/build/run/info`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完。
+- **配套脚手架**：`cj-tauri create/dev/build/run/info/doctor`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完；
+  `doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
 
 ## 快速开始
 

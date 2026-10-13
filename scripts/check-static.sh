@@ -7,7 +7,9 @@
 #   3. 脚手架模板里的 {{占位符}} 都在 scaffold.cj 的渲染表里（否则生成的工程会残留占位符）
 #   4. .bat / .ps1 纯 ASCII（cmd 的 OEM 码页与 PowerShell 5.1 会吃坏中文注释）
 #   5. 被跟踪的文件里没有构建产物（target/、*.dll、*.log、cjpm.lock）
-#   6. C 桥公共核心自检（native/tests/test_bridge_core.c + 桩平台）：只需 C 编译器，
+#   6. 插件/命令不引用核心内部件 + 插件实现文件的包边界（src/plugins/）
+#   7. dist/e2e-evidence/*.json 可对账（结构 + summary 全绿；没有就跳过）
+#   8. C 桥公共核心自检（native/tests/test_bridge_core.c + 桩平台）：只需 C 编译器，
 #      不需要 SDK / 图形栈；本机没有 C 编译器时该项自行跳过（退出码仍为 0）
 #
 # 用法：bash scripts/check-static.sh
@@ -136,7 +138,44 @@ else
     ok "插件实现全部在 src/plugins/ 子包，src/ 顶层只留框架核心"
 fi
 
-# ------------------------------------------------- 7. C 桥公共核心自检
+# ------------------------------------------------- 7. E2E 证据可对账
+# dist/e2e-evidence/*.json 由 scripts/e2e-evidence.sh 产出（平台 / 运行时版本 / 每条
+# 断言的命中次数）。矩阵里的 supported 要能指到一份可复核的证据，所以这份证据本身也要
+# 过一道：结构合法、schema 对得上、summary 是绿的。没有文件（没跑过实机）就跳过。
+section "E2E 证据可对账"
+before=$fails
+ev_files=$(ls dist/e2e-evidence/*.json 2>/dev/null || true)
+if [ -z "$ev_files" ]; then
+    ok "无 dist/e2e-evidence/*.json（未跑实机取证），跳过"
+elif ! command -v python3 >/dev/null 2>&1; then
+    ok "本机无 python3，跳过证据校验（$(( $(printf '%s\n' "$ev_files" | wc -l) )) 份未校验）"
+else
+    ev_bad=0
+    for f in $ev_files; do
+        if ! err=$(python3 - "$f" <<'PY' 2>&1
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+assert d["schema"] == "cj-tauri/e2e-evidence@1", "schema 不是 cj-tauri/e2e-evidence@1"
+assert d["platform"] in ("linux", "windows", "unknown"), "platform 取值非法"
+s = d["summary"]
+assert isinstance(d["assertions"], list), "assertions 不是数组"
+assert s["total"] == len(d["assertions"]), "summary.total 与断言条数不符"
+assert s["passed"] + s["failed"] == s["total"], "passed + failed != total"
+if not s["ok"]:
+    raise SystemExit("summary.ok 为 false（这份证据记录的是一次未全绿的实机）")
+PY
+); then
+            bad "证据文件不合法：$f"
+            printf '        %s\n' "$err"
+            ev_bad=$((ev_bad + 1))
+        fi
+    done
+    if [ "$ev_bad" -eq 0 ]; then
+        ok "$(( $(printf '%s\n' "$ev_files" | wc -l) )) 份 E2E 证据结构合法且全绿"
+    fi
+fi
+
+# ------------------------------------------------- 8. C 桥公共核心自检
 section "C 桥公共核心自检"
 before=$fails
 # 桩平台编译 native/tests/test_bridge_core.c + native/core/bridge_core.c 并跑断言；

@@ -39,7 +39,9 @@ if ! pkg-config --exists $PKGS; then
 fi
 
 # shellcheck disable=SC2086
-"$CC" -shared -fPIC -O2 -fstack-protector-all bridge_core.c bridge_linux.c \
+# core/ = 跨平台共享层；platforms/linux/ = GTK/WebKit 平台实现（目录契约见 AGENTS §2）
+"$CC" -shared -fPIC -O2 -fstack-protector-all \
+    -Icore core/bridge_core.c platforms/linux/bridge_linux.c \
     -o libcjtbridge.so \
     $(pkg-config --cflags --libs $PKGS)
 

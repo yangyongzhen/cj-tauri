@@ -37,7 +37,8 @@ REM machine, init scripts, lifecycle flags) and exports every cj_bridge_* entry
 REM point; bridge_win.c only implements the WebView2/COM primitives it calls.
 REM Both must be linked, or the cj_core_* symbols bridge_win.c references go
 REM undefined (that is what happens if you build bridge_win.c alone).
-gcc -shared -O2 -fstack-protector-all bridge_core.c bridge_win.c -o libcjtbridge.dll ^
+REM core\ = cross-platform shared layer; platforms\windows\ = WebView2 implementation
+gcc -shared -O2 -fstack-protector-all -Icore core\bridge_core.c platforms\windows\bridge_win.c -o libcjtbridge.dll ^
     -Wl,--out-implib,libcjtbridge.dll.a ^
     -I"%WEBVIEW2_SDK_INCLUDE%" ^
     -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32

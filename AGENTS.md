@@ -100,6 +100,13 @@
 - **依赖方向单向**：`app.cj` → `host.cj` / `ipc_hub.cj` → `capability.cj`；禁止反向依赖与循环依赖
   （需要跨层协作时用回调注入，不要引入双向引用）。
 - 新增文件按单一职责拆分（例：`src/window.cj` 只放窗口配置模型，`src/capability_loader.cj` 只放清单加载/扫描）。
+- **native/ 目录契约**：`native/core/`（`bridge_core.c/.h` + `bridge_js.h`，跨平台共享层，GTK-free，
+  桩平台自检就编它）、`native/platforms/linux|windows|harmonyos/`（平台实现，一个平台一个目录；
+  harmonyos 目前只有契约 README——scaffold 先行、能力位如实报 0、禁假实现）、`native/tests/`（桩自检）。
+  **FFI/源文件归属判据「谁调用谁包内」**；新平台从照抄 Windows 桩的同名导出开始。构建脚本
+  `native/build_linux.sh` / `build_win.bat` 留在 native/ 根作入口（源文件路径已指子目录），
+  **产物必须落在 `native/` 根**（`cjpm.toml` 的 `-Lnative -lcjtbridge`、CLI 模板、打包脚本都按这个路径找）。
+  平台需求与验收矩阵见 `docs/需求追踪.md`（行为变更同轮更新对应行）。
 
 ## 3. 编码规范
 

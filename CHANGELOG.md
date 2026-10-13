@@ -11,6 +11,14 @@
 
 ### Added
 
+- **Windows 实机 E2E 入口（`scripts/e2e/test-windows-bridge.sh`）**：与 Linux 入口同构（同一
+  fixture 探针、同一套公共层与证据 JSON），**10 条断言**：能力清单加载 / 桥注入 / 页面→宿主 IPC /
+  端到端往返 / 未授权命令被拒 / `system:host` 能力位如实上报（`host=windows menu=true tray=false
+  dragDrop=false`）/ 剪贴板写读回环（值一致）/ 通知桩如实拒绝 / 串口枚举链路（`serial:list ports=2`）。
+  探针应用同步扩面：装配 `ClipboardPlugin` / `NotificationPlugin` / `SerialPlugin` 并调
+  `system:host`——能力位的「真实现能通、桩如实拒」两平台各有一份对账 JSON。
+- **`dist-report.sh` 的 Windows 冷启动数据**：单文件 exe（modbus-poll）中位数 **704 ms**
+  （3 次：8467 / 675 / 704；首跑含磁盘缓存冷态），口径与 Linux 侧一致（同一行 needle）。
 - **npm 元数据与配图口径**：npm 包 `keywords` 从 7 个扩到 16 个（下次发布生效），AtomGit 仓库介绍换成
   可检索文案。并实测确认**仓颉官方社区的入口**：邮件列表在 `lists.cangjie-lang.net`（Mailman 3 /
   Postorius，网页注册即可订阅），`dev@` 用于社区开发讨论、`core@` 用于整体技术治理与管理；参与贡献需先
@@ -52,6 +60,28 @@
   为什么 / 真实代价（含已踩的坑）/ 复评触发条件」（同进程桥、协议版本、平台差异收敛、能力分级、
   证据 JSON、scope 语义、异步分发、插件声明与放行分离、插件子包边界、CLI 判据、托盘暂缓、文档双轨）。
   README 文档索引与 `AGENTS.md` §2 已挂入口：做出或推翻长期决策时同轮更新对应条目。
+
+### Fixed
+
+- **通知「发后即忘」在未声明 `CJ_CAP_NOTIFICATION` 的平台被读成成功**：core 投递成功即返回 0，
+  UI 线程里平台实际失败（`-> failed`）没人带回命令层——Windows 桩阶段页面侧拿到的是「发送成功」。
+  现 core 在投递前查能力位，未声明当场回 `-4` 并打
+  `[cj-bridge] notification rejected: platform does not declare CJ_CAP_NOTIFICATION`；桩自检补 2 条
+  （未声明能力位如实回 -4 且不触达平台，162 → 164）。**改了 C 桥行为：拉取后先重建平台桥**。
+- **`host_webkit.cj` 的 `cj_bridge_set_drag_drop` 声明漏 `@When[os == "Linux"]` / `@C`**：Windows 侧
+  与 webview2 文件的同名声明重定义、编译失败（Linux 上无感）——「跨平台文件别按单平台编译结果清
+  条件编译」的 FFI 声明变体。
+- **`e2e-evidence.sh` 脱 python3 依赖**：Windows 机上没有 python3 时 JSON 转义全空、证据成了坏 JSON
+  （断言名 / needle 为空、runtime 版本断行成 `"2\n0"`）——改纯 bash 转义；JSON 自检回退
+  `python3 → python → py -3`；WebView2 版本改认 `ver=` 字段（那一行里先出现的是 `hr=`，泛匹配抓回 "2"）。
+- **`lib.sh` 的 Windows 收尾与环境三处**：① `pgrep -P` 看不见原生进程，WebView2 的
+  `msedgewebview2.exe` 杀不干净，下一实例撞 `0x800700aa`（用户数据目录被占用）——改 `ps -W` 映射
+  Windows pid 后 `taskkill //F //T` 整树杀；② 每轮运行给独立 `WEBVIEW2_USER_DATA_FOLDER`，
+  实例间互不锁；③ `CANGJIE_STDX` 常是盘符形式（`D:/...`），进 PATH 前 `cygpath -u` 转 POSIX。
+- **两条软链接 scope 单测在无符号链接特权的 Windows 上如实跳过**：建链被系统拒（错误 1314）时
+  打一行 `[skip]` 说明后返回，不再误报 ERROR（判定面由 Linux 轮覆盖）。
+- **`host_webkit.cj` 的 `std.collection.*` import 改限定名**：Windows 侧报 unused 警告、Linux 侧
+  必须要用——文件级 import 改 `std.collection.ArrayList` 限定名，两平台都零警告。
 
 ## [Unreleased]
 

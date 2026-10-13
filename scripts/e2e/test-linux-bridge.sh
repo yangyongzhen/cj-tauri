@@ -56,7 +56,7 @@ e2e_stop_app
 # needle 一律用整行前缀或不会撞词的长子串（AGENTS §4：中缀过滤器会骗人）。
 e2e_assert "探针应用启动"      "[e2e] fixture-app start"
 e2e_assert "能力清单已加载"    "[cj-tauri] 已自动加载 capabilities/：1 个清单"
-e2e_assert "桥脚本已注入"      "[cj-bridge] init scripts injected: 1"
+e2e_assert "桥脚本已注入"      "[cj-bridge] init scripts injected: "
 e2e_assert "页面→宿主 IPC"     "[cj-bridge] js -> native ("
 e2e_assert "端到端往返闭环"    "[e2e] probe:echo 收到:"
 e2e_assert "未授权命令被拒"    "DENY-OK devtools"

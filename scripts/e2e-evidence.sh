@@ -49,6 +49,19 @@ usage() {
 
 die() { printf 'e2e-evidence: %s\n' "$1" >&2; exit 1; }
 
+# 纯 bash 的 JSON 字符串转义：只处理 JSON 要求必须转义的五类（\ " 换行 回车 制表）。
+# 原来交给 python3 做，但这台 Windows 机上没有 python3，转义失败后 name/needle 全空、
+# 证据成了坏 JSON——转义这种小事不值得拉一个解释器依赖。
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --name)          NAME="${2:-}"; shift 2 ;;
@@ -88,8 +101,10 @@ if [ "$PLATFORM" = "linux" ] && command -v pkg-config >/dev/null 2>&1; then
   GTK="$(pkg-config --modversion gtk+-3.0 2>/dev/null || echo '')"
   RUNTIME_JSON="{\"webkit2gtk\":\"$WEBKIT\",\"gtk3\":\"$GTK\"}"
 else
-  # 从日志里找一条形如 `WebView2 runtime: 122.0.2365.106` 的行（有就记，没有留空）
-  W2="$(grep -m1 -o 'WebView2[^0-9]*[0-9][0-9.]*' "$LOG" 2>/dev/null | grep -o '[0-9][0-9.]*' || echo '')"
+  # 从日志里找 `WebView2 runtime: hr=… ver=122.0.2365.106` 这一行，取 ver= 后面的版本段。
+  # 不能泛泛匹配「WebView2 后面的数字」：那一行里先出现的是 hr=0x00000000，
+  # 抓回来的是 "2" 或 "0x00000000" 这种坏值（Windows 实测踩过）。
+  W2="$(grep -m1 'WebView2 runtime' "$LOG" 2>/dev/null | grep -o 'ver=[0-9.]*' | cut -d= -f2 || echo '')"
   RUNTIME_JSON="{\"webview2\":\"$W2\"}"
 fi
 
@@ -123,16 +138,15 @@ for a in "${ASSERTS[@]}"; do
   if [ "$acount" -gt 0 ]; then apass=true; else FAILED=$((FAILED + 1)); fi
   [ $FIRST -eq 1 ] || ASSERT_JSON="$ASSERT_JSON,"
   FIRST=0
-  # needle 可能含 `"` / `\`，交给 python3 做 JSON 转义（本机与 CI 都有）
-  esc_name="$(printf '%s' "$aname"   | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read(),ensure_ascii=False)[1:-1])')"
-  esc_needle="$(printf '%s' "$aneedle" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read(),ensure_ascii=False)[1:-1])')"
+  # needle 可能含 `"` / `\`，走上面的 json_escape（不依赖 python3）
+  esc_name="$(json_escape "$aname")"
+  esc_needle="$(json_escape "$aneedle")"
   ASSERT_JSON="$ASSERT_JSON{\"name\":\"$esc_name\",\"needle\":\"$esc_needle\",\"count\":$acount,\"passed\":$apass}"
 done
 ASSERT_JSON="$ASSERT_JSON]"
 
 if [ -n "$NOTE" ]; then
-  esc_note="$(printf '%s' "$NOTE" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read(),ensure_ascii=False)[1:-1])')"
-  NOTE_JSON="\"$esc_note\""
+  NOTE_JSON="\"$(json_escape "$NOTE")\""
 else
   NOTE_JSON="null"
 fi
@@ -170,11 +184,18 @@ mkdir -p "$(dirname "$OUT")" || die "无法创建输出目录"
   printf '}\n'
 } > "$OUT"
 
-# 自检：刚写的东西必须能被解析（否则这份「证据」本身就是坏的）
-if command -v python3 >/dev/null 2>&1; then
-  python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" \
-    || die "生成的 JSON 无法解析: $OUT"
-fi
+# 自检：刚写的东西必须能被解析（否则这份「证据」本身就是坏的）。
+# python3 不在时的回退链：python → py -3（Windows 常见）；都没有就跳过自检。
+_evidence_json_selfcheck() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" || die "生成的 JSON 无法解析: $OUT"
+  elif command -v python >/dev/null 2>&1; then
+    python -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" || die "生成的 JSON 无法解析: $OUT"
+  elif command -v py >/dev/null 2>&1; then
+    py -3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" || die "生成的 JSON 无法解析: $OUT"
+  fi
+}
+_evidence_json_selfcheck
 
 printf 'e2e-evidence: 断言 %s/%s 通过%s → %s\n' \
   "$PASSED" "$TOTAL" \

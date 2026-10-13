@@ -30,11 +30,12 @@ waitForBridge(function () {
   var t = window.__CJ_TAURI__;
   var lines = [];
   var done = 0;
-  // 一轮往返 = 3 条命令；全部回齐后再整体回投一条给 probe:echo，
-  // 让仓颉侧打一行「整条结论」，E2E 就只认那一行（不必猜中间顺序）。
+  var TOTAL = 7;
+  // 一轮往返 = 7 条命令（version / ping / 未授权 devtools / host 能力位 /
+  // clipboard 写读回环 / notification 桩如实拒绝 / serial 枚举）；全部回齐后整体回投。
   function finish() {
     done++;
-    if (done < 3) { render(lines); return; }
+    if (done < TOTAL) { render(lines); return; }
     render(lines);
     t.invoke('probe:echo', { line: lines.join(' | ') });
   }
@@ -58,6 +59,37 @@ waitForBridge(function () {
     lines.push('DENY-OK devtools: ' + e.message);
     finish();
   });
+
+  // 宿主能力位：每个平台如实上报自己的能力（Windows 期望 menu=1 tray=0 dragDrop=0）。
+  t.invoke('system:host').then(function (v) {
+    lines.push('host=' + v.platform + ' menu=' + v.menu + ' tray=' + v.tray + ' dragDrop=' + v.dragDrop);
+    finish();
+  }).catch(function (e) { lines.push('host FAIL: ' + e.message); finish(); });
+
+  // 剪贴板（Windows 真实现）：写一条带标记的文本再读回，值一致才算通。
+  var token = 'e2e-clip-' + String((new Date()).getTime());
+  t.invoke('clipboard:write', { text: token }).then(function () {
+    return t.invoke('clipboard:read');
+  }).then(function (v) {
+    lines.push('clipboard roundtrip=' + (v === token ? 'OK' : 'MISMATCH'));
+    finish();
+  }).catch(function (e) { lines.push('clipboard FAIL: ' + e.message); finish(); });
+
+  // 通知（Windows 桩）：应如实拒绝，而不是假装成功——回 catch 才是凭证。
+  t.invoke('notification:notify', { title: 'e2e', body: 'probe' }).then(function () {
+    lines.push('notification STUB-FAIL 被放行');
+    finish();
+  }).catch(function (e) {
+    lines.push('notification STUB-OK: ' + e.message);
+    finish();
+  });
+
+  // 串口（Windows 真实现）：枚举 COM 口，有结果（哪怕 0 个）即链路通。
+  t.invoke('serial:list').then(function (v) {
+    var n = v && v.ports ? v.ports.length : -1;
+    lines.push('serial:list ports=' + n);
+    finish();
+  }).catch(function (e) { lines.push('serial FAIL: ' + e.message); finish(); });
 });
 </script>
 </body>

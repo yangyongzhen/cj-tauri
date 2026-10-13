@@ -113,6 +113,34 @@
 
 ### Added
 
+- **Redis 客户端调试工具（`examples/redis-client/`）+ `redis` 官方插件**：框架侧新增 **RESP2 客户端**
+  （`src/plugins/plugin_redis.cj`，纯仓颉 `std.net` TCP 自实现；协议编解码单独一层
+  `src/plugins/redis_codec.cj`——五种 RESP2 类型 + **三态读取**「有值 / 尚不完整 / 畸形」，TCP 粘包靠它兜住）。
+  插件命令 **19 条**：`redis:connect` / `disconnect` / `select` / `status` / `info` / `dbsize` / `slowlog` /
+  `scan` / `keyInfo` / `keyRename` / `keyDelete` / `keyExpire` / `keyPersist` / `value` / `valueWrite` /
+  `subscribe` / `unsubscribe` / `publish` / `messages`，事件 `redis:message` / `redis:state`，
+  命名权限集 `redis:default`（19 条）与 `redis:readonly`（13 条只读）。
+  **两条 socket**：命令侧一问一答，发布订阅另占一条（订阅后按协议只能收推送）；消息同样走**双通道**
+  （事件实时推 + `messages` 取走即清，上限 500 条，页面按 `seq` 去重）。
+  `value` 的返回**跟着类型走**：`string` 给 `value{bytes,truncated,text,hex}`（二进制逐字节保真，单值文本上限 64 KiB）、
+  `hash`/`set` 走游标分页（`entries`/`members` + `cursor`）、`list`/`zset`/`stream` 走区间（`items`/`entries` + `total`）。
+  设计取舍见 `docs/设计决策记录.md` 的 D-016。边界：只做 **RESP2 与单实例**，不做 Cluster / Sentinel /
+  TLS（`rediss://`）/ ACL 管理 / MULTI / EVAL；**控制台式「任意命令直发」有意不做**（等于把整台服务器的
+  权限面摊给页面）；连不上给明确错误、不静默重试。示例自带**自写的** mock redis 对端（`mock-redis.py`，
+  标准库 socket，启动 seed 14 键 + `--selftest` 12/12 自证）与调试台页面（连接 / 键列表 /
+  类型化值面板 / 发布订阅消息流 / INFO·DBSIZE·SLOWLOG），一键 `bash examples/redis-client/run.sh`。
+- **Redis 实机 E2E（`scripts/e2e/test-linux-redis-client.sh`）47 条断言全过**：验的是完整一跳
+  「页面 → 桥 → IPC → 能力校验 → `redis:*` → 仓颉 RESP2 客户端 → TCP → 对端 →（回推）→ 订阅读线程
+  → 事件 + 缓冲 → 页面」，且**两侧都有证据**（收尾时对端日志并入同一份证据日志，靠 `[mock-redis]` 前缀分流）：
+  应用侧 `scan all keys=14 done=true enriched=14`（每键都补了 TYPE/TTL）/ `scan match=user:* keys=3` /
+  `scan type=hash keys=1` / 六种类型取值（`value … hex=0001FFFE` 二进制逐字节保真、`read back … bytes=16`
+  写后回读一致）/ `keyPersist applied=true` / `keyRename newKey=probe:renamed` / `keyDelete requested=2 deleted=2` /
+  `subscribe ok=true channels=1 patterns=1` / `message seq=1 kind=message` 与 `seq=2 kind=pmessage`
+  （频道与模式两条路都收到）/ `messages count=2 seen=2 dropped=0` / `disconnect hadSub=true droppedChannels=1` /
+  `reconnect ok state=connected`；对端侧 `client connected`（一轮 3 次：命令连接 + 订阅连接 + 重连后的命令连接）/
+  `HSCAN`·`SSCAN`·`DEL`·`EXPIRE`·`RENAME`·`SUBSCRIBE`·`PUBLISH` 的 `rx` / `PUBLISH push ch=… subscribers=1`。
+  负向断言：`command not allowed` / `not registered` 零条，取值失败行零条。
+  证据：`dist/e2e-evidence/linux-linux-redis-client.json`。**Windows 侧未跑**（协议与 socket 无平台分支，但未验证就写未验证）。
 - **MQTT 客户端调试台示例（`examples/mqtt-client/`）+ `mqtt` 官方插件**：框架侧新增 **MQTT 3.1.1 客户端**
   （`src/plugins/plugin_mqtt.cj`，纯仓颉 `std.net` TCP 自实现；协议编解码单独一层
   `src/plugins/mqtt_codec.cj`，畸形报文解码返回 `None`）。插件命令

@@ -64,6 +64,9 @@
 - **新增插件三处联动**（同命令，漏一处就用不了）：
   1. 实现 `Plugin`（`src/plugin.cj`）——必写 `name()` + `commands()`，要推事件 / 前端 shim 再写 `events()` / `jsShim()`；
   2. 装配：`TauriApp().plugin(XxxPlugin())`（框架自动把命令注册成 `"<插件名>:<短名>"`）；
+     **`commands()` 返回的 map 键必须写「短名」**——前缀由框架补，你在键里再写一次就得到
+     `redis:redis:connect`：日志只显示前缀重复，而所有命令都以「未注册」告终（`command not registered`，
+     Redis 插件实机第一轮就是这么被挡下的）。
   3. 在能力清单的 `commands` 里声明 `"<插件名>:<短名>"`。
   插件**只声明「我提供什么」，不自动放行**（默认最小权限不破）；`jsShim()` 返回的前端片段由框架
   汇总插到第一个 `</head>` 之前（早于页面脚本），`runUrl()` 下无法并入需在 stderr 提示。
@@ -397,6 +400,14 @@
   仓颉运行时也不查 `PATH`；缺它的表象是「应用启动即退、stderr 只有一行
   `cannot open shared object file: libstdx.encoding.json.so`」，极易被读成构建问题。
   兜底探测见 `scripts/e2e/lib.sh` 的 `e2e_ensure_sdk`（`$HOME/.cangjie/stdx/*/dynamic/stdx` 或 `CANGJIE_STDX`）。
+- **`xvfb-run` 会把子进程的 stderr 并进 stdout**（2026-10-13 实测）：`/usr/bin/xvfb-run` 收尾跑的是
+  `DISPLAY=… "$@" 2>&1`——你在外面写 `cmd 2> app.log` 收不到任何东西，**stdout 反而装满了 stderr 的内容**，
+  表象是「应用一行日志都没打，但窗口照起、对端照收到命令」（Redis 示例首轮手搓取证就是这么被空文件骗了一轮）。
+  要单独留 stderr 就把重定向**放进里层**：`xvfb-run -a … bash -c '<app> 2> app.log'`。
+  E2E 的 `e2e_run_app` 本来就是「先进 xvfb 再重定向」，所以它不受影响——自己手搓实机脚本时才会踩。
+- **对端 mock 的日志别同时写 stdout 与 stderr**（2026-10-13 实测）：无人值守脚本习惯 `>m.log 2>&1` 收日志，
+  两边都写同一行就会让**同一行出现两次**，`grep -c` 那类计数断言（「对端看见几次客户端接入」）凭空翻倍——
+  一次重连被数成 4 次。与「诊断日志的过滤器本身也会骗人」同族：**取证据的通道本身要先去重**。
 - **工作目录 = 项目根**：`capabilities/`、`ui/` 都按相对路径读取，启动器/脚本必须切到项目根再启动应用。
 - npm 发布的 2FA 现状（2026-10-02 实测）：npm 已停用**新** TOTP 动态码绑定（2025-09-29），passkey 账号
   根本拿不到 6 位码；且自 2026-09-09 起「用过恢复码」会给**所有账号**套 **72 小时只读持有**——期间发布、

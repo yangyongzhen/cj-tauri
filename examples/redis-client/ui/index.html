@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Redis 调试台 · cj-tauri</title>
+<style>
+  :root {
+    --bg: #11151c;
+    --panel: #171d26;
+    --panel2: #1d2531;
+    --line: #27303d;
+    --fg: #d8e0ea;
+    --dim: #8b98a9;
+    --accent: #4aa3ff;
+    --ok: #3fbf7f;
+    --warn: #e0a63c;
+    --err: #e2605c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.5 -apple-system, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 14px; margin: 0 8px 0 0; font-weight: 600; white-space: nowrap; }
+  header .spacer { flex: 1 1 auto; }
+  .pill {
+    padding: 2px 9px; border-radius: 10px; background: var(--panel2);
+    border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 12px;
+    white-space: nowrap;
+  }
+  .pill.ok { color: var(--ok); border-color: #23583f; }
+  .pill.err { color: var(--err); border-color: #5c2b2a; }
+  .pill.warn { color: var(--warn); border-color: #5a4520; }
+
+  main { flex: 1 1 auto; display: flex; min-height: 0; }
+  .col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  .col:last-child { border-right: none; }
+  #colKeys { flex: 0 0 320px; }
+  #colValue { flex: 1 1 auto; min-width: 0; }
+  #colSub { flex: 0 0 380px; }
+
+  .boxhead {
+    flex: 0 0 auto; padding: 8px 12px; background: var(--panel2);
+    border-bottom: 1px solid var(--line); font-weight: 600; font-size: 12px;
+    letter-spacing: .3px; color: #a9b7c8; white-space: nowrap;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .boxhead .spacer { flex: 1 1 auto; }
+  .boxbody { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 12px; }
+
+  label { color: var(--dim); font-size: 12px; }
+  input, button, textarea {
+    font-family: inherit; font-size: 12px; color: var(--fg);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 4px 7px; outline: none;
+  }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  input[type="checkbox"] { padding: 0; }
+  button { cursor: pointer; background: #22303f; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: #1d466f; border-color: #2b6699; }
+  button.primary:hover { background: #24557f; }
+  button.danger { background: #4a2320; border-color: #6d332f; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  /* WebKitGTK 会给 select 套原生浅色样式、盖掉页面配色（AGENTS §4），深色页一律自绘 */
+  select {
+    font-family: inherit; font-size: 12px; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 5px; padding: 4px 22px 4px 7px;
+    -webkit-appearance: none; appearance: none; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, #8b98a9 50%),
+                      linear-gradient(135deg, #8b98a9 50%, transparent 50%);
+    background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  }
+  select option { background: #1d2531; color: #d8e0ea; }
+
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 7px; }
+  .row.tight { margin-bottom: 4px; }
+  .grow { flex: 1 1 auto; min-width: 0; }
+  .w60 { width: 62px; } .w80 { width: 82px; } .w110 { width: 112px; }
+
+  .keyrow {
+    display: flex; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 5px;
+    cursor: pointer; border: 1px solid transparent;
+  }
+  .keyrow:hover { background: #1b2330; }
+  .keyrow.sel { background: #1d3550; border-color: #2b6699; }
+  .keyrow .k { font-family: var(--mono); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    font-family: var(--mono); font-size: 11px; padding: 0 6px; border-radius: 8px;
+    background: #22303f; color: #9fb4cb; white-space: nowrap;
+  }
+  .badge.string { color: #7fd0a0; } .badge.hash { color: #e0a63c; }
+  .badge.list { color: #7fb7e0; } .badge.set { color: #c79ae0; }
+  .badge.zset { color: #e08f9a; } .badge.stream { color: #9ad0c0; }
+  .ttl { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap; }
+
+  table.grid { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+  table.grid th, table.grid td {
+    text-align: left; padding: 3px 6px; border-bottom: 1px solid #202834; vertical-align: top;
+    word-break: break-all;
+  }
+  table.grid th { color: var(--dim); font-weight: 400; }
+  table.grid td.num { text-align: right; white-space: nowrap; }
+
+  pre.text {
+    font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all;
+    background: #131922; border: 1px solid var(--line); border-radius: 5px; padding: 7px; margin: 0;
+    max-height: 320px; overflow: auto;
+  }
+  .kv { font-family: var(--mono); font-size: 12px; }
+  .dim { color: var(--dim); }
+  .mono { font-family: var(--mono); }
+  .msg { padding: 4px 0; border-bottom: 1px solid #202834; font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .msg .t { color: var(--dim); }
+  .msg .ch { color: var(--accent); }
+  .msg .pat { color: var(--warn); }
+  .hint { color: var(--dim); font-size: 12px; }
+  #toast {
+    position: fixed; right: 14px; bottom: 14px; max-width: 520px; z-index: 9;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #toast div {
+    padding: 7px 11px; border-radius: 6px; background: #23303f; border-left: 3px solid var(--accent);
+    font-family: var(--mono); font-size: 12px; word-break: break-all; white-space: pre-wrap;
+  }
+  #toast div.err { background: #3a2422; border-left-color: var(--err); }
+  #toast div.ok { background: #1e3529; border-left-color: var(--ok); }
+  section.block { margin-bottom: 14px; }
+  section.block > h3 {
+    margin: 0 0 6px; font-size: 12px; color: #a9b7c8; letter-spacing: .3px; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Redis 调试台</h1>
+  <input id="host" class="w110" value="127.0.0.1" title="host">
+  <input id="port" class="w60" value="6379" title="port">
+  <label>库 <input id="db" class="w60" value="0"></label>
+  <input id="user" class="w80" placeholder="user(可空)">
+  <input id="pass" class="w80" type="password" placeholder="pass(可空)">
+  <button id="btnConnect" class="primary">连接</button>
+  <button id="btnDisconnect">断开</button>
+  <button id="btnStatus">状态</button>
+  <span class="spacer"></span>
+  <span id="pillState" class="pill">未连接</span>
+  <span id="pillDb" class="pill">db=0</span>
+  <span id="pillSize" class="pill">dbsize=?</span>
+  <button id="btnVersion">system:version</button>
+</header>
+
+<main>
+  <!-- ---------------------------------------------------------- 键空间 -->
+  <div class="col" id="colKeys">
+    <div class="boxhead">
+      键空间
+      <span class="spacer"></span>
+      <span id="scanInfo" class="dim"></span>
+    </div>
+    <div class="boxbody" style="overflow:visible">
+      <div class="row">
+        <input id="match" class="grow" placeholder="match（如 user:*，空=全部）">
+      </div>
+      <div class="row">
+        <label>类型
+          <select id="typeFilter">
+            <option value="">全部</option>
+            <option value="string">string</option>
+            <option value="hash">hash</option>
+            <option value="list">list</option>
+            <option value="set">set</option>
+            <option value="zset">zset</option>
+            <option value="stream">stream</option>
+          </select>
+        </label>
+        <label>count <input id="scanCount" class="w60" value="100"></label>
+        <button id="btnScan" class="primary">扫描</button>
+        <button id="btnScanMore">翻页</button>
+      </div>
+      <div class="row tight">
+        <span id="cursorInfo" class="hint">cursor=0</span>
+      </div>
+      <div id="keyList" style="min-height:40px"></div>
+    </div>
+    <div class="boxhead">服务器</div>
+    <div class="boxbody" style="flex:0 1 auto;max-height:230px">
+      <div class="row">
+        <button id="btnDbsize">DBSIZE</button>
+        <button id="btnSlowlog">SLOWLOG</button>
+        <button id="btnInfo">INFO</button>
+      </div>
+      <div id="serverOut" class="kv dim">点上面任一个按钮取一份诊断。</div>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------- 值面板 -->
+  <div class="col" id="colValue">
+    <div class="boxhead">
+      值
+      <span class="spacer"></span>
+      <span id="valMeta" class="dim">未选键</span>
+    </div>
+    <div class="boxbody" id="valueBody">
+      <div class="hint">左侧点一个键（或先扫描）——这里会按它的类型给出对应的视图：<br>
+        string 看原文/十六进制，hash 看字段，list 看区间，set 看成员，zset 看分值，stream 看条目。</div>
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------------------- 发布订阅 -->
+  <div class="col" id="colSub">
+    <div class="boxhead">
+      发布订阅
+      <span class="spacer"></span>
+      <span id="subInfo" class="dim">channels=0 patterns=0</span>
+    </div>
+    <div class="boxbody" style="max-height:300px;overflow:auto">
+      <div class="row">
+        <input id="subChannels" class="grow" placeholder="频道（逗号分隔，如 demo/rx）">
+      </div>
+      <div class="row">
+        <input id="subPatterns" class="grow" placeholder="模式（如 demo/*）">
+      </div>
+      <div class="row">
+        <button id="btnSub" class="primary">订阅</button>
+        <button id="btnUnsub">退订</button>
+        <button id="btnPull">取消息缓冲</button>
+        <label><input id="autoPull" type="checkbox" checked> 自动拉取</label>
+      </div>
+      <div class="row">
+        <input id="pubChannel" class="w110" value="demo/rx" placeholder="频道">
+        <input id="pubMessage" class="grow" value="hello-from-cj-tauri" placeholder="消息正文">
+        <button id="btnPub" class="primary">发布</button>
+      </div>
+      <div class="row">
+        <span id="pubInfo" class="hint">receivers=?</span>
+      </div>
+    </div>
+    <div class="boxhead">
+      消息流
+      <span class="spacer"></span>
+      <button id="btnClearMsg">清屏</button>
+    </div>
+    <div class="boxbody" id="msgList">
+      <div class="hint">订阅后这里按到达顺序列出（事件 + 拉取两条通道合并，按 seq 去重）。</div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+<script>
+"use strict";
+
+/* ============================================================
+ * 0. 桥与基础工具
+ * ============================================================ */
+
+/** 页面任何时候都可能比桥先跑（文档起始脚本还没注入完），所以先等桥出现再用它（AGENTS §4 模板） */
+function waitForBridge() {
+  return new Promise(function (resolve, reject) {
+    var tries = 0;
+    (function poll() {
+      if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { resolve(window.__CJ_TAURI__); return; }
+      if (++tries > 400) { reject(new Error("桥未就位（window.__CJ_TAURI__ 一直没出现）")); return; }
+      setTimeout(poll, 25);
+    })();
+  });
+}
+
+var CJ = null;
+
+/** 统一调用口：拒了就把错误文本如实抛出去（页面必须看见 reject，别把失败读成成功） */
+function call(name, args) {
+  return CJ.invoke(name, args || {});
+}
+
+function toast(text, kind) {
+  var host = document.getElementById("toast");
+  var div = document.createElement("div");
+  div.className = kind || "";
+  div.textContent = text;
+  host.appendChild(div);
+  while (host.children.length > 4) { host.removeChild(host.firstChild); }
+  setTimeout(function () { if (div.parentNode) { div.parentNode.removeChild(div); } }, 9000);
+}
+
+/** 把一行探针证据回投到进程 stderr（[frontend] 前缀）——实机取证就靠它，页面控制台里看不见 */
+function report(line) {
+  try { if (CJ) { CJ.invoke("report", { line: line }); } } catch (e) { /* 取证不该反过来打断流程 */ }
+}
+
+/** 失败也要落一行：只回 reject 而仓颉侧 stderr 无凭证，是上一轮踩过的坑（AGENTS §4） */
+function fail(what, e) {
+  var msg = (e && e.message) ? e.message : String(e);
+  toast(what + " 失败：" + msg, "err");
+  report("REDIS " + what + " failed: " + msg);
+  return msg;
+}
+
+function text(v) { return v === null || v === undefined ? "" : String(v); }
+function el(id) { return document.getElementById(id); }
+function esc(s) {
+  return text(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function ttlText(t) {
+  if (t === null || t === undefined) { return "-"; }
+  if (t < 0) { return "∞"; }
+  if (t === 0) { return "0s"; }
+  if (t < 60) { return t + "s"; }
+  if (t < 3600) { return Math.floor(t / 60) + "m" + (t % 60) + "s"; }
+  return Math.floor(t / 3600) + "h" + Math.floor((t % 3600) / 60) + "m";
+}
+
+/* ============================================================
+ * 1. 连接与状态
+ * ============================================================ */
+
+var state = {
+  last: null,        // 最近一次 status 快照
+  keys: [],          // 当前页的键（{key,type,ttl,enriched}）
+  cursor: "0",
+  selected: null     // 当前选中的键名
+};
+
+function connArgs() {
+  var a = {
+    host: el("host").value.trim(),
+    port: parseInt(el("port").value, 10) || 6379,
+    db: parseInt(el("db").value, 10) || 0
+  };
+  var u = el("user").value.trim();
+  var p = el("pass").value;
+  if (u) { a.username = u; }
+  if (p) { a.password = p; }
+  return a;
+}
+
+function renderState(st) {
+  state.last = st;
+  var pill = el("pillState");
+  var s = text(st && st.state);
+  pill.textContent = s || "已断开";
+  pill.className = "pill" + (s === "connected" ? " ok" : (s === "error" ? " err" : (s === "closed" ? "" : " warn")));
+  if (st) {
+    el("pillDb").textContent = "db=" + st.db;
+    var chans = st.channels ? st.channels.length : 0;
+    var pats = st.patterns ? st.patterns.length : 0;
+    el("subInfo").textContent = "channels=" + chans + " patterns=" + pats
+      + (st.subAlive ? " 读线程在位" : "");
+    el("host").value = st.host || el("host").value;
+    el("port").value = st.port || el("port").value;
+    el("db").value = st.db;
+  }
+}
+
+async function doConnect(quiet) {
+  try {
+    var r = await call("redis:connect", connArgs());
+    if (!quiet) { toast("已连接 " + r.host + ":" + r.port + " db=" + r.db + (r.auth ? "（已认证）" : ""), "ok"); }
+    report("REDIS connect ok host=" + r.host + " port=" + r.port + " db=" + r.db + " auth=" + r.auth);
+    await doStatus(true);
+    await doDbsize(true);
+    return r;
+  } catch (e) { fail("connect", e); return null; }
+}
+
+async function doStatus(quiet) {
+  try {
+    var st = await call("redis:status", {});
+    renderState(st);
+    report("REDIS status state=" + st.state + " db=" + st.db + " port=" + st.port);
+    return st;
+  } catch (e) { fail("status", e); return null; }
+}
+
+async function doDisconnect() {
+  try {
+    var r = await call("redis:disconnect", {});
+    report("REDIS disconnect ok hadSub=" + r.hadSub + " droppedChannels=" + r.droppedChannels);
+    await doStatus(true);
+    return r;
+  } catch (e) { fail("disconnect", e); return null; }
+}
+
+async function doDbsize(quiet) {
+  try {
+    var r = await call("redis:dbsize", {});
+    el("pillSize").textContent = "dbsize=" + r.size + " (db " + r.db + ")";
+    if (!quiet) { el("serverOut").textContent = "DBSIZE = " + r.size + "（db " + r.db + "）"; }
+    return r;
+  } catch (e) { return null; }
+}
+
+/* ============================================================
+ * 2. 服务器诊断（INFO / SLOWLOG）
+ * ============================================================ */
+
+async function doInfo() {
+  try {
+    var r = await call("redis:info", {});
+    var names = Object.keys(r.sections || {});
+    var out = "INFO：${bytes} 字节，解析出 " + names.length + " 段（" + names.join(", ") + "）\n\n" + r.text;
+    el("serverOut").innerHTML = "<pre class=\"text\">" + esc(out) + "</pre>";
+    report("REDIS info bytes=" + r.bytes + " section=" + (r.section || "(all)") + " parsed=" + names.length);
+    return r;
+  } catch (e) { fail("info", e); return null; }
+}
+
+async function doSlowlog() {
+  try {
+    var r = await call("redis:slowlog", { count: 10 });
+    el("serverOut").innerHTML = r.count === 0
+      ? "<span class=\"dim\">SLOWLOG GET " + r.requested + " → 0 条（未开慢日志的服务器回空数组，这是对的答案）</span>"
+      : "<pre class=\"text\">" + esc(JSON.stringify(r.entries, null, 2)) + "</pre>";
+    report("REDIS slowlog requested=" + r.requested + " count=" + r.count);
+    return r;
+  } catch (e) { fail("slowlog", e); return null; }
+}
+
+/* ============================================================
+ * 3. 键空间（SCAN 一页 + 每个键的 TYPE/TTL）
+ * ============================================================ */
+
+function renderKeys() {
+  var host = el("keyList");
+  if (!state.keys.length) {
+    host.innerHTML = "<div class=\"hint\">这一页没有键（换个 match，或服务器这个库是空的）。</div>";
+    return;
+  }
+  var html = "";
+  for (var i = 0; i < state.keys.length; i++) {
+    var k = state.keys[i];
+    var cls = "keyrow" + (k.key === state.selected ? " sel" : "");
+    html += "<div class=\"" + cls + "\" data-key=\"" + esc(k.key) + "\">"
+      + "<span class=\"badge " + esc(k.type) + "\">" + (k.enriched ? esc(k.type) : "?") + "</span>"
+      + "<span class=\"k\" title=\"" + esc(k.key) + "\">" + esc(k.key) + "</span>"
+      + "<span class=\"ttl\">" + (k.enriched ? ttlText(k.ttl) : "未补全") + "</span>"
+      + "</div>";
+  }
+  host.innerHTML = html;
+  var rows = host.querySelectorAll(".keyrow");
+  for (var j = 0; j < rows.length; j++) {
+    rows[j].addEventListener("click", function () {
+      selectKey(this.getAttribute("data-key"));
+    });
+  }
+}
+
+async function doScan(append) {
+  var cursor = append ? state.cursor : "0";
+  var args = {
+    cursor: cursor,
+    count: parseInt(el("scanCount").value, 10) || 100,
+    match: el("match").value.trim(),
+    type: el("typeFilter").value
+  };
+  try {
+    var r = await call("redis:scan", args);
+    if (append) {
+      state.keys = state.keys.concat(r.keys);
+    } else {
+      state.keys = r.keys;
+    }
+    state.cursor = r.cursor;
+    el("cursorInfo").textContent = "cursor=" + r.cursor + (r.done ? "（本轮扫完）" : "（还有下一页）");
+    el("scanInfo").textContent = "本页 " + r.count + " 键 / 已列 " + state.keys.length;
+    renderKeys();
+    report("REDIS scan count=" + r.count + " cursor=" + r.cursor + " done=" + r.done
+      + " enriched=" + r.enriched + " match=" + (args.match || "(all)")
+      + " type=" + (args.type || "(all)"));
+    return r;
+  } catch (e) { fail("scan", e); return null; }
+}
+
+async function selectKey(key) {
+  state.selected = key;
+  renderKeys();
+  try {
+    var info = await call("redis:keyInfo", { key: key });
+    if (!info.exists) {
+      el("valMeta").textContent = key + " 已不存在";
+      el("valueBody").innerHTML = "<div class=\"hint\">这个键在两次命令之间没了（扫到之后被删/过期）。</div>";
+      report("REDIS keyInfo key=" + key + " exists=false");
+      return info;
+    }
+    el("valMeta").textContent = key + "  " + info.type + "  ttl=" + ttlText(info.ttl)
+      + "  " + info.size + " " + info.sizeUnit;
+    report("REDIS keyInfo key=" + key + " type=" + info.type + " ttl=" + info.ttl
+      + " size=" + info.size + " unit=" + info.sizeUnit);
+    await loadValue(key, {});
+    return info;
+  } catch (e) { fail("keyInfo", e); return null; }
+}
+
+async function doValueWrite(args, what) {
+  try {
+    var r = await call("redis:valueWrite", args);
+    toast(what + " → " + r.reply, "ok");
+    report("REDIS valueWrite op=" + r.op + " type=" + r.type + " key=" + r.key + " reply=" + r.reply);
+    await loadValue(r.key, {});
+    await doDbsize(true);
+    return r;
+  } catch (e) { fail("valueWrite " + what, e); return null; }
+}
+
+async function doKeyExpire() {
+  var key = state.selected;
+  if (!key) { toast("先选一个键", "err"); return null; }
+  var sec = prompt("EXPIRE " + key + " 多少秒后过期？（0 = 立刻过期）", "60");
+  if (sec === null) { return null; }
+  try {
+    var r = await call("redis:keyExpire", { key: key, seconds: parseInt(sec, 10) || 0 });
+    toast("EXPIRE applied=" + r.applied);
+    report("REDIS keyExpire key=" + key + " seconds=" + r.seconds + " applied=" + r.applied);
+    await selectKey(key);
+    await doDbsize(true);
+    return r;
+  } catch (e) { fail("keyExpire", e); return null; }
+}
+
+async function doKeyPersist() {
+  var key = state.selected;
+  if (!key) { toast("先选一个键", "err"); return null; }
+  try {
+    var r = await call("redis:keyPersist", { key: key });
+    toast("PERSIST applied=" + r.applied);
+    report("REDIS keyPersist key=" + key + " applied=" + r.applied);
+    await selectKey(key);
+    return r;
+  } catch (e) { fail("keyPersist", e); return null; }
+}
+
+async function doKeyDelete(key) {
+  if (!key) { toast("先选一个键", "err"); return null; }
+  try {
+    var r = await call("redis:keyDelete", { keys: [key] });
+    toast("DEL requested=" + r.requested + " deleted=" + r.deleted, "ok");
+    report("REDIS keyDelete key=" + key + " requested=" + r.requested + " deleted=" + r.deleted);
+    if (state.selected === key) { state.selected = null; }
+    await doScan(false);
+    await doDbsize(true);
+    return r;
+  } catch (e) { fail("keyDelete", e); return null; }
+}
+
+async function doKeyRename(key, newKey) {
+  try {
+    var r = await call("redis:keyRename", { key: key, newKey: newKey });
+    toast("RENAME " + r.key + " → " + r.newKey, "ok");
+    report("REDIS keyRename key=" + r.key + " newKey=" + r.newKey);
+    await doScan(false);
+    return r;
+  } catch (e) { fail("keyRename", e); return null; }
+}
+
+/* ============================================================
+ * 4. 取值（按类型走它自己的分页语义）
+ * ============================================================ */
+
+var valuePage = { offset: 0, limit: 50, cursor: "0" };
+
+function writeRow(type, key) {
+  var h = "<div class=\"row\">";
+  if (type === "string") {
+    h += "<input id=\"wv\" class=\"grow\" placeholder=\"新值（文本）\">"
+      + "<input id=\"wh\" class=\"grow\" placeholder=\"或 hex（如 00ff）\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'string',op:'set',value:el('wv').value,valueHex:el('wh').value},'SET')\" class=\"primary\">SET</button>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'string',op:'append',value:el('wv').value,valueHex:el('wh').value},'APPEND')\">APPEND</button>";
+  } else if (type === "hash") {
+    h += "<input id=\"wf\" class=\"w110\" placeholder=\"field\">"
+      + "<input id=\"wv\" class=\"grow\" placeholder=\"值（文本）\">"
+      + "<input id=\"wh\" class=\"grow\" placeholder=\"或 hex\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'hash',op:'hset',field:el('wf').value,value:el('wv').value,valueHex:el('wh').value},'HSET')\" class=\"primary\">HSET</button>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'hash',op:'hdel',field:el('wf').value},'HDEL')\" class=\"danger\">HDEL</button>";
+  } else if (type === "list") {
+    h += "<input id=\"wv\" class=\"grow\" placeholder=\"值（文本）\">"
+      + "<input id=\"wh\" class=\"grow\" placeholder=\"或 hex\">"
+      + "<label><input id=\"whead\" type=\"checkbox\"> 从头部</label>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'list',op:'push',value:el('wv').value,valueHex:el('wh').value,head:el('whead').checked},'PUSH')\" class=\"primary\">PUSH</button>"
+      + "<input id=\"widx\" class=\"w60\" placeholder=\"idx\" value=\"0\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'list',op:'lset',index:parseInt(el('widx').value,10)||0,value:el('wv').value,valueHex:el('wh').value},'LSET')\">LSET</button>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'list',op:'pop',head:el('whead').checked},'POP')\">POP</button>";
+  } else if (type === "set") {
+    h += "<input id=\"wv\" class=\"grow\" placeholder=\"成员（文本）\">"
+      + "<input id=\"wh\" class=\"grow\" placeholder=\"或 hex\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'set',op:'sadd',member:el('wv').value,memberHex:el('wh').value},'SADD')\" class=\"primary\">SADD</button>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'set',op:'srem',member:el('wv').value,memberHex:el('wh').value},'SREM')\" class=\"danger\">SREM</button>";
+  } else if (type === "zset") {
+    h += "<input id=\"wv\" class=\"grow\" placeholder=\"成员\">"
+      + "<input id=\"ws\" class=\"w60\" placeholder=\"score\" value=\"1\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'zset',op:'zadd',member:el('wv').value,score:el('ws').value},'ZADD')\" class=\"primary\">ZADD</button>"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'zset',op:'zrem',member:el('wv').value},'ZREM')\" class=\"danger\">ZREM</button>";
+  } else if (type === "stream") {
+    h += "<input id=\"wv\" class=\"grow\" placeholder=\"字段:值（如 event:ping）\">"
+      + "<button onclick=\"doValueWrite({key:'" + esc(key) + "',type:'stream',op:'xadd',field:'event',value:(el('wv').value.split(':')[1]||el('wv').value)},'XADD')\" class=\"primary\">XADD</button>";
+  }
+  return h + "</div>";
+}
+
+function keyOpsRow(key) {
+  return "<div class=\"row\">"
+    + "<button onclick=\"doKeyExpire()\">EXPIRE…</button>"
+    + "<button onclick=\"doKeyPersist()\">PERSIST</button>"
+    + "<button onclick=\"renamePrompt('" + esc(key) + "')\">RENAME…</button>"
+    + "<button class=\"danger\" onclick=\"doKeyDelete('" + esc(key) + "')\">DEL</button>"
+    + "</div>";
+}
+
+function renamePrompt(key) {
+  var to = prompt("把 " + key + " 改名为：", key + ":new");
+  if (to) { doKeyRename(key, to); }
+}
+
+function pagerRow(key, type, offset, limit, total) {
+  if (type === "list" || type === "zset") {
+    var more = offset + limit < total;
+    return "<div class=\"row\">"
+      + "<button " + (offset > 0 ? "" : "disabled ") + "onclick=\"valuePage.offset=0;loadValue('" + esc(key) + "',{offset:0,limit:" + limit + "})\">首页</button>"
+      + "<button " + (offset > 0 ? "" : "disabled ") + "onclick=\"valuePage.offset=" + Math.max(0, offset - limit) + ";loadValue('" + esc(key) + "',{offset:" + Math.max(0, offset - limit) + ",limit:" + limit + "})\">上一页</button>"
+      + "<span class=\"hint\">" + offset + " .. " + (offset + limit - 1) + " / 共 " + total + "</span>"
+      + "<button " + (more ? "" : "disabled ") + "onclick=\"valuePage.offset=" + (offset + limit) + ";loadValue('" + esc(key) + "',{offset:" + (offset + limit) + ",limit:" + limit + "})\">下一页</button>"
+      + "</div>";
+  }
+  return "";
+}
+
+async function loadValue(key, opts) {
+  var args = { key: key };
+  if (opts.cursor !== undefined) { args.cursor = opts.cursor; }
+  if (opts.offset !== undefined) { args.offset = opts.offset; }
+  if (opts.limit !== undefined) { args.limit = opts.limit; }
+  if (opts.count !== undefined) { args.count = opts.count; }
+  try {
+    var r = await call("redis:value", args);
+    renderValue(r);
+    report("REDIS value key=" + key + " type=" + r.type + " mode=" + r.mode
+      + (r.mode === "cursor" ? " count=" + r.count + " cursor=" + r.cursor
+         : (r.mode === "range" ? " offset=" + r.offset + " limit=" + r.limit + " total=" + r.total : ""))
+      + (r.exists ? "" : " exists=false"));
+    return r;
+  } catch (e) { fail("value", e); return null; }
+}
+
+function renderValue(r) {
+  var body = el("valueBody");
+  if (!r.exists) {
+    body.innerHTML = "<div class=\"hint\">键不存在了（mode=" + esc(r.mode) + "）。</div>";
+    return;
+  }
+  var h = "";
+  if (r.type === "string") {
+    var v = r.value || {};
+    h += "<section class=\"block\"><h3>string · " + v.bytes + " 字节"
+      + (v.truncated ? "（只展示前 " + text(v.text).length + " 字符，已截断）" : "")
+      + " · ttl=" + ttlText(r.ttl) + " · STRLEN=" + r.length + "</h3>";
+    h += "<pre class=\"text\">" + esc(v.text) + "</pre>";
+    h += "<div class=\"row\"><span class=\"hint\">hex</span></div>"
+      + "<pre class=\"text\">" + esc(v.hex) + "</pre></section>";
+  } else if (r.type === "hash") {
+    h += "<section class=\"block\"><h3>hash · 共 " + r.total + " 字段 · ttl=" + ttlText(r.ttl)
+      + " · 本页 " + r.count + "（游标 " + esc(r.cursor) + "）</h3>"
+      + "<table class=\"grid\"><tr><th>field</th><th>value</th><th></th></tr>";
+    for (var i = 0; i < (r.entries || []).length; i++) {
+      var e = r.entries[i];
+      h += "<tr><td>" + esc(e.field) + "</td><td>" + esc(e.value) + "</td>"
+        + "<td class=\"num\"><button onclick=\"doValueWrite({key:'" + esc(r.key) + "',type:'hash',op:'hdel',field:'"
+        + esc(e.field) + "'},'HDEL')\">hdel</button></td></tr>";
+    }
+    h += "</table>";
+    if (r.cursor && r.cursor !== "0") {
+      h += "<div class=\"row\"><button onclick=\"loadValue('" + esc(r.key) + "',{cursor:'" + esc(r.cursor) + "'})\">下一页（HSCAN 游标 " + esc(r.cursor) + "）</button></div>";
+    }
+    h += "</section>";
+  } else if (r.type === "set") {
+    h += "<section class=\"block\"><h3>set · 共 " + r.total + " 成员 · ttl=" + ttlText(r.ttl)
+      + " · 本页 " + r.count + "（游标 " + esc(r.cursor) + "）</h3><table class=\"grid\">";
+    for (var j = 0; j < (r.members || []).length; j++) {
+      h += "<tr><td>" + esc(r.members[j]) + "</td>"
+        + "<td class=\"num\"><button onclick=\"doValueWrite({key:'" + esc(r.key) + "',type:'set',op:'srem',member:'"
+        + esc(r.members[j]) + "'},'SREM')\">srem</button></td></tr>";
+    }
+    h += "</table>";
+    if (r.cursor && r.cursor !== "0") {
+      h += "<div class=\"row\"><button onclick=\"loadValue('" + esc(r.key) + "',{cursor:'" + esc(r.cursor) + "'})\">下一页（SSCAN 游标 " + esc(r.cursor) + "）</button></div>";
+    }
+    h += "</section>";
+  } else if (r.type === "list") {
+    h += "<section class=\"block\"><h3>list · 共 " + r.total + " 项 · ttl=" + ttlText(r.ttl)
+      + " · 本页 " + r.limit + "</h3>"
+      + pagerRow(r.key, "list", r.offset || 0, r.limit || 0, r.total)
+      + "<table class=\"grid\"><tr><th>idx</th><th>值</th></tr>";
+    for (var k = 0; k < (r.items || []).length; k++) {
+      h += "<tr><td class=\"num\">" + ((r.offset || 0) + k) + "</td><td>" + esc(r.items[k]) + "</td></tr>";
+    }
+    h += "</table></section>";
+  } else if (r.type === "zset") {
+    h += "<section class=\"block\"><h3>zset · 共 " + r.total + " 成员 · ttl=" + ttlText(r.ttl)
+      + " · 本页 " + r.limit + "</h3>"
+      + pagerRow(r.key, "zset", r.offset || 0, r.limit || 0, r.total)
+      + "<table class=\"grid\"><tr><th>rank</th><th>member</th><th>score</th></tr>";
+    for (var m = 0; m < (r.entries || []).length; m++) {
+      var z = r.entries[m];
+      h += "<tr><td class=\"num\">" + ((r.offset || 0) + m) + "</td><td>" + esc(z.member)
+        + "</td><td class=\"num\">" + esc(z.score) + "</td></tr>";
+    }
+    h += "</table></section>";
+  } else if (r.type === "stream") {
+    h += "<section class=\"block\"><h3>stream · XLEN=" + r.total + " · ttl=" + ttlText(r.ttl)
+      + " · 本页 " + (r.count || 0) + " 条（XRANGE - + COUNT " + (r.entries || []).length + "）</h3>"
+      + "<table class=\"grid\"><tr><th>id</th><th>字段</th></tr>";
+    for (var s = 0; s < (r.entries || []).length; s++) {
+      var ent = r.entries[s];
+      var fv = "";
+      if (ent.fields) {
+        for (var f = 0; f < ent.fields.length; f++) {
+          fv += esc(ent.fields[f].field) + "=" + esc(ent.fields[f].value) + (f + 1 < ent.fields.length ? "<br>" : "");
+        }
+      } else {
+        fv = esc(ent.raw || "(形状不认识，原样渲染)");
+      }
+      h += "<tr><td>" + esc(ent.id) + "</td><td>" + fv + "</td></tr>";
+    }
+    h += "</table></section>";
+  } else {
+    h += "<div class=\"hint\">" + esc(r.note || ("这个类型（" + r.type + "）当前工具还不支持取值")) + "</div>";
+  }
+  h += "<section class=\"block\"><h3>写 / 改</h3>" + writeRow(r.type, r.key) + keyOpsRow(r.key) + "</section>";
+  body.innerHTML = h;
+}
+
+/* ============================================================
+ * 5. 发布订阅（事件 + 拉取两条通道，按 seq 去重）
+ * ============================================================ */
+
+var seen = {};        // seq -> true：事件与拉取可能收到同一条，靠 seq 去重（D-015 口径）
+var seenCount = 0;
+
+function onMsg(m, src) {
+  var s = String(m.seq);
+  if (seen[s]) { return; }
+  seen[s] = true;
+  seenCount++;
+  var host = el("msgList");
+  if (host.querySelector(".hint")) { host.innerHTML = ""; }
+  var div = document.createElement("div");
+  div.className = "msg";
+  // 记录里**没有 kind 字段**：靠 pattern 空不空区分 message / pmessage（插件把频道消息的 pattern 记成空串）
+  var isPat = !!(m.pattern && String(m.pattern).length);
+  var kind = isPat ? "<span class=\"pat\">pmessage</span>" : "<span class=\"ch\">message</span>";
+  var pat = isPat ? " pat=" + esc(m.pattern) : "";
+  div.innerHTML = "<span class=\"t\">seq=" + esc(m.seq) + " " + src + "</span> " + kind + pat
+    + " ch=" + esc(m.channel) + " bytes=" + esc(m.bytes) + (m.truncated ? "（已截断）" : "")
+    + "<br>" + esc(m.payload);
+  host.appendChild(div);
+  while (host.children.length > 300) { host.removeChild(host.firstChild); }
+  if (isProbe) {
+    report("REDIS message seq=" + m.seq + " kind=" + (isPat ? "pmessage" : "message")
+      + " ch=" + m.channel + " bytes=" + m.bytes + " payload=" + m.payload);
+  }
+}
+
+async function doSubscribe() {
+  var chans = el("subChannels").value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  var pats = el("subPatterns").value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  try {
+    var r = await call("redis:subscribe", { channels: chans, patterns: pats });
+    toast("订阅 ok=" + r.ok + "（pending=" + r.pending + "）channels=" + r.channels.length
+      + " patterns=" + r.patterns.length, r.ok ? "ok" : "err");
+    report("REDIS subscribe ok=" + r.ok + " pending=" + r.pending
+      + " addedChannels=" + r.addedChannels.length + " addedPatterns=" + r.addedPatterns.length);
+    await doStatus(true);
+    return r;
+  } catch (e) { fail("subscribe", e); return null; }
+}
+
+async function doUnsubscribe() {
+  var chans = el("subChannels").value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  var pats = el("subPatterns").value.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  try {
+    var r = await call("redis:unsubscribe", { channels: chans, patterns: pats });
+    toast("退订 ok=" + r.ok + " 本次退掉 " + r.unsubscribed + " 个（剩 channels=" + r.channels.length
+      + " patterns=" + r.patterns.length + "）");
+    report("REDIS unsubscribe ok=" + r.ok + " unsubscribed=" + r.unsubscribed
+      + " leftChannels=" + r.channels.length + " leftPatterns=" + r.patterns.length);
+    await doStatus(true);
+    return r;
+  } catch (e) { fail("unsubscribe", e); return null; }
+}
+
+async function doPublish() {
+  var args = { channel: el("pubChannel").value.trim(), message: el("pubMessage").value };
+  try {
+    var r = await call("redis:publish", args);
+    el("pubInfo").textContent = "receivers=" + r.receivers + " bytes=" + r.bytes;
+    report("REDIS publish channel=" + r.channel + " bytes=" + r.bytes + " receivers=" + r.receivers);
+    return r;
+  } catch (e) { fail("publish", e); return null; }
+}
+
+async function doPull(quiet) {
+  try {
+    var r = await call("redis:messages", { limit: 200 });
+    for (var i = 0; i < r.messages.length; i++) { onMsg(r.messages[i], "pull"); }
+    if (!quiet) { toast("拉到 " + r.count + " 条（重复已按 seq 去重；缓冲满丢弃 " + r.dropped + " 条）"); }
+    report("REDIS messages count=" + r.count + " dropped=" + r.dropped + " seen=" + seenCount);
+    return r;
+  } catch (e) { fail("messages", e); return null; }
+}
+
+/* ============================================================
+ * 6. 事件订阅与启动
+ * ============================================================ */
+
+function wireEvents() {
+  CJ.listen("redis:message", function (m) { onMsg(m, "event"); });
+  CJ.listen("redis:state", function (s) {
+    renderState(s);
+    if (isProbe) { report("REDIS state event state=" + s.state + " db=" + s.db); }
+  });
+}
+
+var pullTimer = null;
+function startPullTimer() {
+  if (pullTimer) { clearInterval(pullTimer); }
+  pullTimer = setInterval(function () {
+    if (el("autoPull").checked && state.last && state.last.state === "connected") { doPull(true); }
+  }, 1500);
+}
+
+function bindButtons() {
+  el("btnConnect").addEventListener("click", function () { doConnect(false); });
+  el("btnDisconnect").addEventListener("click", function () { doDisconnect(); });
+  el("btnStatus").addEventListener("click", function () { doStatus(false); });
+  el("btnDbsize").addEventListener("click", function () { doDbsize(false); });
+  el("btnInfo").addEventListener("click", function () { doInfo(); });
+  el("btnSlowlog").addEventListener("click", function () { doSlowlog(); });
+  el("btnScan").addEventListener("click", function () { doScan(false); });
+  el("btnScanMore").addEventListener("click", function () { doScan(true); });
+  el("btnSub").addEventListener("click", function () { doSubscribe(); });
+  el("btnUnsub").addEventListener("click", function () { doUnsubscribe(); });
+  el("btnPub").addEventListener("click", function () { doPublish(); });
+  el("btnPull").addEventListener("click", function () { doPull(false); });
+  el("btnClearMsg").addEventListener("click", function () {
+    el("msgList").innerHTML = "<div class=\"hint\">已清屏（缓冲里的消息不受影响，点「取消息缓冲」还能拿到）。</div>";
+  });
+  el("btnVersion").addEventListener("click", async function () {
+    try { var v = await call("system:version", {}); toast("system:version → " + v); report("REDIS system:version=" + v); }
+    catch (e) { fail("system:version", e); }
+  });
+}
+
+/* ============================================================
+ * 7. 探针自检（CJ_REDIS_PROBE_HOST 注入后才跑）
+ *
+ * 为什么要一段自动序列：无人值守的实机取证得有个自己能跑完、自己会打证据的页面。
+ * 每一行都经 report 落到进程 stderr（[frontend] 前缀），E2E 直接对它们断言。
+ * ============================================================ */
+
+var isProbe = false;
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+async function probeCall(name, args) {
+  try { return await call(name, args); }
+  catch (e) { report("REDIS probe call failed " + name + ": " + ((e && e.message) ? e.message : e)); return null; }
+}
+
+async function runProbe(p) {
+  isProbe = true;
+  el("host").value = p.host;
+  el("port").value = p.port;
+  el("db").value = p.db;
+  report("REDIS probe start host=" + p.host + " port=" + p.port + " db=" + p.db + " ms=" + p.ms);
+
+  // ① 连接（握手同步做完，结果随命令回投 —— 页面不用猜连上没）
+  var c = await doConnect(true);
+  if (!c) { await probeFinish(p, "connect failed"); return; }
+  report("REDIS probe connect ok host=" + c.host + " port=" + c.port + " db=" + c.db + " auth=" + c.auth);
+
+  // ② 服务器诊断
+  var info = await doInfo();
+  if (info) { report("REDIS probe info bytes=" + info.bytes + " parsed=" + Object.keys(info.sections || {}).length); }
+  var sl = await doSlowlog();
+  if (sl) { report("REDIS probe slowlog count=" + sl.count + " requested=" + sl.requested); }
+
+  // ③ 键空间：全量一页 → match → type 过滤
+  el("match").value = ""; el("typeFilter").value = "";
+  var s1 = await doScan(false);
+  if (s1) { report("REDIS probe scan all keys=" + s1.count + " done=" + s1.done + " enriched=" + s1.enriched); }
+  el("match").value = "user:*";
+  var s2 = await doScan(false);
+  if (s2) { report("REDIS probe scan match=user:* keys=" + s2.count); }
+  el("match").value = ""; el("typeFilter").value = "hash";
+  var s3 = await doScan(false);
+  if (s3) { report("REDIS probe scan type=hash keys=" + s3.count); }
+  el("typeFilter").value = "";
+
+  // ④ 六种类型各取一次值（走的是各自的路径：string whole / hash+set cursor / list+zset+stream range）
+  var keys = ["user:1", "blob:bin", "user:1:profile", "queue:jobs", "tags:news", "board:score", "events:app"];
+  for (var i = 0; i < keys.length; i++) {
+    var v = await loadValue(keys[i], {});
+    if (v) {
+      report("REDIS probe value key=" + v.key + " type=" + v.type + " mode=" + v.mode
+        + (v.total !== undefined ? " total=" + v.total : "")
+        + (v.value && v.value.hex ? " hex=" + v.value.hex : ""));
+    }
+  }
+
+  // ⑤ 写：新建 string → 追加 → 回读；再建一个 hash
+  var w1 = await probeCall("redis:valueWrite", { key: "probe:greeting", type: "string", op: "set", value: "hello-probe" });
+  if (w1) { report("REDIS probe write SET probe:greeting reply=" + w1.reply); }
+  var w2 = await probeCall("redis:valueWrite", { key: "probe:greeting", type: "string", op: "append", value: "-tail" });
+  if (w2) { report("REDIS probe write APPEND reply=" + w2.reply); }
+  var rv = await loadValue("probe:greeting", {});
+  if (rv && rv.value) { report("REDIS probe read back probe:greeting text=" + rv.value.text + " bytes=" + rv.value.bytes); }
+  var w3 = await probeCall("redis:valueWrite", { key: "probe:hash", type: "hash", op: "hset", field: "f1", value: "v1" });
+  if (w3) { report("REDIS probe write HSET probe:hash reply=" + w3.reply); }
+
+  // ⑥ 过期 / 持久化 / 改名 / 删除（键操作一圈）
+  el("match").value = "probe:*";
+  var s4 = await doScan(false);
+  if (s4) { report("REDIS probe scan match=probe:* keys=" + s4.count); }
+  el("match").value = "";
+  await probeCall("redis:keyExpire", { key: "probe:greeting", seconds: 120 });
+  var ki = await probeCall("redis:keyInfo", { key: "probe:greeting" });
+  if (ki) { report("REDIS probe keyInfo key=probe:greeting ttl=" + ki.ttl + " size=" + ki.size + " unit=" + ki.sizeUnit); }
+  var pe = await probeCall("redis:keyPersist", { key: "probe:greeting" });
+  if (pe) { report("REDIS probe keyPersist applied=" + pe.applied); }
+  var rn = await probeCall("redis:keyRename", { key: "probe:greeting", newKey: "probe:renamed" });
+  if (rn) { report("REDIS probe keyRename newKey=" + rn.newKey); }
+  var dl = await probeCall("redis:keyDelete", { keys: ["probe:renamed", "probe:hash"] });
+  if (dl) { report("REDIS probe keyDelete requested=" + dl.requested + " deleted=" + dl.deleted); }
+
+  // ⑦ 发布订阅：频道 + 模式各订一个 → 发布 → 等推送进缓冲 → 拉取
+  el("subChannels").value = "demo/rx";
+  el("subPatterns").value = "demo/*";
+  var sb = await doSubscribe();
+  if (sb) { report("REDIS probe subscribe ok=" + sb.ok + " channels=" + sb.channels.length + " patterns=" + sb.patterns.length); }
+  var pb = await doPublish();
+  if (pb) { report("REDIS probe publish channel=" + pb.channel + " bytes=" + pb.bytes + " receivers=" + pb.receivers); }
+  await sleep(700);
+  var ms = await doPull(true);
+  if (ms) { report("REDIS probe messages count=" + ms.count + " seen=" + seenCount + " dropped=" + ms.dropped); }
+
+  // ⑧ 状态 → 断开 → 重连（重连是**主动**的，脚本对端能看到第二次连接）
+  var st = await doStatus(true);
+  if (st) { report("REDIS probe status state=" + st.state + " db=" + st.db); }
+  var dc = await doDisconnect();
+  if (dc) { report("REDIS probe disconnect hadSub=" + dc.hadSub + " droppedChannels=" + dc.droppedChannels); }
+  var rc = await doConnect(true);
+  report("REDIS probe reconnect " + (rc ? "ok state=connected" : "failed"));
+
+  await probeFinish(p, "ok");
+}
+
+async function probeFinish(p, verdict) {
+  var v = await call("system:version", {}).then(function (x) { return x; }, function () { return "?"; });
+  var vs = (typeof v === "string") ? v : JSON.stringify(v);
+  await call("report", { line: "REDIS probe done verdict=" + verdict + " version=" + vs + " seen=" + seenCount });
+  if (p.quit === "1" || p.quit === "true" || p.quit === "yes") {
+    await call("quit", {});
+  }
+}
+
+/* ============================================================
+ * 8. 入口
+ * ============================================================ */
+
+(async function boot() {
+  try {
+    CJ = await waitForBridge();
+  } catch (e) {
+    document.body.insertAdjacentHTML("afterbegin",
+      "<div style=\"padding:10px;background:#3a2422;color:#e2605c\">桥未就位：" + esc(e.message) + "</div>");
+    return;
+  }
+  bindButtons();
+  wireEvents();
+  startPullTimer();
+  await doStatus(true);
+
+  var p = window.__REDIS_PROBE__;
+  if (p) { runProbe(p); return; }
+
+  // 手动模式：先填一份默认值（不自动连——「假连接」是调试工具最坏的样子）
+  if (!el("host").value) { el("host").value = "127.0.0.1"; }
+  el("serverOut").textContent = "点上面任一个按钮取一份诊断；左侧「扫描」列键，点键看值。";
+})();
+</script>
+</body>
+</html>

@@ -160,6 +160,11 @@
 - **跨平台文件别按单平台的 warning 清 import**：`@When` 分支只在其中一个平台编译，另一平台看这个 import
   就是「未使用」。实测 2026-10-08：`host_webkit.cj` 的 `ArrayList` import 被 Windows 侧按 zero-warning
   清掉，Linux 侧当场编炸。清理前先想「这个符号是不是只有对面平台的分支在用」；拿不准就留一行注释说明。
+  **漏 import 的另一种形状**（2026-10-13 实测）：文件里一个 import 都没有、正文直接写限定名
+  `std.collection.ArrayList`——**本机 cjc 不支持这种限定名写法**，报的是 `error: undeclared identifier 'std'`
+  （指向正文那个标识符，看着像「std 没导入」）。正确落法是给 import 加同款门禁
+  （`@When[os == "Linux"]` + `import std.collection.*`）**并用短名**，镜像 `host_webview2.cj` 的 Windows 版；
+  只补 import 不改正文不行——限定名仍报未声明，而那条 import 反过来被判 `unused import`。
 - **`@Expect` 宏对 enum 实参推不出泛型**：单测断言里直接 `@Expect(x == SomeEnum.A)` 会报泛型推断失败；
   `JsonKind` 则**没有 `==`**（比较要走 match 分支）。这类断言改成显式 match / 布尔表达式再断言。
 - **并发原语比想象中少**：`SyncCounter` **没有 `inc()`**（只有 `add`），`Thread` **没有 `wait`/`join`**。
@@ -334,6 +339,9 @@
 - 诊断日志的**过滤器本身也会骗人**：`findstr /C:"menu "`（带空格）一条都匹配不上
   `menu: … SetMenu failed: 87`，于是「没有失败日志」被误读成「没失败」。按前缀取证据时用 `[cj-bridge]`
   这样的**整行前缀**，不要用会在正文里撞词的中缀；改日志格式时一并核对断言用的 needle。
+  **needle 也别跨字段**：`PUBLISH rx topic=x qos=1 payload=y` 看着像整行前缀，实际中间还夹着
+  `retain=/dup=/pid=/bytes=`，字面量匹配当场落空，表象是「对端没收到报文」（2026-10-13 MQTT 轮实测，
+  第一遍 23/25 全栽在这一条）——needle 截在字段边界上，载荷另立一条断言。
 - 多窗口下**任何「静态单槽回调」都会丢事件 / 串台**：C 侧只有一个函数指针入口（每个宿主注册的是**同一个**
   函数指针，实机日志里两窗的 `on_destroy=` 同址可证），仓颉侧若把「本窗回调」写进同一个静态变量，后装配的
   窗口就覆盖先装配的——先装配的窗口从此收不到自己的事件（`HostGlobals.onShell` 最早实测如此）。**判据是

@@ -113,6 +113,28 @@
 
 ### Added
 
+- **MQTT 客户端调试台示例（`examples/mqtt-client/`）+ `mqtt` 官方插件**：框架侧新增 **MQTT 3.1.1 客户端**
+  （`src/plugins/plugin_mqtt.cj`，纯仓颉 `std.net` TCP 自实现；协议编解码单独一层
+  `src/plugins/mqtt_codec.cj`，畸形报文解码返回 `None`）。插件命令
+  `mqtt:connect` / `subscribe` / `unsubscribe` / `publish` / `disconnect` / `status` / `recent`，
+  事件 `mqtt:message` / `mqtt:state`，命名权限集 `mqtt:debug`（一次放行七个命令）。
+  报文走**双通道**：事件实时推 + `recent` 取走即清（上限 500 条、单条正文按 256 KiB 截断，
+  高吞吐下如实上报丢弃计数，页面按报文里的 `seq` 去重）。设计取舍见 `docs/设计决策记录.md` 的 D-014 / D-015。
+  边界：只做 MQTT 3.1.1（级别 4）明文 TCP，不做 TLS（MQTTS）/ WebSocket 传输 / MQTT 5.0 属性与原因码；
+  连不上给明确错误、不静默重试。示例自带**自写的** mock broker 对端（`mock-broker.py`，标准库 socket，
+  `--selftest` 10/10 自证）与调试台页面（连接 / 订阅 / 发布 / 报文流时间线 / 状态与订阅表），
+  一键 `bash examples/mqtt-client/run.sh`。
+- **MQTT 实机 E2E（`scripts/e2e/test-linux-mqtt-client.sh`）27 条断言全过**：验的是完整一跳
+  「页面 → 桥 → IPC → 能力校验 → `mqtt:*` → 仓颉 MQTT 客户端 → TCP → 对端 broker →（回推）→ 读线程
+  → 事件 + 缓冲 → 页面」，且**两侧都有证据**（收尾时对端日志并入同一份证据日志，`[mock-broker]` 前缀可分流）：
+  应用侧 `[cj-tauri] mqtt: state=connected` / `[frontend] MQTT connect ok state=connected` /
+  `publish ok topic=demo/tx` / `probe recent count=35` / `probe reconnect state=connected`；
+  对端侧 `CONNECT proto=MQTT level=4` **同一轮出现 2 次**（重连被对端看见）/ `CONNACK tx rc=0` /
+  `SUBACK tx pid=` / `PUBLISH rx topic=demo/tx qos=1 retain=False` 与 `qos=2`（载荷逐字
+  `hello-mock` / `hello-qos2`）/ `PUBREC tx` → `PUBREL rx` → `PUBCOMP tx`（QoS 2 发送侧整条状态机）/
+  `PUBACK rx`（客户端对回推的 QoS 1 回了确认）/ `PINGRESP tx`（1 秒保活心跳）/ `DISCONNECT rx`。
+  证据：`dist/e2e-evidence/linux-mqtt-client.json`。**Windows 侧未跑**（协议与 socket 部分无平台分支，
+  但未验证就写未验证）。
 - **`serial-waveform` 接上单文件打包（`bash scripts/pack-win-single.sh examples/serial-waveform`）**：
   示例新增 `src/packed_assets.cj`（空存根）与 `src/packed_resources.cj`（`decodeBase64` / `splitBy` /
   `textOrFile`），页面与能力清单改成「**内嵌优先、否则读盘**」——把 `ui/` 与 `capabilities/` 搬走也照跑

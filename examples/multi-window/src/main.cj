@@ -18,7 +18,8 @@ import stdx.encoding.json.*
  *
  * 画面：main（驱动窗）+ second（观察窗），两页是**同一份 HTML**，角色由自己的 label 推出来：
  *   main  : boot → 轮询 boots 直到 2 → fire（广播 1 条 + 定向 2 条）→ 报计数
- *           → 阶段 2 广播「一起开原生框」→ 自己也开一个 → 等观察窗报结果
+ *           → 阶段 2 广播「一起开消息框」→ 自己也开一个 → 等观察窗报结果
+ *           → 阶段 2b 广播「一起开文件框」→ 自己也开一个 → 等观察窗报结果
  *           → 阶段 3 只关 second → 证明应用还在（alive）→ quit
  *   second: boot → 有界等自己那两条事件到齐 → 报计数 → 等「开框」信号 → 开框 → 报结果
  * 期望（run.bat 逐字断言，单窗对照少最后几条）：
@@ -28,20 +29,27 @@ import stdx.encoding.json.*
  *   [mwprobe] window=second ASK which=second kind=info inflight=2
  *   [mwprobe] window=main   ASK-DONE which=main   ok=true
  *   [mwprobe] window=second ASK-DONE which=second ok=true
+ *   [mwprobe] window=main   FILE-ASK which=main   inflight=2（与消息框阶段同款并发）
+ *   [mwprobe] window=main   FILE-DONE which=main   ok=true path=…\probe-main.txt
+ *   [mwprobe] window=second FILE-DONE which=second ok=true path=…\probe-second.txt
  *   [mwprobe] window=main   CLOSE-WINDOW which=second requested
  *   [mwprobe] window=main   ALIVE second=1 main=0
  *
- * 阶段 2/3 是「两窗回调并发」的用例（架构文档 §7.5 的残余项）。B/C 两条假设已经由批次 2 的通路
- * 证明，这里补的是**共享状态**那一半：
+ * 阶段 2 / 2b / 3 是「两窗回调并发」的用例（架构文档 §7.5 的残余项）。B/C 两条假设已经由批次 2
+ * 的通路证明，这里补的是**共享状态**那一半：
  *   - 对话框状态在 C 核里是 **per-host** 的（`h->dlg_busy` / `dlg_lock` / `dlg_cur`），跨宿主本就不互斥，
  *     所以两窗能同时开着各自的框；`ASK … inflight=2` 是这件事的唯一硬证据——第二条 ask 进栈时
  *     第一条**还没出栈**（它要等人关框才回来），所以两个框确实同时在开。
+ *   - 阶段 2b 补的是**结果归位**那一半，而且走的是与消息框不同的那条路：消息框的结果就是
+ *     `showMessageDialog` 的返回值（不经任何共享状态），文件框的结果则由桥经 `onDialog` 回调、
+ *     按**宿主句柄**写进**本宿主自己的** `dialogResult` 字段（`registerHostRoute` 的三条路由之一），
+ *     再读回（`host_webview2.cj` 的 `showFileDialogPreset`）。两窗同开文件框时若路由退化成静态单槽，
+ *     先返回者读到的就会是后返回者写的值；探针给每窗预置 `probe-<label>.txt`，
+ *     自动确认（对 `#32770` 发 IDOK）后**各窗必须拿回自己的名字**才算过，串台会当场现形。
  *   - 退出是**逐窗判**的（app.cj 的 allWindowsExited 轮询每个宿主的 shouldQuit）：关掉 second
  *     不该让应用返回，main 随后还能发命令、还能收到回执，本身就是证据。
- * 仍**未被本用例覆盖**的两处，别当成已了结：① `HostGlobals.onDestroy` 是静态单槽，且
- * `WebViewHost` 接口上根本没有安装点（应用侧装不进去），所以它现在恒为 no-op；
- * ② 文件类对话框的结果走共享的 `HostGlobals.dialogResult` 单槽——两窗同时开文件框时，
- * 「先返回者读到的可能是后返回者写的值」。本用例用 message 框（结果是返回值、不经槽位）绕开了它。
+ * 仍**未被本用例覆盖**的一处，别当成已了结：`HostGlobals.onDestroy` 是静态单槽，且
+ * `WebViewHost` 接口上根本没有安装点（应用侧装不进去），所以它现在恒为 no-op。
  *
  * 原生框要有人点：Windows 侧由 `dismiss-dialogs.ps1` 自动确认（run.bat 会起它）。
  * 跑法见本目录 run.bat（工作目录必须是本工程根：capabilities/ 按相对路径读）。
@@ -86,6 +94,7 @@ class ReportLog {
     private let lock: Mutex = Mutex()
     private var observers: Int64 = 0
     private var asks: Int64 = 0
+    private var files: Int64 = 0
 
     func markObserver(): Int64 {
         var n: Int64 = 0
@@ -118,6 +127,24 @@ class ReportLog {
         var n: Int64 = 0
         synchronized(this.lock) {
             n = this.asks
+        }
+        return n
+    }
+
+    /** 文件阶段的同款计数：驱动窗等「观察窗的文件框也出结果了」再收场 */
+    func markFile(): Int64 {
+        var n: Int64 = 0
+        synchronized(this.lock) {
+            this.files = this.files + 1
+            n = this.files
+        }
+        return n
+    }
+
+    func fileCount(): Int64 {
+        var n: Int64 = 0
+        synchronized(this.lock) {
+            n = this.files
         }
         return n
     }
@@ -194,6 +221,10 @@ public class ReportCommand <: CommandHandler {
             // 阶段 2 的结果另算：它证明的是「观察窗的原生框也出结果了」，不是它又报了一次计数
             if (text.startsWith("ASK-RESULT")) {
                 eprintln("[mwprobe] window=${ipc.window} ask-reports=${this.log.markAsk()}")
+            }
+            // 文件阶段同款：观察窗的文件框出了结果
+            if (text.startsWith("FILE-RESULT")) {
+                eprintln("[mwprobe] window=${ipc.window} file-reports=${this.log.markFile()}")
             }
         }
         return JsonBool(true)
@@ -344,7 +375,85 @@ public class AskReportsCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         return JsonInt(this.log.askCount())
+    }
+}
+
+/** 文件阶段的同款计数：驱动窗等「观察窗的文件框也出结果了」再收场 */
+public class FileReportsCommand <: CommandHandler {
+    private let log: ReportLog
+
+    init(log: ReportLog) {
+        this.log = log
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
+        return JsonInt(this.log.fileCount())
+    }
+}
+
+/**
+ * 原生**文件**框（文件阶段的并发用例）：dialogResult 结果位的并发取证
+ *
+ * 每窗预置**自己的**默认文件名（probe-<label>.txt，经 showFileDialogPreset 通道进桥），
+ * 自动确认（对 #32770 发 IDOK）后框里那个名字就是返回值——结果归不归对的窗，一眼可断：
+ * main 的框返回的必须是 probe-main.txt，串台才会互相拿到对方的名字。
+ */
+public class FileAskCommand <: CommandHandler {
+    private let app: TauriApp
+    private let log: AskLog
+
+    init(app: TauriApp, log: AskLog) {
+        this.app = app
+        this.log = log
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        var which = ipc.window
+        let n = this.log.enter()
+        eprintln("[mwprobe] window=${ipc.window} FILE-ASK which=${which} inflight=${n}")
+        var path = ""
+        match (this.app.hostOf(which)) {
+            case Some(host) =>
+                // 用**保存**语义：打开语义带 OFN_FILEMUSTEXIST，预置的 probe-*.txt 本不存在，
+                // 自动确认会被弹回、框卡住不退；保存语义对不存在的名字直接放行（同名才提示覆盖）
+                path = host.showFileDialogPreset(true, "multi-window probe (${which})", "",
+                                                 "probe-${which}.txt")
+            case None => eprintln("[mwprobe] FILE-ASK unknown window: ${which}")
+        }
+        this.log.leave()
+        // ok 判定放在命令侧：返回路径必须以**本窗自己的**预置名结尾——多窗结果位串台当场现形
+        let expect = "probe-${which}.txt"
+        let ok = path.endsWith(expect)
+        eprintln("[mwprobe] window=${ipc.window} FILE-DONE which=${which} ok=${ok} path=${path}")
+        return JsonString("FILE-RESULT which=${which} ok=${ok} path=${path}")
+    }
+}
+
+/** 广播「一起开文件框」的信号：两窗的页面都在监听它，收到就各自向自己的宿主开框 */
+public class FileGoCommand <: CommandHandler {
+    private let app: TauriApp
+
+    init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        var p = JsonObject()
+        p.put("by", JsonString(ipc.window))
+        this.app.emit("probe:file-go", p)
+        eprintln("[mwprobe] window=${ipc.window} FILE-GO broadcast")
+        return JsonBool(true)
     }
 }
 
@@ -449,6 +558,15 @@ function askSelf() {
   });
 }
 
+// 向自己的宿主开一个原生**文件**框：后端已预置 probe-<label>.txt，返回行（含 ok/path）
+// 原样回投——它证明的是共享的结果位没有串台（本窗拿到的是本窗预置的名字）。
+function askFileSelf() {
+  var tauri = window.__CJ_TAURI__;
+  return tauri.invoke('file-ask', {}).then(function (line) {
+    return tauri.invoke('report', { line: String(line) });
+  });
+}
+
 // 有界轮询：等到 pred() 为真或超时（返回是否等到了）。两个窗口的 boot 先后由运行时决定
 // （Windows 实测 second 可能先起来），所以两边都不能用固定 sleep 赌时序。
 function waitUntil(pred, ms) {
@@ -474,6 +592,12 @@ async function main() {
   tauri.listen('probe:dialog-go', function () {
     if (DRIVER) { return; }
     askSelf();
+  });
+
+  // 阶段 2b 的起跑信号：与消息框同款（驱动窗由下面显式开框，观察窗靠这条并行）。
+  tauri.listen('probe:file-go', function () {
+    if (DRIVER) { return; }
+    askFileSelf();
   });
 
   tauri.listen('probe:broadcast', function () { hits.broadcast++; paint(); });
@@ -533,6 +657,19 @@ async function main() {
   }
   await report('DIALOG-PHASE observer_asks=' + asks);
 
+  // ---- 阶段 2b：两窗同时开原生**文件**框（共享结果位的并发用例）----
+  // 每窗预置自己的 probe-<label>.txt：自动确认后返回值必须与本窗预置名一致；
+  // 结果位一旦串台，两窗就会互相拿到对方的名字（ok=false 当场现形）。
+  await tauri.invoke('file-go', {});
+  await askFileSelf();
+  var files = 0;
+  for (var m = 0; m < 300; m++) {
+    files = await tauri.invoke('file-reports', {});
+    if (files >= 1) { break; }
+    await delay(100);
+  }
+  await report('FILE-PHASE observer_files=' + files);
+
   // ---- 阶段 3：只关 second，应用不该跟着退 ----
   await tauri.invoke('close-window', { which: 'second' });
   await delay(500);   // 闭窗要走完销毁路径（置 shouldQuit）才查得到
@@ -583,11 +720,14 @@ main(): Int64 {
     app.register("boots", BootsCommand(log))
     app.register("observer-reports", ObserverReportsCommand(reports))
     app.register("ask-reports", AskReportsCommand(reports))
+    app.register("file-reports", FileReportsCommand(reports))
     // 这几个要拿 app 本体（收全部窗口 / 定向投递 / 按 label 取宿主），所以放在 app 构造之后注册
     app.register("fire", FireCommand(app))
     app.register("quit", QuitCommand(app))
     app.register("ask", AskCommand(app, asks))
+    app.register("file-ask", FileAskCommand(app, asks))
     app.register("dialog-go", DialogGoCommand(app))
+    app.register("file-go", FileGoCommand(app))
     app.register("close-window", CloseWindowCommand(app))
     app.register("alive", AliveCommand(app))
     app.run(pocHtml())

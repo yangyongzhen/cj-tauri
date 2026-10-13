@@ -33,6 +33,8 @@ public class ReportCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         if (let Some(line) <- args.get("line")) {
             match (line.kind()) {
                 case JsonKind.JsString => eprintln("[frontend] " + line.asString().getValue())
@@ -57,6 +59,9 @@ public class QuitCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         eprintln("[plugin-serial] quit requested by frontend")
         this.app.quit()
         return JsonBool(true)
@@ -223,6 +228,12 @@ main(): Int64 {
       var ms = parseInt(p.readMs, 10);
       show('[probe] start path=' + p.path + ' baud=' + p.baud + ' encoding=' + p.encoding +
            ' data=' + p.data);
+      // 枚举先行（Windows / Linux 都有）：链路通与端口语义先落到日志，再走 open 链
+      ser().list().then(function (r) {
+        show('[probe] serial:list => ports=' + r.ports.join(',') + ' count=' + r.ports.length);
+      }).catch(function (e) {
+        show('[probe] serial:list FAIL => ' + e.message);
+      });
       return ser().open({ path: p.path, baud: parseInt(p.baud, 10), dataBits: 8,
                           parity: 'none', stopBits: 1 })
         .then(function (r) {

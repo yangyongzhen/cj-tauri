@@ -68,12 +68,14 @@ e2e_assert "桥脚本已注入"      "[cj-bridge] init scripts injected: "
 e2e_assert "页面→宿主 IPC"     "[cj-bridge] js -> native ("
 e2e_assert "端到端往返闭环"    "[e2e] probe:echo 收到:"
 e2e_assert "未授权命令被拒"    "DENY-OK devtools"
-# Windows 能力位的实机面：探针页经 system:host 读回并回投——桩如实报 0 是这条的判据。
-e2e_assert "能力位如实上报"    "host=windows menu=true tray=false dragDrop=false"
+# Windows 能力位的实机面：探针页经 system:host 读回并回投——真实现置位、桩如实报 0 是这条的判据。
+e2e_assert "能力位如实上报"    "host=windows menu=true tray=false dragDrop=true"
+# 拖放（Windows 真实现）：OLE IDropTarget 已挂载（关 WebView2 自带拖放后枚举子窗口覆盖注册）。
+e2e_assert "拖放目标已挂载"    "[cj-bridge] drag dest attached (CF_HDROP)"
 # 剪贴板（Windows 真实现）：写读回环值一致。
 e2e_assert "剪贴板写读回环"    "clipboard roundtrip=OK"
-# 通知（Windows 桩）：如实拒绝而不是假装成功。
-e2e_assert "通知桩如实拒绝"    "notification STUB-OK"
+# 通知（Windows toast 真实现）：PowerShell 投递成功即回成功；桥侧另有 "-> sent" 行可对照。
+e2e_assert "通知 toast 已投递"  "notification SENT-OK"
 # 串口（Windows 真实现）：QueryDosDeviceW 枚举链路通（有几个端口都行，0 也算通）。
 e2e_assert "串口枚举链路"      "serial:list ports="
 

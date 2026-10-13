@@ -3,8 +3,9 @@
   "windows": ["main", "second"],
   "commands": [
     "report", "boot", "boots", "observer-reports", "fire", "quit",
-    "ask", "ask-reports", "dialog-go", "close-window", "alive"
+    "ask", "ask-reports", "dialog-go", "file-ask", "file-go", "file-reports",
+    "close-window", "alive"
   ],
   "permissions": [],
-  "events": ["probe:broadcast", "probe:targeted", "probe:dialog-go"]
+  "events": ["probe:broadcast", "probe:targeted", "probe:dialog-go", "probe:file-go"]
 }

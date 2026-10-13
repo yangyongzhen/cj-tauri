@@ -41,7 +41,7 @@ REM core\ = cross-platform shared layer; platforms\windows\ = WebView2 implement
 gcc -shared -O2 -fstack-protector-all -Icore core\bridge_core.c platforms\windows\bridge_win.c -o libcjtbridge.dll ^
     -Wl,--out-implib,libcjtbridge.dll.a ^
     -I"%WEBVIEW2_SDK_INCLUDE%" ^
-    -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32
+    -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lshell32
 
 if errorlevel 1 (
     echo [ERROR] build libcjtbridge.dll failed

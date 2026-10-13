@@ -267,14 +267,20 @@ public class WebView2Host <: WebViewHost {
     }
 
     public func showFileDialog(save: Bool, title: String, filter: String): String {
+        return this.showFileDialogPreset(save, title, filter, "")
+    }
+
+    public func showFileDialogPreset(save: Bool, title: String, filter: String,
+                                     defaultName: String): String {
         var kind: Int32 = 0
         if (save) {
             kind = 1
         }
         var ok: Int32 = 0
         unsafe {
+            // defaultName 经 message 参数通道交给桥（文件类对话框把它当预置文件名）
             ok = cj_bridge_show_dialog(this.handle, kind, LibC.mallocCString(title),
-                                       LibC.mallocCString(""), LibC.mallocCString(filter))
+                                       LibC.mallocCString(defaultName), LibC.mallocCString(filter))
         }
         if (ok == 0) {
             // 取消 / 宿主未就绪：上游按「空路径」处理，不再读结果位

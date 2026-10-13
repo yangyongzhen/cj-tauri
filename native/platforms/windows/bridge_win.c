@@ -29,17 +29,19 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <objbase.h>
+#include <shellapi.h> /* DragQueryFileW / DragFinish（CF_HDROP → 文件列表，shell32） */
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>   /* wmemcpy / wcslen（EOF 白名单与对话框预置文件名都要用）*/
 #include "WebView2.h"
 #include "bridge_core.h"
 
 /* ===== COM 回调对象（每个宿主一套）=====
    原先 4 个 handler 是静态单例（AddRef/Release 硬编码 return 1），多窗口一落地就分不清是谁的回调；
    现在按宿主内嵌，This 直接转回本结构就能拿到 cj_host。引用计数仍恒 1：对象随宿主句柄存续
-   （句柄壳活到 cj_bridge_destroy），这是 WebView2 手工 COM 的惯用写法，也是 AGENTS.md §4 里
+    （句柄壳活到 cj_bridge_destroy），这是 WebView2 手工 COM 的惯用写法，也是 AGENTS.md §4 里
    hr=0x8007139F 那个坑的由来——AddRef 若返回 0 / 不自持有，注册给 WebView2 的回调会被提前回收。 */
 typedef struct env_handler {
     ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler iface; /* 首成员：This == &iface */
@@ -97,7 +99,12 @@ typedef struct plat_host {
     HMENU menu;                               /* 当前菜单栏；NULL = 没有 */
     menu_slot menu_items[CJ_MENU_MAX_ITEMS];  /* 命令 id ↔ 应用 id 映射：WM_COMMAND 靠它回投 */
     int menu_item_count;
+    /* --- 拖放（7.B Windows 真实现，只在 UI 线程挂 / 摘）--- */
+    IDropTarget *drop_target;                 /* 我们的拖放目标；NULL = 尚未创建 */
 } plat_host;
+
+/* 拖放目标的挂/摘（定义在文件后部）：controller 完成回调与 wnd_proc 都要调 */
+static void drag_dest_apply(cj_host *h, plat_host *p, int enabled);
 
 /* ===== 同步原语（core 只用这些，绝不直接碰 Win32）=====
    与 Linux 桥的 pthread_mutex + pthread_cond 一一对应；用条件变量而不是「事件」的好处是
@@ -190,6 +197,7 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_MENU (WM_APP + 7)       /* 运行期换菜单：lParam = strdup 的线路文本（UI 线程释放）*/
 #define WM_CJT_MENU_ITEM (WM_APP + 8)  /* 运行期改单项状态：lParam = menu_state_msg*（UI 线程释放）*/
 #define WM_CJT_UI (WM_APP + 9)         /* 通用 UI 投递（剪贴板等）：lParam = cj_ui_msg*（UI 线程释放）*/
+#define WM_CJT_DRAG_DROP (WM_APP + 10) /* 运行期挂/摘拖放：lParam = drag_drop_msg*（UI 线程释放）*/
 
 /* 运行期改单项状态：跨线程传递的小包裹（谁 post 谁分配，UI 线程处理完释放）*/
 typedef struct menu_state_msg {
@@ -197,6 +205,11 @@ typedef struct menu_state_msg {
     int enabled;
     int checked;
 } menu_state_msg;
+
+/* 运行期挂/摘拖放：跨线程传递的小包裹（谁 post 谁分配，UI 线程处理完释放）*/
+typedef struct drag_drop_msg {
+    int enabled;
+} drag_drop_msg;
 
 /* 通用 UI 投递的包裹：PostMessage 一次带一个 fn + ud（UI 线程处理完释放）*/
 typedef struct cj_ui_msg {
@@ -324,6 +337,20 @@ static HRESULT STDMETHODCALLTYPE ctrl_Invoke(
             settings->lpVtbl->put_AreDevToolsEnabled(settings, h->devtools ? TRUE : FALSE);
             settings->lpVtbl->Release(settings);
         }
+    }
+
+    /* 拖放：先关掉 WebView2 自己的外部拖放（不关的话它先吃掉 drop，默认行为是导航到文件）；
+       装配期已 set_drag_drop 过的（pending 非 0）这时挂我们的 IDropTarget */
+    {
+        ICoreWebView2Controller4 *c4 = NULL;
+        if (SUCCEEDED(p->controller->lpVtbl->QueryInterface(p->controller,
+                &IID_ICoreWebView2Controller4, (void **)&c4)) && c4) {
+            c4->lpVtbl->put_AllowExternalDrop(c4, FALSE);
+            c4->lpVtbl->Release(c4);
+        }
+    }
+    if (h->pending_drop_enabled) {
+        drag_dest_apply(h, p, h->pending_drop_enabled);
     }
 
     /* 注入桥接脚本（页面脚本执行前）+ 注册 JS 消息通道 */
@@ -503,7 +530,19 @@ static int show_dialog_here(cj_host *h, int kind, const char *title, const char 
         wchar_t *filter_w = build_win_filter(filter);
         OPENFILENAMEW ofn;
 
+        /* message 参数在文件类对话框里当**默认文件名**用（showFileDialogPreset 的通道）：
+           探针的自动确认（对 #32770 发 IDOK）需要框里已有名字才能关——多窗并发取证靠它 */
         path[0] = 0;
+        if (message && message[0]) {
+            wchar_t *preset = utf8_to_wide(message);
+            if (preset) {
+                size_t plen = wcslen(preset);
+                if (plen >= 32768) plen = 32767;
+                wmemcpy(path, preset, plen);
+                path[plen] = 0;
+                free(preset);
+            }
+        }
         ZeroMemory(&ofn, sizeof(ofn));
         ofn.lStructSize = sizeof(ofn);
         ofn.hwndOwner = owner;
@@ -686,17 +725,166 @@ char *cj_plat_clipboard_read_text(cj_host *h, char *err, int err_len) {
     return out; /* NULL = 空 / 非文本 / 转换失败 */
 }
 
-/* ===== 通知（plugin_notification 的平台层）：本平台暂未实现 =====
-   Windows 原生通知要 WinRT 的 ToastNotifier（xminwinrt 只有子集），桩阶段按「未实现」口径
-   返回 -4，仓颉侧与能力位（不置 CJ_CAP_NOTIFICATION）保持一致——如实上报，不假装成功。 */
+/* ===== 通知（plugin_notification 的平台层）：Windows Toast =====
+   v1 实现走 PowerShell 的 WinRT 投影（系统自带，零新增依赖、MIT 口径不变）：
+   脚本整体经 -EncodedCommand（UTF-16LE 的 base64）传入——不碰 cmd 的引号转义，
+   也避开 AGENTS §4 的「PowerShell 按 OEM 码页读错误」一整类坑；标题/正文先做 XML 转义。
+   AUMID 借用 PowerShell 自己的（未注册 AUMID 的 toast 在 Win10+ 不显示，这是通行做法）。
+   发送语义：CreateProcess 成功即返回 0（fire-and-forget，toast 的可见与否由系统托盘设置决定）；
+   spawn 失败（无 powershell 等）返回 -3，stderr 带原因。 */
+
+/* 小工具：标准 base64（RFC 4648，带填充）。输入 UTF-16LE 字节流。 */
+static BOOL toast_b64(const unsigned char *in, size_t n, char **out) {
+    static const char tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t olen = ((n + 2) / 3) * 4;
+    size_t i, o = 0;
+    char *buf = (char *)malloc(olen + 1);
+    if (!buf) return FALSE;
+    for (i = 0; i + 2 < n; i += 3) {
+        unsigned v = (in[i] << 16) | (in[i + 1] << 8) | in[i + 2];
+        buf[o++] = tab[(v >> 18) & 63]; buf[o++] = tab[(v >> 12) & 63];
+        buf[o++] = tab[(v >> 6) & 63];  buf[o++] = tab[v & 63];
+    }
+    if (i < n) {
+        unsigned v = in[i] << 16;
+        int pad = (i + 1 < n) ? 1 : 2;
+        if (i + 1 < n) v |= in[i + 1] << 8;
+        buf[o++] = tab[(v >> 18) & 63]; buf[o++] = tab[(v >> 12) & 63];
+        buf[o++] = pad == 1 ? tab[(v >> 6) & 63] : '=';
+        buf[o++] = '=';
+    }
+    buf[o] = '\0';
+    *out = buf;
+    return TRUE;
+}
+
+/* XML 文本转义（& < > ' " 追加进 buf，容量不足截断） */
+static void toast_xml_escape(const char *s, char *buf, size_t cap) {
+    size_t o = 0, i;
+    for (i = 0; s[i] && o + 8 < cap; i++) {
+        const char *rep = NULL;
+        if (s[i] == '&') rep = "&amp;";
+        else if (s[i] == '<') rep = "&lt;";
+        else if (s[i] == '>') rep = "&gt;";
+        else if (s[i] == '\'') rep = "&apos;";
+        else if (s[i] == '"') rep = "&quot;";
+        if (rep) {
+            size_t l = strlen(rep);
+            if (o + l + 1 >= cap) break;
+            memcpy(buf + o, rep, l);
+            o += l;
+        } else {
+            buf[o++] = s[i];
+        }
+    }
+    buf[o] = '\0';
+}
 
 int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
                                 char *err, int err_len) {
-    (void)h; (void)title; (void)body;
-    if (err && err_len > 0) {
-        serial_err(err, err_len, "%s", "notification: 本平台未实现（Windows 桩阶段）");
+    char t_esc[1024];
+    char b_esc[16384];
+    char *script;      /* UTF-8 PowerShell 脚本 */
+    char *b64;         /* -EncodedCommand 载荷 */
+    unsigned char *u16;
+    size_t n16 = 0, slen, i;
+    wchar_t *cmdline;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    BOOL ok;
+
+    (void)h;
+    toast_xml_escape(title ? title : "", t_esc, sizeof(t_esc));
+    toast_xml_escape(body ? body : "", b_esc, sizeof(b_esc));
+
+    slen = strlen(t_esc) + strlen(b_esc) + 512;
+    script = (char *)malloc(slen);
+    if (!script) {
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "notification: out of memory");
+        return -3;
     }
-    return -4;
+    snprintf(script, slen,
+             "$a='{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
+             "[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,"
+             "ContentType=WindowsRuntime]>$null;"
+             "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+             "[Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+             "$x=$t.GetElementsByTagName('text');"
+             "$x.Item(0).AppendChild($t.CreateTextNode('%s'))|Out-Null;"
+             "$x.Item(1).AppendChild($t.CreateTextNode('%s'))|Out-Null;"
+             "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($a)"
+             ".Show([Windows.UI.Notifications.ToastNotification]::new($t))",
+             t_esc, b_esc);
+
+    /* UTF-8 → UTF-16LE → base64（-EncodedCommand 的口径） */
+    u16 = (unsigned char *)malloc((slen + 1) * 2);
+    if (!u16) {
+        free(script);
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "notification: out of memory");
+        return -3;
+    }
+    for (i = 0; i < slen; i++) {
+        unsigned char c = (unsigned char)script[i];
+        if (c < 0x80) {
+            u16[n16++] = c; u16[n16++] = 0;
+        } else {
+            /* 非 ASCII（如中文标题）：走 MultiByteToWideChar，别手工拆 UTF-8 */
+            wchar_t *w = utf8_to_wide(script);
+            if (!w) { free(u16); free(script); return -3; }
+            n16 = 0;
+            for (i = 0; w[i]; i++) {
+                u16[n16++] = (unsigned char)(w[i] & 0xFF);
+                u16[n16++] = (unsigned char)((w[i] >> 8) & 0xFF);
+            }
+            free(w);
+            break;
+        }
+    }
+    free(script);
+    if (!toast_b64(u16, n16, &b64)) {
+        free(u16);
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "notification: out of memory");
+        return -3;
+    }
+    free(u16);
+
+    cmdline = (wchar_t *)malloc((strlen(b64) + 128) * sizeof(wchar_t));
+    if (!cmdline) {
+        free(b64);
+        if (err && err_len > 0) serial_err(err, err_len, "%s", "notification: out of memory");
+        return -3;
+    }
+    /* 手拼宽串：mingw 的 swprintf %s 在默认方言里收 char*（AGENTS §4），base64 是纯 ASCII
+       逐字节提升即可，不经过任何 printf 家族，避免方言歧义。 */
+    {
+        wchar_t prefix[] = L"powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ";
+        size_t plen = wcslen(prefix);
+        wcscpy(cmdline, prefix);
+        for (i = 0; b64[i]; i++) {
+            cmdline[plen + i] = (wchar_t)(unsigned char)b64[i];
+        }
+        cmdline[plen + i] = 0;
+    }
+    free(b64);
+
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    ZeroMemory(&pi, sizeof(pi));
+    ok = CreateProcessW(NULL, cmdline, NULL, NULL, FALSE,
+                        CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    free(cmdline);
+    if (!ok) {
+        if (err && err_len > 0) {
+            serial_err(err, err_len, "notification: CreateProcessW failed (%lu)",
+                       (unsigned long)GetLastError());
+        }
+        return -3;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return 0;
 }
 
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -801,8 +989,25 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             free(m);
         }
         return 0;
+    case WM_CJT_DRAG_DROP: {
+        /* 运行期挂/摘拖放：OLE 注册只能在建它的 STA（宿主 UI 线程）上做 */
+        drag_drop_msg *m = (drag_drop_msg *)lp;
+        if (m) {
+            if (p) {
+                drag_dest_apply(h, p, m->enabled);
+            }
+            free(m);
+        }
+        return 0;
+    }
     case WM_DESTROY:
         if (p) {
+            /* 拖放目标先摘：RevokeDragDrop 释放系统对我们 COM 对象的引用 */
+            drag_dest_apply(h, p, 0);
+            if (p->drop_target) {
+                p->drop_target->lpVtbl->Release(p->drop_target);
+                p->drop_target = NULL;
+            }
             p->hwnd = NULL; /* 窗口没了：别再往它 PostMessage */
         }
         /* 置 should_quit + 触发 onDestroy（每个宿主恰好一次）+ 作废进行中的对话框 */
@@ -1410,17 +1615,195 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
-    /* 本平台的静态能力：菜单栏已落地；拖放 7.B Windows 侧未实现（IDropTarget 待做），如实不置位；
-       托盘按用户裁定暂缓；通知未实现（见 cj_plat_notification_notify），不置 CJ_CAP_NOTIFICATION */
-    return CJ_CAP_MENU;
+    /* 本平台的静态能力：菜单栏、拖放（OLE IDropTarget）、通知（PowerShell toast）已落地；
+       托盘按用户裁定暂缓，不置 CJ_CAP_TRAY */
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
 }
 
-/* 拖放策略（7.B Windows 侧）：桩——同名同签名保住上层零平台分支，实现在 Windows 实机轮补
-   （届时 IDropTarget + put_AllowExternalDrop(FALSE)，见 RFC-002 §7.B）。 */
+/* IDropTarget COM 对象（mingw C 模式，与文件里其余 COM 对象同风格）。
+   iface 必须在首位：RegisterDragDrop 收的就是 IDropTarget*。 */
+typedef struct cjt_drop_target {
+    IDropTarget iface;
+    LONG refcount;
+    cj_host *h;   /* 回投宿主：Drop 落地时交 core（宿主销毁前必然先 Revoke，见 WM_DESTROY） */
+} cjt_drop_target;
+
+static HRESULT STDMETHODCALLTYPE drop_QueryInterface(IDropTarget *This, REFIID riid, void **ppv) {
+    if (!ppv) return E_POINTER;
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IDropTarget)) {
+        *ppv = This;
+        This->lpVtbl->AddRef(This);
+        return S_OK;
+    }
+    *ppv = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE drop_AddRef(IDropTarget *This) {
+    cjt_drop_target *t = (cjt_drop_target *)This;
+    return (ULONG)InterlockedIncrement(&t->refcount);
+}
+
+static ULONG STDMETHODCALLTYPE drop_Release(IDropTarget *This) {
+    cjt_drop_target *t = (cjt_drop_target *)This;
+    ULONG rc = (ULONG)InterlockedDecrement(&t->refcount);
+    if (rc == 0) {
+        free(t);
+    }
+    return rc;
+}
+
+/* Drop 的载荷只认 CF_HDROP：拖进来的如果是别的东西（文本等），v1 如实不收 */
+static const FORMATETC g_drop_fmt = { CF_HDROP, NULL, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+
+static HRESULT STDMETHODCALLTYPE drop_DragEnter(IDropTarget *This, IDataObject *dobj,
+                                                DWORD key_state, POINTL pt, DWORD *effect) {
+    (void)This; (void)key_state; (void)pt;
+    *effect = (dobj && dobj->lpVtbl->QueryGetData(dobj, (FORMATETC *)&g_drop_fmt) == S_OK)
+                  ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE drop_DragOver(IDropTarget *This, DWORD key_state, POINTL pt,
+                                               DWORD *effect) {
+    (void)This; (void)key_state; (void)pt;
+    *effect = DROPEFFECT_COPY; /* 光标策略沿用 DragEnter 的判定；这里保持 COPY */
+    return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE drop_DragLeave(IDropTarget *This) {
+    (void)This;
+    return S_OK;
+}
+
+/* 把一个宽字符路径转成 file:/// URI（百分号编码，'\' → '/'）。
+   core 的 drop_uri_to_path 会剥 file:// 前缀并解码 %XX——两平台同一出口。 */
+static void drop_append_uri(char **buf, size_t *cap, size_t *len, const wchar_t *path) {
+    static const char hex[] = "0123456789ABCDEF";
+    char *utf8 = wide_to_utf8(path);
+    size_t i;
+    if (!utf8) return;
+    if (*len + strlen(utf8) * 3 + 12 > *cap) { /* 超出总量上限：丢弃这一条 */
+        free(utf8);
+        return;
+    }
+    *len += (size_t)snprintf(*buf + *len, 9, "file:///");
+    for (i = 0; utf8[i]; i++) {
+        unsigned char c = (unsigned char)utf8[i];
+        if (c == '\\') {
+            (*buf)[(*len)++] = '/';
+        } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+                   strchr("-._~/", c)) {
+            (*buf)[(*len)++] = (char)c;
+        } else {
+            (*buf)[(*len)++] = '%';
+            (*buf)[(*len)++] = hex[c >> 4];
+            (*buf)[(*len)++] = hex[c & 0x0F];
+        }
+    }
+    (*buf)[(*len)++] = '\n';
+    free(utf8);
+}
+
+static HRESULT STDMETHODCALLTYPE drop_Drop(IDropTarget *This, IDataObject *dobj,
+                                           DWORD key_state, POINTL pt, DWORD *effect) {
+    cjt_drop_target *t = (cjt_drop_target *)This;
+    STGMEDIUM stg;
+    (void)key_state; (void)pt;
+    *effect = DROPEFFECT_COPY;
+    if (!dobj || FAILED(dobj->lpVtbl->GetData(dobj, (FORMATETC *)&g_drop_fmt, &stg))) {
+        return S_OK;
+    }
+    if (stg.hGlobal) {
+        HDROP hd = (HDROP)stg.hGlobal;
+        UINT i, count = DragQueryFileW(hd, 0xFFFFFFFF, NULL, 0);
+        size_t cap = 32 * (12 + 3 * 4096) + 1; /* 与 core 的上限同量级（32 个 × 4096 字节） */
+        char *list = (char *)malloc(cap);
+        size_t len = 0;
+        if (list) {
+            for (i = 0; i < count; i++) {
+                UINT wlen = DragQueryFileW(hd, i, NULL, 0);
+                wchar_t *wpath;
+                if (wlen == 0 || wlen > 32768) continue;
+                wpath = (wchar_t *)malloc((wlen + 1) * sizeof(wchar_t));
+                if (!wpath) continue;
+                if (DragQueryFileW(hd, i, wpath, wlen + 1) > 0) {
+                    drop_append_uri(&list, &cap, &len, wpath);
+                }
+                free(wpath);
+            }
+            if (len > 0) {
+                list[len] = '\0';
+                cj_core_drop_files(t->h, list); /* 解码 / 上限 / 报文都在 core */
+            }
+            free(list);
+        }
+        DragFinish(hd);
+    }
+    if (stg.pUnkForRelease) {
+        stg.pUnkForRelease->lpVtbl->Release(stg.pUnkForRelease);
+    }
+    return S_OK;
+}
+
+static IDropTargetVtbl g_drop_vtbl = {
+    drop_QueryInterface, drop_AddRef, drop_Release,
+    drop_DragEnter, drop_DragOver, drop_DragLeave, drop_Drop
+};
+
+/* 对一个子窗口（含间接后代）撤销 WebView2 自己的目标并注册我们的 */
+static BOOL CALLBACK drop_inject_child(HWND child, LPARAM lp) {
+    IDropTarget *t = (IDropTarget *)lp;
+    /* WebView2 已注册了自己的 drop target：先撤销再覆盖（没有注册时撤销失败，忽略） */
+    RevokeDragDrop(child);
+    return SUCCEEDED(RegisterDragDrop(child, t)) ? TRUE : TRUE;
+}
+
+static BOOL CALLBACK drop_revoke_child(HWND child, LPARAM lp) {
+    (void)lp;
+    RevokeDragDrop(child);
+    return TRUE;
+}
+
+/* 挂/摘拖放目标（只在宿主 UI 线程调）：enabled=0 摘除。挂时枚举全部子窗口逐个覆盖。 */
+static void drag_dest_apply(cj_host *h, plat_host *p, int enabled) {
+    if (!p || !p->hwnd) return;
+    if (enabled) {
+        if (!p->drop_target) {
+            cjt_drop_target *t = (cjt_drop_target *)calloc(1, sizeof(cjt_drop_target));
+            if (!t) return;
+            t->iface.lpVtbl = &g_drop_vtbl;
+            t->refcount = 1;
+            t->h = h;
+            p->drop_target = &t->iface;
+        }
+        EnumChildWindows(p->hwnd, drop_inject_child, (LPARAM)p->drop_target);
+        fprintf(stderr, "[cj-bridge] drag dest attached (CF_HDROP)\n");
+    } else {
+        EnumChildWindows(p->hwnd, drop_revoke_child, 0);
+        fprintf(stderr, "[cj-bridge] drag dest detached\n");
+    }
+}
+
+/* 拖放策略（7.B Windows 真实现）：与 Linux 侧同签名同语义——
+   未就绪（窗口还没建）时 core 已把策略写进 h->pending_drop_*，controller 建好时读；
+   就绪后投 UI 线程重挂（Windows 的 OLE 注册表项只能在建它的 STA 线程碰）。 */
 void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
-    (void)h;
-    fprintf(stderr, "[cj-bridge] drag drop (windows stub): enabled=%d files=%d (not implemented)\n",
-            enabled ? 1 : 0, files ? 1 : 0);
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    (void)files; /* v1 载荷只有「文件列表」一种形态，files 开关不改变 Windows 侧的注册方式 */
+    if (!p || !p->hwnd) {
+        return;
+    }
+    {
+        drag_drop_msg *m = (drag_drop_msg *)calloc(1, sizeof(drag_drop_msg));
+        if (!m) return;
+        m->enabled = enabled ? 1 : 0;
+        if (!PostMessageW(p->hwnd, WM_CJT_DRAG_DROP, 0, (LPARAM)m)) {
+            fprintf(stderr, "[cj-bridge] drag drop post failed: %lu\n",
+                    (unsigned long)GetLastError());
+            free(m);
+        }
+    }
 }
 
 /* =========================================================================

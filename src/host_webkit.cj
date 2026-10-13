@@ -263,6 +263,13 @@ public class WebKitHost <: WebViewHost {
     }
 
     public func showFileDialog(save: Bool, title: String, filter: String): String {
+        return this.showFileDialogPreset(save, title, filter, "")
+    }
+
+    public func showFileDialogPreset(save: Bool, title: String, filter: String,
+                                     defaultName: String): String {
+        // GTK 轮未接预置文件名（自动化取证只在 Windows 侧做）：如实降级为普通文件框
+        let _ = defaultName
         var kind: Int32 = 0
         if (save) {
             kind = 1

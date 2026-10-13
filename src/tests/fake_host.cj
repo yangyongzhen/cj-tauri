@@ -103,6 +103,13 @@ class FakeHost <: WebViewHost {
         return ""
     }
 
+    public func showFileDialogPreset(save: Bool, title: String, filter: String,
+                                     defaultName: String): String {
+        // 记痕带预置名：多窗取证靠它断言「本窗拿到的是本窗预置的名字」
+        this.fileDialogArgs = "${save}|${title}|${filter}|${defaultName}"
+        return ""
+    }
+
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         this.messageDialogArgs = "${kind}|${title}|${message}"
         return false

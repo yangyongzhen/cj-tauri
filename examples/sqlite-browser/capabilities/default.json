@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["report", "system:version"],
+  "permissions": ["sqlite:default"],
+  "scopes": {
+    "sqlite": {
+      "allow": ["$CWD/**", "$TEMP/**"],
+      "deny": []
+    }
+  },
+  "events": []
+}

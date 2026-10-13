@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cj-tauri SQLite 浏览器</title>
+<style>
+/* ============================================================
+ * 单页深色主题：左边库对象、右上数据网格、右下 SQL 调试台。
+ * 布局用 grid + flex，**每个会收缩的容器都显式写 min-width:0**——
+ * 这是 AGENTS §4 用真金白银换来的教训（标题默认参与收缩，窄一点就折行）。
+ * ============================================================ */
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --panel-2: #21252c;
+  --line: #2c313a;
+  --text: #d7dce3;
+  --dim: #8b939f;
+  --accent: #4ea1ff;
+  --accent-dim: #2b5d94;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --err: #f85149;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  overflow: hidden;
+}
+
+/* 三行布局：顶栏 / 主体 / 状态栏。主体再切「侧栏 + 工作区」 */
+#app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+}
+
+/* ---------- 顶栏 ---------- */
+#topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+#title {
+  flex: 0 0 auto;           /* 标题不参与收缩（否则会被挤断词） */
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 14px;
+}
+#title .sub {
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 12px;
+  margin-left: 6px;
+}
+#path {
+  flex: 1 1 auto;
+  min-width: 0;             /* 让输入框先收缩，而不是把标题挤扁 */
+  padding: 6px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+#path:focus { outline: none; border-color: var(--accent-dim); }
+
+button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent-dim); color: #fff; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent-dim); border-color: var(--accent-dim); color: #fff; }
+button.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+
+/* ---------- 主体 ---------- */
+#main {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 0;            /* 关键：不加这行，子网格会撑破视口、滚动条消失 */
+}
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+.panel-title {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+#objects {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 6px;
+}
+.obj {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.obj:hover { background: var(--panel-2); }
+.obj.active { background: var(--accent-dim); }
+.obj .name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.obj .meta { flex: 0 0 auto; color: var(--dim); font-size: 11px; }
+.obj.kind-view .name { font-style: italic; }
+
+/* 工作区：上「数据」下「控制台」，用一个可拖高度的手感就靠 flex 比例 */
+#work {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#pane-data { flex: 3 1 0; }
+#pane-console { flex: 2 1 0; border-top: 1px solid var(--line); }
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.pane-head .label { flex: 0 0 auto; white-space: nowrap; font-weight: 600; }
+.pane-head .spacer { flex: 1 1 auto; min-width: 0; }
+.pane-head .meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* ---------- 表格 ---------- */
+.grid-wrap { flex: 1 1 auto; overflow: auto; min-height: 0; }
+table.grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+table.grid th, table.grid td {
+  padding: 4px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 420px;
+}
+table.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.grid thead th.sortable { cursor: pointer; }
+table.grid thead th.sortable:hover { color: #fff; }
+table.grid thead th .arrow { color: var(--accent); margin-left: 4px; }
+table.grid thead th .coltype {
+  display: block;
+  color: var(--dim);
+  font-weight: 400;
+  font-size: 10px;
+}
+table.grid tbody tr:nth-child(even) { background: #191c22; }
+table.grid tbody tr:hover { background: #232833; }
+table.grid td.rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  color: var(--dim);
+  text-align: right;
+  white-space: nowrap;
+}
+table.grid tbody tr:nth-child(even) td.rownum { background: #191c22; }
+
+/* 单元格按类型上色：**看一眼就知道这格是数字还是文本**（D-018 第 7 条） */
+td.c-int { color: #79c0ff; }
+td.c-float { color: #d2a8ff; }
+td.c-text { color: var(--text); }
+td.c-blob { color: var(--warn); font-style: italic; }
+td.c-null { color: var(--dim); font-style: italic; }
+td.c-unknown { color: var(--err); }
+
+.tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  white-space: nowrap;
+  background: var(--panel-2);
+  color: var(--dim);
+  border: 1px solid var(--line);
+}
+.tag.warn { color: var(--warn); border-color: #4a3a12; }
+.tag.ok { color: var(--ok); border-color: #17391f; }
+
+.empty {
+  padding: 22px;
+  color: var(--dim);
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ---------- SQL 控制台 ---------- */
+#sql {
+  flex: 0 0 auto;
+  height: 92px;
+  margin: 8px 12px 6px;
+  padding: 8px 10px;
+  background: #101216;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: #e6edf3;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+#sql:focus { outline: none; border-color: var(--accent-dim); }
+
+#console-msg {
+  flex: 0 0 auto;
+  min-height: 18px;
+  padding: 0 12px 6px;
+  font-size: 12px;
+  color: var(--dim);
+  font-family: var(--mono);
+}
+#console-msg.err { color: var(--err); }
+#console-msg.ok { color: var(--ok); }
+
+/* ---------- 状态栏 / 提示 ---------- */
+#statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11px;
+}
+#statusbar .spacer { flex: 1 1 auto; min-width: 0; }
+#statusbar .busy { color: var(--accent); }
+
+#toast {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  max-width: 460px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #2a1f20;
+  border: 1px solid var(--err);
+  color: #ffdcd8;
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+  display: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- 顶栏：标题 flex:0 0 auto 不参与收缩，输入框 min-width:0 先收缩（AGENTS §4 的折行教训） -->
+  <header id="topbar">
+    <div id="title">SQLite 浏览器<span class="sub" id="ver"></span></div>
+    <input id="path" spellcheck="false" placeholder="库文件路径（相对路径按应用工作目录解析）">
+    <button id="btn-open" class="primary">打开</button>
+    <button id="btn-reload">重读</button>
+  </header>
+
+  <div id="main">
+    <aside id="sidebar">
+      <div class="panel-title">库对象</div>
+      <div id="objects"><div class="empty">还没打开库</div></div>
+    </aside>
+
+    <section id="work">
+      <div class="pane" id="pane-data">
+        <div class="pane-head">
+          <span class="label" id="table-label">未选表</span>
+          <span class="meta" id="data-meta"></span>
+          <span class="spacer"></span>
+          <button id="btn-prev" disabled>上一页</button>
+          <button id="btn-next" disabled>下一页</button>
+          <button id="btn-schema" disabled>结构</button>
+        </div>
+        <div class="grid-wrap" id="data-wrap">
+          <div class="empty">在左边选一张表看数据；表头可点排序</div>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-console">
+        <div class="pane-head">
+          <span class="label">SQL 调试台</span>
+          <span class="meta" id="console-hint">「运行」走只读连接；要写库用「执行（可写）」</span>
+          <span class="spacer"></span>
+          <button id="btn-run">运行</button>
+          <button id="btn-run-write">执行（可写）</button>
+          <button id="btn-clear">清空</button>
+        </div>
+        <textarea id="sql" spellcheck="false"
+          placeholder="SELECT name, type FROM sqlite_master WHERE type = 'table';"></textarea>
+        <div id="console-msg"></div>
+        <div class="grid-wrap" id="console-wrap"></div>
+      </div>
+    </section>
+  </div>
+
+  <footer id="statusbar">
+    <span id="st-db">未打开库</span>
+    <span id="st-sqlite"></span>
+    <span class="spacer"></span>
+    <span id="st-busy"></span>
+  </footer>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+ * SQLite 浏览器前端
+ *
+ * 页面里**一次 fetch 都没有**：库文件的每一字节都经 IPC 由仓颉侧读取（这也是本示例的意义——
+ * 只有宿主进程才碰得到文件系统）。桥由 document-start 注入，但页面不该假设它「已经在」，
+ * 所以初始化先 waitForBridge（AGENTS §4 那条：模块作用域直接读桥会拿到 undefined）。
+ * ============================================================ */
+(function () {
+  'use strict';
+
+  var PAGE_LIMIT = 50;
+
+  var state = {
+    env: null,        // sqlite:env 的回投：自检开关 / 夹具路径 / 页上限
+    db: '',           // 当前库路径（原样，规范化与白名单由宿主侧 scope 负责）
+    info: null,
+    objects: [],      // [{name, kind, rows, columns}]
+    table: null,
+    columns: [],
+    offset: 0,
+    total: 0,
+    rows: [],
+    orderBy: '',
+    desc: false,
+    busy: false
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function waitForBridge(cb) {
+    var tries = 0;
+    (function tick() {
+      if (window.__CJ_TAURI__ && typeof window.__CJ_TAURI__.invoke === 'function') { cb(); return; }
+      if (++tries > 400) { showToast('桥没有出现（页面早于 document-start 脚本执行？）'); return; }
+      setTimeout(tick, 25);
+    })();
+  }
+
+  function invoke(cmd, args) { return window.__CJ_TAURI__.invoke(cmd, args || {}); }
+
+  function report(line) { invoke('report', { line: line }).catch(function () {}); }
+
+  function showToast(msg) {
+    var t = $('toast');
+    t.textContent = String(msg);
+    t.style.display = 'block';
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(function () { t.style.display = 'none'; }, 6000);
+  }
+
+  function setBusy(text) {
+    state.busy = !!text;
+    $('st-busy').textContent = text || '';
+    $('st-busy').className = text ? 'busy' : '';
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function fmtBytes(n) {
+    if (typeof n !== 'number' || n < 0) { return '?'; }
+    if (n < 1024) { return n + ' B'; }
+    if (n < 1024 * 1024) { return (n / 1024).toFixed(1) + ' KiB'; }
+    return (n / 1024 / 1024).toFixed(2) + ' MiB'; 
+  }
+
+  /** 单元格渲染：插件的每一格是 {type, value?, bytes?, truncated?}，按类型上色（D-018 第 7 条） */
+  function cellHtml(cell) {
+    var type = cell.type || 'unknown';
+    var cls = 'c-' + type;
+    if (type === 'null') { return '<td class="c-null" title="null">NULL</td>'; }
+    if (type === 'blob') {
+      var b = (typeof cell.bytes === 'number') ? cell.bytes : 0;
+      return '<td class="c-blob" title="blob">BLOB ' + b + ' B</td>';
+    }
+    var text = (cell.value === undefined) ? '' : String(cell.value);
+    var shown = esc(text);
+    if (text.length === 0) { shown = '<span style="color:var(--dim)">(空串)</span>'; }
+    if (cell.truncated) {
+      shown += ' <span class="tag warn" title="单元格超过上限，只回投了前段">截断 ' + fmtBytes(cell.bytes || 0) + '</span>';
+    }
+    return '<td class="' + cls + '">' + shown + '</td>';
+  }
+
+  /** 数据网格：列名来自 columns（page 的 columns 带类型，query 的只带名字） */
+  function gridHtml(columns, rows) {
+    var head = '<tr><th class="rownum">#</th>';
+    for (var i = 0; i < columns.length; i++) {
+      var c = columns[i];
+      var sortable = (state.table && c.name) ? ' sortable' : '';
+      var arrow = '';
+      if (state.orderBy && state.orderBy === c.name) { arrow = '<span class="arrow">' + (state.desc ? '▼' : '▲') + '</span>'; }
+      var decl = c.declType ? '<span class="coltype">' + esc(c.declType || '—') + (c.pk ? ' · PK' : '') + '</span>' : '';
+      head += '<th class="' + sortable.trim() + '" data-col="' + esc(c.name || '') + '">' + esc(c.name || '') + arrow + decl + '</th>';
+    }
+    head += '</tr>';
+
+    var body = '';
+    for (var r = 0; r < rows.length; r++) {
+      body += '<tr><td class="rownum">' + (state.offset + r + 1) + '</td>';
+      var row = rows[r];
+      for (var k = 0; k < row.length; k++) { body += cellHtml(row[k]); }
+      body += '</tr>';
+    }
+    return '<table class="grid"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  }
+
+  function emptyHtml(text) { return '<div class="empty">' + esc(text) + '</div>'; }
+
+  function setConsoleMsg(text, kind) {
+    var el = $('console-msg');
+    el.textContent = text || '';
+    el.className = kind || '';
+  }
+
+  function errText(e) {
+    if (!e) { return '未知错误'; }
+    return (e.message !== undefined) ? String(e.message) : String(e);
+  }
+
+  /** 出错统一提示 + 留一行控制台文案；**失败必须看得见**（AGENTS §4：没抓到 reject 不等于成功） */
+  function fail(where, e) {
+    var msg = where + ' 失败：' + errText(e);
+    setConsoleMsg(msg, 'err');
+    showToast(msg);
+    return msg;
+  }
+
+  // ---------------------------------------------------------------- 数据加载
+
+  function renderObjects() {
+    var box = $('objects');
+    if (!state.objects.length) { box.innerHTML = emptyHtml('这个库里没有表 / 视图'); return; }
+    var html = '';
+    for (var i = 0; i < state.objects.length; i++) {
+      var o = state.objects[i];
+      var cls = 'obj' + (o.kind === 'view' ? ' kind-view' : '') + (o.name === state.table ? ' active' : '');
+      // 视图行数如实显示 -1（插件不拿 0 冒充，见 plugin_sqlite.cj 的注释）
+      var meta = (o.rows >= 0) ? (o.rows + ' 行 · ' + o.columns + ' 列') : ('视图 · ' + o.columns + ' 列');
+      html += '<div class="' + cls + '" data-name="' + esc(o.name) + '">' +
+        '<span class="name">' + esc(o.name) + '</span><span class="meta">' + meta + '</span></div>';
+    }
+    box.innerHTML = html;
+    var nodes = box.querySelectorAll('.obj');
+    for (var k = 0; k < nodes.length; k++) {
+      nodes[k].addEventListener('click', function () { selectTable(this.getAttribute('data-name')); });
+    }
+  }
+
+  function renderStatus() {
+    if (!state.info) { $('st-db').textContent = '未打开库'; $('st-sqlite').textContent = ''; return; }
+    $('st-db').textContent = state.info.path + ' · ' + fmtBytes(state.info.fileBytes) +
+      ' · ' + state.info.tableCount + ' 表';
+    $('st-sqlite').textContent = 'sqlite ' + state.info.sqliteVersion +
+      ' · page_size ' + state.info.pageSize + ' · 只读打开';
+    $('ver').textContent = 'sqlite ' + state.info.sqliteVersion;
+  }
+
+  function renderPageMeta(clamped) {
+    var el = $('data-meta');
+    if (!state.table) { el.textContent = ''; return; }
+    var from = state.rows.length ? (state.offset + 1) : 0;
+    var to = state.offset + state.rows.length;
+    var parts = ['共 ' + state.total + ' 行', '显示 ' + from + '-' + to];
+    if (state.orderBy) { parts.push('按 ' + state.orderBy + (state.desc ? ' 降序' : ' 升序')); }
+    if (clamped) { parts.push('页长已夹到上限'); }
+    el.textContent = parts.join(' · ');
+  }
+
+  function updateButtons() {
+    var has = !!state.table;
+    $('btn-schema').disabled = !has;
+    $('btn-prev').disabled = !has || state.offset <= 0;
+    $('btn-next').disabled = !has || (state.offset + state.rows.length) >= state.total;
+  }
+
+  async function loadObjects() {
+    var res = await invoke('sqlite:tables', { path: state.db });
+    state.objects = res.tables || [];
+    renderObjects();
+  }
+
+  async function openDb(path) {
+    if (!path) { showToast('先填库文件路径'); return false; }
+    setBusy('打开 ' + path + ' …');
+    setConsoleMsg('');
+    try {
+      var info = await invoke('sqlite:info', { path: path });
+      state.db = path;
+      state.info = info;
+      state.table = null;
+      state.rows = [];
+      state.columns = [];
+      state.orderBy = '';
+      state.desc = false;
+      state.offset = 0;
+      state.total = 0;
+      renderStatus();
+      await loadObjects();
+      if (state.objects.length) { await selectTable(state.objects[0].name); }
+      else { $('data-wrap').innerHTML = emptyHtml('这个库里没有表 / 视图'); }
+      setConsoleMsg('已打开 ' + info.path + '（sqlite ' + info.sqliteVersion + '）', 'ok');
+      return true;
+    } catch (e) {
+      state.info = null;
+      renderStatus();
+      fail('打开库', e);
+      return false;
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function selectTable(name) {
+    state.table = name;
+    state.offset = 0;
+    state.orderBy = '';
+    state.desc = false;
+    renderObjects();
+    try {
+      var schema = await invoke('sqlite:schema', { path: state.db, table: name });
+      state.columns = schema.columns || [];
+      $('table-label').textContent = schema.table + '（' + state.columns.length + ' 列）';
+    } catch (e) {
+      fail('读表结构', e);
+      return;
+    }
+    await loadPage();
+  }
+
+  async function loadPage() {
+    if (!state.table) { return; }
+    setBusy('读 ' + state.table + ' …');
+    try {
+      var res = await invoke('sqlite:page', {
+        path: state.db,
+        table: state.table,
+        offset: state.offset,
+        limit: PAGE_LIMIT,
+        orderBy: state.orderBy,
+        desc: state.desc
+      });
+      state.total = res.total;
+      state.rows = res.rows || [];
+      state.columns = (res.columns && res.columns.length) ? res.columns : state.columns;
+      $('data-wrap').innerHTML = state.rows.length
+        ? gridHtml(state.columns, state.rows)
+        : emptyHtml('这张表没有数据');
+      renderPageMeta(res.limitClamped);
+      updateButtons();
+      wireSortHeaders();
+    } catch (e) {
+      $('data-wrap').innerHTML = emptyHtml(errText(e));
+      fail('读数据', e);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  /** 表头点击排序：排序列名由插件按列白名单校验，页面只是把名字递过去 */
+  function wireSortHeaders() {
+    var ths = $('data-wrap').querySelectorAll('th.sortable');
+    for (var i = 0; i < ths.length; i++) {
+      ths[i].addEventListener('click', function () {
+        var col = this.getAttribute('data-col');
+        if (!col) { return; }
+        if (state.orderBy === col) { state.desc = !state.desc; } else { state.orderBy = col; state.desc = false; }
+        state.offset = 0;
+        loadPage();
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------- SQL 调试台
+
+  async function runSql(write) {
+    var sql = $('sql').value.trim();
+    if (!sql) { setConsoleMsg('先写一条 SQL', 'err'); return; }
+    if (!state.db) { setConsoleMsg('先打开一个库', 'err'); return; }
+    setBusy(write ? '执行（可写）…' : '运行…');
+    try {
+      if (write) {
+        var r = await invoke('sqlite:exec', { path: state.db, sql: sql });
+        setConsoleMsg('已执行：影响 ' + r.changes + ' 行 · last_insert_rowid=' + r.lastInsertRowid, 'ok');
+        $('console-wrap').innerHTML = emptyHtml('写语句没有结果集；表数据已变，左边行数与数据网格请在「重读」后看');
+        await loadObjects();
+        if (state.table) { await loadPage(); }
+      } else {
+        var res = await invoke('sqlite:query', { path: state.db, sql: sql });
+        var cols = res.columns || [];
+        $('console-wrap').innerHTML = res.rows.length
+          ? gridHtml(cols, res.rows)
+          : emptyHtml('这条语句没有返回行（' + res.rowCount + ' 行）');
+        var note = '返回 ' + res.rowCount + ' 行' + (res.truncated ? '（已截断到 ' + res.limit + ' 行）' : '');
+        setConsoleMsg(note, 'ok');
+      }
+    } catch (e) {
+      $('console-wrap').innerHTML = emptyHtml(errText(e));
+      fail(write ? '执行' : '运行', e);
+    } finally {
+      setBusy('');
+    }
+  }
+
+  // ---------------------------------------------------------------- 事件绑定与启动
+
+  function wireEvents() {
+    $('btn-open').addEventListener('click', function () { openDb($('path').value.trim()); });
+    $('btn-reload').addEventListener('click', function () { openDb($('path').value.trim()); });
+    $('path').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { openDb($('path').value.trim()); }
+    });
+    $('btn-prev').addEventListener('click', function () {
+      state.offset = Math.max(0, state.offset - PAGE_LIMIT);
+      loadPage();
+    });
+    $('btn-next').addEventListener('click', function () {
+      state.offset = state.offset + PAGE_LIMIT;
+      loadPage();
+    });
+    $('btn-schema').addEventListener('click', async function () {
+      if (!state.table) { return; }
+      try {
+        var schema = await invoke('sqlite:schema', { path: state.db, table: state.table });
+        var lines = ['-- ' + schema.table + '（' + schema.rowCount + ' 行）'];
+        lines.push(schema.sql || '(没有建表原文：可能是视图)');
+        for (var i = 0; i < (schema.indexes || []).length; i++) {
+          var ix = schema.indexes[i];
+          lines.push('-- 索引 ' + ix.name + (ix.unique ? '（唯一）' : '') + ' · origin=' + ix.origin);
+        }
+        $('sql').value = lines.join('\n');
+        setConsoleMsg('结构已填进调试台（按需修改后运行）', 'ok');
+      } catch (e) { fail('读结构', e); }
+    });
+    $('btn-run').addEventListener('click', function () { runSql(false); });
+    $('btn-run-write').addEventListener('click', function () { runSql(true); });
+    $('btn-clear').addEventListener('click', function () {
+      $('sql').value = '';
+      $('console-wrap').innerHTML = '';
+      setConsoleMsg('');
+    });
+    $('sql').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); runSql(false); }
+    });
+  }
+
+  // ---------------------------------------------------------------- 页内自检
+  /*
+   * 只在 CJ_SQLITE_SELFCHECK=1 时跑（宿主经 sqlite:env 转交）。
+   * 每条断言一行 `[sqlite-selfcheck] PASS|FAIL <名> <细节>`；最后一行是计数汇总。
+   * **判据是计数一致，不是行序**——report 是异步回投，行序不保证（AGENTS §4）。
+   * 断言里的期望值全部对着夹具库（scripts/e2e/… 里由 python3 生成）写死，可复现。
+   */
+  var sc = { pass: 0, fail: 0 };
+
+  async function reportLine(line) {
+    try { await invoke('report', { line: line }); } catch (e) { /* 自检不该因回投失败中断 */ }
+  }
+
+  function pass(name, detail) { sc.pass += 1; return reportLine('[sqlite-selfcheck] PASS ' + name + ' ' + detail); }
+  function failSc(name, detail) { sc.fail += 1; return reportLine('[sqlite-selfcheck] FAIL ' + name + ' ' + detail); }
+
+  async function expectEq(name, got, want) {
+    if (String(got) === String(want)) { await pass(name, 'got=' + got); }
+    else { await failSc(name, 'got=' + got + ' want=' + want); }
+  }
+
+  async function expectTrue(name, cond, detail) {
+    if (cond) { await pass(name, detail || 'true'); }
+    else { await failSc(name, detail || 'false'); }
+  }
+
+  /** 断言「必须被拒绝」的调用：拿回来的文案要是对端真的拒绝原文，不是随便一个异常 */
+  async function expectReject(name, fn, needle) {
+    try {
+      await fn();
+      await failSc(name, 'unexpectedly resolved');
+    } catch (e) {
+      var msg = errText(e);
+      if (msg.indexOf(needle) >= 0) { await pass(name, 'rejected: ' + msg); }
+      else { await failSc(name, 'wrong error: ' + msg); }
+    }
+  }
+
+  async function runSelfCheck() {
+    var e = state.env || {};
+    await expectTrue('env.selfcheck', e.selfCheck === true, 'selfCheck=' + e.selfCheck);
+    await expectTrue('env.fixture', String(e.fixture || '').indexOf('fixture.db') > 0, 'fixture=' + e.fixture);
+    if (!state.info) {
+      await failSc('open.fixture', 'info is null — 夹具库没打开，后面都对不了账');
+      return;
+    }
+    await expectEq('info.version.major', String(state.info.sqliteVersion || '').split('.')[0], '3');
+    await expectEq('info.tableCount', state.info.tableCount, 3);
+    await expectTrue('info.pageSize.positive', state.info.pageSize > 0, 'page_size=' + state.info.pageSize);
+    await expectTrue('info.attachBlocked', state.info.attachBlocked === true, 'attachBlocked=' + state.info.attachBlocked);
+
+    // 对象清单：三张表 + 一个视图；**视图行数如实 -1**（不拿 0 冒充）
+    await expectEq('objects.count', state.objects.length, 4);
+    var by = {};
+    for (var i = 0; i < state.objects.length; i++) { by[state.objects[i].name] = state.objects[i]; }
+    await expectEq('objects.artists.rows', by.artists ? by.artists.rows : 'missing', 3);
+    await expectEq('objects.albums.rows', by.albums ? by.albums.rows : 'missing', 5);
+    await expectEq('objects.notes.rows', by.notes ? by.notes.rows : 'missing', 1);
+    await expectEq('objects.view.kind', by.v_album_titles ? by.v_album_titles.kind : 'missing', 'view');
+    await expectEq('objects.view.rows', by.v_album_titles ? by.v_album_titles.rows : 'missing', -1);
+
+    // 结构
+    var schema = await invoke('sqlite:schema', { path: state.db, table: 'artists' });
+    await expectEq('schema.artists.columns', (schema.columns || []).length, 3);
+    await expectEq('schema.artists.pk', schema.columns[0].pk === true ? schema.columns[0].name : 'no-pk', 'id');
+    await expectTrue('schema.artists.sql', String(schema.sql || '').indexOf('CREATE TABLE') >= 0,
+      'sql=' + String(schema.sql || '').split('\n')[0]);
+
+    // 分页：总数 / 单元格类型 / 排序 / 页长夹紧
+    var artists = await invoke('sqlite:page', { path: state.db, table: 'artists' });
+    await expectEq('page.artists.total', artists.total, 3);
+    await expectEq('page.artists.cell.type', artists.rows[0][1].type, 'text');
+    await expectEq('page.artists.cell.value', artists.rows[0][1].value, '阿炳');
+    var clamped = await invoke('sqlite:page', { path: state.db, table: 'artists', limit: 99999 });
+    await expectEq('page.clamp.limit', clamped.limit, 500);
+    await expectEq('page.clamp.flag', clamped.limitClamped, true);
+    // 排序：按名升序，首位应是 ASCII 最小的 'Bob Dylan'
+    // （**别用降序断言**——BINARY 序下 '阿炳' 最大，降序首位与默认 rowid 序的首位是同一个值，
+    //  那样「排序生效了没有」就证明不了；升序才与默认序区分得开）
+    var sorted = await invoke('sqlite:page', { path: state.db, table: 'artists', orderBy: 'name' });
+    await expectEq('page.sort.asc.first', sorted.rows[0][1].value, 'Bob Dylan');
+    await expectEq('page.sort.asc.last', sorted.rows[2][1].value, '阿炳');
+
+    // 类型映射：NULL / BLOB 各有形状（界面要能说清这格是数字、文本还是字节）
+    var albums = await invoke('sqlite:page', { path: state.db, table: 'albums' });
+    var ratingTypes = '';
+    for (var r = 0; r < albums.rows.length; r++) { ratingTypes += albums.rows[r][4].type + ','; }
+    await expectTrue('page.albums.rating.null', ratingTypes.indexOf('null') >= 0, 'types=' + ratingTypes);
+    await expectEq('page.albums.cover.type', albums.rows[0][5].type, 'blob');
+    await expectEq('page.albums.cover.bytes', albums.rows[0][5].bytes, 4);
+
+    // 大文本单元格：超上限只给前段 + 如实标 truncated（不静默丢数据）
+    var notes = await invoke('sqlite:page', { path: state.db, table: 'notes' });
+    await expectEq('page.notes.body.truncated', notes.rows[0][1].truncated, true);
+    await expectEq('page.notes.body.length', notes.rows[0][1].value.length, 65536);
+
+    // 调试台：只读连接能跑 SELECT；写语句被**内核级只读**拒绝（不是我们写的检查）
+    var cnt = await invoke('sqlite:query', { path: state.db, sql: 'SELECT COUNT(*) FROM albums' });
+    await expectEq('query.count.rows', cnt.rowCount, 1);
+    await expectEq('query.count.value', cnt.rows[0][0].value, 5);
+    await expectReject('query.write.rejected', function () {
+      return invoke('sqlite:query', { path: state.db,
+        sql: "INSERT INTO artists(name, country) VALUES('偷偷写', 'XX')" });
+    }, 'readonly');
+
+    // 护栏：ATTACH 按**语句**拒（路径 scope 只管得住本命令收到的那个路径，管不住 SQL 里写死的另一个）
+    await expectReject('exec.attach.rejected', function () {
+      return invoke('sqlite:exec', { path: state.db,
+        sql: "ATTACH DATABASE '/tmp/cj-tauri-should-not-exist.db' AS other" });
+    }, 'plugin guard');
+
+    // 写路径：exec 真改到了库；E2E 之后还会用 python3 从**进程外**核对落盘
+    var ins = await invoke('sqlite:exec', { path: state.db,
+      sql: "INSERT INTO artists(name, country) VALUES('自检写入', 'ZZ')" });
+    await expectEq('exec.insert.changes', ins.changes, 1);
+    var after = await invoke('sqlite:query', { path: state.db, sql: 'SELECT COUNT(*) FROM artists' });
+    await expectEq('exec.insert.count.after', after.rows[0][0].value, 4);
+
+    // 越界与坏输入：都必须**被拒绝**，而不是悄悄放行
+    await expectReject('scope.denied', function () {
+      return invoke('sqlite:info', { path: '/etc/hostname' });
+    }, 'outside the authorized scope');
+    await expectReject('page.unknownTable', function () {
+      return invoke('sqlite:page', { path: state.db, table: 'nope' });
+    }, 'no such table');
+    await expectReject('info.missingFile', function () {
+      return invoke('sqlite:info', { path: 'data/does-not-exist.db' });
+    }, 'no such database file');
+  }
+
+  // ---------------------------------------------------------------- 启动
+
+  async function boot() {
+    wireEvents();
+    try {
+      state.env = await invoke('sqlite:env', {});
+    } catch (e) {
+      state.env = null;
+      fail('读启动参数（sqlite:env）', e);
+    }
+    var fixture = (state.env && state.env.fixture) ? state.env.fixture : '';
+    if (fixture) {
+      $('path').value = fixture;
+      await openDb(fixture);
+    } else {
+      var cwd = (state.env && state.env.cwd) ? state.env.cwd : '';
+      setConsoleMsg('填一个库文件路径后点「打开」' + (cwd ? '（进程工作目录：' + cwd + '）' : ''));
+    }
+    if (state.env && state.env.selfCheck) {
+      await reportLine('[sqlite-selfcheck] begin fixture=' + fixture);
+      await runSelfCheck();
+      await reportLine('[sqlite-selfcheck] summary pass=' + sc.pass + ' fail=' + sc.fail);
+    }
+  }
+
+  waitForBridge(boot);
+})();
+</script>
+</body>
+</html>
+

@@ -22,13 +22,20 @@ bash run.sh                      # Linux 一键：pty 对端 + 应用 + 探针�
 手动两种跑法：
 
 ```bash
-# 1) 手动看波形：自己起对端，再开窗口填设备路径
+# 1) 手动看波形：自己起对端，再开窗口（设备是**下拉枚举**出来的，热插拔后点「↻ 刷新」）
 python3 serial-wave-peer.py --write-rx /tmp/wave-rx.bin        # 打印它用的 /dev/pts/N
-./target/release/bin/main                                       # 窗口里填 /dev/pts/N → 连接
+./target/release/bin/main                                       # 下拉里选设备 → 连接
 
-# 2) 探针自检：给了设备路径就自动连接 → SCAN → 收 N 毫秒 → 打统计并自退
+# 2) 探针自检（也是连 pty 对端的推荐姿势）：给了设备路径就自动连接 → SCAN → 收 N 毫秒 → 打统计并自退
 CJ_SERIAL_PROBE_PATH=/dev/pts/N CJ_SERIAL_PROBE_MS=2500 ./target/release/bin/main
+
+#    想在窗口里盯着 pty 对端看波形就加 QUIT=0：不自动退，页面连上后可以手动点「断开 / 连接」重连
+CJ_SERIAL_PROBE_PATH=/dev/pts/N CJ_SERIAL_PROBE_QUIT=0 ./target/release/bin/main
 ```
+
+设备下拉由 `serial:list` 填充：Windows 走 C 桥 `QueryDosDeviceW` 拿到 `COM*`，Linux 枚举
+`/dev/ttyUSB*` 这类设备节点与 `/dev/serial/by-{id,path}/`。**伪终端（`/dev/pts/N`）不在枚举范围**，
+所以连 pty 对端一定要经探针注入路径（会被补进下拉并选中），光靠「↻ 刷新」刷不出来。
 
 探针配置经 **document-start 预执行脚本**注入页面（早于页面脚本），
 环境变量：`CJ_SERIAL_PROBE_PATH` / `_BAUD`（默认 115200）/ `_MS`（默认 2500）/ `_QUIT`（默认 1）。

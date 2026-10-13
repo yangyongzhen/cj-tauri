@@ -1,8 +1,8 @@
 package cjTauri
 
-import std.collection.*
-// 这条 import 在 Windows 侧看是 unused（ArrayList 的用法全在 @When[os == "Linux"] 里被剥掉），
-// 但 Linux 侧必须要有——别按单平台的 warning 清理跨平台文件的 import（48fe433 实测踩过）
+// ArrayList 的用法在 @When[os == "Linux"] 分支里，Windows 侧会报 unused——
+// 故不写文件级 import，下方用 std.collection.ArrayList 限定名（48fe433 实测踩过：
+// 按单平台 warning 清 import 会让对面平台当场编炸）
 
 /**
  * C 桥 FFI 声明（native/libcjtbridge.so）
@@ -108,6 +108,8 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
                                            checked: Int32): Unit
 
 /** 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关） */
+@When[os == "Linux"]
+@C
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
 /**
@@ -151,7 +153,7 @@ public class WebKitHost <: WebViewHost {
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
     // 预执行脚本（插件 jsShim 等）：start 前收集，prepareHost 一次性交给桥，桥在 document-start 注入
-    private var initScripts = ArrayList<String>()
+    private var initScripts = std.collection.ArrayList<String>()
     // 宿主编（C 侧分配）：空指针 = 尚未创建；dispose() 后置空
     private var handle: CPointer<Unit> = CPointer<Unit>()
     // 本窗口的 label（字段名不叫 label：接口有同名方法）。单窗口阶段是常量，

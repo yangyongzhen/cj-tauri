@@ -1,6 +1,7 @@
 package e2efixture
 
 import cjTauri.*
+import cjTauri.plugins.*
 import std.fs.*
 import stdx.encoding.json.*
 
@@ -38,6 +39,12 @@ main(): Int64 {
     let app = TauriApp()
         .window(winCfg)
         .register("probe:echo", ProbeEcho())
+        // 三个插件探针：clipboard（Windows 真实现）/ notification（Windows 桩，如实报失败）/
+        // serial（Windows 真实现：QueryDosDeviceW 枚举 + Win32 API 读写）。
+        // 探针页对每一位各调一次，把「真实现能通 / 桩如实拒绝」都落到证据日志里。
+        .plugin(ClipboardPlugin())
+        .plugin(NotificationPlugin())
+        .plugin(SerialPlugin())
     eprintln("[e2e] fixture-app before run")
     app.run(html)
     eprintln("[e2e] fixture-app after run")

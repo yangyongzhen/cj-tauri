@@ -504,6 +504,12 @@ int cj_bridge_notification_notify(cj_host *h, const char *title, const char *bod
     if (h->window_gone) {
         return -3;
     }
+    /* 平台没声明通知能力（如 Windows 桩阶段）就当场拒绝，别走「发后即忘」：
+       那条路径投递成功就返回 0，UI 线程实际的失败没人带回命令层——桩会被读成成功。 */
+    if (!(h->capabilities & CJ_CAP_NOTIFICATION)) {
+        fprintf(stderr, "[cj-bridge] notification rejected: platform does not declare CJ_CAP_NOTIFICATION\n");
+        return -4;
+    }
     t_copy = (char *)malloc(t_len + 1);
     if (t_copy) {
         memcpy(t_copy, title, t_len + 1);

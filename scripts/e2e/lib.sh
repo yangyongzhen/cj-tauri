@@ -147,7 +147,14 @@ e2e_ensure_sdk() {
       ;;
     windows)
       export PATH="$E2E_ROOT/native:$E2E_ROOT/native/webview2:$CANGJIE_HOME/runtime/lib/windows_x86_64_cjnative:$PATH"
-      if [ -n "${CANGJIE_STDX:-}" ]; then export PATH="$CANGJIE_STDX:$PATH"; fi
+      # CANGJIE_STDX 常被设成盘符形式（D:/...，cjpm.toml 的 path-option 就是这个写法）：
+      # 但 PATH 里的盘符形式条目会破坏 MSYS 的路径转换，依赖运行时 DLL 的原生进程
+      # 轻则找不到 libcjtbridge.dll、重则 127 无输出（AGENTS §4）——进 PATH 前统一转 POSIX。
+      if [ -n "${CANGJIE_STDX:-}" ]; then
+        local stdx_path="$CANGJIE_STDX"
+        command -v cygpath >/dev/null 2>&1 && stdx_path="$(cygpath -u "$CANGJIE_STDX")"
+        export PATH="$stdx_path:$PATH"
+      fi
       ;;
   esac
   return 0
@@ -186,6 +193,12 @@ e2e_finalize() {
 e2e_set_cwd() { E2E_CWD="$1"; }
 
 e2e_run_app() {
+  # Windows：WebView2 的用户数据目录默认在 exe 旁边，两个实例先后运行会撞
+  # `create WebView2 controller failed: 0x800700aa`（目录被上一个残留实例占用）。
+  # WebView2 认 WEBVIEW2_USER_DATA_FOLDER 环境变量——每轮给一个独立目录，运行之间互不锁。
+  if [ "$(e2e_host_platform)" = "windows" ]; then
+    export WEBVIEW2_USER_DATA_FOLDER="$E2E_ROOT/dist/e2e-evidence/.webview2-$E2E_NAME-$$"
+  fi
   ( cd "$E2E_CWD" && exec "$@" ) >>"$E2E_LOG" 2>&1 &
   E2E_APP_PID=$!
   e2e_info "应用已启动 pid=$E2E_APP_PID cwd=$E2E_CWD cmd=$*"
@@ -211,8 +224,17 @@ e2e_wait_log() {
 }
 
 # 先子后父递归 kill：应用会起宿主线程/子进程，只杀父会留下继续写同一份日志的残留实例。
+# Windows 的关键差异：pgrep -P 看不见原生进程（AGENTS §4），WebView2 的 msedgewebview2.exe
+# 收不干净，下一个实例就撞 0x800700aa——所以 Windows 用 taskkill /T 按整棵树杀：
+# 先用 ps -W 把 MSYS pid 映射成 Windows pid，再交给 taskkill 递归。
 e2e_kill_tree() {
-  local pid="$1" child
+  local pid="$1" child winpid
+  if [ "$(e2e_host_platform)" = "windows" ] && command -v taskkill >/dev/null 2>&1; then
+    winpid="$(ps -W 2>/dev/null | awk -v m="$pid" '$1 == m { print $4; exit }')"
+    if [ -n "$winpid" ]; then
+      taskkill //F //T //PID "$winpid" >/dev/null 2>&1 && return 0
+    fi
+  fi
   for child in $(pgrep -P "$pid" 2>/dev/null || true); do
     e2e_kill_tree "$child"
   done

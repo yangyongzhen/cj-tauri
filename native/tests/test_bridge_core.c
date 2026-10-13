@@ -817,6 +817,7 @@ int main(void) {
             g_clip_write_ok = 1;
             /* 通知：参数校验 + 发后即忘（投递即返回 0，平台成败看 stderr）*/
             g_note_calls = 0;
+            hc->capabilities |= CJ_CAP_NOTIFICATION; /* 通知是宿主能力：声明了才走到平台 */
             CHECK(cj_bridge_notification_notify(hc, "", "b") == -1, "空标题被拒");
             CHECK(cj_bridge_notification_notify(hc, NULL, "b") == -1, "NULL 标题被拒");
             {
@@ -832,6 +833,11 @@ int main(void) {
             g_note_ok = 0;
             CHECK(cj_bridge_notification_notify(hc, "x", NULL) == -3, "UI 直行路径平台失败如实回 -3");
             g_note_ok = 1;
+            /* 未声明通知能力的平台（如 Windows 桩）要当场拒绝，不能走「发后即忘」被读成成功 */
+            hc->capabilities &= ~CJ_CAP_NOTIFICATION;
+            g_note_calls = 0;
+            CHECK(cj_bridge_notification_notify(hc, "x", "b") == -4, "未声明能力位如实回 -4");
+            CHECK(g_note_calls == 0, "未声明能力位不触达平台");
             cj_bridge_destroy(hc);
         }
     }

@@ -402,6 +402,21 @@
   `music-library.local.json`）；`taskkill /IM main.exe` 更是把用户那个窗口一并带走。要无人值守验证就
   **复制一份独立副本**（拷 `ui/` + `capabilities/` + `main.exe` + 一个纯 ASCII 的 `check.bat` 设好 `PATH`），
   副本自带自己的数据文件与 WebView2 目录，与真实示例彻底隔离、日志也落副本里——读自己的证据，不打扰用户。
+- **Windows E2E 收尾：`pgrep -P` 杀不干净 WebView2 的子进程**（2026-10-13 实测）：`msedgewebview2.exe`
+  是原生进程，Git Bash 的 `pgrep -P` 看不见——残留实例占住用户数据目录，下一个应用实例当场
+  `create WebView2 controller failed: 0x800700aa`（表象像「窗口起不来」）。两道修法都在 `scripts/e2e/lib.sh`：
+  ① `ps -W` 把 MSYS pid 映射成 Windows pid 后 `taskkill //F //T` 整树杀；② 每轮运行给独立
+  `WEBVIEW2_USER_DATA_FOLDER`（WebView2 认这个环境变量），实例间互不锁。
+- **「发后即忘」返回 0 ≠ 发送成功**（2026-10-13 实测）：通知的异步投递路径「投递成功即返回 0」，
+  UI 线程里平台实际失败没人带回命令层——Windows 桩阶段页面侧拿到「发送成功」而 stderr 打着
+  `-> failed`，靠 E2E 探针页回投结论才暴露。凡异步投递的命令，core 必须在投递前查能力位
+  （`CJ_CAP_*`），平台没声明就当场如实拒绝，不能让「投递成功」冒充「执行成功」。
+- **环境变量里的盘符路径进 PATH 前先 `cygpath -u`**（2026-10-13 实测）：`CANGJIE_STDX` 习惯设成
+  `D:/...`（cjpm.toml 的 path-option 就是这个形式），脚本里直接 `PATH="$CANGJIE_STDX:$PATH"` 会让
+  MSYS 路径转换破掉，依赖运行时 DLL 的进程找不到任何库——「PATH 盘符形式」老坑的环境变量变体。
+- **跨平台脚本别拉解释器做小事**（2026-10-13 实测）：`e2e-evidence.sh` 原用 python3 做 JSON 转义，
+  注释写「本机与 CI 都有」——Windows 机上没有，转义全空、证据成了坏 JSON（断言名为空、版本断行）。
+  转义这类小事用纯 bash 实现；解释器不可得时的自检走回退链（`python3 → python → py -3`）。
 
 ## 5. 文档与提交
 

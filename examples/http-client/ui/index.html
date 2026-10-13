@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cj-tauri HTTP 客户端</title>
+<!--
+  HTTP API 客户端示例的前端（零 Node、零构建、零 fetch）
+
+  为什么是独立文件而不是内联进仓颉三引号：仓颉的 `"""` 会先处理反斜杠转义，JS 里的 `\n`
+  会被吃掉，把字符串或单行注释拆断 → 整段 `<script>` 静默语法错误、页面一行都不执行
+  （AGENTS §4 有这条坑的完整形状）。独立文件还能直接 `node --check` 验语法。
+
+  页面里**没有任何 fetch**：所有出网都由 `http:send` 命令在仓颉侧完成——这正是本示例要展示的
+  「宿主直发 HTTPS、TLS 走系统证书库」；页面只负责拼请求、渲染响应。
+-->
+<style>
+:root {
+  --bg: #0e131f;
+  --panel: #161d2c;
+  --panel-2: #1c2436;
+  --line: #26304a;
+  --text: #dfe6f2;
+  --dim: #8d9ab4;
+  --accent: #4f8cff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --err: #f85149;
+  --info: #58a6ff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 system-ui, "Noto Sans CJK SC", sans-serif;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 5px; padding: 4px 10px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.ghost { background: transparent; }
+input, select, textarea {
+  background: #0b0f19; border: 1px solid var(--line); border-radius: 5px;
+  padding: 4px 7px; width: 100%;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+textarea { font-family: var(--mono); resize: vertical; }
+/* WebKitGTK 的 select 会用原生浅色皮肤盖掉页面配色（AGENTS §4），深色页一律自绘 */
+select {
+  -webkit-appearance: none; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+                    linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 50%, calc(100% - 8px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 24px;
+}
+select option { background: #0b0f19; color: var(--text); }
+code, pre { font-family: var(--mono); }
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────── */
+#topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+#topbar h1 { font-size: 14px; margin: 0; flex: 0 0 auto; white-space: nowrap; }
+#topbar .spacer { flex: 1 1 auto; min-width: 0; }
+.badge {
+  font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--dim); white-space: nowrap;
+}
+.badge.on { color: var(--ok); border-color: #1f6f33; }
+.badge.off { color: var(--warn); border-color: #7a5b12; }
+.badge.err { color: var(--err); border-color: #7d1f1f; }
+
+/* ── 三栏 ─────────────────────────────────────────────────────────── */
+#grid {
+  flex: 1 1 auto; min-height: 0; display: grid;
+  grid-template-columns: 340px minmax(0, 1fr) 300px;
+  gap: 1px; background: var(--line);
+}
+.col { background: var(--bg); min-width: 0; overflow-y: auto; padding: 10px; }
+.col > section { margin-bottom: 14px; }
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--dim); margin: 0 0 6px; display: flex; align-items: center; gap: 6px;
+}
+h2 .spacer { flex: 1 1 auto; }
+.row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.row > label { flex: 0 0 auto; color: var(--dim); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.hint { color: var(--dim); font-size: 11px; }
+.hint.warn { color: var(--warn); }
+.hint.err { color: var(--err); }
+
+/* 请求头 / 环境变量 / 集合 的行 */
+.kv { display: grid; grid-template-columns: 1fr 1fr 26px; gap: 4px; margin-bottom: 4px; }
+.kv button { padding: 0; height: 26px; }
+.list { max-height: 210px; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; }
+.list .item {
+  display: flex; gap: 6px; align-items: baseline; padding: 4px 8px;
+  border-bottom: 1px solid #1b2334; cursor: pointer;
+}
+.list .item:last-child { border-bottom: none; }
+.list .item:hover { background: var(--panel-2); }
+.list .item .m { font-family: var(--mono); font-size: 11px; color: var(--accent); flex: 0 0 auto; }
+.list .item .u { font-family: var(--mono); font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+.list .item .del { flex: 0 0 auto; opacity: .6; }
+.list .empty { padding: 8px; color: var(--dim); font-size: 11px; }
+
+/* ── 响应 ─────────────────────────────────────────────────────────── */
+#respMeta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+#status { font-family: var(--mono); font-size: 16px; font-weight: 700; }
+.s2 { color: var(--ok); } .s3 { color: var(--info); } .s4 { color: var(--warn); } .s5 { color: var(--err); }
+.s0 { color: var(--dim); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--dim); }
+.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.pane { display: none; }
+.pane.active { display: block; }
+pre.body {
+  margin: 0; padding: 9px; background: #0b0f19; border: 1px solid var(--line); border-radius: 6px;
+  white-space: pre-wrap; word-break: break-all; max-height: 46vh; overflow: auto; font-size: 12px;
+}
+table.headers { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+table.headers td { padding: 3px 6px; border-bottom: 1px solid #1b2334; vertical-align: top; word-break: break-all; }
+table.headers td.k { color: var(--info); width: 32%; }
+table.headers tr.dup td.k::after { content: " ×"; color: var(--warn); }
+
+/* JSON 树：折叠靠 details/summary，零依赖 */
+#jsonTree { font-family: var(--mono); font-size: 12px; background: #0b0f19; border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 46vh; overflow: auto; }
+#jsonTree details { margin-left: 12px; }
+#jsonTree summary { cursor: pointer; color: var(--dim); }
+#jsonTree .key { color: var(--info); }
+#jsonTree .str { color: #a5d6a7; }
+#jsonTree .num { color: #ffab70; }
+#jsonTree .bool { color: #d2a8ff; }
+#jsonTree .nul { color: var(--dim); }
+
+#toast {
+  position: fixed; right: 14px; bottom: 14px; max-width: 460px; padding: 8px 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 6px; font-size: 12px; white-space: pre-wrap; opacity: 0; transition: opacity .2s;
+  pointer-events: none;
+}
+#toast.show { opacity: 1; }
+#toast.err { border-left-color: var(--err); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #2b3550; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>cj-tauri HTTP 客户端</h1>
+  <span class="badge" id="bBridge">桥：连接中…</span>
+  <span class="badge" id="bAllow">白名单：—</span>
+  <span class="badge" id="bSelf">自检：—</span>
+  <span class="spacer"></span>
+  <span class="hint" id="hHost"></span>
+</div>
+
+<div id="grid">
+
+  <!-- ── 左栏：请求构建 ─────────────────────────────────────────────── -->
+  <div class="col">
+    <section>
+      <h2>请求 <span class="spacer"></span><span class="hint" id="hPending"></span></h2>
+      <div class="row">
+        <select id="method" style="flex:0 0 100px"></select>
+        <button id="btnSend" class="primary" style="flex:0 0 auto">发送</button>
+      </div>
+      <input id="url" spellcheck="false" placeholder="http://127.0.0.1:8765/json，也可以用 {{base}}/json">
+      <div class="hint" style="margin-top:4px">地址与头值里的 <code>{{变量}}</code> 会按当前环境变量集展开。</div>
+    </section>
+
+    <section>
+      <h2>请求头 <span class="spacer"></span><button id="btnAddHeader" class="ghost">+ 一条</button></h2>
+      <div id="headers"></div>
+    </section>
+
+    <section>
+      <h2>请求体</h2>
+      <textarea id="body" rows="6" spellcheck="false" placeholder="随便填；GET 也能带体（工具不拦你，但对端多半不认）"></textarea>
+    </section>
+
+    <section>
+      <h2>超时 / 体上限</h2>
+      <div class="grid2">
+        <label class="hint">超时 ms<input id="timeout" type="number" min="1" max="120000" value="10000"></label>
+        <label class="hint">体上限 字节<input id="limit" type="number" min="1" value="1048576"></label>
+      </div>
+      <div class="hint">超大响应只截断、不报错，截断标记随响应一起回投（页面要如实显示）。</div>
+    </section>
+
+    <section>
+      <h2>mock 端点 <span class="spacer"></span><span class="hint" id="hMock"></span></h2>
+      <div id="mockBtns" class="row" style="flex-wrap:wrap"></div>
+      <div class="hint" id="hMockHint"></div>
+    </section>
+  </div>
+
+  <!-- ── 中栏：响应查看 ─────────────────────────────────────────────── -->
+  <div class="col">
+    <section>
+      <div id="respMeta">
+        <span id="status" class="s0">—</span>
+        <span class="badge" id="bTime">耗时 —</span>
+        <span class="badge" id="bSize">体积 —</span>
+        <span class="badge" id="bKind">体类型 —</span>
+        <span class="badge" id="bTrunc">未截断</span>
+        <span class="spacer"></span>
+        <button id="btnSave" class="ghost">存入集合</button>
+      </div>
+      <div class="tabs">
+        <button data-pane="paneBody" class="active">响应体</button>
+        <button data-pane="paneRaw">整段原文</button>
+        <button data-pane="paneHeaders">响应头</button>
+      </div>
+
+      <div id="paneBody" class="pane active">
+        <div class="row">
+          <button id="btnText" class="active">原文</button>
+          <button id="btnJson">JSON 树</button>
+          <span class="spacer"></span>
+          <span class="hint" id="hBody"></span>
+        </div>
+        <pre class="body" id="bodyText">—</pre>
+        <div id="jsonTree" style="display:none"></div>
+      </div>
+
+      <div id="paneRaw" class="pane">
+        <pre class="body" id="raw">—</pre>
+      </div>
+
+      <div id="paneHeaders" class="pane">
+        <table class="headers"><tbody id="respHeaders"></tbody></table>
+        <div class="hint" style="margin-top:6px">逐条列出、**不合并**同名头；同名出现多次时后面标 ×（<code>Set-Cookie</code> 就不能合并）。</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>错误 / 提示</h2>
+      <pre class="body" id="errBox" style="max-height:14vh">—</pre>
+    </section>
+  </div>
+
+  <!-- ── 右栏：环境变量集 / 集合 / 历史 ───────────────────────────────── -->
+  <div class="col">
+    <section>
+      <h2>环境变量集 <span class="spacer"></span>
+        <button id="btnAddSet" class="ghost">+ 集</button>
+        <button id="btnSaveEnv" class="ghost">保存</button>
+      </h2>
+      <div class="row">
+        <select id="envSet"></select>
+        <button id="btnAddEnv" class="ghost" title="加一个变量">+ 变量</button>
+      </div>
+      <div id="envRows"></div>
+      <div class="hint">改动点「保存」才落盘（<code>data/envs.json</code>）。</div>
+    </section>
+
+    <section>
+      <h2>集合 <span class="spacer"></span><span class="hint" id="hColl"></span></h2>
+      <div class="list" id="collections"><div class="empty">还没有保存的请求</div></div>
+      <div class="hint">点一条即可把方法 / 地址 / 头 / 体灌回左边；× 删除。</div>
+    </section>
+
+    <section>
+      <h2>历史 <span class="spacer"></span><button id="btnClearHist" class="ghost">清空</button></h2>
+      <div class="list" id="history"><div class="empty">还没有发过请求</div></div>
+      <div class="hint">只记最近 30 条，落 <code>data/history.json</code>。</div>
+    </section>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ══ 桥 ══════════════════════════════════════════════════════════════
+   页面脚本可能赶在桥注入之前跑（document-start 注入有先后），一律先等桥出现。
+   等不到**不能**静默——那样页面看着好好的、按钮却一个都不响应。 */
+function bridge() { return window.__CJ_TAURI__; }
+function invoke(cmd, args) { return bridge().invoke(cmd, args || {}); }
+async function waitForBridge(timeoutMs) {
+  const t0 = Date.now();
+  while (!(bridge() && bridge().invoke)) {
+    if (Date.now() - t0 > timeoutMs) return false;
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return true;
+}
+
+const msg = e => (e && e.message) ? e.message : String(e);
+
+/* 页内自检：逐条回投 [frontend] SELFCHECK …（E2E 按这些行取证）。
+   聚合行放在最后一条，但**判据是计数一致**——report 是异步命令，日志行序不保证
+   （AGENTS §4：把「聚合行必须最后一条」当判据是伪判据）。 */
+const CHECK = { pass: 0, fail: 0 };
+function report(line) { invoke('report', { line }).catch(() => {}); }
+function check(name, cond, detail) {
+  const ok = !!cond;
+  if (ok) { CHECK.pass++; } else { CHECK.fail++; }
+  report('SELFCHECK ' + (ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : ' :: ' + (detail === undefined ? '' : detail)));
+  return ok;
+}
+
+/* ══ 状态 ════════════════════════════════════════════════════════════
+   一份页面级状态：白名单来自宿主（页面读不到进程环境），其余三类数据落 data/。 */
+const DATA = 'data';
+const FILE_ENVS = DATA + '/envs.json';
+const FILE_COLL = DATA + '/collections.json';
+const FILE_HIST = DATA + '/history.json';
+
+const S = {
+  allow: [], allowDescribe: '', allowAny: false,
+  selfcheck: false, mockBase: '',
+  bodyLimit: 1048576, defaultTimeoutMs: 10000,
+  resp: null,                       // 最近一次 http:send 的结果
+  envs: {}, envName: '',            // { 集名: { 变量: 值 } }
+  collections: [], history: [],
+  jsonMode: false,                  // 响应体：原文 / JSON 树
+};
+
+const $ = id => document.getElementById(id);
+
+function toast(text, isErr) {
+  const el = $('toast');
+  el.textContent = text;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = ''; }, isErr ? 6000 : 2500);
+}
+/* 错误摘要进「错误 / 提示」框：单靠 toast 一闪而过，事后查不到（调试工具尤其忌讳这个） */
+function err(text) {
+  $('errBox').textContent = text;
+  toast(text, true);
+}
+function note(text) { $('errBox').textContent = text; }
+
+/* ══ 落盘（全部走 fs 插件，路径受 scope 约束；示例不碰 std.fs 绕过校验） ══ */
+async function readJson(path, fallback) {
+  try {
+    const text = await invoke('fs:readText', { path });
+    if (typeof text !== 'string' || text.trim() === '') return fallback;
+    return JSON.parse(text);
+  } catch (e) {
+    const low = msg(e).toLowerCase();
+    // 「文件不存在」是第一次跑的正常情况，不该弹错误；其余（越界、权限）必须说出来
+    const missing = low.indexOf('no such file') >= 0 || low.indexOf('cannot find') >= 0
+                 || low.indexOf('not exist') >= 0 || low.indexOf('no such') >= 0;
+    if (!missing) err('读 ' + path + ' 失败：' + msg(e));
+    return fallback;
+  }
+}
+async function writeJson(path, obj) {
+  try {
+    // 参数名是 contents（不是 content）——见 src/plugins/plugin_fs.cj
+    await invoke('fs:writeText', { path, contents: JSON.stringify(obj, null, 2) });
+    return true;
+  } catch (e) {
+    err('写 ' + path + ' 失败：' + msg(e));
+    return false;
+  }
+}
+
+/* ══ 环境变量集：{{名字}} 展开 ═══════════════════════════════════════
+   未定义的变量**原样留着**（页面上一眼能看出是这里没配），不做静默清空。
+   第二个参数只为自检用：给一张**临时**表，断言就不受上一轮落盘的 envs.json 影响
+   （持久化的用户数据跨轮残留，自检拿它当基准必然翻车——第一版就是这么红的）。 */
+function envTable() { return S.envs[S.envName] || {}; }
+function expandVars(text, table) {
+  const t = table || envTable();
+  return String(text === undefined || text === null ? '' : text)
+    .replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (whole, name) =>
+      Object.prototype.hasOwnProperty.call(t, name) ? t[name] : whole);
+}
+
+/* ══ 渲染 ════════════════════════════════════════════════════════════ */
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+const kb = n => {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KiB';
+  return (n / 1024 / 1024).toFixed(2) + ' MiB';
+};
+
+/* JSON 树：details/summary 折叠，零依赖；值一律转义（响应体是不可信输入，直接 innerHTML 等于 XSS） */
+function keyHtml(label) {
+  if (label === null || label === undefined || label === '') return '';
+  return '<span class="key">' + esc(label) + '</span>: ';
+}
+function jsonNode(value, label) {
+  const wrap = document.createElement('div');
+  if (value === null) {
+    wrap.innerHTML = keyHtml(label) + '<span class="nul">null</span>';
+    return wrap;
+  }
+  const t = typeof value;
+  if (t !== 'object') {
+    const cls = t === 'string' ? 'str' : (t === 'number' ? 'num' : 'bool');
+    const shown = t === 'string' ? '"' + value + '"' : String(value);
+    wrap.innerHTML = keyHtml(label) + '<span class="' + cls + '">' + esc(shown) + '</span>';
+    return wrap;
+  }
+  const isArr = Array.isArray(value);
+  const keys = isArr ? value.map((_, i) => i) : Object.keys(value);
+  const d = document.createElement('details');
+  d.open = true;
+  const sum = document.createElement('summary');
+  sum.innerHTML = keyHtml(label) + '<span class="key">' +
+    (isArr ? '[' + keys.length + ' 项]' : '{' + keys.length + ' 个字段}') + '</span>';
+  d.appendChild(sum);
+  for (const k of keys) d.appendChild(jsonNode(value[k], isArr ? '[' + k + ']' : k));
+  wrap.appendChild(d);
+  return wrap;
+}
+
+function renderResponse(r) {
+  S.resp = r;
+  const st = $('status');
+  st.textContent = String(r.status);
+  st.className = 's' + String(r.status).charAt(0);          // s2/s3/s4/s5 → 颜色
+  $('bTime').textContent = '耗时 ' + r.elapsedMs + ' ms';
+  $('bSize').textContent = '体积 ' + kb(r.bodyBytes) + '（' + r.bodyBytes + ' B）';
+  $('bKind').textContent = '体类型 ' + (r.bodyKind === 'text' ? '文本' :
+    (r.bodyKind === 'binary' ? '二进制' : '空'));
+  $('bTrunc').textContent = r.bodyTruncated ? '已截断（上限 ' + kb(r.bodyLimit) + '）' : '未截断';
+  $('bTrunc').className = 'badge' + (r.bodyTruncated ? ' off' : ' on');
+
+  $('bodyText').textContent = r.bodyKind === 'empty' ? '（空体）'
+    : (r.bodyKind === 'binary' ? '（二进制体，' + r.bodyBytes + ' 字节，十六进制前 64 字节见「整段原文」）' : r.bodyText);
+  $('hBody').textContent = r.bodyTruncated
+    ? '只读了前 ' + r.bodyBytes + ' 字节（对端报的 Content-Length=' +
+      (r.contentLength === null || r.contentLength === undefined ? '无' : r.contentLength) + '）'
+    : (r.contentType || '无 Content-Type');
+
+  // 响应头：逐条渲染，同名多次标 ×（不合并是刻意设计，见 mock-http.py 的两条 Set-Cookie）
+  const seen = {};
+  for (const h of r.headers) { const k = h.name.toLowerCase(); seen[k] = (seen[k] || 0) + 1; }
+  const tb = $('respHeaders');
+  tb.innerHTML = '';
+  for (const h of r.headers) {
+    const tr = document.createElement('tr');
+    if (seen[h.name.toLowerCase()] > 1) tr.className = 'dup';
+    const td1 = document.createElement('td'); td1.className = 'k'; td1.textContent = h.name;
+    const td2 = document.createElement('td'); td2.textContent = h.value;
+    tr.appendChild(td1); tr.appendChild(td2); tb.appendChild(tr);
+  }
+  if (r.headers.length === 0) tb.innerHTML = '<tr><td class="k">（无）</td><td></td></tr>';
+
+  // 整段原文：可以直接复制去贴 issue
+  const lines = [];
+  lines.push('HTTP ' + r.status + '  ' + r.method + ' ' + r.url);
+  for (const h of r.headers) lines.push(h.name + ': ' + h.value);
+  lines.push('');
+  if (r.bodyKind === 'binary') {
+    // 二进制体**不复投原始字节**（IPC 里塞非法 UTF-8 只会让页面显示成乱码），
+    // 这里只给「多少字节 / 什么类型 / 有没有截断」——诚实且够用
+    lines.push('（二进制体：' + r.bodyBytes + ' 字节，Content-Type=' + (r.contentType || '无') +
+      (r.bodyTruncated ? '，已截断' : '') + '；原始字节未回投）');
+  } else {
+    lines.push(r.bodyText);
+  }
+  $('raw').textContent = lines.join('\n');
+
+  renderJsonTree();
+  if (r.bodyTruncated) note('响应体超过上限被截断：上限 ' + r.bodyLimit + ' 字节，实际读到 ' + r.bodyBytes + ' 字节。');
+}
+
+/* 二进制体的十六进制预览靠宿主侧回投不了（我们不回投原始字节），
+   所以原文视图里用占位符说明——这里把它替换成「字节数 + NUL 提示」的诚实描述。 */
+function renderJsonTree() {
+  const r = S.resp;
+  const host = $('jsonTree');
+  if (!r || r.bodyKind !== 'text') {
+    host.textContent = r ? '（不是文本体，JSON 树不可用）' : '';
+    return;
+  }
+  let parsed = null;
+  try { parsed = JSON.parse(r.bodyText); } catch (e) { parsed = undefined; }
+  if (parsed === undefined) { host.textContent = '（不是合法 JSON，用「原文」看）'; return; }
+  host.innerHTML = '';
+  host.appendChild(jsonNode(parsed, ''));
+}
+
+/* ══ 请求头编辑 ══════════════════════════════════════════════════════
+   用「一行一对」而不是对象：同名头可以合法出现多次（Cookie 之类），对象键会静默吞掉重复项。 */
+function addHeaderRow(name, value) {
+  const row = document.createElement('div');
+  row.className = 'kv';
+  const n = document.createElement('input');
+  n.className = 'hName'; n.placeholder = '名'; n.value = name || ''; n.spellcheck = false;
+  const v = document.createElement('input');
+  v.className = 'hValue'; v.placeholder = '值'; v.value = value || ''; v.spellcheck = false;
+  const del = document.createElement('button');
+  del.textContent = '×'; del.title = '删掉这条'; del.onclick = () => row.remove();
+  row.appendChild(n); row.appendChild(v); row.appendChild(del);
+  $('headers').appendChild(row);
+}
+function readHeaders() {
+  const out = [];
+  document.querySelectorAll('#headers .kv').forEach(row => {
+    const name = row.querySelector('.hName').value.trim();
+    const value = row.querySelector('.hValue').value;
+    if (name) out.push({ name: name, value: expandVars(value) });
+  });
+  return out;
+}
+function setHeaders(list) {
+  $('headers').innerHTML = '';
+  const rows = (list && list.length) ? list : [{ name: '', value: '' }];
+  rows.forEach(h => addHeaderRow(h.name, h.value));
+}
+
+/* ══ 环境变量集 ══════════════════════════════════════════════════════ */
+function renderEnvSets() {
+  if (!S.envs || Object.keys(S.envs).length === 0) {
+    // 首次运行：给一份可用的默认集，省得用户对着空表猜格式
+    S.envs = { '默认': { base: S.mockBase || 'http://127.0.0.1:8765' } };
+  }
+  const names = Object.keys(S.envs);
+  if (names.indexOf(S.envName) < 0) S.envName = names[0];
+  const sel = $('envSet');
+  sel.innerHTML = '';
+  for (const n of names) {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n;
+    if (n === S.envName) o.selected = true;
+    sel.appendChild(o);
+  }
+  renderEnvRows();
+}
+function renderEnvRows() {
+  const host = $('envRows');
+  host.innerHTML = '';
+  const table = envTable();
+  for (const k of Object.keys(table)) {
+    const row = document.createElement('div');
+    row.className = 'kv';
+    const n = document.createElement('input');
+    n.className = 'eName'; n.value = k; n.spellcheck = false;
+    const v = document.createElement('input');
+    v.className = 'eValue'; v.value = table[k]; v.spellcheck = false;
+    const del = document.createElement('button');
+    del.textContent = '×'; del.title = '删掉这个变量'; del.onclick = () => row.remove();
+    row.appendChild(n); row.appendChild(v); row.appendChild(del);
+    host.appendChild(row);
+  }
+}
+/* 保存时**按 DOM 整张重建**，不做增量合并：改名与删除都能自然生效，不必另维护删除集合 */
+function collectEnvRows() {
+  const table = {};
+  document.querySelectorAll('#envRows .kv').forEach(row => {
+    const k = row.querySelector('.eName').value.trim();
+    if (k) table[k] = row.querySelector('.eValue').value;
+  });
+  return table;
+}
+async function saveEnvs() {
+  S.envs[S.envName] = collectEnvRows();
+  if (await writeJson(FILE_ENVS, S.envs)) {
+    toast('环境变量集已保存（' + S.envName + '，' + Object.keys(S.envs[S.envName]).length + ' 个变量）');
+    return true;
+  }
+  return false;
+}
+
+/* ══ 集合 / 历史 ═════════════════════════════════════════════════════ */
+function renderCollections() {
+  const host = $('collections');
+  $('hColl').textContent = S.collections.length ? S.collections.length + ' 条' : '';
+  if (S.collections.length === 0) {
+    host.innerHTML = '<div class="empty">还没有保存的请求</div>';
+    return;
+  }
+  host.innerHTML = '';
+  S.collections.forEach((c, i) => {
+    const item = document.createElement('div');
+    item.className = 'item';
+    const m = document.createElement('span');
+    m.className = 'm'; m.textContent = c.method;
+    const u = document.createElement('span');
+    u.className = 'u'; u.textContent = c.name || c.url; u.title = c.url;
+    const del = document.createElement('span');
+    del.className = 'del'; del.textContent = '×'; del.title = '从集合里删掉';
+    del.onclick = async ev => {
+      ev.stopPropagation();
+      S.collections.splice(i, 1);
+      await writeJson(FILE_COLL, S.collections);
+      renderCollections();
+    };
+    item.onclick = () => loadRequest(c);
+    item.appendChild(m); item.appendChild(u); item.appendChild(del);
+    host.appendChild(item);
+  });
+}
+function loadRequest(c) {
+  $('method').value = c.method;
+  $('url').value = c.url;
+  $('body').value = c.body || '';
+  setHeaders(c.headers || []);
+  toast('已灌回请求栏：' + (c.name || c.url));
+}
+function currentRequest() {
+  return {
+    method: $('method').value,
+    url: $('url').value.trim(),
+    // 集合里存**原文**（不展开变量）：这样换环境变量集就能换目标，正是变量集的意义
+    headers: readRawHeaders(),
+    body: $('body').value,
+  };
+}
+function readRawHeaders() {
+  const out = [];
+  document.querySelectorAll('#headers .kv').forEach(row => {
+    const name = row.querySelector('.hName').value.trim();
+    if (name) out.push({ name: name, value: row.querySelector('.hValue').value });
+  });
+  return out;
+}
+function renderHistory() {
+  const host = $('history');
+  if (S.history.length === 0) {
+    host.innerHTML = '<div class="empty">还没有发过请求</div>';
+    return;
+  }
+  host.innerHTML = '';
+  for (const h of S.history) {
+    const item = document.createElement('div');
+    item.className = 'item';
+    const m = document.createElement('span');
+    m.className = 'm'; m.textContent = h.method;
+    const u = document.createElement('span');
+    u.className = 'u';
+    u.textContent = h.url + ' → ' + (h.status === null ? '未完成' : h.status) + ' · ' + h.bytes + 'B · ' + h.ms + 'ms';
+    u.title = u.textContent;
+    item.appendChild(m); item.appendChild(u);
+    item.onclick = () => { $('method').value = h.method; $('url').value = h.url; };
+    host.appendChild(item);
+  }
+}
+async function pushHistory(entry) {
+  S.history.unshift(entry);
+  if (S.history.length > 30) S.history = S.history.slice(0, 30);
+  renderHistory();
+  await writeJson(FILE_HIST, S.history);
+}
+
+/* ══ 发请求 ══════════════════════════════════════════════════════════ */
+async function send() {
+  const url = $('url').value.trim();
+  if (!url) { err('请求地址为空'); return; }
+  const args = {
+    method: $('method').value,
+    url: expandVars(url),
+    headers: readHeaders(),
+    timeoutMs: Number($('timeout').value) || S.defaultTimeoutMs,
+    bodyLimit: Number($('limit').value) || S.bodyLimit,
+  };
+  const body = $('body').value;
+  if (body !== '') args.body = expandVars(body);   // 空体就不带（带空串与不带是两回事）
+
+  $('btnSend').disabled = true;
+  $('hPending').textContent = '发送中…';
+  const t0 = Date.now();
+  try {
+    const r = await invoke('http:send', args);
+    renderResponse(r);
+    note('请求完成：' + r.method + ' ' + r.url + ' → ' + r.status + '（' + r.elapsedMs + ' ms，' + r.bodyBytes + ' 字节）');
+    await pushHistory({ method: r.method, url: r.url, status: r.status, bytes: r.bodyBytes, ms: r.elapsedMs, ts: Date.now() });
+  } catch (e) {
+    // 被拒（scheme / 白名单）与传输失败都走这里；调试工具必须把「为什么没发出去」讲清楚
+    const why = msg(e);
+    $('status').textContent = '—'; $('status').className = 's0';
+    S.resp = null;
+    $('bodyText').textContent = '—';
+    $('raw').textContent = '—';
+    $('jsonTree').textContent = '';
+    $('respHeaders').innerHTML = '';
+    $('bTime').textContent = '耗时 —';
+    $('bSize').textContent = '体积 —';
+    $('bKind').textContent = '体类型 —';
+    $('bTrunc').textContent = '未截断'; $('bTrunc').className = 'badge';
+    err('请求未完成：' + why);
+    await pushHistory({ method: args.method, url: args.url, status: null, bytes: 0, ms: Date.now() - t0, ts: Date.now() });
+  } finally {
+    $('btnSend').disabled = false;
+    $('hPending').textContent = '';
+  }
+}
+
+/* ══ mock 端点快捷按钮（地址来自宿主的 CJ_HTTP_MOCK_BASE） ═══════════ */
+const MOCK = [
+  { label: '/health', method: 'GET', path: '/health' },
+  { label: '/json', method: 'GET', path: '/json' },
+  { label: '/text', method: 'GET', path: '/text' },
+  { label: '/echo', method: 'GET', path: '/echo?x=1&x=2' },
+  { label: 'POST /echo', method: 'POST', path: '/echo', body: '{"hello": "中文体"}' },
+  { label: '/status/404', method: 'GET', path: '/status/404' },
+  { label: '/status/500', method: 'GET', path: '/status/500' },
+  { label: '/slow 3s', method: 'GET', path: '/slow?ms=3000' },
+  { label: '/big 2MiB', method: 'GET', path: '/big?kb=2048' },
+  { label: '/binary', method: 'GET', path: '/binary' },
+  { label: '/redirect', method: 'GET', path: '/redirect' },
+];
+function initMockButtons() {
+  const host = $('mockBtns');
+  host.innerHTML = '';
+  for (const m of MOCK) {
+    const b = document.createElement('button');
+    b.className = 'ghost';
+    b.textContent = m.label;
+    b.title = m.method + ' ' + m.path;
+    b.onclick = () => {
+      $('method').value = m.method;
+      $('url').value = (S.mockBase || '') + m.path;
+      $('body').value = m.body || '';
+      // /slow 顺手把超时调小：不然默认 10s 等不到超时，演示不出「传输失败」
+      if (m.path.indexOf('/slow') === 0) $('timeout').value = 500;
+    };
+    host.appendChild(b);
+  }
+  $('hMock').textContent = S.mockBase ? '' : '（未配 CJ_HTTP_MOCK_BASE）';
+  $('hMockHint').textContent = S.mockBase
+    ? '对端 ' + S.mockBase + '；点一下即填进请求栏（/slow 会顺手把超时改成 500ms）'
+    : '启动脚本没给 mock 地址。白名单外的地址要用 CJ_HTTP_ALLOW 放行。';
+}
+
+/* ══ 标签页 / 响应体两种看法 ═════════════════════════════════════════ */
+function initTabs() {
+  document.querySelectorAll('.tabs button').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
+      document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === b.dataset.pane));
+    };
+  });
+  $('btnText').onclick = () => {
+    S.jsonMode = false;
+    $('btnText').classList.add('active'); $('btnJson').classList.remove('active');
+    $('bodyText').style.display = ''; $('jsonTree').style.display = 'none';
+  };
+  $('btnJson').onclick = () => {
+    S.jsonMode = true;
+    $('btnJson').classList.add('active'); $('btnText').classList.remove('active');
+    $('bodyText').style.display = 'none'; $('jsonTree').style.display = '';
+    renderJsonTree();
+  };
+}
+
+/* ══ 页内自检 ════════════════════════════════════════════════════════
+   与无人值守无关：只是「页面自己能算的结论自己算」，把每条回投成 stderr 的 SELFCHECK 行，
+   E2E 再拿它跟对端日志（mock-http.py 的 REQ/RESP）对账——这就是双侧取证。 */
+function skip(name, why) { report('SELFCHECK SKIP ' + name + ' :: ' + why); }
+
+async function selfCheck() {
+  report('SELFCHECK START');
+  const base = S.mockBase;
+  const call = args => invoke('http:send', args);
+
+  check('allow.describe', S.allowDescribe.length > 0, S.allowDescribe);
+  check('allow.entries', S.allowAny || S.allow.length > 0, JSON.stringify(S.allow));
+
+  // 变量展开：未定义的变量要**原样留着**，否则用户配错了也看不出来。
+  // 用临时表断言（不受上一轮落盘的 envs.json 影响）。
+  const tmpTable = { base: base };
+  check('var.expand', expandVars('{{base}}/json', tmpTable) === base + '/json',
+    expandVars('{{base}}/json', tmpTable));
+  check('var.unknown.kept', expandVars('{{nope}}/x', tmpTable) === '{{nope}}/x',
+    expandVars('{{nope}}/x', tmpTable));
+  check('var.set.loaded', Object.keys(envTable()).length > 0,
+    '变量集 ' + S.envName + ' = ' + JSON.stringify(envTable()));
+
+  // 落盘往返（用 data/selfcheck.json，不碰用户数据）
+  const probe = { probe: '中文', n: 42, nested: [1, 2, 3] };
+  const wrote = await writeJson(DATA + '/selfcheck.json', probe);
+  const back = await readJson(DATA + '/selfcheck.json', null);
+  check('fs.write.ok', wrote);
+  check('fs.roundtrip', back !== null && back.probe === '中文' && back.n === 42
+    && back.nested.length === 3, JSON.stringify(back));
+  check('envs.persist', await writeJson(FILE_ENVS, S.envs));
+
+  // 越界读必须被拒——scope 是框架在共享层判的，页面绕不过去
+  let scopeMsg = '';
+  try {
+    await invoke('fs:readText', { path: '../etc/hostname' });
+  } catch (e) { scopeMsg = msg(e); }
+  check('fs.scope.denied', scopeMsg.indexOf('scope') >= 0, scopeMsg);
+
+  if (!base) {
+    skip('mock.*', '未配 CJ_HTTP_MOCK_BASE');
+  } else {
+    // 1) JSON 端点：状态 / 头逐条不合并 / 体逐字
+    const rj = await call({ method: 'GET', url: base + '/json', headers: [], timeoutMs: 5000 });
+    check('json.status', rj.status === 200, String(rj.status));
+    check('json.contenttype', (rj.contentType || '').indexOf('application/json') >= 0, rj.contentType);
+    const xmock = rj.headers.filter(h => h.name.toLowerCase() === 'x-mock');
+    check('json.custom.header', xmock.length === 1 && xmock[0].value === 'yes', JSON.stringify(xmock));
+    const cookies = rj.headers.filter(h => h.name.toLowerCase() === 'set-cookie');
+    check('json.setcookie.notmerged', cookies.length === 2,
+      '条数=' + cookies.length + ' ' + JSON.stringify(cookies));
+    check('json.body.exact', rj.bodyText === '{"slice":"ok","unicode":"中文","nested":{"a":1,"b":[true,null,"x"],"f":1.5}}',
+      rj.bodyText);
+    check('json.bodykind', rj.bodyKind === 'text', rj.bodyKind);
+
+    // 2) 渲染层：拿真响应过一遍 UI（断言的是页面真显示出来的东西，不只是 IPC 数据）
+    renderResponse(rj);
+    check('ui.status.shown', $('status').textContent === '200', $('status').textContent);
+    check('ui.header.rows', $('respHeaders').children.length === rj.headers.length,
+      $('respHeaders').children.length + ' vs ' + rj.headers.length);
+    const tree = jsonNode(JSON.parse(rj.bodyText), '');
+    check('ui.json.tree', tree.querySelectorAll('details').length >= 2,
+      String(tree.querySelectorAll('details').length));
+
+    // 3) 中文文本体（UTF-8 解码）
+    const rt = await call({ method: 'GET', url: base + '/text', headers: [], timeoutMs: 5000 });
+    check('text.unicode', rt.bodyText === '你好，mock 对端', rt.bodyText);
+
+    // 4) 回显端点：证明「页面发出去的东西，对端真收到了」
+    const re = await call({
+      method: 'GET', url: base + '/echo?x=1&x=2',
+      headers: [{ name: 'X-Probe', value: 'hello' }], timeoutMs: 5000,
+    });
+    const echoed = JSON.parse(re.bodyText);
+    check('echo.get.header', echoed.headers.some(h => h[0].toLowerCase() === 'x-probe' && h[1] === 'hello'),
+      re.bodyText);
+    check('echo.get.query', echoed.query === 'x=1&x=2', echoed.query);
+    // {"hello": "中文体"} = 13 个 ASCII 字符 + 3 个汉字（UTF-8 各 3 字节）= 22 字节
+    const sentBody = '{"hello": "中文体"}';
+    const rp = await call({
+      method: 'POST', url: base + '/echo',
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      body: sentBody, timeoutMs: 5000,
+    });
+    const echoedPost = JSON.parse(rp.bodyText);
+    check('echo.post.body', echoedPost.method === 'POST' && echoedPost.bodyLen === 22
+      && echoedPost.bodyText.indexOf('中文体') >= 0, rp.bodyText);
+    // 双侧对账：页面自己按 UTF-8 数出的请求体字节数，必须等于**对端数出来的**字节数。
+    // （别拿 rp.bodyBytes 去比——那是响应体的大小，跟请求体不是一回事，第一版就栽在这）
+    const sentBytes = new TextEncoder().encode(sentBody).length;
+    check('echo.post.bytes', sentBytes === echoedPost.bodyLen && echoedPost.bodyLen === 22,
+      'peer=' + echoedPost.bodyLen + ' page=' + sentBytes);
+
+    // 5) 4xx / 5xx 是**正常结果**，不是异常（调试工具的核心语义，D-017 第 6 条）
+    const r404 = await call({ method: 'GET', url: base + '/status/404', headers: [], timeoutMs: 5000 });
+    check('status.404.resolves', r404.status === 404, String(r404.status));
+    const r500 = await call({ method: 'GET', url: base + '/status/500', headers: [], timeoutMs: 5000 });
+    check('status.500.resolves', r500.status === 500, String(r500.status));
+
+    // 6) 超时：传输层失败必须变成 reject（页面看到的是「为什么没发出去」）
+    let slowRejected = '';
+    try {
+      await call({ method: 'GET', url: base + '/slow?ms=3000', headers: [], timeoutMs: 300 });
+    } catch (e) { slowRejected = msg(e); }
+    check('slow.timeout.rejects', slowRejected.length > 0, slowRejected);
+
+    // 7) 大响应截断：截断标记要如实上报（含量与上限都说出来）
+    const rbig = await call({
+      method: 'GET', url: base + '/big?kb=2048', headers: [], timeoutMs: 20000, bodyLimit: 1048576,
+    });
+    check('big.truncated', rbig.bodyTruncated === true, String(rbig.bodyTruncated));
+    check('big.bytes.limit', rbig.bodyBytes === 1048576, String(rbig.bodyBytes));
+    check('big.contentlength', rbig.contentLength === 2097152, String(rbig.contentLength));
+
+    // 8) 二进制体：只报「多少字节」，不复投原始字节
+    const rbin = await call({ method: 'GET', url: base + '/binary', headers: [], timeoutMs: 5000 });
+    check('binary.kind', rbin.bodyKind === 'binary', rbin.bodyKind);
+    check('binary.bytes', rbin.bodyBytes === 4, String(rbin.bodyBytes));
+
+    // 9) 重定向：客户端跟随，只留最终结果
+    const rdr = await call({ method: 'GET', url: base + '/redirect', headers: [], timeoutMs: 5000 });
+    check('redirect.followed', rdr.status === 200 && rdr.bodyText.indexOf('"slice":"ok"') >= 0,
+      String(rdr.status));
+  }
+
+  // 10) 前置拒绝：白名单外的地址**连客户端都不该建**，页面必须拿到 reject
+  let blocked = '';
+  try {
+    await call({ method: 'GET', url: 'http://example.invalid/x', headers: [], timeoutMs: 2000 });
+  } catch (e) { blocked = msg(e); }
+  check('allow.blocked.host', blocked.indexOf('白名单') >= 0, blocked);
+
+  let scheme = '';
+  try {
+    await call({ method: 'GET', url: 'ftp://127.0.0.1/x', headers: [], timeoutMs: 2000 });
+  } catch (e) { scheme = msg(e); }
+  check('scheme.unsupported', scheme.length > 0, scheme);
+
+  report('SELFCHECK DONE passed=' + CHECK.pass + ' failed=' + CHECK.fail);
+  document.title = 'cj-tauri HTTP 客户端 · 自检 ' + CHECK.pass + '/' + (CHECK.pass + CHECK.fail);
+}
+
+/* ══ 装配 ════════════════════════════════════════════════════════════ */
+function fillMethods() {
+  const sel = $('method');
+  sel.innerHTML = '';
+  for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+    const o = document.createElement('option');
+    o.value = m; o.textContent = m;
+    sel.appendChild(o);
+  }
+  sel.value = 'GET';
+}
+
+function wire() {
+  $('btnSend').onclick = send;
+  $('btnAddHeader').onclick = () => addHeaderRow('', '');
+  $('btnAddEnv').onclick = () => {
+    const row = document.createElement('div');
+    row.className = 'kv';
+    const n = document.createElement('input');
+    n.className = 'eName'; n.placeholder = '变量名'; n.spellcheck = false;
+    const v = document.createElement('input');
+    v.className = 'eValue'; v.placeholder = '值'; v.spellcheck = false;
+    const del = document.createElement('button');
+    del.textContent = '×'; del.onclick = () => row.remove();
+    row.appendChild(n); row.appendChild(v); row.appendChild(del);
+    $('envRows').appendChild(row);
+  };
+  $('btnSaveEnv').onclick = saveEnvs;
+  $('btnAddSet').onclick = async () => {
+    // 不用 prompt()：嵌入式 WebView 里脚本对话框各家实现不一，宁可自动命名（不弹窗就不会卡住）
+    let i = Object.keys(S.envs).length + 1;
+    while (S.envs['新集' + i]) i++;
+    const name = '新集' + i;
+    S.envs[name] = { base: S.mockBase || 'http://127.0.0.1:8765' };
+    S.envName = name;
+    renderEnvSets();
+    await writeJson(FILE_ENVS, S.envs);
+    toast('已新建变量集 ' + name);
+  };
+  $('envSet').onchange = ev => {
+    S.envName = ev.target.value;
+    renderEnvRows();
+  };
+  $('btnSave').onclick = async () => {
+    const req = currentRequest();
+    if (!req.url) { err('地址为空，没什么可存的'); return; }
+    req.name = req.method + ' ' + req.url;
+    S.collections.unshift(req);
+    if (await writeJson(FILE_COLL, S.collections)) {
+      renderCollections();
+      toast('已存入集合（共 ' + S.collections.length + ' 条）');
+    }
+  };
+  $('btnClearHist').onclick = async () => {
+    S.history = [];
+    renderHistory();
+    await writeJson(FILE_HIST, S.history);
+    toast('历史已清空');
+  };
+}
+
+async function init() {
+  fillMethods();
+  initTabs();
+  wire();
+  setHeaders([{ name: 'Accept', value: 'application/json' }]);
+
+  // 桥没起来就什么都不做——但必须说出来，不能留个「看着正常、点哪都没反应」的页面
+  if (!await waitForBridge(8000)) {
+    $('bBridge').textContent = '桥：不可用';
+    $('bBridge').className = 'badge err';
+    err('等不到 window.__CJ_TAURI__：页面可能不是经 run()/startUrl() 加载的（桥在 document-start 注入）');
+    return;
+  }
+  $('bBridge').textContent = '桥：就绪';
+  $('bBridge').className = 'badge on';
+
+  // 白名单 / 自检开关 / mock 地址都由宿主给（页面读不到进程环境）
+  try {
+    const info = await invoke('http:allow', {});
+    S.allow = info.allow || [];
+    S.allowDescribe = info.describe || '';
+    S.allowAny = !!info.allowAny;
+    S.selfcheck = !!info.selfcheck;
+    S.mockBase = info.mockBase || '';
+    if (info.bodyLimit) S.bodyLimit = info.bodyLimit;
+    if (info.defaultTimeoutMs) S.defaultTimeoutMs = info.defaultTimeoutMs;
+    $('bAllow').textContent = '白名单：' + (S.allowDescribe || '—');
+    $('bAllow').className = 'badge' + (S.allowAny ? ' off' : ' on');
+    $('bSelf').textContent = '自检：' + (S.selfcheck ? '开' : '关');
+    $('bSelf').className = 'badge' + (S.selfcheck ? ' on' : '');
+    $('hHost').textContent = S.mockBase ? ('mock ' + S.mockBase) : '未配 mock 地址';
+    $('timeout').value = S.defaultTimeoutMs;
+    $('limit').value = S.bodyLimit;
+  } catch (e) {
+    err('取白名单失败：' + msg(e));
+  }
+
+  // 三类数据落盘（首次运行文件不存在是正常的，readJson 会给默认值）
+  S.envs = await readJson(FILE_ENVS, {});
+  S.collections = await readJson(FILE_COLL, []);
+  S.history = await readJson(FILE_HIST, []);
+  if (!Array.isArray(S.collections)) S.collections = [];
+  if (!Array.isArray(S.history)) S.history = [];
+  renderEnvSets();
+  renderCollections();
+  renderHistory();
+  initMockButtons();
+
+  if (S.selfcheck) {
+    report('SELFCHECK enabled mockBase=' + (S.mockBase || '(none)'));
+    await selfCheck();
+  }
+}
+
+init();
+</script>
+</body>
+</html>

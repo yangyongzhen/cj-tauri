@@ -1,8 +1,10 @@
 package cjTauri
 
-// ArrayList 的用法在 @When[os == "Linux"] 分支里，Windows 侧会报 unused——
-// 故不写文件级 import，下方用 std.collection.ArrayList 限定名（48fe433 实测踩过：
-// 按单平台 warning 清 import 会让对面平台当场编炸）
+// Linux 侧才用得上（类整体门禁在 Linux）：加同款门禁，免得 Windows 构建把这条当「未使用 import」清掉
+// （host_webview2.cj 是镜像写法。清掉它 Linux 侧当场编炸：`error: undeclared identifier 'std'`，
+// 2026-10-13 实测；48fe433、1747075 已踩过两次——AGENTS §4 同条）
+@When[os == "Linux"]
+import std.collection.*
 
 /**
  * C 桥 FFI 声明（native/libcjtbridge.so）
@@ -153,7 +155,7 @@ public class WebKitHost <: WebViewHost {
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
     // 预执行脚本（插件 jsShim 等）：start 前收集，prepareHost 一次性交给桥，桥在 document-start 注入
-    private var initScripts = std.collection.ArrayList<String>()
+    private var initScripts = ArrayList<String>()
     // 宿主编（C 侧分配）：空指针 = 尚未创建；dispose() 后置空
     private var handle: CPointer<Unit> = CPointer<Unit>()
     // 本窗口的 label（字段名不叫 label：接口有同名方法）。单窗口阶段是常量，

@@ -283,6 +283,16 @@
   **声明了哪几个常量打包器就生成哪几个**——没有 three.js 就不写那一条）与 `src/packed_resources.cj`
   （`decodeBase64` / `splitBy` / `textOrFile`），再把页面与能力清单的取用改成「内嵌优先、否则读盘」；
   最快是照 `examples/music/src/` 那两份抄。打包器会逐条 `die` 提示缺哪样。
+- **判「这个 DLL 是不是系统的」先确认它在 `System32` 里，再决定加白名单还是报警**（2026-10-13 实测）：
+  写分发实测脚本时按白名单分类 PE 导入表，`dbghelp.dll`（Windows 自带，崩溃栈回溯用）没进白名单，
+  于是**四份单文件 exe 全被报成「非系统 DLL = 1」**——数字看着像把「免安装」当场推翻，实则是白名单漏项。
+  教训与「过滤器本身会骗人」同源：**分类器的输出先拿一个已知结论校准一遍，再拿去判断新对象**
+  （正确顺序是「先确认这台机器上的 `dbghelp.dll` 就是 System32 那一个，再决定加白」）。
+- **统计「随包体积」务必先按真实路径去重**：`/lib` 与 `/usr/lib` 在多数发行版是同一份（合并 usr / 软链），
+  同一个 `libssl.so.3` 被算两遍，体积凭空翻倍（2026-10-13 实测：报出来 12.0 MB，实际 6.0 MB）。
+  凡是对外报体积 / 去重清单，都要 `readlink -f` 之后再判重。**另一类最容易漏的是「按名字加载」的组件**
+  （导入表与 `ldd` 都看不见它们）：Windows 侧 `WebView2Loader.dll` 内嵌在 exe、`libssl-3-x64.dll` /
+  `libcrypto-3-x64.dll` 需随包，Linux 侧 openssl 反而由**系统包**提供——两边不一样，得当两件事说。
 - **mingw 的 `swprintf` 里 `%s` 收的是 `char*` 而不是 `wchar_t*`**（默认方言走 MSVCRT 语义）：
   拿它拼宽字符路径得到的是垃圾，而且**不报错**——单文件包第一版就只留了一句
   `failed to unpack embedded WebView2Loader.dll`，毫无线索。C 桥里拼宽字符串一律用

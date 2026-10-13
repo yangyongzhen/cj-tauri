@@ -113,6 +113,24 @@
 
 ### Added
 
+- **`serial-waveform` 接上单文件打包（`bash scripts/pack-win-single.sh examples/serial-waveform`）**：
+  示例新增 `src/packed_assets.cj`（空存根）与 `src/packed_resources.cj`（`decodeBase64` / `splitBy` /
+  `textOrFile`），页面与能力清单改成「**内嵌优先、否则读盘**」——把 `ui/` 与 `capabilities/` 搬走也照跑
+  （隔离目录实测：窗口起得来、能力清单来自内嵌资源、页面正常加载）。产物
+  `examples/serial-waveform/dist-single/serial-waveform.exe`：**4 914 688 字节**
+  （sha256 `c26f4dfee2bc…`）、`Subsystem 00000002 (Windows GUI)`、PE 导入表逐项都是系统 DLL。
+  打包器同轮修两条（详见 `AGENTS.md` §4）：gcc 行补 `-I"$NATIVE/core"`——`native/` 按平台重整后
+  `bridge_core.h` 不再是 `bridge_win.c` 的同目录，报的是 `bridge_core.h file not found`；
+  生成 `cjpm.toml` 的 heredoc **不加引号**（要展开变量），故注释里的反引号必须写成 `\``，
+  否则 bash 把注释正文当命令执行。
+- **`serial-waveform` 的「设备」从手输路径改成端口下拉（Windows 实机验收）**：页面启动即调
+  `serial:list` 枚举本机串口填下拉（Windows 经 C 桥 `QueryDosDeviceW` 得到 `COM*`，Linux 为设备节点类
+  前缀与 `/dev/serial/by-{id,path}/`），加「↻ 刷新」按钮供热插拔后重枚举；默认选中第一项——
+  所以 Windows 打开先是 `COM1`，不再是写死的 `/dev/ttyUSB0`。伪终端不在枚举范围内，
+  探针路径（`CJ_SERIAL_PROBE_PATH`，Linux 侧是 pty 从端）仍会被补进下拉并选中，探针链路不受影响。
+  实机取证：单文件包 `examples/serial-waveform/dist-single/serial-waveform.exe` 窗口默认选中 `COM1`，
+  stderr `[frontend] [wave] port enum: 2 item(s) picked=COM1`（本机 `COM1` / `COM2` 两口）。
+
 - **架构图（`docs/images/architecture.svg` + `.png`）**：README 的架构段不再只有字符画——分层图覆盖
   前端桥 → IPC 消息桥 → 能力安全模型 → 内置 / 插件命令 → WebView 宿主（Linux / Windows / 鸿蒙）→ 共享 C 层，
   并把最容易看错的几条语义标在图上：**授权在调用线程同步拒绝、命令在 worker 线程执行、结果 / 事件异步回投**。

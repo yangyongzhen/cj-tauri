@@ -300,6 +300,14 @@
 - **cjpm 的 `path-option` 写 Windows 路径别用反斜杠**：TOML 基本字符串里 `\c` 是非法转义，
   `cjpm build` 直接以 `errLexEscape` 失败（`D:\cangjie-stdx\...` 得写成 `D:\\cangjie-stdx\\...`）。
   生成 toml 的脚本用正斜杠（`D:/cangjie-stdx/...`）：cjpm 与 gcc 都认，省掉这层转义。
+- **不带引号的 heredoc 里，注释正文的反引号必须写成 `\``**：`scripts/pack-win-single.sh` 生成 `cjpm.toml`
+  那段要展开 `$PKG_NAME` / `$BRIDGE_ARG`，所以定界符不能加引号，而反引号在 bash 里是**命令替换**——
+  注释会被当命令执行（实测 2026-10-13 打 `serial-waveform` 时刷出一串 `-lcrypt32: command not found`，
+  不致命，但等于把注释变成了执行，生成的 toml 注释还缺字）。要么转义，要么注释里别写反引号。
+- **`native/` 按平台重整后，凡在别处编桥的脚本都要显式给 `-I<core 目录>`**：`bridge_win.c` 在
+  `platforms/windows/`、`bridge_core.h` 在 `core/`，`#include "bridge_core.h"` 的同目录回落够不着，
+  报的是 `bridge_core.h file not found`（`native/build_win.bat` 里的 `-Icore` 是同一件事；
+  `pack-win-single.sh` 漏了这条，直到 2026-10-13 打包 serial-waveform 才暴露）。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
 - Linux 宿主：桥接脚本必须**在 document start 注入**（`WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`）——

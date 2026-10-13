@@ -108,8 +108,13 @@ echo "[pack-single] 内嵌 WebView2Loader.dll（$LOADER_BYTES 字节）"
 } > "$WORK/bridge/webview2_loader_embed.h"
 
 echo "[pack-single] 编译静态桥 libcjtbridge.a"
+# -I 要同时给两个目录：$WORK/bridge（本脚本刚生成的内嵌 loader 头）与 $NATIVE/core
+# （bridge_core.h / bridge_js.h）。后者不能省——native/ 按平台重整后 bridge_win.c 在
+# platforms/windows/、bridge_core.h 在 core/，不再是同一目录，#include "..." 的同目录
+# 回落也就够不着了（实测报 `bridge_core.h file not found`）；native/build_win.bat 里的
+# `-Icore` 是同一件事。
 ( cd "$WORK/bridge" && gcc -c -O2 -fstack-protector-all -DCJ_EMBED_WEBVIEW2_LOADER \
-    -I"$WORK/bridge" -I"$WEBVIEW2_INCLUDE" \
+    -I"$WORK/bridge" -I"$NATIVE/core" -I"$WEBVIEW2_INCLUDE" \
     "$NATIVE/core/bridge_core.c" "$NATIVE/platforms/windows/bridge_win.c" && \
     ar rcs libcjtbridge.a bridge_core.o bridge_win.o )
 BRIDGE_LIB="$WORK/bridge/libcjtbridge.a"
@@ -190,17 +195,21 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   cjTauri = { path = "$DEP_PATH" }
 
 [target.x86_64-w64-mingw32]
-  # `-lcrypt32`：stdx.net.tls 的根证书读取走 Windows 证书库（CertOpenSystemStoreA /
+  # 注意：本 heredoc **不加引号**（$PKG_NAME / $BRIDGE_ARG 等要展开），所以下面注释里的反引号
+  # 全都写成「反斜杠 + 反引号」的转义形式——不转义时 bash 会把反引号里的内容当命令去执行
+  # （实测打 serial-waveform 时刷出一串 "-lcrypt32: command not found"）：不致命，
+  # 但等于把注释变成了执行，还会让生成的 toml 注释缺字。
+  # \`-lcrypt32\`：stdx.net.tls 的根证书读取走 Windows 证书库（CertOpenSystemStoreA /
   # CertEnumCertificatesInStore / CertCloseStore 都在 crypt32.dll），静态链接的示例只要碰
   # https 就得链上它，否则 ld.lld 在链接期报一串 undefined symbol（examples/music 实测：
   # 它的封面走 https，而 typing-poem 不用 TLS，所以这条直到打音乐示例才暴露）。
   # 用不到的示例多链一个系统库无副作用（import 表里不会出现，见脚本末尾的自检）。
-  # `--subsystem=windows`：产物按 GUI 子系统链接（PE Subsystem=2，脚本末尾有事后悔核）。
+  # \`--subsystem=windows\`：产物按 GUI 子系统链接（PE Subsystem=2，脚本末尾有事后悔核）。
   # 缺了它 Windows 就按 console 程序对待产物——**双击时自动分配一个黑窗口（DOS 窗口）**，
-  # 这是 music.exe 交付后拿到的最直接反馈。cjc 的 `--link-options` 是直接交给 ld.lld 的，
-  # 所以只能用 lld 的写法：`-mwindows`（gcc 驱动方言）会被拒（实测 `lld: error: unknown
-  # parameter: -mwindows`），取值也只有 GNU 那套（console/windows/native/posix——写 `gui`
-  # 会报 `ld.lld: error: unknown subsystem: gui`）。
+  # 这是 music.exe 交付后拿到的最直接反馈。cjc 的 \`--link-options\` 是直接交给 ld.lld 的，
+  # 所以只能用 lld 的写法：\`-mwindows\`（gcc 驱动方言）会被拒（实测 \`lld: error: unknown
+  # parameter: -mwindows\`），取值也只有 GNU 那套（console/windows/native/posix——写 \`gui\`
+  # 会报 \`ld.lld: error: unknown subsystem: gui\`）。
   # 子系统只管「分不分配控制台」：从终端带重定向启动时 stderr 照旧落到文件，取证链路不变。
   link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 --subsystem=windows"
 

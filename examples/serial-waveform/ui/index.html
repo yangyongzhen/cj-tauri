@@ -57,7 +57,9 @@
   </header>
 
   <div class="toolbar">
-    <label>设备</label><input id="path" value="/dev/ttyUSB0">
+    <label>设备</label>
+    <select id="path"><option value="">枚举中…</option></select>
+    <button id="bRefresh" title="重新枚举本机串口（Windows 为 COM*，Linux 为 /dev/tty*）">↻ 刷新</button>
     <label>波特率</label><input id="baud" type="number" value="115200" step="1">
     <label>量程</label>
     <select id="range">
@@ -103,7 +105,7 @@
     <span>滚动丢弃 <b id="sDrop">0</b></span>
     <span>帧率 <b id="sFps">0</b></span>
     <span>画布 <b id="sCanvas">-</b></span>
-    <span class="hint" id="hint">未连接：填设备路径后点「连接」，页面会发 SCAN 让设备开始吐样本</span>
+    <span class="hint" id="hint">未连接：选好设备后点「连接」，页面会发 SCAN 让设备开始吐样本</span>
   </div>
 
 <script>
@@ -494,6 +496,64 @@ function shapeCheck() {
          ' upcross=' + up + ' verdict=' + (p2p > 0.5 ? 'ok' : 'flat');
 }
 
+// ---------------------------------------------------------------- 端口枚举
+/** 把 path 作为选项补进「设备」下拉并选中（已在就不重复加）。
+ *  为什么需要它：探针路径（Linux E2E 用的是 pty 从端）不属于「本机串口」，serial:list 枚举不到；
+ *  且 connect() 读的是**下拉的当前值**，不补进选项就会连到别的口上。 */
+function ensurePathOption(path) {
+  if (!path) { return; }
+  var sel = $('path');
+  for (var i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === path) { sel.value = path; return; }
+  }
+  var o = document.createElement('option');
+  o.value = path;
+  o.textContent = path;
+  sel.appendChild(o);
+  sel.value = path;
+}
+
+/** 枚举本机串口填「设备」下拉（serial:list；连接前就要用，故该命令归 readonly 权限集）。
+ *  Windows 走 C 桥 QueryDosDeviceW，拿到的是 COM 名，页面直接把它当 path 交给 serial:open。 */
+function refreshPorts(preferred) {
+  var sel = $('path');
+  return ser().list().then(function (r) {
+    var ports = (r && r.ports) ? r.ports : [];
+    var keep = sel.value;
+    var probePath = (window.__WAVE_PROBE__ && window.__WAVE_PROBE__.path) || '';
+    if (preferred && ports.indexOf(preferred) < 0) { ports = ports.concat([preferred]); }
+    if (probePath && ports.indexOf(probePath) < 0) { ports = ports.concat([probePath]); }
+    sel.textContent = '';
+    if (!ports.length) {
+      var o = document.createElement('option');
+      o.value = '';
+      o.textContent = '未发现串口（点「↻ 刷新」）';
+      sel.appendChild(o);
+      setHint('未发现串口设备：插上设备后点「↻ 刷新」重新枚举');
+    } else {
+      for (var i = 0; i < ports.length; i++) {
+        var op = document.createElement('option');
+        op.value = ports[i];
+        op.textContent = ports[i];
+        sel.appendChild(op);
+      }
+      var want = preferred || keep;
+      if (want && ports.indexOf(want) >= 0) { sel.value = want; }
+    }
+    // 回投的标记用 ASCII：控制台是 GBK 码页，中文会乱码，自动化的 grep 也就抓不到
+    report('[wave] port enum: ' + ports.length + ' item(s) picked=' + sel.value +
+           (probePath ? ' probe=' + probePath : ''));
+  }).catch(function (e) {
+    sel.textContent = '';
+    var o = document.createElement('option');
+    o.value = '';
+    o.textContent = '枚举失败（点「↻ 刷新」）';
+    sel.appendChild(o);
+    setHint('端口枚举失败：' + e.message);
+    report('[wave] serial:list FAIL => ' + e.message);
+  });
+}
+
 // ---------------------------------------------------------------- 控件接线
 $('bConnect').onclick = connect;
 $('bDisconnect').onclick = function () { disconnect('已断开'); };
@@ -506,6 +566,7 @@ $('bClear').onclick = function () {
   report('[wave] cleared');
 };
 $('range').onchange = function () { bgKey = ''; };        // 量程变了，背景层刻度要重画
+$('bRefresh').onclick = function () { refreshPorts(); };  // 重新枚举本机串口（热插拔后无需重启）
 
 // ---------------------------------------------------------------- 探针模式
 /** 由宿主经 document-start 预执行脚本注入 window.__WAVE_PROBE__（见 src/main.cj）。
@@ -513,7 +574,7 @@ $('range').onchange = function () { bgKey = ''; };        // 量程变了，背�
  *  失败也照打结论行：自动化脚本不该因为"没打日志"而空等到超时。 */
 function runProbe(p) {
   var ms = parseInt(p.ms, 10);
-  $('path').value = p.path;
+  ensurePathOption(p.path);          // 探针路径不在枚举结果里（pty 从端），必须先补进下拉
   $('baud').value = p.baud;
   report('[wave] probe start path=' + p.path + ' baud=' + p.baud + ' ms=' + ms);
   connect();
@@ -537,7 +598,9 @@ function runProbe(p) {
 requestAnimationFrame(frame);
 waitForBridge(function () {
   report('[wave] 页面就绪 serial-namespace=' + typeof window.__CJ_TAURI__.serial);
-  if (window.__WAVE_PROBE__) { runProbe(window.__WAVE_PROBE__); }
+  var probe = window.__WAVE_PROBE__ || null;
+  refreshPorts(probe ? probe.path : null);   // 先枚举填下拉；探针模式下这次枚举不影响探针选端
+  if (probe) { runProbe(probe); }
 });
 </script>
 </body>

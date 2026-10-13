@@ -9,7 +9,13 @@ import stdx.encoding.json.*
 /**
  * 官方插件 fs：文件读写（纯仓颉，零 C 桥改动，RFC-001 §7.3）
  *
- * 命令：fs:readText / fs:writeText / fs:exists
+ * 命令：fs:readText / fs:writeText / fs:exists / fs:list / fs:remove
+ *   - readText / writeText：整文件读写（writeText 是覆盖写：已存在会截断，不存在则创建）
+ *   - exists：路径是否存在
+ *   - list：**平铺一层**列目录，返回 [{ name, dir, size }]；不递归，顺序就是文件系统给的顺序（展示排序交给前端）
+ *   - remove：只删**单个文件**，目标是目录一律拒——std.fs 的 remove 能把**空目录**也删掉，
+ *     所以这层挡在调用前（不做递归删除）；文件不存在同样报错：调用方本想删的东西没删掉，
+ *     静默回 true 等于把失败伪装成成功
  * 权限：**不自动放行**，应用要在 capabilities 里显式声明，两种写法等价：
  *   "commands": ["fs:readText", "fs:exists"]        // 明文逐条（旧写法，一直支持）
  *   "permissions": ["fs:readonly"]                  // 命名权限集（v1.1，一次放行一组）
@@ -35,6 +41,8 @@ public class FsPlugin <: Plugin {
         m.add("readText", FsCommands())
         m.add("writeText", FsCommands())
         m.add("exists", FsCommands())
+        m.add("list", FsCommands())
+        m.add("remove", FsCommands())
         return m
     }
 
@@ -50,11 +58,14 @@ public class FsPlugin <: Plugin {
         let ro = ArrayList<String>()
         ro.add("readText")
         ro.add("exists")
+        ro.add("list")      // 列目录也是读操作：只读应用（如文件浏览）要能拿它，但拿不到 remove
         m.add("readonly", ro)
         let all = ArrayList<String>()
         all.add("readText")
         all.add("writeText")
         all.add("exists")
+        all.add("list")
+        all.add("remove")
         m.add("default", all)
         return m
     }
@@ -68,7 +79,9 @@ public class FsPlugin <: Plugin {
             " t.fs = {" +
             " readText: function (args) { return window.__CJ_TAURI__.invoke('fs:readText', args); }," +
             " writeText: function (args) { return window.__CJ_TAURI__.invoke('fs:writeText', args); }," +
-            " exists: function (args) { return window.__CJ_TAURI__.invoke('fs:exists', args); }" +
+            " exists: function (args) { return window.__CJ_TAURI__.invoke('fs:exists', args); }," +
+            " list: function (args) { return window.__CJ_TAURI__.invoke('fs:list', args); }," +
+            " remove: function (args) { return window.__CJ_TAURI__.invoke('fs:remove', args); }" +
             " }; })();\n"
     }
 }
@@ -84,6 +97,8 @@ class FsCommands <: CommandHandler {
             case "fs:readText" => this.readText(args, ipc)
             case "fs:writeText" => this.writeText(args, ipc)
             case "fs:exists" => this.exists(args, ipc)
+            case "fs:list" => this.listEntries(args, ipc)
+            case "fs:remove" => this.removeFile(args, ipc)
             case _ => throw CommandException("unknown fs command: ${cmd}")
         }
     }
@@ -131,5 +146,49 @@ class FsCommands <: CommandHandler {
     private func exists(args: JsonObject, ipc: IpcContext): JsonValue {
         let path = this.scopedPath(args, ipc)
         return JsonBool(exists(path))
+    }
+
+    /**
+     * 列目录：**平铺一层**、不递归——递归遍历是应用层的事，插件契约越薄越不容易被绕过。
+     * name 直接取 FileInfo.name（等价于 path.fileName），目录项也照报（dir=true），显不显示由页面定。
+     * 顺序不做保证：仓颉侧不排序（`ArrayList.sort` 已废弃），要稳定顺序在前端排。
+     */
+    private func listEntries(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        var entries: Array<FileInfo>
+        try {
+            entries = Directory.readFrom(path)
+        } catch (e: Exception) {
+            throw CommandException("fs:list failed: ${e}")
+        }
+        let items = ArrayList<JsonValue>()
+        for (info in entries) {
+            let obj = JsonObject()
+            obj.put("name", JsonString(info.name))
+            obj.put("dir", JsonBool(info.isDirectory()))
+            obj.put("size", JsonInt(info.size))
+            items.add(obj)
+        }
+        return JsonArray(items)
+    }
+
+    /**
+     * 删单个文件。判定顺序不能反：**先确认存在、再挡住目录、最后才 remove**。
+     * 漏掉中间那步，一个空目录会被 std.fs 的 remove 静默删掉（它同时管文件和目录）。
+     */
+    private func removeFile(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        if (!exists(path)) {
+            throw CommandException("fs:remove failed: no such file: ${path}")
+        }
+        if (FileInfo(path).isDirectory()) {
+            throw CommandException("fs:remove refused: is a directory: ${path}")
+        }
+        try {
+            remove(path)
+            return JsonBool(true)
+        } catch (e: Exception) {
+            throw CommandException("fs:remove failed: ${e}")
+        }
     }
 }

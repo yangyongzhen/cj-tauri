@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>串口实时波形 · cj-tauri</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Segoe UI", sans-serif; background: #0b1020; color: #e6ebff;
+         display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #121a33;
+           border-bottom: 1px solid #23305c; flex: 0 0 auto; }
+  header h1 { font-size: 16px; margin: 0; color: #7ce7ff; white-space: nowrap; }
+  header .sub { font-size: 12px; color: #7f8bb0; white-space: nowrap; }
+  .pill { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 999px;
+          background: #23305c; color: #9fb0e0; white-space: nowrap; }
+  .pill.ok { background: #14532d; color: #86efac; }
+  .pill.run { background: #1e3a8a; color: #93c5fd; }
+  .pill.hit { background: #7c2d12; color: #fdba74; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; padding: 9px 16px;
+             background: #0f1730; border-bottom: 1px solid #23305c; flex: 0 0 auto; }
+  .toolbar label { font-size: 12px; color: #94a3c8; }
+  input, select { background: #0b1020; color: #e6ebff; border: 1px solid #2c3a6b; border-radius: 6px;
+                  padding: 4px 7px; font-size: 13px; font-family: inherit; }
+  input[type=number] { width: 92px; }   /* 数字框右侧有原生 spinner，留出它占的宽度，别压住末位数字 */
+  #path { width: 190px; }
+  /* WebKitGTK 的 <select> 会用原生浅色样式盖掉页面配色，深色页必须自绘（AGENTS §4 实测） */
+  select { -webkit-appearance: none; appearance: none; padding-right: 20px;
+           background-image: linear-gradient(45deg, transparent 50%, #94a3c8 50%),
+                             linear-gradient(135deg, #94a3c8 50%, transparent 50%);
+           background-position: right 8px top 52%, right 4px top 52%;
+           background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; }
+  select option { background: #0f1730; color: #e6ebff; }
+  button { background: #23305c; color: #e6ebff; border: 1px solid #33427a; border-radius: 6px;
+           padding: 5px 11px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  button:hover { background: #2d3d72; }
+  button.primary { background: #1d4ed8; border-color: #3b82f6; }
+  button.primary:hover { background: #2563eb; }
+  button.warn { background: #7f1d1d; border-color: #b91c1c; }
+  button:disabled { opacity: .45; cursor: default; }
+
+  .stage { flex: 1 1 auto; min-height: 0; position: relative; padding: 10px 16px 0; }
+  canvas { width: 100%; height: 100%; display: block; background: #060a14;
+           border: 1px solid #23305c; border-radius: 8px; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 4px 20px; padding: 8px 16px 10px; font-size: 12.5px;
+           color: #a9b6dd; flex: 0 0 auto; }
+  .stats b { color: #7ce7ff; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hint { font-size: 12px; color: #6b7699; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>串口实时波形</h1>
+    <span class="sub">serial 插件 + canvas 双缓冲 · 行协议 <code>&lt;序号&gt;,&lt;值&gt;</code></span>
+    <span id="pill" class="pill">未连接</span>
+  </header>
+
+  <div class="toolbar">
+    <label>设备</label><input id="path" value="/dev/ttyUSB0">
+    <label>波特率</label><input id="baud" type="number" value="115200" step="1">
+    <label>量程</label>
+    <select id="range">
+      <option value="auto">自动</option>
+      <option value="1">±1</option>
+      <option value="2">±2</option>
+      <option value="5">±5</option>
+      <option value="10">±10</option>
+    </select>
+    <label>显示点数</label>
+    <select id="span">
+      <option value="500">500</option>
+      <option value="1000" selected>1000</option>
+      <option value="2000">2000</option>
+      <option value="3000">3000</option>
+    </select>
+    <label>触发</label>
+    <select id="trigMode">
+      <option value="auto">自动（自由跑）</option>
+      <option value="normal">正常（到电平停）</option>
+      <option value="single">单次</option>
+    </select>
+    <label>电平</label><input id="trigLevel" type="number" value="0" step="0.1">
+    <select id="trigEdge">
+      <option value="rise">上升沿</option>
+      <option value="fall">下降沿</option>
+    </select>
+    <button id="bConnect" class="primary">连接</button>
+    <button id="bDisconnect" disabled>断开</button>
+    <button id="bClear">清屏</button>
+  </div>
+
+  <div class="stage"><canvas id="wave"></canvas></div>
+
+  <div class="stats">
+    <span>状态 <b id="sState">idle</b></span>
+    <span>样本 <b id="sCount">0</b></span>
+    <span>速率 <b id="sRate">0</b>/s</span>
+    <span>最新 <b id="sLast">-</b></span>
+    <span>最小 <b id="sMin">-</b></span>
+    <span>最大 <b id="sMax">-</b></span>
+    <span>均值 <b id="sAvg">-</b></span>
+    <span>滚动丢弃 <b id="sDrop">0</b></span>
+    <span>帧率 <b id="sFps">0</b></span>
+    <span>画布 <b id="sCanvas">-</b></span>
+    <span class="hint" id="hint">未连接：填设备路径后点「连接」，页面会发 SCAN 让设备开始吐样本</span>
+  </div>
+
+<script>
+// ---------------------------------------------------------------- 与宿主的通道
+// 业务代码只经 window.__CJ_TAURI__ 的 invoke / listen（AGENTS §3）；serial 是插件 shim 提供的命名空间。
+function waitForBridge(cb) {
+  if (window.__CJ_TAURI__ && window.__CJ_TAURI__.serial) { cb(); return; }
+  setTimeout(function () { waitForBridge(cb); }, 25);
+}
+
+function report(line) {
+  if (window.__CJ_TAURI__) { window.__CJ_TAURI__.invoke('report', { line: line }); }
+}
+
+var $ = function (id) { return document.getElementById(id); };
+
+// ---------------------------------------------------------------- 采集状态
+var CAP = 3000;                    // 环形缓冲容量：比最大显示点数大，切换时基不用重连
+var ring = new Float64Array(CAP);
+var ringHead = 0;                  // 下一个写入位置
+var totalSamples = 0;              // 累计收到（含被滚动丢掉的）
+var seqSeen = 0;
+var state = 'idle';                // idle | connected | running | frozen
+var handle = 0;
+var rxText = '';                   // serial:read 的文本残行缓冲（一帧可能切在半行上）
+var statMin = Infinity, statMax = -Infinity, statSum = 0, statN = 0;
+var firstAt = 0, lastAt = 0, lastRate = 0;
+var nextSeq = 0, gapSeen = 0, malformed = 0;
+var frozen = null;                 // 触发后冻结的那一屏（Float64Array）；非 null 就画它而不是环形缓冲
+var frozenAt = 0;
+
+// ---------------------------------------------------------------- 画布：双缓冲
+var cv = $('wave'), ctx = cv.getContext('2d');
+// 背景层（网格 / 坐标轴 / 刻度）：只在尺寸或量程变化时重画，每帧只做一次 drawImage —— 这就是双缓冲的意义
+var bg = document.createElement('canvas'), bgx = bg.getContext('2d');
+var bgKey = '';
+var W = 1, H = 1;
+
+/** 视口自检：**不能只等 resize 事件**——WebView 刚建好时视口是临时尺寸，那次变化没有 resize 通知
+ *  （AGENTS §4 实测：3D 场景会整幅走样）。每帧比一次"与上次应用值是否相同"，
+ *  顺带覆盖窗口缩放 / DPI 变化；再加一条"画布尺寸 == 视口尺寸"的自证，统计栏里能看到。 */
+function fitViewport() {
+  var r = cv.getBoundingClientRect();
+  var w = Math.max(320, Math.round(r.width)), h = Math.max(180, Math.round(r.height));
+  var dpr = window.devicePixelRatio || 1;
+  var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
+  if (cv.width !== pw || cv.height !== ph) {
+    cv.width = pw; cv.height = ph;
+    bg.width = pw; bg.height = ph;
+    bgKey = '';                                  // 尺寸变了，背景层失效
+  }
+  if (W !== w || H !== h) { W = w; H = h; }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  bgx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/** 纵轴量程：手动档直接给值；自动档取可见窗口内绝对值最大，向上取整到 1/2/5/10 档并留 10% 余量 */
+var autoRange = 1;
+function yRange() {
+  var v = $('range').value;
+  if (v !== 'auto') { return parseFloat(v); }
+  var n = visibleCount();
+  var m = 0;
+  for (var i = 0; i < n; i++) {
+    var a = Math.abs(sampleAt(i, n));
+    if (a > m) { m = a; }
+  }
+  var want = m > 0 ? m * 1.1 : 0.1;
+  var steps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+  for (var k = 0; k < steps.length; k++) { if (want <= steps[k]) { want = steps[k]; break; } }
+  // 平滑：往上立刻跟，往下慢慢收，避免波形忽大忽小地跳
+  if (want > autoRange) { autoRange = want; } else { autoRange = autoRange * 0.9 + want * 0.1; }
+  return autoRange;
+}
+
+function visibleCount() {
+  var want = parseInt($('span').value, 10);
+  var n = Math.min(totalSamples, want, CAP);
+  return n;
+}
+
+/** 环形缓冲按"从旧到新"取第 i 个（i 从 0 起） */
+function sampleAt(i, n) {
+  var start = ((ringHead - n) % CAP + CAP) % CAP;
+  return ring[(start + i) % CAP];
+}
+
+function drawBackground(yr) {
+  var key = W + 'x' + H + '@' + yr;
+  if (bgKey === key) { return; }
+  bgKey = key;
+  bgx.clearRect(0, 0, W, H);
+  // 网格：横 8 格（对应 ±yr），纵 10 格
+  bgx.strokeStyle = '#16203c';
+  bgx.lineWidth = 1;
+  bgx.beginPath();
+  for (var i = 0; i <= 10; i++) {
+    var x = Math.round(W * i / 10) + 0.5;
+    bgx.moveTo(x, 0); bgx.lineTo(x, H);
+  }
+  for (var j = 0; j <= 8; j++) {
+    var y = Math.round(H * j / 8) + 0.5;
+    bgx.moveTo(0, y); bgx.lineTo(W, y);
+  }
+  bgx.stroke();
+  // 零线
+  bgx.strokeStyle = '#2f4272';
+  bgx.beginPath();
+  var y0 = Math.round(H / 2) + 0.5;
+  bgx.moveTo(0, y0); bgx.lineTo(W, y0);
+  bgx.stroke();
+  // 纵轴刻度文字
+  bgx.fillStyle = '#5d6b95';
+  bgx.font = '11px system-ui, sans-serif';
+  bgx.fillText('+' + fmt(yr), 6, 14);
+  bgx.fillText('0', 6, y0 - 5);
+  bgx.fillText('-' + fmt(yr), 6, H - 6);
+}
+
+function fmt(v) {
+  if (!isFinite(v)) { return '-'; }
+  var a = Math.abs(v);
+  return a >= 100 ? v.toFixed(0) : (a >= 10 ? v.toFixed(1) : v.toFixed(3));
+}
+
+/** 轨迹：可见窗口内的折线。冻结时画快照，否则画环形缓冲的最新一段。 */
+function drawTrace(yr, n) {
+  if (n < 2) { return; }
+  var yScale = (H / 2) / yr;
+  var xScale = W / (n - 1);
+  ctx.beginPath();
+  for (var i = 0; i < n; i++) {
+    var v = frozen ? frozen[i] : sampleAt(i, n);
+    var x = i * xScale;
+    var y = H / 2 - v * yScale;
+    if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+  }
+  ctx.strokeStyle = frozen ? '#f59e0b' : '#38e8ff';
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  // 最新点高亮（自由跑时给一个"头"）
+  if (!frozen) {
+    var last = sampleAt(n - 1, n);
+    ctx.fillStyle = '#a5f3fc';
+    ctx.beginPath();
+    ctx.arc(W - 1, H / 2 - last * yScale, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** 触发电平线：正常/单次模式下把它画出来，用户才知道自己设的线在哪 */
+function drawTriggerLine(yr) {
+  if ($('trigMode').value === 'auto') { return; }
+  var lv = parseFloat($('trigLevel').value);
+  if (!isFinite(lv)) { return; }
+  var y = H / 2 - lv * ((H / 2) / yr);
+  if (y < 0 || y > H) { return; }
+  ctx.strokeStyle = '#f59e0b';
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, y); ctx.lineTo(W, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ---------------------------------------------------------------- 采样入库
+var windowStart = 0, windowCount = 0;
+
+function pushSample(v) {
+  ring[ringHead] = v;
+  ringHead = (ringHead + 1) % CAP;
+  totalSamples++;
+  statN++;
+  statSum += v;
+  if (v < statMin) { statMin = v; }
+  if (v > statMax) { statMax = v; }
+  var now = Date.now();
+  if (firstAt === 0) { firstAt = now; }
+  lastAt = now;
+  // 速率按 1 秒滑窗算，别用"总数 / 总时长"——那是平均速率，看不出设备是不是卡了
+  if (windowStart === 0) { windowStart = now; }
+  windowCount++;
+  if (now - windowStart >= 1000) {
+    lastRate = windowCount * 1000 / (now - windowStart);
+    windowStart = now; windowCount = 0;
+  }
+}
+
+/** 把 serial:read 拿到的文本切成行、逐行解析成样本。
+ *  行协议是"<序号>,<值>"；序号用于发现**丢帧**（设备侧序号跳跃），值用于画波形。
+ *  切在半行上的残行留在 rxText，等下一帧补齐——这是串口解析最容易错的地方。 */
+function parseChunk(text) {
+  rxText += text;
+  var idx;
+  while ((idx = rxText.indexOf('\n')) >= 0) {
+    var line = rxText.slice(0, idx).replace('\r', '').trim();
+    rxText = rxText.slice(idx + 1);
+    if (!line) { continue; }
+    var comma = line.indexOf(',');
+    var seqText = comma >= 0 ? line.slice(0, comma) : '';
+    var valText = comma >= 0 ? line.slice(comma + 1) : line;
+    var v = parseFloat(valText);
+    if (!isFinite(v)) { malformed++; continue; }   // 噪声/半行：计数，不炸，也不塞进波形
+    var s = parseInt(seqText, 10);
+    if (isFinite(s)) {
+      if (seqSeen > 0 && s !== nextSeq) { gapSeen++; }
+      nextSeq = s + 1;
+      seqSeen++;
+    }
+    pushSample(v);
+  }
+  // 防御：对端只吐不回车时别让残行缓冲无限涨（1 MiB 上限，超出就丢掉重新开始）
+  if (rxText.length > 1048576) { rxText = ''; malformed++; }
+}
+
+// ---------------------------------------------------------------- 触发
+function checkTrigger() {
+  var mode = $('trigMode').value;
+  if (mode === 'auto' || state !== 'running' || frozen) { return; }
+  var lv = parseFloat($('trigLevel').value);
+  if (!isFinite(lv)) { return; }
+  var rise = $('trigEdge').value === 'rise';
+  var n = visibleCount();
+  if (n < 3) { return; }
+  var prev = sampleAt(n - 2, n), cur = sampleAt(n - 1, n);
+  var hit = rise ? (prev < lv && cur >= lv) : (prev > lv && cur <= lv);
+  if (!hit) { return; }
+  var snap = new Float64Array(n);
+  for (var i = 0; i < n; i++) { snap[i] = sampleAt(i, n); }
+  frozen = snap;
+  frozenAt = Date.now();
+  state = 'frozen';
+  setPill('已触发', 'hit');
+  report('[wave] TRIGGERED mode=' + mode + ' level=' + lv + ' edge=' + (rise ? 'rise' : 'fall') +
+         ' span=' + n + ' value=' + cur.toFixed(4));
+  // 正常模式：亮一屏就自动重新武装（示波器上的 normal 是持续观察用）；
+  // 单次模式：保持冻结，等用户点「清屏」再继续。
+  if (mode === 'normal') {
+    setTimeout(function () { if (state === 'frozen') { frozen = null; state = 'running'; setPill('采集中', 'run'); } }, 700);
+  }
+}
+
+// ---------------------------------------------------------------- 渲染循环与统计
+var frames = 0, fpsAt = 0, lastStatsAt = 0;
+
+function frame() {
+  fitViewport();
+  var n = visibleCount();
+  var yr = yRange();
+  drawBackground(yr);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(bg, 0, 0, W, H);           // 双缓冲：背景层整块贴上来
+  drawTrace(yr, frozen ? frozen.length : n);
+  drawTriggerLine(yr);
+  checkTrigger();
+  frames++;
+  var now = Date.now();
+  if (fpsAt === 0) { fpsAt = now; }
+  if (now - fpsAt >= 1000) {
+    lastFps = Math.round(frames * 1000 / (now - fpsAt));
+    frames = 0; fpsAt = now;
+  }
+  if (now - lastStatsAt >= 250) { lastStatsAt = now; updateStats(); }
+  requestAnimationFrame(frame);
+}
+var lastFps = 0;
+
+function setText(id, v) { var el = $(id); if (el && el.textContent !== String(v)) { el.textContent = v; } }
+
+function updateStats() {
+  setText('sState', state);
+  setText('sCount', totalSamples);
+  setText('sRate', lastRate.toFixed(1));
+  setText('sLast', totalSamples > 0 ? fmt(sampleAt(visibleCount() - 1, Math.max(visibleCount(), 1))) : '-');
+  setText('sMin', statN > 0 ? fmt(statMin) : '-');
+  setText('sMax', statN > 0 ? fmt(statMax) : '-');
+  setText('sAvg', statN > 0 ? fmt(statSum / statN) : '-');
+  setText('sDrop', totalSamples > CAP ? totalSamples - CAP : 0);
+  setText('sFps', lastFps);
+  // 视口自证：画布逻辑尺寸必须等于容器视口尺寸，不等就说明 fitViewport 没跟上
+  setText('sCanvas', W + 'x' + H + (cv.width === Math.round(W * (window.devicePixelRatio || 1)) ? '' : ' !'));
+}
+
+function setPill(text, cls) {
+  var p = $('pill');
+  p.textContent = text;
+  p.className = 'pill' + (cls ? ' ' + cls : '');
+}
+
+function setHint(t) { setText('hint', t); }
+
+// ---------------------------------------------------------------- 串口会话
+function ser() { return window.__CJ_TAURI__.serial; }
+
+var binFrames = 0;                  // 只有 hex、没有 text 的帧数（二进制设备流：如实计数，不硬解析）
+
+function readOnce() {
+  if (handle === 0) { return; }
+  ser().read({ handle: handle, maxBytes: 4096, timeoutMs: 120 }).then(function (r) {
+    if (r.count > 0) {
+      if (r.text !== undefined && r.text !== null) { parseChunk(r.text); }
+      else { binFrames++; }
+    }
+    if (handle !== 0) { setTimeout(readOnce, 0); }
+  }).catch(function (e) {
+    report('[wave] serial:read FAIL => ' + e.message);
+    setHint('读取出错：' + e.message);
+    disconnect('读取失败');
+  });
+}
+
+function connect() {
+  var path = $('path').value.trim();
+  var baud = parseInt($('baud').value, 10);
+  if (!path) { setHint('设备路径为空'); return; }
+  setHint('正在打开 ' + path + ' @' + baud + '…');
+  ser().open({ path: path, baud: baud, dataBits: 8, parity: 'none', stopBits: 1 })
+    .then(function (r) {
+      handle = r.handle;
+      state = 'running';
+      setPill('采集中', 'run');
+      $('bConnect').disabled = true;
+      $('bDisconnect').disabled = false;
+      setHint('已连接 ' + r.path + ' @' + r.baud + '：已发 SCAN，等设备吐样本');
+      report('[wave] open ok handle=' + r.handle + ' path=' + r.path + ' baud=' + r.baud);
+      // 先清计数再发 SCAN：这样"样本数"全是这一次采集的
+      resetStats();
+      return ser().write({ handle: handle, data: 'SCAN' + String.fromCharCode(10), encoding: 'utf8' });
+    })
+    .then(function (w) {
+      report('[wave] SCAN 已写出 ' + w.written + '/' + w.bytes + ' 字节');
+      readOnce();
+    })
+    .catch(function (e) {
+      handle = 0;
+      state = 'idle';
+      setPill('打开失败', '');
+      $('bConnect').disabled = false;
+      $('bDisconnect').disabled = true;
+      setHint('打开失败：' + e.message);
+      report('[wave] open FAIL => ' + e.message);
+    });
+}
+
+function resetStats() {
+  totalSamples = 0; statN = 0; statMin = Infinity; statMax = -Infinity; statSum = 0;
+  firstAt = 0; lastAt = 0; lastRate = 0; windowStart = 0; windowCount = 0;
+  rxText = ''; frozen = null; gapSeen = 0; malformed = 0; nextSeq = 0; seqSeen = 0;
+  binFrames = 0; ringHead = 0;
+}
+
+function disconnect(why) {
+  var h = handle;
+  handle = 0;
+  state = 'idle';
+  setPill('未连接', '');
+  $('bConnect').disabled = false;
+  $('bDisconnect').disabled = true;
+  if (why) { setHint(why); }
+  if (h !== 0) {
+    // 先请对端停流再关，免得设备空转
+    ser().write({ handle: h, data: 'STOP' + String.fromCharCode(10), encoding: 'utf8' })
+      .catch(function () { })
+      .then(function () { return ser().close({ handle: h }); })
+      .then(function () { report('[wave] closed handle=' + h); })
+      .catch(function (e) { report('[wave] close FAIL => ' + e.message); });
+  }
+}
+
+// ---------------------------------------------------------------- 波形形状自检
+/** 拿"解析出来的样本"自己算一次结论：p2p（峰峰值）、向上过零次数、是否平线。
+ *  为什么要有它：自动化脚本只能数日志行，数不出"波形对不对"。把判断放在页面里、
+ *  把结论打成一个可断言的词（verdict=ok），才算真的验了"数据变成波形"这一跳。 */
+function shapeCheck() {
+  var n = visibleCount();
+  if (n < 10) { return 'verdict=no-data samples=' + n; }
+  var mn = Infinity, mx = -Infinity, up = 0, prev = null;
+  for (var i = 0; i < n; i++) {
+    var v = sampleAt(i, n);
+    if (v < mn) { mn = v; }
+    if (v > mx) { mx = v; }
+    if (prev !== null && prev < 0 && v >= 0) { up++; }
+    prev = v;
+  }
+  var p2p = mx - mn;
+  return 'p2p=' + p2p.toFixed(4) + ' min=' + mn.toFixed(4) + ' max=' + mx.toFixed(4) +
+         ' upcross=' + up + ' verdict=' + (p2p > 0.5 ? 'ok' : 'flat');
+}
+
+// ---------------------------------------------------------------- 控件接线
+$('bConnect').onclick = connect;
+$('bDisconnect').onclick = function () { disconnect('已断开'); };
+$('bClear').onclick = function () {
+  resetStats();
+  autoRange = 1;
+  bgKey = '';
+  if (state === 'frozen') { state = 'running'; setPill('采集中', 'run'); }
+  setHint('已清屏');
+  report('[wave] cleared');
+};
+$('range').onchange = function () { bgKey = ''; };        // 量程变了，背景层刻度要重画
+
+// ---------------------------------------------------------------- 探针模式
+/** 由宿主经 document-start 预执行脚本注入 window.__WAVE_PROBE__（见 src/main.cj）。
+ *  自动跑一轮：连接 → 发 SCAN → 收 ms 毫秒 → 打形状结论与统计 → （默认）自退。
+ *  失败也照打结论行：自动化脚本不该因为"没打日志"而空等到超时。 */
+function runProbe(p) {
+  var ms = parseInt(p.ms, 10);
+  $('path').value = p.path;
+  $('baud').value = p.baud;
+  report('[wave] probe start path=' + p.path + ' baud=' + p.baud + ' ms=' + ms);
+  connect();
+  setTimeout(function () {
+    report('[wave] SHAPE ' + shapeCheck());
+    report('[wave] DONE samples=' + totalSamples + ' rate=' + lastRate.toFixed(1) + '/s' +
+           ' min=' + (statN > 0 ? statMin.toFixed(4) : 'na') +
+           ' max=' + (statN > 0 ? statMax.toFixed(4) : 'na') +
+           ' avg=' + (statN > 0 ? (statSum / statN).toFixed(4) : 'na') +
+           ' dropped=' + (totalSamples > CAP ? totalSamples - CAP : 0) +
+           ' gaps=' + gapSeen + ' malformed=' + malformed + ' binFrames=' + binFrames +
+           ' canvas=' + W + 'x' + H + ' fps=' + lastFps);
+    if (p.quit === '1') {
+      disconnect('探针跑完');
+      setTimeout(function () { window.__CJ_TAURI__.invoke('quit', {}); }, 500);
+    }
+  }, ms);
+}
+
+// ---------------------------------------------------------------- 起飞
+requestAnimationFrame(frame);
+waitForBridge(function () {
+  report('[wave] 页面就绪 serial-namespace=' + typeof window.__CJ_TAURI__.serial);
+  if (window.__WAVE_PROBE__) { runProbe(window.__WAVE_PROBE__); }
+});
+</script>
+</body>
+</html>
+

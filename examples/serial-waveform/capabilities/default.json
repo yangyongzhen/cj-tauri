@@ -1,0 +1,7 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["report", "quit", "system:version"],
+  "permissions": ["serial:default"],
+  "events": []
+}

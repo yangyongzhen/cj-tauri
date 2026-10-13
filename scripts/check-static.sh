@@ -139,7 +139,7 @@ fi
 # ------------------------------------------------- 7. C 桥公共核心自检
 section "C 桥公共核心自检"
 before=$fails
-# 桩平台编译 native/tests/test_bridge_core.c + native/bridge_core.c 并跑断言；
+# 桩平台编译 native/tests/test_bridge_core.c + native/core/bridge_core.c 并跑断言；
 # 不需要 SDK / 图形栈，只需 C 编译器（没有就自己跳过，退出码仍为 0）
 if bash scripts/test-bridge-core.sh; then
     ok "bridge_core 纯逻辑自检通过（回投批处理 / 对话框状态机 / 生命周期标志）"

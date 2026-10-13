@@ -16,6 +16,16 @@
 
 ### Added
 
+- **native 层按平台分目录 + 需求追踪矩阵（借鉴 cjui 的 platforms 组织）**：`native/` 拆成
+  `core/`（bridge_core.c/.h + bridge_js.h，跨平台共享层，桩自检就编它）、
+  `platforms/linux/`（bridge_linux.c）、`platforms/windows/`（bridge_win.c）、
+  `platforms/harmonyos/`（**只有契约 README 的 scaffold**：共同契约「必须实现或明确拒绝」、
+  能力位如实报 0、禁假实现、验收出口——为鸿蒙 ArkWeb 预留）；`native/tests/` 桩自检不动。
+  构建脚本留在 `native/` 根、源路径改指子目录，**产物路径不变**（`cjpm.toml` 的 `-Lnative`
+  与打包脚本零改动）。全部复跑：桩自检 151/151、单测 189/189、check-static 全绿。
+  新增 `docs/需求追踪.md`：按能力组织的矩阵（CORE/SEC/PLG/PLT/ENG 五组，ID / Owner 文件 /
+  验收场景 / 五级状态 / 证据），状态词 planned → validation-only → experimental →
+  implemented → supported，与 `进度记录.md`（时间线）、RFC-003（分期）互补；行为变更同轮更新。
 - **插件物理隔离：`src/plugins/` 子包（重构）**：9 个 `plugin_*.cj` 与串口 FFI 声明从 `src/` 顶层
   迁入独立子包 `package cjTauri.plugins`，`src/` 顶层只留框架核心（16 个文件）。依赖方向不变：
   插件 import 核心（父包 `public` 符号），核心零引用插件——`check-static.sh` 的边界断言随之从

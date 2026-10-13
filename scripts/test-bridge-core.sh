@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-bridge-core.sh — C 桥公共核心（native/bridge_core.c）的自检
+# test-bridge-core.sh — C 桥公共核心（native/core/bridge_core.c）的自检
 #
 # 不需要仓颉 SDK，也不需要 GTK / WebKit / WebView2：用一个「只记录调用」的桩平台实现
 # bridge_core.h 里的 25 个 cj_plat_* 原语，再把 core 与桩一起编译成单文件可执行程序——
@@ -30,8 +30,8 @@ TMPDIR_RUN="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_RUN"' EXIT
 BIN="$TMPDIR_RUN/test_bridge_core"
 
-if ! "$CC" -std=c99 -Wall -Wextra -pthread -O1 -g -I native \
-        -o "$BIN" native/tests/test_bridge_core.c native/bridge_core.c; then
+if ! "$CC" -std=c99 -Wall -Wextra -pthread -O1 -g -I native/core \
+        -o "$BIN" native/tests/test_bridge_core.c native/core/bridge_core.c; then
     echo "[FAIL] bridge_core 自检编译失败" >&2
     exit 1
 fi
@@ -40,4 +40,4 @@ if ! "$BIN"; then
     echo "[FAIL] bridge_core 自检有失败项（明细见上）" >&2
     exit 1
 fi
-echo "[OK] bridge_core 自检通过（native/bridge_core.c，桩平台，无需 SDK / 图形栈）"
+echo "[OK] bridge_core 自检通过（native/core/bridge_core.c，桩平台，无需 SDK / 图形栈）"

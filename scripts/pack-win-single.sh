@@ -23,7 +23,7 @@
 #   ③ WebView2Loader.dll **没法**静态链——MSVC 编的 WebView2LoaderStatic.lib 要 /GS 的
 #      __security_cookie 与 C++ 运行时符号，mingw 接不住（2026-10-07 实测 `ld.lld: undefined
 #      symbol: __security_cookie`）。于是把它的字节编进桥（-DCJ_EMBED_WEBVIEW2_LOADER），
-#      首次运行时释放到 %TEMP%\cj-tauri-loader\ 再按绝对路径加载（幂等，见 native/bridge_win.c）；
+#      首次运行时释放到 %TEMP%\cj-tauri-loader\ 再按绝对路径加载（幂等，见 native/platforms/windows/bridge_win.c）；
 #   ④ 页面 / three.js（只有用它的示例）/ 能力清单由本脚本生成 src/packed_assets.cj（base64），编进二进制。
 #
 # 产物：<示例>/dist-single/<示例名>.exe（实测 typing-poem：28.8 MB → strip 后 5.5 MB；
@@ -84,7 +84,7 @@ WEBVIEW2_INCLUDE="$WEBVIEW2_SDK_ROOT/build/native/include"
 [ -f "$WEBVIEW2_INCLUDE/WebView2.h" ] || die "缺 WebView2 头文件: $WEBVIEW2_INCLUDE/WebView2.h"
 
 NATIVE="$ROOT/native"
-[ -f "$NATIVE/bridge_win.c" ] || die "缺 C 桥源码: $NATIVE/bridge_win.c"
+[ -f "$NATIVE/platforms/windows/bridge_win.c" ] || die "缺 C 桥源码: $NATIVE/platforms/windows/bridge_win.c"
 [ -f "$NATIVE/webview2/WebView2Loader.dll" ] || die "缺 native/webview2/WebView2Loader.dll（先跑 native\\build_win.bat）"
 [ -d "$EXAMPLE/src" ] || die "示例不存在或没有 src/: $EXAMPLE"
 
@@ -110,7 +110,7 @@ echo "[pack-single] 内嵌 WebView2Loader.dll（$LOADER_BYTES 字节）"
 echo "[pack-single] 编译静态桥 libcjtbridge.a"
 ( cd "$WORK/bridge" && gcc -c -O2 -fstack-protector-all -DCJ_EMBED_WEBVIEW2_LOADER \
     -I"$WORK/bridge" -I"$WEBVIEW2_INCLUDE" \
-    "$NATIVE/bridge_core.c" "$NATIVE/bridge_win.c" && \
+    "$NATIVE/core/bridge_core.c" "$NATIVE/platforms/windows/bridge_win.c" && \
     ar rcs libcjtbridge.a bridge_core.o bridge_win.o )
 BRIDGE_LIB="$WORK/bridge/libcjtbridge.a"
 [ -f "$BRIDGE_LIB" ] || die "静态桥编译失败"

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title data-en="cj-tauri · Build desktop apps in Cangjie, ship them as HTML/CSS/JS">cj-tauri · 仓颉版 Tauri：用仓颉写桌面应用，前端还是 HTML/CSS/JS</title>
-<meta name="description" data-en="A Tauri-like hybrid desktop framework written in Huawei's Cangjie language: statically compiled native backend + system WebView frontend. 5.5–9.5 MB artifacts, no Chromium bundled, Windows (WebView2) and Linux (WebKitGTK) verified on real hardware. MIT licensed." content="用华为仓颉语言实现的类 Tauri 混合桌面框架：仓颉静态编译后端 + 系统 WebView 前端。产物 5.5–9.5 MB、不捆绑 Chromium，Windows（WebView2）与 Linux（WebKitGTK）已实机跑通，MIT 开源。">
+<meta name="description" data-en="Tauri, in Cangjie: a hybrid desktop framework written in Huawei's Cangjie language — statically compiled native backend + system WebView frontend. 5.5–9.5 MB artifacts, no Chromium bundled, Windows (WebView2) and Linux (WebKitGTK) verified on real hardware. MIT licensed." content="仓颉语言的 Tauri：用华为仓颉语言实现的混合桌面框架——仓颉静态编译后端 + 系统 WebView 前端。产物 5.5–9.5 MB、不捆绑 Chromium，Windows（WebView2）与 Linux（WebKitGTK）已实机跑通，MIT 开源。">
 <meta name="keywords" content="仓颉,Cangjie,cj-tauri,桌面应用,WebView,WebView2,WebKitGTK,Tauri,IPC,插件体系,capability,跨平台,鸿蒙,ArkWeb">
 <meta name="author" content="cj-tauri contributors">
 <meta name="theme-color" content="#06070b">
@@ -36,7 +36,7 @@
   "operatingSystem": "Windows, Linux",
   "softwareVersion": "0.8.0",
   "license": "https://opensource.org/licenses/MIT",
-  "description": "仓颉语言实现的类 Tauri 混合桌面框架：静态编译后端 + 系统 WebView 前端 + IPC 双向桥 + 能力白名单安全模型。",
+  "description": "仓颉语言的 Tauri：静态编译后端 + 系统 WebView 前端 + IPC 双向桥 + 能力白名单安全模型。",
   "url": "https://yangyongzhen.github.io/cj-tauri/",
   "sameAs": [
     "https://atomgit.com/qq8864/cj-tauri",
@@ -92,8 +92,8 @@
           <span data-en="Build desktop apps in Cangjie,">用仓颉写桌面应用，</span>
           <em class="grad-text" data-en="keep your HTML/CSS/JS">前端还是 HTML/CSS/JS</em>
         </h1>
-        <p class="hero__lead" data-en="cj-tauri is a Tauri-like framework for the Cangjie language: the backend compiles to a static native executable, the frontend runs inside the system WebView (WebView2 on Windows, WebKitGTK on Linux), and the two are wired by a bidirectional IPC bridge plus a capability whitelist. No Chromium bundled, 5.5–9.5 MB artifacts, double-click to run.">
-          cj-tauri 是仓颉语言里的类 Tauri 框架：后端静态编译成原生可执行文件，前端跑在<strong>系统 WebView</strong>里
+        <p class="hero__lead" data-en="cj-tauri is Tauri, in the Cangjie language: the backend compiles to a static native executable, the frontend runs inside the system WebView (WebView2 on Windows, WebKitGTK on Linux), and the two are wired by a bidirectional IPC bridge plus a capability whitelist. No Chromium bundled, 5.5–9.5 MB artifacts, double-click to run.">
+          cj-tauri 就是仓颉语言里的 Tauri：后端静态编译成原生可执行文件，前端跑在<strong>系统 WebView</strong>里
           （Windows 走 WebView2、Linux 走 WebKitGTK），中间是一条 IPC 双向桥加一套能力白名单。
           不捆绑 Chromium，产物 5.5–9.5 MB，双击即用。
         </p>
@@ -142,7 +142,7 @@
         <span class="kicker" data-en="Three pieces">三件套</span>
         <h2 class="sec-title" data-en="A WebView host, an IPC bridge, and a capability model">WebView 宿主 + IPC 双向桥 + 能力安全模型</h2>
         <p class="sec-lead" data-en="Tauri maps three ideas onto Rust; cj-tauri maps the same three onto Cangjie. Everything else — routing, validation, plugin wiring — is shared across platforms and lives above them.">
-          对标 Tauri 的三件套：宿主负责开窗与注入，桥负责一问一答与事件回投，能力模型负责「谁能调什么」。
+          与 Tauri 对应的三件套：宿主负责开窗与注入，桥负责一问一答与事件回投，能力模型负责「谁能调什么」。
           平台差异被压到两处——仓颉侧 <code>@When</code> 条件编译与 C 桥的 <code>native/bridge_*.c</code>，
           其余全部跨平台共用。
         </p>
@@ -724,8 +724,8 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
           <img class="brand__mark" src="assets/favicon.svg" alt="" width="30" height="30">
           <span class="brand__name">cj-tauri</span>
         </a>
-        <p class="foot__desc" data-en="A Tauri-like hybrid desktop framework written in Cangjie: statically compiled backend, system WebView frontend, IPC bridge and capability whitelist. MIT licensed. No Chromium was harmed in the making of these binaries.">
-          用仓颉写的类 Tauri 混合桌面框架：静态编译后端 + 系统 WebView 前端 + IPC 桥 + 能力白名单。MIT 开源。
+        <p class="foot__desc" data-en="Tauri, in Cangjie — a hybrid desktop framework: statically compiled backend, system WebView frontend, IPC bridge and capability whitelist. MIT licensed. No Chromium was harmed in the making of these binaries.">
+          仓颉语言的 Tauri：混合桌面框架——静态编译后端 + 系统 WebView 前端 + IPC 桥 + 能力白名单。MIT 开源。
           产物里没有一个字节是 Chromium。
         </p>
       </div>

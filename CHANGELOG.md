@@ -441,6 +441,18 @@
   **之后**以 134 收尾——同日对照跑一行未动的 `examples/plugin-serial` 也崩，属既有 Linux 退出期偶发
   频率升高，与示例代码无关（不判因，见进度记录 §3.2.17）。
 
+### Changed
+
+- **对外口径统一为「仓颉语言的 Tauri」**：原先散在 `README.md` / 官网 / npm 描述 / skills / 示例 README
+  与 6 篇发表稿里的**「类 Tauri」「Tauri-like」「对标 Tauri」「照搬 / 复刻 / 模仿 Tauri」**等措辞，全部改为
+  「仓颉语言的 Tauri」「Tauri 那套架构在仓颉里独立实现」「与 Tauri 对应 / 同构」——避免被读成对 Tauri 的
+  简单翻版。**源码注释里的「对标 tauri …」保持不变**：它解释的是「这一处代码与 tauri 的哪个 API 对应」，
+  是给贡献者的对照说明，不涉及来源主张。
+- **`npm/package.json` 的 `description` 同步**（下次 `npm publish` 生效）；官网 7 处、`README.md` 3 处、
+  `npm/README.md`、`skills/` 三处、`examples/music/README.md`、`AGENTS.md` §0 定位句，以及
+  `docs/` 下 6 篇发表稿的同类措辞一并对齐。
+  注：已发布到 CSDN 的那几篇线上正文标题仍是旧措辞，需人工同步（本仓库只改本地稿）。
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

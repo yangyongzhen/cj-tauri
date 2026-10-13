@@ -166,7 +166,7 @@ public class Index {
         window._cangjieCallbacks = new Map();
         window._cangjieCallbackId = 0;
 
-        // 2. 核心 Invoke 函数：模仿 Tauri 的调用直觉
+        // 2. 核心 Invoke 函数：对齐 Tauri 的调用直觉
         function invoke(cmd, payload = {}) {
             return new Promise((resolve, reject) => {
                 const id = window._cangjieCallbackId++;

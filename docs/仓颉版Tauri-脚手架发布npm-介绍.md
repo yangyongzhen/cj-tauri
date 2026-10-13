@@ -3,7 +3,7 @@
 > 2026-10-11 · [yangyongzhen/cj-tauri](https://atomgit.com/qq8864/cj-tauri)（AtomGit，GitHub 同步）
 > npm 包地址：<https://www.npmjs.com/package/cj-tauri>
 
-[cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是用华为仓颉语言实现的类 Tauri 混合开发框架：
+[cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是**仓颉语言的 Tauri**：用华为仓颉语言实现的混合开发框架，
 **仓颉后端（静态编译）+ 系统 WebView 前端**，对标 Tauri 的三件套——WebView 宿主、IPC 双向桥、
 能力安全模型。之前想试试它，你得先 clone 仓库、认出 `cli/cj-tauri.sh` 和 `cli/cj-tauri.bat`
 两套启动器、再手动对齐 SDK 路径——门槛都在「跑起来之前」。

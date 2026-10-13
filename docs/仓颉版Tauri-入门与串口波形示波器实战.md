@@ -8,7 +8,7 @@
 
 ## cj-tauri 是什么
 
-一句话：**用华为仓颉语言写的类 Tauri 框架**——前端是系统 WebView 里的 HTML/CSS/JS，后端是仓颉静态编译出的原生可执行文件，中间靠一套 IPC 协议和一张能力白名单连起来。
+一句话：**仓颉语言的 Tauri**——前端是系统 WebView 里的 HTML/CSS/JS，后端是仓颉静态编译出的原生可执行文件，中间靠一套 IPC 协议和一张能力白名单连起来。
 
 它没有捆绑 Chromium。Linux 用的是系统里的 WebKitGTK，Windows 用的是系统里的 WebView2（Win11 自带），所以产物是几 MB 级的 exe，跟动辄上百 MB 的 Electron 应用不是一个量级。
 

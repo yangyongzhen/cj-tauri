@@ -11,7 +11,7 @@ description: 向 cj-tauri 仓库回贡献：把使用中遇到的问题、修法
 
 ## 仓库与约定
 
-- 仓库：**https://atomgit.com/qq8864/cj-tauri**（仓颉版类 Tauri 框架 + 本 skills 的正身所在）
+- 仓库：**https://atomgit.com/qq8864/cj-tauri**（仓颉语言的 Tauri 框架 + 本 skills 的正身所在）
 - 开发契约：仓内 `AGENTS.md`（门禁 / 架构 / 编码规范 / 踩坑清单）；**改代码前先读 §1 与 §2**
 - 提交信息：Conventional Commits（`feat:` / `fix:` / `docs:` / `chore:`），主题英文、正文可中英混排
 

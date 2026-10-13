@@ -1,7 +1,7 @@
 # cj-tauri
 
-用[仓颉语言](https://cangjie-lang.cn)写桌面应用的**类 Tauri 框架**脚手架 CLI：
-仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS），三件套对标 Tauri ——
+用[仓颉语言](https://cangjie-lang.cn)写桌面应用的脚手架 CLI——把 Tauri 的三件套带到仓颉：
+仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS），三件套与 Tauri 一致 ——
 WebView 宿主、IPC 双向桥（`invoke` / `resolve` / `event`）、能力安全模型（capability 白名单）。
 
 - 仓库与完整文档：<https://atomgit.com/qq8864/cj-tauri>

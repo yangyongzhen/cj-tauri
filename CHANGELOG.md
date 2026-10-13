@@ -9,6 +9,24 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+### Added
+
+- **IPC 报文协议版本字段**：事件 / 回执信封加 `protocol` 字段，`system:version` 返回同一常量
+  （`CJ_IPC_PROTOCOL`，`src/version.cj` 单一来源）。**旧报文形态只增字段、语义不变**，页面侧解析不受影响；
+  协议字段自此是跨层契约的一部分（C 桥注入脚本的页面侧解析、CLI 的清单消费、将来跨进程形态），
+  删字段 / 改语义必须抬版本。
+- **`cj-tauri doctor` 子命令**：环境自检**逐行给结论**（`ok` / `warn` / `FAIL`），每条失败自带
+  「缺了就怎么办」——cjc / cjpm 以**命令自身退出码**判定（二进制在 PATH 里但运行时加载不了时
+  报 exit=127 并指出 `LD_LIBRARY_PATH`）、仓颉运行时是否已进 `LD_LIBRARY_PATH`、`CANGJIE_STDX` 指向、
+  框架根 / 项目根、C 桥产物与框架源码的新旧比较（改了 C 桥没重建会给出重建命令）、
+  Linux 图形栈（webkit2gtk-4.1 / gtk+-3.0 / gcc）。退出码 0 = 必需项全过（warn 不算失败），1 = 有失败项。
+- **E2E 证据 JSON 化（`scripts/e2e-evidence.sh`）**：把一次实机验证落成机器可对账的
+  `dist/e2e-evidence/<平台>-<名字>.json`——平台、Runtime 版本（Linux 取 pkg-config 的
+  webkit2gtk / gtk3，Windows 从桥日志读 WebView2）、每条断言的**命中次数**、UTC 时间、命令退出码。
+  断言按「整行前缀」grep 日志，未命中即退出码 1（`--allow-missing` 可放宽）。
+  `scripts/check-static.sh` 新增第 7 项：证据文件结构合法且 `summary.ok` 为真，否则门禁 FAIL
+  （`supported` 的门槛是「可复核证据」，那这份证据自己也得过关）。
+
 ## [Unreleased]
 
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
@@ -29,7 +47,7 @@
 - **scope 边界补强（SEC-003）**：`scope_test.cj` 新增 3 条——白名单内软链接指向外面**必拒**
   （规范化解析软链接）、软链接落点在白名单内**放行**（对照组）、`%2e%2e` 是字面量文件名
   **不做 %XX 解码**（反转义归插件/桥的 URI 层，scope 层不重复解码）。单测 189 → **192**。
-- **native 层按平台分目录 + 需求追踪矩阵（借鉴 cjui 的 platforms 组织）**：`native/` 拆成
+- **native 层按平台分目录 + 需求追踪矩阵（按「每平台一目录 + 契约 README」的通用平台组织惯例）**：`native/` 拆成
   `core/`（bridge_core.c/.h + bridge_js.h，跨平台共享层，桩自检就编它）、
   `platforms/linux/`（bridge_linux.c）、`platforms/windows/`（bridge_win.c）、
   `platforms/harmonyos/`（**只有契约 README 的 scaffold**：共同契约「必须实现或明确拒绝」、

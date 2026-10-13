@@ -7,13 +7,13 @@
 
 ## 定位
 
-对标 cjui 的 `platforms/harmony/arkweb-shim`（scaffold 先行、契约驱动）：HarmonyOS 侧
+按「scaffold 先行、契约驱动」的平台接入惯例组织（HarmonyOS 侧
 不是又一个 `bridge_*.c`——ArkWeb 宿主运行在 ArkTS/ArkUI 世界里，仓颉侧经 NAPI 互操作，
 因此本平台的形态预计是：
 
 - `bridge_hos.c`（或 NAPI 模块）：实现与 `bridge_core.h` 相同的 `cj_core_*` 调用点，
   对上承接 `cjTauri` 框架包的 `foreign func` 导出约定；
-- ArkTS 侧 Web 组件托管 + `javaScriptProxy` 注入桥（参考 cjui `Index.ets` 的形状：
+- ArkTS 侧 Web 组件托管 + `javaScriptProxy` 注入桥（ArkWeb 的标准桥接形状：
   原生对象暴露 `invoke`，页面侧 `runJavaScript` 装 `window.__CJ_TAURI__` 门面）；
 - 生命周期与页面加载事件回投（对应 Linux/Windows 的 shell 事件 / 销毁回调，**回调签名
   首参必须带 `struct cj_host *`**，见 AGENTS §2）。
@@ -31,7 +31,7 @@
 - 未实现的能力返回结构化失败（对齐 Windows 桩先例：通知返回 `-4` + 能力位报 0），
   禁止「看起来成功」的假实现。
 
-## 验收出口（参照 cjui platforms.md 的分级）
+## 验收出口（按平台支持分级惯例）
 
 DevEco 工程可生成并打开 → ArkWeb 加载本地资源与 dev URL → IPC 往返（`system:version`）
 → 宿主回调按句柄路由不串台 → HAP 真机（平板 / 2-in-1，手机须单独声明）→ 桥 stderr

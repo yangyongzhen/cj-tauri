@@ -39,6 +39,9 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 
 **判据**：`cj-tauri info` 全解析 +（Linux）`pkg-config webkit2gtk-4.1` 有版本号 = 环境齐了。
 
+装了 CLI 的话直接 `cj-tauri doctor`（同一套判据，逐行给 `ok` / `warn` / `FAIL` + 「缺了就怎么办」，
+有 FAIL 时退出码 1）——不必人眼比对上表；上面的裸命令是**没有 CLI** 时的替代（`npx cj-tauri doctor` 亦可）。
+
 ### 2. 缺什么装什么
 
 **仓颉 SDK（含 cjc / cjpm，验证版本 1.2.0）**
@@ -107,5 +110,5 @@ atomcode plugin install <plugin名>@<marketplace名>   # 名字看该仓 README
 - 环境问题不要猜：先跑 §1 检测，按输出对号入座，缺哪样补哪样；
 - 版本：SDK 1.2.0 + stdx 1.2.0.1 为验证组合（`cjpm.toml` 的 `cjc-version` 写最低要求 1.0.5，高版本兼容）；
 - Windows 工具链一律装**无空格路径**；WebView2 SDK 不得高于本机 Runtime；
-- 装完用 `cj-tauri info` 复检（全解析才算数），不要只看单条命令有输出；
+- 装完用 `cj-tauri doctor`（或 `cj-tauri info`）复检（全解析才算数），不要只看单条命令有输出；
 - 检测输出与安装结果都贴给用户看，装了什么、还缺什么，一目了然。

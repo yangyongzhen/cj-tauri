@@ -4,7 +4,7 @@
 > **Linux 托盘可选编译**、**拖放只做文件拖入 → 真实路径**；落地按 §7 分期，先做 **7.A 菜单**（Windows 先行）。
 > 上位文档：[架构演进-多平台与多窗口](架构演进-多平台与多窗口.md) §2.3（只定模型、不写实现）、
 > §5（「没有第二个实现来验证的抽象只定模型」的判据）、§6.3（托盘必须可选编译）。
-> 体例对标 [RFC-001 插件体系](RFC-插件体系.md)。
+> 体例沿用 [RFC-001 插件体系](RFC-插件体系.md)。
 
 ## 1. 摘要
 
@@ -499,7 +499,7 @@ Explorer 后托盘就消失，是肉眼可见的缺陷；实现成本只是多�
 - 本仓现状：`src/host.cj`（宿主接口 + `HostGlobals`）、`src/plugin_dialog.cj`（插件范式）、
   `src/capability.cj`（能力校验）、`src/ipc_hub.cj`（事件投递）、`native/bridge_core.h`（导出与平台原语契约）、
   `native/bridge_win.c` / `native/bridge_linux.c`（两平台装配点）、`native/build_win.bat` / `build_linux.sh`（构建开关）。
-- 对标实现：Tauri v2 的 `menu` / `tray` 模块（模型与原生翻译层分离、`HostCapabilities` 式能力自省）；
+- 对应实现：Tauri v2 的 `menu` / `tray` 模块（模型与原生翻译层分离、`HostCapabilities` 式能力自省）；
   wry 的 Windows 拖放实践（`IDropTarget` + 关闭 WebView 自带 drop）。
 - 平台资料：WebView2 SDK `ICoreWebView2Controller4::AllowExternalDrop`（本机 SDK 1.0.2365.46 的
   `WebView2.h` 已含）、Win32 `Shell_NotifyIcon` / `RegisterDragDrop` / `CF_HDROP`、

@@ -53,7 +53,7 @@ Tauri 的 capability 权限模型、IPC 协议、资源打包方案，全是成�
 
 Tauri 不是"浏览器套壳"，它的架构由三块拼成。仓颉版逐块对应：
 
-### 第一块：WebView 宿主（对标 WRY + TAO）
+### 第一块：WebView 宿主（对应 WRY + TAO）
 
 - **Linux 桌面**：webkit2gtk-4.1，仓颉 C FFI 直绑；
 - **鸿蒙**：官方 `arkweb_cangjie_wrapper`（ArkWeb 的仓颉封装，WebviewController 等全是 .cj 实现）——鸿蒙版连窗口都不用自己造，ArkUI 就是现成的窗口宿主层。
@@ -73,7 +73,7 @@ Tauri 不是"浏览器套壳"，它的架构由三块拼成。仓颉版逐块对
 {"type":"event","event":"tick","payload":{"n":1}}
 ```
 
-前端注入一个 `window.__CJ_TAURI__` 桥（对标 @tauri-apps/api），提供 `invoke/listen/emit` 三个 API。前端用起来跟 Tauri 一模一样：
+前端注入一个 `window.__CJ_TAURI__` 桥（对应 @tauri-apps/api），提供 `invoke/listen/emit` 三个 API。前端用起来跟 Tauri 一模一样：
 
 ```js
 const tauri = window.__CJ_TAURI__;
@@ -81,7 +81,7 @@ tauri.invoke('greet', { name: '仓颉' }).then(d => console.log(d));
 tauri.listen('tick', p => console.log(p));
 ```
 
-### 第三块：能力安全模型（对标 capability）
+### 第三块：能力安全模型（对应 capability）
 
 这是"套壳"与"框架"的分水岭。capability 清单声明应用能用哪些命令、收哪些事件：
 

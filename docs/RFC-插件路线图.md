@@ -1,13 +1,13 @@
 # RFC-003：cj-tauri 插件路线图（对照 Tauri 2 官方插件清单）
 
 > 状态：**规划稿**（2026-10-09）。对照 2026-10-09 抓取的 [Tauri 2 官方插件页](https://v2.tauri.app/plugin/)
-> 与仓内实况逐项盘点，按「桌面常用度 + 落地成本」排期；体例对标 [RFC-002](RFC-菜单-托盘-拖放.md)。
+> 与仓内实况逐项盘点，按「桌面常用度 + 落地成本」排期；体例沿用 [RFC-002](RFC-菜单-托盘-拖放.md)。
 > 排期不是承诺——每期开工前按当期实况复核一次，踩坑记录照旧沉淀进 `AGENTS.md` §4 与
 > `skills/cj-tauri-troubleshoot`。
 
 ## 1. 现状（仓内已有）
 
-| cj-tauri 已有 | 对标 Tauri | 备注 |
+| cj-tauri 已有 | 对应 Tauri | 备注 |
 |---|---|---|
 | `fs` 插件 | File System | 路径 scope **已补齐**（第 4 期，2026-10-12）：`scopes` 字段按插件名收路径白名单 |
 | `dialog` 插件 | Dialog | 已实机验证（Linux/WebKitGTK） |

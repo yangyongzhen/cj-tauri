@@ -123,12 +123,12 @@ cli\cj-tauri.bat create myapp && cd myapp
 文字版（同上，便于搜索与复制）：
 
 ```
-前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对标 @tauri-apps/api）
+前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对应 @tauri-apps/api）
         │  JSON over postMessage（Linux: WebKitUserContentManager；Windows: chrome.webview.postMessage）
         ▼
 IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（与 tauri IPC 同构；命令在 worker 线程异步执行）
         ▼
-能力安全模型（src/capability.cj）← 命令/事件白名单，默认最小权限（对标 capability）
+能力安全模型（src/capability.cj）← 命令/事件白名单，默认最小权限（对应 capability）
         ▼
 内置命令（src/api_system.cj）：system:version / ping / echo / devtools
         ▼

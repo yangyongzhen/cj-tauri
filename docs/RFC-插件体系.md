@@ -127,7 +127,7 @@ v1 选 **B**，理由：权限模型是这个框架区别于「随便一个 WebV
    ```
    这条提示的数据来源与 §5.5 的清单是同一份，几乎零成本。
 2. **给使用者一个「引用」动作而不是「自动放行」**：插件自带命名 permission set
-   （对标 Tauri v2：插件发布 permission，应用 capability 里引用 `"permissions": ["fs:default"]`）。
+   （对应 Tauri v2：插件发布 permission，应用 capability 里引用 `"permissions": ["fs:default"]`）。
    **v1.1 已落地**（2026-10-02，比本节原先「留到 v2」的判断提前）：`Plugin.permissions()` 声明集、
    `CapabilityRegistry.addPermissionSet` 注册、清单 `permissions` 字段引用；明文命令名保留且与集**等价**——
    集只解决「写法短」，闸门仍在清单手里（§8 问题 2 的答案）。
@@ -266,7 +266,7 @@ v1 先做成启动日志的输出；**机器可读版本已提供**（2026-10-02
 
 ## 9. 参考
 
-- 对标对象：Tauri v2 插件模型——插件 = 一个 Rust crate + 可选 JS 包 + permission set，
+- 对应对象：Tauri v2 插件模型——插件 = 一个 Rust crate + 可选 JS 包 + permission set，
   应用在 capability 里引用插件的 permission。
 - 本仓现状：`src/app.cj`（装配）、`src/capability.cj`（权限）、`src/ipc_hub.cj`（分发）、
   `src/host.cj`（宿主接口）、`native/bridge_win.c`（`BRIDGE_JS` 的注入时机）、

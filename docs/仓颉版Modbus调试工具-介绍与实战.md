@@ -7,7 +7,7 @@ Modbus 主站模拟器的事实标准。但用得越多，越觉得它那套 200
 这篇文讲两件事：
 
 1. **cj-tauri 脚手架怎么用**——5 分钟从零起一个「仓颉后端 + 系统 WebView」的桌面应用；
-2. **用 cj-tauri 实现的 Modbus 调试工具**（`examples/modbus-poll`）——功能对标 Modbus Poll，
+2. **用 cj-tauri 实现的 Modbus 调试工具**（`examples/modbus-poll`）——功能对齐 Modbus Poll，
    并把它几个最难受的地方直接摁平了。
 
 ---
@@ -34,7 +34,7 @@ Modbus 主站模拟器的事实标准。但用得越多，越觉得它那套 200
 ## 二、cj-tauri：仓颉版的 Tauri，脚手架 5 分钟起一个桌面应用
 
 [cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是**仓颉语言的 Tauri 2**：用华为仓颉语言实现的混合开发框架，
-**仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS，零 Chromium 捆绑）**。三件套对标：
+**仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS，零 Chromium 捆绑）**。三件套对应：
 WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
 
 ### 2.1 脚手架 CLI：create / dev / build / run / info
@@ -165,7 +165,7 @@ Modbus 工具的全部能力就是十来条这样的命令：`mb:read` / `mb:wri
 | 界面无法定制 | 前端就是 HTML/CSS/JS——想加趋势图、改配色、接自己的面板，都是改几行网页的事 |
 | 串口类功能码全都要 | TCP + RTU 双通道；诊断类功能码（08/11/17/22/23）作为后续路线 |
 
-一句话：**Modbus Poll 是「装好就能用的商业工具」，这个是「功能对标、痛点反着做、还带完整源码的开源工具」**——
+一句话：**Modbus Poll 是「装好就能用的商业工具」，这个是「功能对齐、痛点反着做、还带完整源码的开源工具」**——
 你甚至可以用它的源码当模板，把公司自己的上位机一小时之内搭出来。
 
 ---

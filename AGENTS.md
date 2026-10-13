@@ -181,6 +181,20 @@
   它要求 `T <: InputStream & Seekable`，而 `resp.body` 的静态类型只有 `InputStream`，得自己按块读到
   EOF（`ByteBuffer.write` + `body.read(chunk)`）；② 取响应头用 `resp.headers.getFirst("Content-Type")`
   （**没有 `get`**，写成 `get` 会得到「enum pattern is not matched」这种指向不明的报错）。
+- **`stdx.net.http` 的第三个坑是 import，不是用法**（2026-10-13 实测，`examples/http-client`）：
+  `TlsClientConfig` 在 `stdx.net.tls` 里、**不在 `net.http`**，少一行 `import stdx.net.tls.*` 报的是
+  `undeclared identifier 'TlsClientConfig'`（看着像「这个类型不存在」，其实是没导包）；
+  同理 **`Int64.parse` 要 `import std.convert.*`**（`parsable` 扩展），漏了同样是
+  `undeclared identifier 'parse'`。两处都是「编译器指向的名字不是真原因」。
+- **`HttpHeaders.add` 不收元组**：写 `hs.add((name, value))` 报 `parameters and arguments mismatch`
+  （元组被当成两个实参）。先落成局部变量（`let pair = (name, value)`）再 `add(pair)`。
+- **`match` 不能对 `Option<JsonValue>` 直接取 `.kind()`**：报
+  `'kind' is not a member of enum 'Option<Class-JsonValue>'`——先 `match` 拆 `Some` / `None`，
+  再对里面的值取 `kind()` / `asString()`。JSON 入参解析几乎处处要写这一跳。
+- **`private let` 字段在构造之外不可赋值**：需要「解析时就地置位」的字段（如白名单里碰到 `*` 就置 `anyHost`）
+  必须声明成 `private var`——仓颉的 `let` 字段构造后即只读，写入报 `variable 'x' is immutable`。
+- 在**注解或注释**里写 MIME 通配（`text/*`、`image/*`）会撞本清单第一条的**块注释嵌套**——
+  正文里要表达通配就换个写法（如 `text` 后面单写一个星号、或写 `text/…`），别让 `/*` 出现在注释文本里。
 - **防盗链图片只能在宿主侧取**：图源常按 `Referer` 放行，失败形状是「**HTTP 200 + 0 字节**」——
   页面侧 `<img src>` 直连必然全灭，且**没有页面侧解法**（`Referrer-Policy` 只能减少 Referer、
   不能替换，何况内联页来源是 opaque）。办法是把地址交给一个宿主命令，由仓颉侧带正确 `Referer`
@@ -402,6 +416,11 @@
   `DONE passed=15` 落盘之后还来了两条明细。判据只能取**计数一致**：聚合行里的 `passed` 等于 PASS
   明细条数、`failed` 等于 0，两者缺一不可。按「最后一条必须是 DONE」写会**假红**（行序骗人），
   只看「有没有 FAIL 行」会**假绿**（红的那条可能正落在聚合行之后）。
+- **E2E 断言 needle 别夹会变动的字段**（2026-10-13 实测）：桥的请求日志一行里既有结果又有耗时
+  （`[http-client] GET … -> 200 4B 1ms truncated=false`），把 `-> 200 4B truncated=false` 整段当 needle
+  **必然假红**——`1ms` 每轮都不一样。needle 取到「稳定且足以判别」的边界为止（`-> 200 4B`），
+  要顺带断言 `truncated` 就单独立一条（`truncated=true`）。同理别把端口、耗时、临时路径写死进 needle。
+  （自检条目名里带 `:` 会撞证据层拆分、带反引号会被 shell 当命令替换，见上两条。）
 - **`DISPLAY` 存在 ≠ 显示器可用**（2026-10-13 实测）：SSH 转发的 `DISPLAY` 失效时变量**还在**
   （本机是 `localhost:15.0`），只看「变量非空」就放行，应用会死在 `cannot open display`，
   而验收脚本还会把这次失败记成「窗口起不来」。判定要**真去连**——`xdpyinfo` /

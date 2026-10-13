@@ -497,6 +497,13 @@
   选 r160 的理由：**它是最后一个带 UMD 构建的版本**（`three@0.161+` 只剩 ESM），而这个示例的页面是
   `run(html)` 的内联来源（Windows 下 `NavigateToString`，无真实来源），相对 `<script src>` 与 ES module
   都不成立——只能把整份 UMD 经 `addInitScript()` 走 document-start 通道注入（AGENTS §4 有这条坑的完整形状）。
+  第二项是**系统 SQLite**（`src/plugins/sqlite_ffi.cj` 用 `foreign func` 直连，仓库首例「不经 C 桥」）：
+  本仓**不随包分发** sqlite3 二进制，链接谁由消费方提供——Linux 走发行版 `libsqlite3.so`（示例的
+  `link-option` 里加 `-lsqlite3`），Windows 侧本轮未落地（要自带 `sqlite3.dll` 并补进
+  `scripts/pack-win*.sh` 的 DLL 清单；这类「按名字 LoadLibrary」的库不在 PE 导入表里，最容易被漏，
+  见 D-018 第 8 条）。SQLite 本身是 **public domain**（`sqlite.org/copyright.html`）：
+  不随包分发就不产生附许可证的义务；一旦哪个示例在 Windows 上落地并随包分发 `sqlite3.dll`，
+  本条要补上它的来源、版本与许可证位置。
 - 仓库根保持 5 个标准文件：`README.md`（必须含运行截图）/ `LICENSE` / `README.OpenSource` / `CHANGELOG.md` /
   `CONTRIBUTING.md`；功能与依赖变更时同步受影响的文件，平台或依赖变化时 `README.OpenSource` 也要改。
 - **`skills/` 目录（AtomCode skills，已 marketplace 化）**：随仓库分发的 AI 指令（`cj-tauri-env` /

@@ -2,6 +2,9 @@
 target/
 dist-npm/
 dist-win/
+# E2E 取证产物（scripts/e2e-evidence.sh 写给 check-static 对账用）：
+# 里面记的是本机日志的绝对路径与当机运行时版本，属本机产物，不入库
+dist/
 *.o
 *.a
 *.so

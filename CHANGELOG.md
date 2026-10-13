@@ -48,6 +48,22 @@
 
 ### Added
 
+- **新示例 `serial-waveform`（串口实时波形示波器）**：`serial` 插件 + canvas 双缓冲自绘（网格 / 零线 /
+  量程刻度 / 滚动窗口），页面按行协议 `<序号>,<值>` 解析样本并**自己算**速率、上穿次数、丢帧数，
+  探针跑完只有 `verdict=ok` 才算过。Linux 实机（Xvfb + `os.openpty()` 造的内核 pty 对端按 400 Hz 出样本）：
+  对端侧落盘 `SCAN\n`（进程外证据）、页面 `rate=404.2/s`（400 Hz 兑现）、`upcross=8`、`gaps=0`、
+  统计行 样本 2002 / 画布 1148x566；截图见 `docs/images/example-serial-waveform.png`。零告警构建，产物 4.7 MB。
+- **E2E 入口 `scripts/e2e/test-linux-serial-waveform.sh`**：把示例收进仓内 E2E 基建，10 条断言走完
+  **页面 → 桥 → IPC → 能力校验 → `serial:open/write/read` → C 桥 → 内核 pty** 全链路；
+  并额外拿对端写下的原始字节 `~-rx.bin` 作**进程外**凭证——页面那句「已写出」不算数。
+  `bash scripts/e2e/run-all.sh` → 通过 2 / 跳过 0 / 失败 0，证据 `dist/e2e-evidence/linux-linux-serial-waveform.json` 10/10。
+- **`scripts/dist-report.sh` 与 `docs/分发形态实测.md`（分发形态实测）**：把「产物多大、带不带依赖、
+  开窗多快」变成可复核的数——现场量入库单文件 exe 的体积 / sha256 前 12 位 / PE 导入表（按系统 DLL
+  白名单分类，非系统项单独列出），Linux 侧量「可执行文件 + 随包共享库」与冷启动，
+  `--svg` 直接从同一份数据出对比图（`docs/images/dist-size-compare.svg`）。
+  本轮结论：四份 exe **5.5–9.5 MB**、导入表 **8–9 项全为 Windows 系统 DLL（非系统 0）**、
+  子系统为 `Windows GUI`（双击不弹控制台）；Linux 目录式 11.31 MB、冷启动中位数 **54 ms**。
+  口径与**未验项**（Windows 冷启动、单文件形态下 openssl 的落法）都写在文档里，不含糊。
 - **文件拖入（RFC-002 §7.B / RFC-003 第 1 期，核心能力位收口）**：`TauriApp.setDragDrop(DragDropPolicy.filesEnabled())`
   一行打开（**必须在 `start()` 前调**；不设 = 不注册 drop target，现有应用零改动）。拖入文件以
   `dragdrop:files` 事件投给页面（载荷 `{paths: [...]}`，需在能力清单 `events` 里声明）。

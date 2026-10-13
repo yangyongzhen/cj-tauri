@@ -58,6 +58,9 @@ Windows 另需 mingw gcc 与 WebView2 Runtime（Win11 自带），Linux 需 `lib
 | [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe)（5.6MB） | Modbus TCP/RTU 调试工具，[中文说明](examples/modbus-poll/README.md) |
 | [movie.exe](examples/movie/dist-single/movie.exe)（9.5MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
 
+体积、依赖与冷启动都是**实测**的：四份产物 5.5–9.5 MB，PE 导入表里只有 Windows 系统 DLL
+（没有任何第三方运行时），双击不弹控制台。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)。
+
 ### 方式三：源码构建
 
 ```bash
@@ -73,7 +76,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下十二个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
+`examples/` 下十三个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：
@@ -82,6 +85,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 |---|---|
 | [modbus-poll](examples/modbus-poll) | **Modbus TCP/RTU 调试工具**：多面板并行监控（一屏任意多组）、读写 FC 01-04/05/06/15/16、报文监视、数据记录 CSV、字节序选项、内置从站自检闭环——对标 Modbus Poll 并补齐其痛点 |
 | [serial-assistant](examples/serial-assistant) | **串口调试助手**：参数面板、TX/RX 分色收发日志、定时发送、探针自检 |
+| [serial-waveform](examples/serial-waveform) | **串口实时波形示波器**：`serial` 插件 + canvas 双缓冲自绘，行协议 `<序号>,<值>`；400 Hz 样本流下页面自算速率/上穿/丢帧，实机取证见该目录 README |
 | [movie](examples/movie) | **观影应用**：榜单/搜索/详情/播放，数据全由仓颉侧 HTTP 取回，前端零 fetch |
 | [music](examples/music) | **音乐播放器**：榜单/歌单/收藏/分享 + 同步歌词 + 4 套主题色，封面由宿主带 Referer 取回并缩略 |
 | [typing-poem](examples/typing-poem) | **古诗词打字练习**（小学生向）：108 首诗逐字拼音，three.js 3D 卡面，连对升调、世界随输入变化 |
@@ -103,6 +107,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | movie 观影 | music 播放中 |
 |---|---|
 | ![movie 观影应用](docs/images/example-movie.png) | ![music 播放中](docs/images/example-music-playing.png) |
+| ![typing-poem 打字练习](docs/images/example-typing-poem-typing.png) | ![串口实时波形示波器（serial-waveform）](docs/images/example-serial-waveform.png) |
 
 ## 架构
 

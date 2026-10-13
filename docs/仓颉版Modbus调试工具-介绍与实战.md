@@ -33,7 +33,7 @@ Modbus 主站模拟器的事实标准。但用得越多，越觉得它那套 200
 
 ## 二、cj-tauri：仓颉版的 Tauri，脚手架 5 分钟起一个桌面应用
 
-[cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是用华为仓颉语言实现的类 Tauri 2 混合开发框架：
+[cj-tauri](https://atomgit.com/qq8864/cj-tauri) 是**仓颉语言的 Tauri 2**：用华为仓颉语言实现的混合开发框架，
 **仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS，零 Chromium 捆绑）**。三件套对标：
 WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
 

@@ -13,10 +13,10 @@
 
 ## 什么是 cj-tauri
 
-[cj-tauri](../../README.md) 是用**华为仓颉语言**实现的类 Tauri 2 混合开发框架：
-**仓颉后端（静态编译）+ 系统 WebView 前端（HTML / CSS / JS）**。三件套与 Tauri 一一对标：
+[cj-tauri](../../README.md) 是**华为仓颉语言**里的 Tauri 2：
+**仓颉后端（静态编译）+ 系统 WebView 前端（HTML / CSS / JS）**。三件套与 Tauri 一一对应：
 
-| cj-tauri | 对标 Tauri 的 | 在这个示例里落在哪 |
+| cj-tauri | 对应 Tauri 的 | 在这个示例里落在哪 |
 | --- | --- | --- |
 | WebView 宿主 | tao / wry | C 桥 `native/bridge_win.c`（WebView2）/ `native/bridge_linux.c`（WebKitGTK） |
 | IPC 双向桥 | invoke / resolve / event | 页面 `window.__CJ_TAURI__.invoke('music:hot')` → 仓颉侧 `CommandHandler` |

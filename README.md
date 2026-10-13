@@ -2,7 +2,7 @@
 
 [English](README_EN.md) | 中文
 
-用华为仓颉语言实现的轻量混合开发框架——对标 Tauri（Rust + 系统 WebView）的三件套架构：
+用华为仓颉语言实现的轻量混合开发框架——**仓颉语言的 Tauri**：把 Tauri（Rust + 系统 WebView）的三件套架构在仓颉里独立实现：
 **WebView 宿主 + IPC 双向桥 + 能力安全模型**。前端用任意 Web 技术，后端用仓颉静态编译，
 产物是不带 Chromium 的原生桌面应用。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
 
@@ -126,7 +126,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对标 @tauri-apps/api）
         │  JSON over postMessage（Linux: WebKitUserContentManager；Windows: chrome.webview.postMessage）
         ▼
-IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（对标 tauri IPC；命令在 worker 线程异步执行）
+IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（与 tauri IPC 同构；命令在 worker 线程异步执行）
         ▼
 能力安全模型（src/capability.cj）← 命令/事件白名单，默认最小权限（对标 capability）
         ▼
@@ -138,7 +138,7 @@ WebView 宿主（src/host.cj 抽象 + 各平台实现）
    └─ 鸿蒙: ArkWeb（架构预留，条件编译位）
 ```
 
-开发一个应用只需三步（对标 tauri command / Builder / capabilities）：
+开发一个应用只需三步（对应 tauri 的 command / Builder / capabilities）：
 
 ```cangjie
 // 1. 实现命令
@@ -179,7 +179,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [需求追踪矩阵](docs/需求追踪.md) | 每个能力做到哪了：五级状态 + 可复核证据 |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | 变更记录 / 开发规范 / 贡献流程 / 依赖与许可 |
 
-延伸阅读（CSDN）：[用仓颉写桌面应用：一个类 Tauri 框架的实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)。
+延伸阅读（CSDN）：[用仓颉写桌面应用：仓颉语言的 Tauri 框架实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)。
 
 ## 用 AtomCode 的 AI 助手开发（skills）
 

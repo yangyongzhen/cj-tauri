@@ -1,6 +1,6 @@
 # cj-tauri skills —— 让 AI 助手会用 cj-tauri 开发应用
 
-这里是 [cj-tauri](https://atomgit.com/qq8864/cj-tauri)（仓颉版类 Tauri 框架）沉淀的 **AtomCode skills**：
+这里是 [cj-tauri](https://atomgit.com/qq8864/cj-tauri)（仓颉语言的 Tauri 框架）沉淀的 **AtomCode skills**：
 把框架的开发工作流、实机取证方法、踩坑速查与回贡献流程固化成 AI 可复用的指令，
 让任何接入 AtomCode 的助手都能按这套经过实战的方法开发应用。
 

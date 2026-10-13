@@ -17,7 +17,7 @@
 | Qt / 原生 GUI | 体积和性能都对，但界面要重画一遍，歌词滚动、主题色、卡片悬停这些 Web 最擅长的事全得手写 |
 | 系统 WebView + 原生后端 | 界面用 HTML/CSS/JS（我最熟的那套），后端编译成原生可执行文件——正是 Tauri 的思路 |
 
-第三档就是我要的。而我在写的 [cj-tauri](https://atomgit.com/qq8864/cj-tauri) 恰好就是这个东西——**用华为仓颉语言实现的类 Tauri 2 框架**。于是就有了仓库里的这个示例：`examples/music`，一个桌面音乐播放器。
+第三档就是我要的。而我在写的 [cj-tauri](https://atomgit.com/qq8864/cj-tauri) 恰好就是这个东西——**仓颉语言的 Tauri 2 框架**。于是就有了仓库里的这个示例：`examples/music`，一个桌面音乐播放器。
 
 ![热门榜单（首页）](images/example-music.png)
 
@@ -566,7 +566,7 @@ CSS 里有几条是我抓图之后**人眼**才发现的（自检断言全绿也
 ### 两档无人值守自检
 
 应用支持 `CJ_MUSIC_SELFCHECK=1/2`：页面启动后自己走一遍全链路，每条结论经 `report` 回投 stderr，
-跑完调 `music:quit` 退出——这样 `run.bat selfcheck` 才有终点（退出码约定照搬 `examples/typing-poem`）。
+跑完调 `music:quit` 退出——这样 `run.bat selfcheck` 才有终点（退出码约定沿用 `examples/typing-poem`）。
 
 | 等级 | 覆盖 | 会不会写东西 |
 | --- | --- | --- |

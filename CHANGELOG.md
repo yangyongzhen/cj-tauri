@@ -16,6 +16,19 @@
 
 ### Added
 
+- **文件拖入（RFC-002 §7.B / RFC-003 第 1 期，核心能力位收口）**：`TauriApp.setDragDrop(DragDropPolicy.filesEnabled())`
+  一行打开（**必须在 `start()` 前调**；不设 = 不注册 drop target，现有应用零改动）。拖入文件以
+  `dragdrop:files` 事件投给页面（载荷 `{paths: [...]}`，需在能力清单 `events` 里声明）。
+  URI 解析在 C 桥 core（`cj_bridge_set_drag_drop` + `cj_core_drop_files`：`file://` 剥前缀、%XX 解码、
+  注释/空行跳过、32 个/4096 字节上限），报文经 on_shell **按句柄路由**（多窗口不串台）；
+  Linux 走 `gtk_drag_dest_set` + `drag-data-received`，Windows 为同名桩（能力位如实不置位）。
+  Linux 实机（Xvfb + pygobject drag source + xdotool 合成拖拽）：`drop: paths=2`（含空格文件名
+  %20 解码正确）→ 页面 `drop-received paths=2`；`system:host` 报 `dragDrop=true`。
+  **托盘暂缓**（用户裁定：Linux 依赖 libayatana-appindicator3 三方库；Windows 侧也未做，`tray=0` 如实）。
+  桩自检 151 → **162**（drop 解析/策略透传/句柄路由 11 条断言）。
+- **scope 边界补强（SEC-003）**：`scope_test.cj` 新增 3 条——白名单内软链接指向外面**必拒**
+  （规范化解析软链接）、软链接落点在白名单内**放行**（对照组）、`%2e%2e` 是字面量文件名
+  **不做 %XX 解码**（反转义归插件/桥的 URI 层，scope 层不重复解码）。单测 189 → **192**。
 - **native 层按平台分目录 + 需求追踪矩阵（借鉴 cjui 的 platforms 组织）**：`native/` 拆成
   `core/`（bridge_core.c/.h + bridge_js.h，跨平台共享层，桩自检就编它）、
   `platforms/linux/`（bridge_linux.c）、`platforms/windows/`（bridge_win.c）、

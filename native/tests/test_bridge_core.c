@@ -69,11 +69,17 @@ static int g_last_menu_state_checked;
 static int g_caps_calls;
 static int g_caps_value = CJ_CAP_MENU; /* 桩平台自称的能力位（用例里改它，验证 core 只是如实缓存） */
 
+/* 拖放策略：桩平台只记录调用（core 的职责是 pending 存取与 drop 报文解析）*/
+static int g_drag_calls;
+static int g_drag_last_enabled;
+static int g_drag_last_files;
+
 static void reset_counters(void) {
     g_post_js_calls = g_wake_calls = g_quit_calls = g_start_calls = 0;
     g_fini_calls = g_run_dialog_calls = g_post_dialog_calls = 0;
     g_load_url_calls = g_reload_calls = g_devtools_calls = 0;
     g_set_menu_calls = g_menu_state_calls = g_caps_calls = 0;
+    g_drag_calls = g_drag_last_enabled = g_drag_last_files = 0;
     free(g_last_js);
     g_last_js = NULL;
     free(g_last_menu_text);
@@ -200,6 +206,14 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
     snprintf(g_last_menu_state_id, sizeof(g_last_menu_state_id), "%s", id ? id : "");
     g_last_menu_state_enabled = enabled;
     g_last_menu_state_checked = checked;
+}
+
+/* ---- 拖放策略：声明在计数器区（reset_counters 之前），这里只留原语 ---- */
+void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
+    (void)h;
+    g_drag_calls++;
+    g_drag_last_enabled = enabled;
+    g_drag_last_files = files;
 }
 
 int cj_plat_host_capabilities(cj_host *h) {
@@ -637,6 +651,45 @@ int main(void) {
     cj_bridge_set_menu_item_state(h, "", 0, 0);
     CHECK(g_menu_state_calls == 1, "空 id 忽略");
     cj_bridge_set_menu_item_state(NULL, "x", 1, 1);
+    CHECK(1, "对 NULL 宿主安全");
+
+    /* --- 16b. 拖放：策略透传 + drop 报文解析（RFC-002 §5 / §7.B）--- */
+    case_begin("set_drag_drop 透传与 pending");
+    reset_counters();
+    cj_bridge_set_drag_drop(h, 1, 1);
+    CHECK(g_drag_calls == 1 && g_drag_last_enabled == 1 && g_drag_last_files == 1,
+          "策略透传到平台原语");
+    CHECK(h->pending_drop_enabled == 1 && h->pending_drop_files == 1,
+          "策略同时记进 pending（建 view 时读）");
+    cj_bridge_set_drag_drop(h, 0, 0);
+    CHECK(g_drag_calls == 2 && h->pending_drop_enabled == 0 && h->pending_drop_files == 0,
+          "关掉也透传（平台摘 drag dest）");
+    cj_bridge_set_drag_drop(NULL, 1, 1);
+    CHECK(1, "对 NULL 宿主安全");
+
+    case_begin("cj_core_drop_files 解析与报文");
+    reset_counters();
+    g_shell_cb_calls = 0; /* shell 回调计数不在 reset_counters 里（menu 用例也是手动清零） */
+    cj_core_drop_files(h, "file:///tmp/a.png\r\nfile:///tmp/b%20c.txt\r\n");
+    CHECK(g_shell_cb_calls == 1 && g_shell_cb_host == h, "drop 回调一次、带回该宿主句柄");
+    CHECK(strstr(g_shell_cb_json, "\"kind\":\"drop\"") != NULL &&
+          strstr(g_shell_cb_json, "\"paths\":[\"/tmp/a.png\",\"/tmp/b c.txt\"]") != NULL,
+          "file:// 解码成路径（\\r\\n 分隔、%20 还原空格），报文是 {kind,paths} JSON");
+    cj_core_drop_files(h, "# comment line\n\nfile:///tmp/only.txt\nhttps://example.com/x");
+    CHECK(g_shell_cb_calls == 2 &&
+          strstr(g_shell_cb_json, "\"/tmp/only.txt\"") != NULL &&
+          strstr(g_shell_cb_json, "\"https://example.com/x\"") != NULL &&
+          strstr(g_shell_cb_json, "comment") == NULL,
+          "注释/空行跳过，非 file:// URI 原样保留");
+    cj_core_drop_files(h, "");
+    CHECK(g_shell_cb_calls == 2, "空载荷不回调");
+    cj_core_drop_files(h, NULL);
+    CHECK(g_shell_cb_calls == 2, "NULL 载荷安全");
+    cj_bridge_set_shell_callback(h2, on_shell);
+    cj_core_drop_files(h2, "file:///tmp/second.txt");
+    CHECK(g_shell_cb_calls == 3 && g_shell_cb_host == h2,
+          "第二个宿主的 drop 带回它自己的句柄（句柄路由不串台）");
+    cj_core_drop_files(NULL, "file:///tmp/x");
     CHECK(1, "对 NULL 宿主安全");
 
     /* --- 17. 能力位：cj_plat_init 时问一次，此后只读 --- */

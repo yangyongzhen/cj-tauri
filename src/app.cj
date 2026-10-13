@@ -183,6 +183,28 @@ public class TauriApp <: AppHost {
         return this.setMenuItemStateTo(DEFAULT_WINDOW_LABEL, id, enabled, checked)
     }
 
+    /**
+     * 设置默认窗口的拖放策略（RFC-002 §5；必须在 `start()` / `startUrl()` 之前调）
+     *
+     * 打开后页面经 `dragdrop:files` 事件收到拖入的文件路径数组（`paths: [...]`），
+     * 该事件需在能力清单 `events` 里声明；不设 = 不注册 drop target（默认关）。
+     * 平台没有该能力（如 Windows 桩阶段）时宿主只记日志，不报错——能力位经 `system:host` 如实上报。
+     */
+    public func setDragDrop(policy: DragDropPolicy): TauriApp {
+        return this.setDragDropTo(DEFAULT_WINDOW_LABEL, policy)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setDragDrop`，作用于 `label` 那个窗口 */
+    public func setDragDropTo(label: String, policy: DragDropPolicy): TauriApp {
+        match (this.hostOf(label)) {
+            case Some(host) =>
+                host.setDragDropPolicy(policy.enabled, policy.files)
+            case None =>
+                eprintln("[cj-tauri] setDragDrop: 未注册的窗口 label \"${label}\"（策略未设置）")
+        }
+        return this
+    }
+
     /** 指定窗口版本（多窗口）：语义同 `setMenuItemState`，作用于 `label` 那个窗口 */
     public func setMenuItemStateTo(label: String, id: String, enabled: Bool, checked: Bool): TauriApp {
         this.applyMenuState(label, id, enabled, checked)

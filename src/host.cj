@@ -146,6 +146,14 @@ public interface WebViewHost {
     func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit
 
     /**
+     * 设置拖放策略（RFC-002 §5）：enabled=false 平台不注册 drop target。
+     * 必须在 `start()` / `startUrl()` 之前调用（Linux 建 view 时决定挂不挂 drag dest）；
+     * 之后调用在未就绪时只记 pending、建窗生效，已就绪平台投 UI 线程重挂。
+     * 平台没有该能力（能力位不含 `CJ_CAP_DRAG_DROP`）时宿主只记日志，不报错。
+     */
+    func setDragDropPolicy(enabled: Bool, files: Bool): Unit
+
+    /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
      *
      * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。

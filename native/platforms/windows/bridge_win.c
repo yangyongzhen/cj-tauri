@@ -1410,9 +1410,17 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
-    /* 本平台的静态能力：菜单栏已落地；托盘 / 拖放到 7.B / 7.C 做完再把对应的位置打开；
-       通知未实现（见 cj_plat_notification_notify），不置 CJ_CAP_NOTIFICATION */
+    /* 本平台的静态能力：菜单栏已落地；拖放 7.B Windows 侧未实现（IDropTarget 待做），如实不置位；
+       托盘按用户裁定暂缓；通知未实现（见 cj_plat_notification_notify），不置 CJ_CAP_NOTIFICATION */
     return CJ_CAP_MENU;
+}
+
+/* 拖放策略（7.B Windows 侧）：桩——同名同签名保住上层零平台分支，实现在 Windows 实机轮补
+   （届时 IDropTarget + put_AllowExternalDrop(FALSE)，见 RFC-002 §7.B）。 */
+void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
+    (void)h;
+    fprintf(stderr, "[cj-bridge] drag drop (windows stub): enabled=%d files=%d (not implemented)\n",
+            enabled ? 1 : 0, files ? 1 : 0);
 }
 
 /* =========================================================================

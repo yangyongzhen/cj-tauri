@@ -109,6 +109,13 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
                                            checked: Int32): Unit
 
 /**
+ * 拖放策略（RFC-002 §5）：Windows 侧当前为桩（能力位如实不置位），同名同签名保上层零平台分支
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
+
+/**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
 @When[os == "Windows"]
@@ -220,6 +227,23 @@ public class WebView2Host <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_menu_item_state(this.handle, LibC.mallocCString(id), e, c)
+        }
+    }
+
+    public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调。Windows 侧桥当前是桩（能力位如实不置位），
+        // 但仓颉侧 API 与调用点不写平台分支——实机轮补 IDropTarget 后上层零改动
+        this.ensureHandle()
+        var en: Int32 = 0
+        var fi: Int32 = 0
+        if (enabled) {
+            en = 1
+        }
+        if (files) {
+            fi = 1
+        }
+        unsafe {
+            cj_bridge_set_drag_drop(this.handle, en, fi)
         }
     }
 

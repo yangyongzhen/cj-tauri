@@ -52,10 +52,22 @@ SQL（sqlx 级别）、Stronghold（加密库）、**Updater**（要签名与分
 
 ## 3. 分期与判据
 
-### 第 1 期：托盘 + 文件拖入（RFC-002 既定，优先于一切新插件）
+### 第 1 期：托盘 + 文件拖入（RFC-002 既定，优先于一切新插件）——**拖放已交付（2026-10-13，Linux 实机）；托盘按裁定暂缓**
 
 **不是新插件，是核心能力位收口**——`system:host` 里 `tray=0 / dragDrop=0` 挂了很久，对桌面应用常用度高于
 上表多数插件。按 RFC-002 §7 落地；前置：`native/build_win.bat` 补 `-lshell32`（托盘要 `Shell_NotifyIconW`）。
+
+**落地结果（2026-10-13）**：**文件拖入**全链交付——`src/dragdrop.cj`（`DragDropPolicy` 策略模型，start 前
+定稿）→ `TauriApp.setDragDrop / setDragDropTo` → `WebViewHost.setDragDropPolicy` → C 桥
+`cj_bridge_set_drag_drop`（core 记 pending + 平台原语单一来源）；URI 解析（`file://` 剥前缀、%XX 解码、
+注释/空行跳过、32 个/4096 字节上限）在 core（`cj_core_drop_files`，桩自检可测），报文
+`{"kind":"drop","paths":[…]}` 经 on_shell 按句柄路由 → 前端 `dragdrop:files` 事件（需清单 `events` 声明）。
+Linux 实机（Xvfb）：pygobject drag source + xdotool 合成真实鼠标拖拽 →
+`drop: paths=2 first=/tmp/dragdrop-files/proof one.txt`（含空格文件名 %20 解码正确）→ 页面
+`drop-received paths=2`；能力位 `dragDrop=1` 如实。**托盘不做**（用户裁定：Linux 依赖
+libayatana-appindicator3 三方库，暂缓；Windows 侧本轮也未做，`tray=0` 如实）。
+**Windows 拖放为同名桩**（能力位不置位，实机轮补 IDropTarget）。桩自检 151 → **162**；单测 189 → **192**
+（含 SEC-003 软链接逃逸/百分比编码 3 条）。
 
 ### 第 2 期：Store（纯仓颉，最快见效）——**已交付（2026-10-09）**
 

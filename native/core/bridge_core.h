@@ -149,6 +149,12 @@ typedef struct cj_host {
     /* --- 菜单线路文本（cj_bridge_set_menu 存入；平台建窗时读它，运行期改则由平台重建）--- */
     char *pending_menu_text;
 
+    /* --- 拖放策略（cj_bridge_set_drag_drop 存入：enabled/files 两个开关）。
+            enabled=0 平台不注册 drop target（默认关——现有应用零改动）；
+            平台建 view 时读它决定要不要挂 drag dest，运行期再改由平台重挂 --- */
+    int pending_drop_enabled;
+    int pending_drop_files;
+
     /* --- 能力位（cj_plat_init 时由 cj_plat_host_capabilities 填，此后只读）--- */
     int capabilities;
 
@@ -207,6 +213,7 @@ void cj_plat_reload(cj_host *h);
    投到 UI 线程重建菜单。cj_plat_menu_item_state 只改运行期状态（可用 / 勾选），要快、可能频繁。 */
 void cj_plat_set_menu(cj_host *h, const char *wire);
 void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
+void cj_plat_set_drag_drop(cj_host *h, int enabled, int files);
 
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
@@ -278,6 +285,14 @@ void cj_core_menu_walk(const char *wire, cj_menu_row_fn fn, void *ctx);
 /* 平台把「菜单项被点了」交回 core：core 记日志 + 经 h->on_menu 回调仓颉侧（带宿主身份）。 */
 void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked);
 
+/* 拖放落地（平台在 drag-data-received 里调）：uri_list 是 text/uri-list 原文
+   （\r\n 或 \n 分隔，可含 file:// URI 与百分比编码）。
+   core 负责解析：跳过注释行/空行、file:// 解码成路径（%XX 十六进制解码）、
+   非 file:// 的 URI 原样保留（v1 载荷只有文件，页面自己决定要不要）。
+   结果以 shell 报文 {"kind":"drop","paths":[…]} 经 on_shell 回投（首参宿主句柄，
+   仓颉侧按句柄路由）。paths 上限 32 个、单个路径上限 4096 字节（超限丢弃并记日志）。 */
+void cj_core_drop_files(cj_host *h, const char *uri_list);
+
 /* =========================================================================
  *  仓颉 → C 桥：导出（全部实现在 bridge_core.c，两平台同一份）
  * ========================================================================= */
@@ -345,6 +360,10 @@ CJ_BRIDGE_API void cj_bridge_set_menu(cj_host *h, const char *wire);
 
 /* 运行期改单个菜单项的状态（按 id 找；找不到只记日志不报错）。 */
 CJ_BRIDGE_API void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
+
+/* 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关）。
+   两头都能用：未就绪时记 pending（建 view 时读），就绪后平台投 UI 线程重挂 drag dest。 */
+CJ_BRIDGE_API void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files);
 
 /* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
 CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);

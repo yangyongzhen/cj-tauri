@@ -4,12 +4,21 @@
   "description": "仓颉版 Tauri：用仓颉写桌面应用后端的类 Tauri 框架脚手架 CLI（WebView 宿主 + IPC 双向桥 + 能力安全模型，Windows / Linux）",
   "keywords": [
     "cangjie",
+    "cangjie-lang",
     "仓颉",
     "tauri",
     "webview",
+    "webview2",
+    "webkitgtk",
     "desktop",
+    "gui",
+    "framework",
+    "ipc",
     "cli",
-    "scaffold"
+    "scaffold",
+    "cross-platform",
+    "windows",
+    "linux"
   ],
   "license": "MIT",
   "bin": {

@@ -14,6 +14,7 @@ func usage(): Unit {
     println("  cj-tauri build             构建 C 桥 + cjpm build")
     println("  cj-tauri run               运行已构建产物")
     println("  cj-tauri info [--json]     环境自检（排障用）；--json 只输出插件清单（机器可读）")
+    println("  cj-tauri doctor            环境自检逐行给结论（每条自带「缺了就怎么办」）")
     println("  cj-tauri help              显示本帮助")
     println("")
     println("环境变量:")
@@ -87,6 +88,9 @@ main(args: Array<String>): Int64 {
             i = i + 1
         }
         return cmdInfo(asJson)
+    }
+    if (sub == "doctor") {
+        return cmdDoctor()
     }
     eprintln("未知子命令: ${sub}")
     println("")

@@ -113,6 +113,26 @@
 
 ### Added
 
+- **官方插件 `sqlite`（`src/plugins/plugin_sqlite.cj` + `src/plugins/sqlite_ffi.cj`）**：
+  **仓库首个「`foreign func` 直连第三方原生库」**的样板——不经 C 桥，仓颉侧直接调系统 `libsqlite3`
+  （示例 `cjpm.toml` 的 `link-option` 加 `-lsqlite3`）。七条命令 `sqlite:env` / `info` / `tables` /
+  `schema` / `page` / `query` / `exec`，两个命名权限集 `sqlite:readonly`（六条只读）与 `sqlite:default`
+  （加 `exec`）——**集声明 ≠ 放行**；`scopeAware()` 为真，库文件路径一律过共享层 scope
+  （**命令放行 ≠ 参数放行**）。三条护栏：浏览类命令用**内核级** `SQLITE_OPEN_READONLY`（写语句的拒绝原文
+  来自 sqlite 自身，不是我们写的检查）、`ATTACH` / `DETACH` / `load_extension()` 由 authorizer 按语句拒
+  （并另关扩展加载）、SQL 里的表名 / 列名先过 `sqlite_master` / `PRAGMA table_info` 白名单再拼。
+  回投**如实**：页上限 500 行（夹紧带 `limitClamped`）、单元格 65536 字节（截断带 `bytes` + `truncated`）、
+  BLOB 只报字节数不回投本体；每条命令**短连接**（开 → 装护栏 → 干活 → 关），`busy_timeout` 3000 ms。
+  单测 +7 例（真库 FFI 往返，`src/tests/plugin_sqlite_test.cj`）。
+- **SQLite 浏览器示例（`examples/sqlite-browser/`）**：库对象清单 / 数据分页网格（排序、类型上色、
+  超长单元格截断标记）/ SQL 调试台（**只读**与**可写**两个按钮分开——「运行」走只读连接，被内核拒的那句
+  原文故意显示给用户看）。E2E 入口 `scripts/e2e/test-linux-sqlite-browser.sh`：**49 条断言全过**，
+  页内自检 **36/0**、夹具对端 `fixture.py` 自检 **12/0**，另有**进程外核对**——应用退出后由另一个进程
+  （python3 的 `sqlite3`，与仓颉侧链接的是同一个系统库）以 `mode=ro` 只读打开**同一个库文件**，
+  确认页面经 `exec` 写的那一行真的落盘。负向证据：**无** `command not allowed` / `not registered` 误报、
+  `scope denied (sqlite)` 恰好 1 次（自检故意越界那条）、authorizer 只拦 1 次（其余语句照常执行）、
+  被拒命令都在桥侧留了原因。**Windows 侧未落地**（要自带 `sqlite3.dll` 并补 `scripts/pack-win*.sh` 的
+  DLL 清单，D-018 第 8 条），如实标注。
 - **HTTP API 客户端示例（`examples/http-client/`）**：Postman 那一类的调试客户端——**左拼请求 / 中看响应 /
   右管集合与历史**三栏，零 Node、零前端库、**页面里一次 `fetch` 都没有**（网络请求全在仓颉侧直发：
   `stdx.net.http` + 显式 `TlsClientConfig()`，TLS 走**系统证书库校验**，没有「关校验」的开关）。

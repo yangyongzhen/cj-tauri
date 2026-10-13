@@ -32,6 +32,15 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | `readToEnd(resp.body)` 编译不过 | 它要求 `Seekable`；自己按块读（`ByteBuffer.write` + `body.read(chunk)`） |
 | 浮点转整数运行时炸 | `Int64(x * 10.0)` 越界抛异常（不像 C 静默截断）；转换前先夹范围 |
 
+### FFI（`foreign func` 调 C 库）
+
+| 症状 / 写法 | 原因与修法 |
+|---|---|
+| 出参怎么写 | 仓颉**没有 `&x` 取地址表达式**；调用处写 `inout <var>`（探针实测，2026-10-13） |
+| C 回调（函数指针）怎么传 | 直接写 `CFunc<(...)->...>` 实参即可（sqlite3 的 authorizer 就是这样接的） |
+| 想调第三方系统库 | `foreign func` 可以**直连系统库、不经 C 桥**：`cjpm.toml` 的 `link-option` 加 `-lsqlite3` 之类；Windows 侧要自带 DLL 并补进 `scripts/pack-win*.sh` 清单（分发口径见 AGENTS §5） |
+| `sqlite3_open_v2` 报 `no such vfs:` | `zVfs` 参数传**空串**会被当成 VFS 名；要传 NULL |
+
 ### 运行期 / 页面
 
 | 症状 | 原因与修法 |

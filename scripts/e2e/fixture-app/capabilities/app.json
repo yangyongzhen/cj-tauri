@@ -1,0 +1,6 @@
+{
+  "identifier": "e2e-fixture",
+  "windows": ["main"],
+  "commands": ["probe:echo", "system:version", "system:ping"],
+  "events": []
+}

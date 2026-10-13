@@ -51,6 +51,15 @@ $CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/l
 
 ### 4. 自动化断言
 
+- **优先用仓内 E2E 基建**（`scripts/e2e/`，改动交付前跑 `bash scripts/e2e/run-all.sh`）：
+  入口脚本声明目标平台，宿主不匹配是 **FAIL 不是跳过**（CI 用 `CJ_TAURI_E2E_REQUIRE=linux` 声明
+  「本机必须跑」）；断言按整行前缀登记，收口自动落 `dist/e2e-evidence/*.json`。
+  加新入口就照 `test-linux-bridge.sh` 抄：`source lib.sh` → `e2e_require_platform` →
+  `e2e_ensure_display`（会**真探测** DISPLAY，连不上就回落 Xvfb）→ `e2e_begin/assert/finalize`。
+  探针页面放 `scripts/e2e/fixture-app/ui/index.html`（从磁盘读，改页面不用重编译），
+  宿主侧要看的那行结论用 `probe:echo` 打 stderr——桥的 `js -> native (N bytes)` 只证明页面说了话，
+  证明不了报文被解析、命令被路由、结果回了页面；
+- 一次性探针才另写脚本；**写完的断言不要只留在 `/tmp`**——它随 /tmp 消失后就无法重跑；
 - 断言**只看日志里的效果**（桥/应用自己打的 stderr 行），不靠「我点过了 / 我调过了」；
 - `grep -aF` 按整行前缀取证据（如 `[cj-bridge]`），别用会在正文里撞词的中缀——
   过滤词本身也会骗人；

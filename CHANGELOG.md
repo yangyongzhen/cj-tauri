@@ -11,6 +11,16 @@
 
 ### Added
 
+- **仓内 E2E 基建（`scripts/e2e/`）**：实机验证从「每轮现写临时脚本」收进仓库——
+  `lib.sh`（平台守卫 / 断言收集 / 证据收口 / 应用启停）、`fixture-app/`（探针应用：页面从磁盘读，
+  改探针页不用重编译仓颉）、`test-linux-bridge.sh`（Linux 真机入口，6 条断言覆盖能力清单加载 /
+  桥注入 / 页面→宿主 IPC / 端到端往返 / 未授权命令被拒）、`run-all.sh`（把**通过 / 跳过 / 失败**
+  分开计数——「全跳过」与「全通过」在退出码上同形，那是假绿最爱的形状）。
+  **平台守卫**：入口声明目标平台，宿主不匹配时默认 **FAIL 而不是跳过**；需要在别的机器上跑全套时
+  显式 `CJ_TAURI_E2E_SKIP_OTHER=1`，CI 用 `CJ_TAURI_E2E_REQUIRE=linux` 声明「本机必须跑」。
+  另修一处真实坑：`DISPLAY` 存在 ≠ 显示器可用（SSH 转发失效时变量仍在），改为**真探测**
+  （xdpyinfo / xdotool / xset）后再决定是否回落 Xvfb，并补上 stdx 动态库探测
+  （漏它时应用启动即退、只留一行 `cannot open shared object file: libstdx.encoding.json.so`）。
 - **IPC 报文协议版本字段**：事件 / 回执信封加 `protocol` 字段，`system:version` 返回同一常量
   （`CJ_IPC_PROTOCOL`，`src/version.cj` 单一来源）。**旧报文形态只增字段、语义不变**，页面侧解析不受影响；
   协议字段自此是跨层契约的一部分（C 桥注入脚本的页面侧解析、CLI 的清单消费、将来跨进程形态），

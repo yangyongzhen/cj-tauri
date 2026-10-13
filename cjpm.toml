@@ -13,7 +13,8 @@
 [dependencies]
 
 [target.x86_64-unknown-linux-gnu]
-  link-option = "-Lnative -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+  # -lsqlite3：sqlite 插件直连发行版系统库（D-018 第 8 条）；Windows 侧未落地，故 mingw 段不加
+  link-option = "-Lnative -lcjtbridge -lsqlite3 -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
     path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]

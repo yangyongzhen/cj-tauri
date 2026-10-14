@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.shell
 
 import cjTauri.*
 

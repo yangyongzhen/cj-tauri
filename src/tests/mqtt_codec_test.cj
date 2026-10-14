@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.mqtt.*
 import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
@@ -19,22 +19,22 @@ import std.unittest.testmacro.*
 
 /** 十六进制文本 → 字节（测试里内联构造线上报文；不合法直接让用例失败） */
 func mqttHex(hex: String): Array<UInt8> {
-    return serialHexToBytes(hex).getOrThrow()
+    return hexToBytes(hex).getOrThrow()
 }
 
 // ---------------------------------------------------------------- 剩余长度（变长整数）
 
 @Test
 func testRemainingLengthEncodeBoundaries(): Unit {
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(0)), "00")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(127)), "7f")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(128)), "8001")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(16383)), "ff7f")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(16384)), "808001")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(2097151)), "ffff7f")
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(2097152)), "80808001")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(0)), "00")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(127)), "7f")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(128)), "8001")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(16383)), "ff7f")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(16384)), "808001")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(2097151)), "ffff7f")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(2097152)), "80808001")
     // 协议上限 2^28-1：四字节全用满
-    @Expect(serialBytesToHex(mqttEncodeRemainingLength(268435455)), "ffffff7f")
+    @Expect(bytesToHex(mqttEncodeRemainingLength(268435455)), "ffffff7f")
 }
 
 @Test
@@ -85,10 +85,10 @@ func testRemainingLengthDecodeRejectsMalformed(): Unit {
 @Test
 func testUtf8FieldLengthCountsBytes(): Unit {
     // 「通知」是 6 字节 → 长度字段 0006。按**码点**数写成 0002 的话对端整条解析错位
-    @Expect(serialBytesToHex(mqttUtf8Field("通知")), "0006e9809ae79fa5")
-    @Expect(serialBytesToHex(mqttUtf8Field("")), "0000")
+    @Expect(bytesToHex(mqttUtf8Field("通知")), "0006e9809ae79fa5")
+    @Expect(bytesToHex(mqttUtf8Field("")), "0000")
     // 二进制字段同形：内容原样、长度同样按字节（含 NUL 也不截断）
-    @Expect(serialBytesToHex(mqttBinaryField(mqttHex("00ff10"))), "000300ff10")
+    @Expect(bytesToHex(mqttBinaryField(mqttHex("00ff10"))), "000300ff10")
 }
 
 @Test
@@ -97,7 +97,7 @@ func testFrameUsesVariableLengthHeader(): Unit {
     let body = Array<UInt8>(128, repeat: 0x41)
     let framed = mqttFrame(MQTT_PKT_PUBLISH, 0, body)
     @Expect(framed.size, 131)
-    @Expect(serialBytesToHex(framed[0..3]), "308001")
+    @Expect(bytesToHex(framed[0..3]), "308001")
 }
 
 // ---------------------------------------------------------------- CONNECT
@@ -107,7 +107,7 @@ func testEncodeConnectMinimal(): Unit {
     let o = MqttConnectOptions()
     o.clientId = "cj1"
     // 10(类型) | 0f(剩余长度 15) | 0004 "MQTT" | 04(级别) | 02(cleanSession) | 003c(保活 60) | 0003 "cj1"
-    @Expect(serialBytesToHex(mqttEncodeConnect(o)), "100f00044d5154540402003c0003636a31")
+    @Expect(bytesToHex(mqttEncodeConnect(o)), "100f00044d5154540402003c0003636a31")
 }
 
 @Test
@@ -126,7 +126,7 @@ func testEncodeConnectFlagsWithWillUserPassword(): Unit {
     // body 27 字节 = 0x1b；顺序是 遗嘱主题 → 遗嘱载荷 → 用户名 → 密码（协议定死，不可换序）
     let expected = "10" + "1b" + "0004" + "4d515454" + "04" + "ee" + "000a" +
         "000163" + "000174" + "0003627965" + "000175" + "000170"
-    @Expect(serialBytesToHex(mqttEncodeConnect(o)), expected)
+    @Expect(bytesToHex(mqttEncodeConnect(o)), expected)
 }
 
 @Test
@@ -135,7 +135,7 @@ func testEncodeConnectWithoutCleanSession(): Unit {
     o.clientId = "c"
     o.cleanSession = false
     // body 13 字节 = 0x0d；不带 clean 时该位为 0（持久会话：broker 要留着订阅）
-    @Expect(serialBytesToHex(mqttEncodeConnect(o)), "100d00044d5154540400003c000163")
+    @Expect(bytesToHex(mqttEncodeConnect(o)), "100d00044d5154540400003c000163")
 }
 
 @Test
@@ -164,7 +164,7 @@ func testDefaultClientIdIsStable(): Unit {
 @Test
 func testEncodePublishQos0(): Unit {
     // 30 | 07 | 0003 "a/b" | "hi"（QoS 0 不带报文标识符，body = 主题字段 5 + 载荷 2）
-    @Expect(serialBytesToHex(mqttEncodePublish("a/b", "hi".toArray(), 0, false, false, 0)),
+    @Expect(bytesToHex(mqttEncodePublish("a/b", "hi".toArray(), 0, false, false, 0)),
         "30070003612f626869")
 }
 
@@ -172,7 +172,7 @@ func testEncodePublishQos0(): Unit {
 func testEncodePublishQos1RetainDup(): Unit {
     // 标志位：QoS1 0x02 | retain 0x01 | dup 0x08 = 0x0b → 固定头 0x3b
     // body = 主题字段 3 + 报文标识符 2 + 载荷 1 = 6 = 0x06
-    @Expect(serialBytesToHex(mqttEncodePublish("t", "x".toArray(), 1, true, true, 7)),
+    @Expect(bytesToHex(mqttEncodePublish("t", "x".toArray(), 1, true, true, 7)),
         "3b06000174000778")
 }
 
@@ -190,7 +190,7 @@ func testEncodePublishRejectsOversizePayload(): Unit {
     // 正好在上限上则放行：剩余长度升到 3 字节（262147 = 0x83 0x80 0x10）
     let atLimit = mqttEncodePublish("t", Array<UInt8>(262144, repeat: 0), 0, false, false, 0)
     @Expect(atLimit.size, 262151)
-    @Expect(serialBytesToHex(atLimit[0..4]), "30838010")
+    @Expect(bytesToHex(atLimit[0..4]), "30838010")
 }
 
 @Test
@@ -208,9 +208,9 @@ func testEncodePublishRejectsQosWithoutPacketId(): Unit {
 @Test
 func testEncodeSubscribeAndUnsubscribe(): Unit {
     // SUBSCRIBE 标志位协议固定 0b0010 → 固定头 0x82；body = 标识符 2 + 过滤器字段 5 + QoS 1
-    @Expect(serialBytesToHex(mqttEncodeSubscribe(1, "a/b", 1)), "820800010003612f6201")
+    @Expect(bytesToHex(mqttEncodeSubscribe(1, "a/b", 1)), "820800010003612f6201")
     // UNSUBSCRIBE 同形但不带 QoS 字节；固定头 0xa2
-    @Expect(serialBytesToHex(mqttEncodeUnsubscribe(2, "a/b")), "a20700020003612f62")
+    @Expect(bytesToHex(mqttEncodeUnsubscribe(2, "a/b")), "a20700020003612f62")
     // 缺报文标识符当场拒（0 是非法值）
     var threw = false
     try {
@@ -224,16 +224,16 @@ func testEncodeSubscribeAndUnsubscribe(): Unit {
 @Test
 func testEncodeAckFlags(): Unit {
     // PUBACK / PUBREC / PUBCOMP 标志为 0；PUBREL 标志协议固定 0b0010（错了对端当非法报文丢弃，QoS 2 卡住）
-    @Expect(serialBytesToHex(mqttEncodeAck(MQTT_PKT_PUBACK, 9)), "40020009")
-    @Expect(serialBytesToHex(mqttEncodeAck(MQTT_PKT_PUBREC, 9)), "50020009")
-    @Expect(serialBytesToHex(mqttEncodeAck(MQTT_PKT_PUBREL, 9)), "62020009")
-    @Expect(serialBytesToHex(mqttEncodeAck(MQTT_PKT_PUBCOMP, 9)), "70020009")
+    @Expect(bytesToHex(mqttEncodeAck(MQTT_PKT_PUBACK, 9)), "40020009")
+    @Expect(bytesToHex(mqttEncodeAck(MQTT_PKT_PUBREC, 9)), "50020009")
+    @Expect(bytesToHex(mqttEncodeAck(MQTT_PKT_PUBREL, 9)), "62020009")
+    @Expect(bytesToHex(mqttEncodeAck(MQTT_PKT_PUBCOMP, 9)), "70020009")
 }
 
 @Test
 func testEncodeKeepaliveAndDisconnect(): Unit {
-    @Expect(serialBytesToHex(mqttEncodePingreq()), "c000")
-    @Expect(serialBytesToHex(mqttEncodeDisconnect()), "e000")
+    @Expect(bytesToHex(mqttEncodePingreq()), "c000")
+    @Expect(bytesToHex(mqttEncodeDisconnect()), "e000")
 }
 
 // ---------------------------------------------------------------- 解码与解析
@@ -244,10 +244,10 @@ func testDecodePacketRoundTrip(): Unit {
     let p = mqttDecodePacket(raw).getOrThrow()
     @Expect(Int64(p.typeCode), 3)
     @Expect(Int64(p.flags), 0)
-    @Expect(serialBytesToHex(p.body), "0003612f626869")
+    @Expect(bytesToHex(p.body), "0003612f626869")
     let pub = mqttParsePublish(p).getOrThrow()
     @Expect(pub.topic, "a/b")
-    @Expect(serialBytesToHex(pub.payload), "6869")
+    @Expect(bytesToHex(pub.payload), "6869")
     @Expect(pub.qos, 0)
     @Expect(pub.hasPacketId, false)
 }
@@ -293,10 +293,10 @@ func testParseSuback(): Unit {
 func testParsePublishChineseTopicByBytes(): Unit {
     // 中文主题「通知」= 6 字节：整条 = 30 | 0a | 0006 通知 | "ok"
     let raw = mqttEncodePublish("通知", "ok".toArray(), 0, false, false, 0)
-    @Expect(serialBytesToHex(raw), "300a0006e9809ae79fa56f6b")
+    @Expect(bytesToHex(raw), "300a0006e9809ae79fa56f6b")
     let pub = mqttParsePublish(mqttDecodePacket(raw).getOrThrow()).getOrThrow()
     @Expect(pub.topic, "通知")
-    @Expect(serialBytesToHex(pub.payload), "6f6b")
+    @Expect(bytesToHex(pub.payload), "6f6b")
 }
 
 @Test
@@ -307,7 +307,7 @@ func testParsePublishQos1CarriesPacketId(): Unit {
     @Expect(pub.hasPacketId, true)
     @Expect(pub.packetId, 42)
     @Expect(pub.topic, "t")
-    @Expect(serialBytesToHex(pub.payload), "78")
+    @Expect(bytesToHex(pub.payload), "78")
 }
 
 @Test

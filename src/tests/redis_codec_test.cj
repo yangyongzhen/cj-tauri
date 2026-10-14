@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.redis.*
 import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
@@ -20,7 +20,7 @@ import std.unittest.testmacro.*
 
 /** 十六进制文本 → 字节（测试里内联构造线上报文；不合法直接让用例失败） */
 func redisHex(hex: String): Array<UInt8> {
-    return serialHexToBytes(hex).getOrThrow()
+    return hexToBytes(hex).getOrThrow()
 }
 
 /** `Option` 是不是 None（不用 isNone()：不想在单测里引入没在本仓出现过的 API） */
@@ -68,29 +68,29 @@ func redisReadMessage(r: RespRead): String {
 @Test
 func testEncodeCommandWireFormat(): Unit {
     // *3 CRLF $3 SET CRLF $3 key CRLF $5 value CRLF
-    @Expect(serialBytesToHex(respEncodeCommand(["SET", "key", "value"])),
+    @Expect(bytesToHex(respEncodeCommand(["SET", "key", "value"])),
         "2a330d0a24330d0a5345540d0a24330d0a6b65790d0a24350d0a76616c75650d0a")
 }
 
 @Test
 func testEncodeCommandLengthCountsBytesNotRunes(): Unit {
     // 「键」「值」各 3 字节（UTF-8）：长度字段写 3 而不是 1——按码点算会让对端解析错位
-    @Expect(serialBytesToHex(respEncodeCommand(["SET", "键", "值"])),
+    @Expect(bytesToHex(respEncodeCommand(["SET", "键", "值"])),
         "2a330d0a24330d0a5345540d0a24330d0ae994ae0d0a24330d0ae580bc0d0a")
 }
 
 @Test
 func testEncodeCommandBinarySafe(): Unit {
     // 值里带 NUL 与 0xFF：长度按字节算，内容原样穿过（调试工具会拿它看二进制 value）
-    @Expect(serialBytesToHex(respCmdRaw3("SET", "blob", redisHex("0001fffe"))),
+    @Expect(bytesToHex(respCmdRaw3("SET", "blob", redisHex("0001fffe"))),
         "2a330d0a24330d0a5345540d0a24340d0a626c6f620d0a24340d0a0001fffe0d0a")
 }
 
 @Test
 func testEncodeCommandBuilders(): Unit {
-    @Expect(serialBytesToHex(respCmd1("PING")), "2a310d0a24340d0a50494e470d0a")
-    @Expect(serialBytesToHex(respCmd2("GET", "user:1")), "2a320d0a24330d0a4745540d0a24360d0a757365723a310d0a")
-    @Expect(serialBytesToHex(respCmdRaw2("GET", redisHex("00ff"))), "2a320d0a24330d0a4745540d0a24320d0a00ff0d0a")
+    @Expect(bytesToHex(respCmd1("PING")), "2a310d0a24340d0a50494e470d0a")
+    @Expect(bytesToHex(respCmd2("GET", "user:1")), "2a320d0a24330d0a4745540d0a24360d0a757365723a310d0a")
+    @Expect(bytesToHex(respCmdRaw2("GET", redisHex("00ff"))), "2a320d0a24330d0a4745540d0a24320d0a00ff0d0a")
 }
 
 @Test

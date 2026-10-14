@@ -70,11 +70,19 @@
   3. 在能力清单的 `commands` 里声明 `"<插件名>:<短名>"`。
   插件**只声明「我提供什么」，不自动放行**（默认最小权限不破）；`jsShim()` 返回的前端片段由框架
   汇总插到第一个 `</head>` 之前（早于页面脚本），`runUrl()` 下无法并入需在 stderr 提示。
-  实现文件放 `src/plugins/plugin_<名字>.cj`（**插件子包** `package cjTauri.plugins`，如
-  `src/plugins/plugin_fs.cj`；FFI 声明也随插件放同目录——但**核心宿主消费**的 FFI 例外，如
+  实现文件放 `src/plugins/<名字>/`（**一个插件一个子包**，`package cjTauri.plugins.<名字>`，如
+  `src/plugins/fs/plugin_fs.cj`；FFI 声明也随插件放同目录（如 `src/plugins/sqlite/sqlite_ffi.cj`）——
+  但**核心宿主消费**的 FFI 例外，如
   `src/clipboard_bridge.cj` 属核心包，判定标准是「谁调用谁包内」），可跑样板 `examples/plugin-fs/`，
   设计见 `docs/RFC-插件体系.md`。子包可见父包全部 `public` 符号，反向（核心 import 插件）禁止；
   单测要直接构造的命令 handler / 辅助函数须 `public`（跨包不再同包可见）。
+  **为什么一个插件一个子包**：仓颉的链接粒度是「包 = 静态库」，全挤在一个 `cjTauri.plugins` 包里时，
+  应用用任何一个插件就会把整包对象拉进链接——只用 fs 的示例被 sqlite FFI 连坐、Windows 构建也要链
+  `-lsqlite3`（2026-10-14 实测）。拆开后各插件独立成 `libcjTauri.plugins.<名字>.a`，没引用就不链接。
+  `src/plugins/plugins.cj` 是 cjpm 的**扫描锚点**（空占位，只有 package 声明）——目录里没有 `.cj` 文件
+  时 cjpm 不递归扫子目录，删了它所有插件子包会静默消失（`check-static` 6b-2 白名单它）。
+  插件间**不得互相引用**（会重新引入连坐）；三插件共用的工具进核心共享层
+  （如 `src/hexutil.cj` 的 `hexToBytes`/`bytesToHex`，从 serial 插件迁出）。
 - **命名权限集（v1.1）**：插件用 `Plugin.permissions()` 声明「短集名 → 成员」，框架装配时注册成 `<插件名>:<短集名>`；
   应用的 `capabilities/*.json` 用 `"permissions": ["fs:readonly"]` 引用，成员展开后与 `commands`/`events`
   里的明文名字**同权**（`CapabilityRegistry.coveredByPermissionSet`，单层展开、不递归）。
@@ -502,11 +510,13 @@
   选 r160 的理由：**它是最后一个带 UMD 构建的版本**（`three@0.161+` 只剩 ESM），而这个示例的页面是
   `run(html)` 的内联来源（Windows 下 `NavigateToString`，无真实来源），相对 `<script src>` 与 ES module
   都不成立——只能把整份 UMD 经 `addInitScript()` 走 document-start 通道注入（AGENTS §4 有这条坑的完整形状）。
-  第二项是**系统 SQLite**（`src/plugins/sqlite_ffi.cj` 用 `foreign func` 直连，仓库首例「不经 C 桥」）：
+  第二项是**系统 SQLite**（`src/plugins/sqlite/sqlite_ffi.cj` 用 `foreign func` 直连，仓库首例「不经 C 桥」）：
   本仓**不随包分发** sqlite3 二进制，链接谁由消费方提供——Linux 走发行版 `libsqlite3.so`（示例的
-  `link-option` 里加 `-lsqlite3`），Windows 侧本轮未落地（要自带 `sqlite3.dll` 并补进
-  `scripts/pack-win*.sh` 的 DLL 清单；这类「按名字 LoadLibrary」的库不在 PE 导入表里，最容易被漏，
-  见 D-018 第 8 条）。SQLite 本身是 **public domain**（`sqlite.org/copyright.html`）：
+  `link-option` 里加 `-lsqlite3`），Windows 本机自备 `sqlite3.dll`（官方预编译 zip 是 public domain，
+  导入库 `native/libsqlite3.a` 由 `sqlite3.def` 经 `llvm-dlltool -m i386:x86-64` 生成，DLL 与导入库
+  均不入库；框架 mingw `link-option` 已带 `-lsqlite3`，不引用 sqlite 插件的应用不会被链接到它——
+  拆包后链接粒度是插件包级，见 §2）。这类「按名字 LoadLibrary」的库不在 PE 导入表里，最容易被漏，
+  见 D-018 第 8 条。SQLite 本身是 **public domain**（`sqlite.org/copyright.html`）：
   不随包分发就不产生附许可证的义务；一旦哪个示例在 Windows 上落地并随包分发 `sqlite3.dll`，
   本条要补上它的来源、版本与许可证位置。
 - 仓库根保持 5 个标准文件：`README.md`（必须含运行截图）/ `LICENSE` / `README.OpenSource` / `CHANGELOG.md` /

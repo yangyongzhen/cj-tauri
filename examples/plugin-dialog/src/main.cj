@@ -1,7 +1,7 @@
 package plugin_dialog
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.dialog.*
 import stdx.encoding.json.*
 
 /**

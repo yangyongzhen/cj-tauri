@@ -117,8 +117,9 @@ fi
 # ------------------------------------------- 6. 插件/命令不得引用核心内部件
 # 架构契约（AGENTS §2）：依赖方向单向 app → host / ipc_hub → capability，
 # 插件与命令通过回调注入协作，不得偷用核心内部符号（HostGlobals 等）。
-# 插件物理边界在 src/plugins/ 子包（package cjTauri.plugins），门禁按包边界查——
-# 子包内任何文件引用核心内部符号都算违规，不依赖 plugin_ 前缀命名约定。
+# 插件物理边界在 src/plugins/ 子包，**一个插件一个子包**（package cjTauri.plugins.<名字>），
+# 门禁按包边界查——子包内任何文件引用核心内部符号都算违规，不依赖 plugin_ 前缀命名约定。
+# git pathspec 的 * 会跨目录匹配，src/plugins/*.cj 覆盖各插件子包。
 section "插件与命令不引用核心内部件"
 before=$fails
 hits=$(git grep -nE 'HostGlobals|IpcHub\(' -- 'src/plugins/*.cj' 'src/api_*.cj' || true)
@@ -137,8 +138,15 @@ stray=$(git ls-files 'src' | grep '^src/[^/]*\.cj$' | grep -E '(^src/plugin_|_br
 if [ -n "$stray" ]; then
     bad "src/ 顶层发现插件实现/FFI 桥文件（应移入 src/plugins/；例外：clipboard_bridge.cj 属核心宿主 FFI）："
     printf '%s\n' "$stray" | sed 's/^/        /'
-else
-    ok "插件实现全部在 src/plugins/ 子包，src/ 顶层只留框架核心"
+fi
+# 6b-2. 插件文件必须落在插件自己的子包目录（一个插件一个子包），不准直接平铺在 src/plugins/ 根
+flat=$(git ls-files 'src/plugins' | grep '^src/plugins/[^/]*\.cj$' | grep -v '^src/plugins/plugins.cj' || true)
+if [ -n "$flat" ]; then
+    bad "src/plugins/ 根发现插件实现文件（一个插件一个子包：src/plugins/<名字>/，package cjTauri.plugins.<名字>）："
+    printf '%s\n' "$flat" | sed 's/^/        /'
+fi
+if [ -z "$stray" ] && [ -z "$flat" ]; then
+    ok "插件实现全部在 src/plugins/<名字>/ 子包，src/ 顶层只留框架核心"
 fi
 
 # ------------------------------------------------- 7. E2E 证据可对账

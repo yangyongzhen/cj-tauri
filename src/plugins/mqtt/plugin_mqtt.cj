@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.mqtt
 
 import cjTauri.*
 
@@ -275,7 +275,7 @@ func mqttLogRaw(sess: MqttSession, dir: String, raw: Array<UInt8>, typeName: Str
     obj.put("note", JsonString(note))
     obj.put("bytes", JsonInt(raw.size))
     obj.put("truncated", JsonBool(shown < raw.size))
-    obj.put("hex", JsonString(serialBytesToHex(raw[0..shown])))
+    obj.put("hex", JsonString(bytesToHex(raw[0..shown])))
     mqttRecord(sess, obj)
 }
 
@@ -451,8 +451,8 @@ func mqttLogPublish(sess: MqttSession, dir: String, raw: Array<UInt8>, pub: Mqtt
     obj.put("bytes", JsonInt(raw.size))
     obj.put("payloadBytes", JsonInt(pub.payload.size))
     obj.put("truncated", JsonBool(shown < raw.size || payloadShown < pub.payload.size))
-    obj.put("hex", JsonString(serialBytesToHex(raw[0..shown])))
-    obj.put("payloadHex", JsonString(serialBytesToHex(pub.payload[0..payloadShown])))
+    obj.put("hex", JsonString(bytesToHex(raw[0..shown])))
+    obj.put("payloadHex", JsonString(bytesToHex(pub.payload[0..payloadShown])))
     // 载荷是任意二进制：能当文本看就给文本，不能就给 null（键始终在，页面按 null 判断改用十六进制）
     match (mqttBytesToText(pub.payload[0..payloadShown])) {
         case Some(t) => obj.put("payloadText", JsonString(t))
@@ -1253,7 +1253,7 @@ class MqttCommands <: CommandHandler {
             if (text.size > 0) {
                 throw CommandException("mqtt: 载荷只能给 text 或 hex 之一（含糊比报错更糟）")
             }
-            match (serialHexToBytes(hex)) {
+            match (hexToBytes(hex)) {
                 case Some(b) => payload = b
                 case None => throw CommandException("mqtt: hex 载荷非法（须为偶数长度的十六进制串）")
             }

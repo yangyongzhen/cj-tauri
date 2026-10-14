@@ -150,6 +150,21 @@ if has_asset PACKED_THREE_B64; then
     THREE_B64="$(b64 "$THREE_FILE")"
 fi
 
+# vendor 库（markdown-notes 的 marked / highlight.js / 三份 hljs 主题）：只有存根声明了
+# PACKED_VENDOR_B64 的示例才打。5 个文件按**固定顺序**各自 base64、用 "," 拼起来——
+# 顺序与应用侧 packed_resources.cj 的 VENDOR_FILES 对齐，两边改一边都会错位。
+VENDOR_B64=""
+if has_asset PACKED_VENDOR_B64; then
+    VENDOR_FILES=(ui/vendor/marked.min.js ui/vendor/highlight.min.js \
+        ui/vendor/github-dark-dimmed.min.css ui/vendor/github-dark.min.css ui/vendor/atom-one-dark.min.css)
+    for vf in "${VENDOR_FILES[@]}"; do
+        vf_file="$WORK/app/$vf"
+        [ -f "$vf_file" ] || die "存根声明了 PACKED_VENDOR_B64，但缺 $vf_file"
+        vf_piece="$(b64 "$vf_file")"
+        if [ -z "$VENDOR_B64" ]; then VENDOR_B64="$vf_piece"; else VENDOR_B64="$VENDOR_B64,$vf_piece"; fi
+    done
+fi
+
 # 能力清单：每个 capabilities/*.json 各自 base64，再用 "," 拼起来
 # （base64 字符表里没有逗号，所以逗号是安全的分隔符；应用侧按逗号切开逐个挂载）
 CAPS_B64=""
@@ -162,7 +177,7 @@ for f in "$EXAMPLE"/capabilities/*.json; do
 done
 [ "$CAPS_N" -ge 1 ] || die "capabilities/ 下没有 json：单文件包必须把清单编进去，否则命令全被拒"
 
-echo "[pack-single] 生成内嵌资源：页面 ${#UI_B64} / three.js ${#THREE_B64} base64 字节，能力清单 $CAPS_N 份"
+echo "[pack-single] 生成内嵌资源：页面 ${#UI_B64} / three.js ${#THREE_B64} / vendor ${#VENDOR_B64} base64 字节，能力清单 $CAPS_N 份"
 {
     printf 'package %s\n\n' "$PKG_NAME"
     printf '/* 由 scripts/pack-win-single.sh 生成：内嵌资源（标准 base64，无换行）。**不要手工编辑**。\n'
@@ -170,6 +185,9 @@ echo "[pack-single] 生成内嵌资源：页面 ${#UI_B64} / three.js ${#THREE_B
     printf 'public let PACKED_UI_B64: String = "%s"\n' "$UI_B64"
     if has_asset PACKED_THREE_B64; then
         printf 'public let PACKED_THREE_B64: String = "%s"\n' "$THREE_B64"
+    fi
+    if has_asset PACKED_VENDOR_B64; then
+        printf 'public let PACKED_VENDOR_B64: String = "%s"\n' "$VENDOR_B64"
     fi
     printf 'public let PACKED_CAPS_B64: String = "%s"\n' "$CAPS_B64"
 } > "$WORK/app/src/packed_assets.cj"

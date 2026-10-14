@@ -11,6 +11,13 @@
 
 ### Added
 
+- **源码仓 `cjpm.toml` 的 stdx 路径改为环境变量引用（机器无关，issue #3）**：根与 `examples/*`
+  共 24 个 `cjpm.toml` 的 `[target.*.bin-dependencies] path-option` 不再写死本机绝对路径，
+  统一写成 `${CANGJIE_STDX}`，由 cjpm 按进程环境变量展开——clone 后无需手工改文件即可构建
+  （设 `CANGJIE_STDX` 指向 `<stdx>/<三元组>/dynamic/stdx`）。配套联动：`scripts/test.sh`、
+  `scripts/e2e/lib.sh`、`scripts/pack-win.sh` 与 CI 的 sdk 作业均补了探测 + `export`;
+  CLI 从 toml 读回 `path-option` 时同款展开 `${...}`（`resolve.cj` 的 `expandTomlEnv`）。
+  `cj-tauri create` 生成的工程不受影响（脚手架仍把探测到的路径写死进 toml）。
 - **Windows 实机 E2E 入口（`scripts/e2e/test-windows-bridge.sh`）**：与 Linux 入口同构（同一
   fixture 探针、同一套公共层与证据 JSON），断言随能力位落地扩到 **11 条**：能力清单加载 / 桥注入 /
   页面→宿主 IPC / 端到端往返 / 未授权命令被拒 / `system:host` 能力位如实上报（`host=windows

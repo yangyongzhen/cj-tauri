@@ -69,8 +69,17 @@ case "$(uname -s)" in
         ;;
     *)
         export PATH="$CANGJIE_HOME/bin:$CANGJIE_HOME/tools/bin:$PATH"
+        # 源码仓 cjpm.toml 的 bin-dependencies.path-option 已统一写成 ${CANGJIE_STDX}
+        # （issue #3），cjpm 会按进程环境变量展开——没设就编不进去。未设置时按常见
+        # 安装位置探测兜底（与 CI / e2e lib.sh 同一套逻辑）。
+        if [ -z "${CANGJIE_STDX:-}" ]; then
+            for d in "$HOME"/.cangjie/stdx/*/dynamic/stdx; do
+                if [ -d "$d" ]; then CANGJIE_STDX="$d"; break; fi
+            done
+        fi
         STDX_PART=""
         if [ -n "${CANGJIE_STDX:-}" ]; then
+            export CANGJIE_STDX
             STDX_PART="$CANGJIE_STDX:"
         fi
         export LD_LIBRARY_PATH="$ROOT/native:${STDX_PART}$CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"

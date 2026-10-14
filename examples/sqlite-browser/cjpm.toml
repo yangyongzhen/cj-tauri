@@ -19,7 +19,7 @@
   link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0 -lsqlite3"
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
-    path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
+    path-option = ["${CANGJIE_STDX}"]
 
 # Windows 侧**未落地**（D-018 第 8 条）：这条 link-option 能让桥与子系统对上，但 sqlite3 得自带 DLL，
 # 本轮没有验证过，别把它当成「Windows 也能跑」的证据。
@@ -27,4 +27,4 @@
   link-option = "-L../../native -lcjtbridge --subsystem=windows"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
-    path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]
+    path-option = ["${CANGJIE_STDX}"]

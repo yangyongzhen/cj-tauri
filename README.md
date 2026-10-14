@@ -74,6 +74,12 @@ cli\cj-tauri.bat create myapp && cd myapp
 ..\cli\cj-tauri.bat dev            # Linux/macOS 用 cli/cj-tauri.sh
 ```
 
+> 源码仓内的 `cjpm.toml` 用 `${CANGJIE_STDX}` 引用 stdx 动态库目录（机器无关），
+> 构建前需把这个环境变量设到 `<stdx>/<三元组>/dynamic/stdx`（如 Linux 的
+> `$HOME/.cangjie/stdx/*/dynamic/stdx`、Windows 的
+> `D:\cangjie-stdx\windows_x86_64_cjnative\dynamic\stdx`）。`cj-tauri create` 生成的
+> 工程不依赖它（脚手架会把探测到的路径写死进生成的 `cjpm.toml`）。
+
 运行仓内示例（以 hello 为例）：`native\build_win.bat` → `cd examples\hello && cjpm build` → 根目录 `run_win.bat`。
 
 ## 示例一览

@@ -254,11 +254,55 @@ func pathOptionFor(content: String, triple: String): Option<String> {
         }
         if (inSection && line.startsWith("path-option")) {
             if (let Some(v) <- firstQuoted(line)) {
-                return Some(v)
+                return Some(expandTomlEnv(v))
             }
         }
     }
     return None
+}
+
+/** cjpm.toml 里的 `${NAME}` 环境变量引用：与 cjpm 手册《环境变量配置》同款语义
+ *  （bin-dependencies 的 path-option 支持）。源码仓 24 个 toml 的 stdx 路径已统一改成
+ *  `${CANGJIE_STDX}`（issue #3），CLI 从 toml 读回 path-option 必须同款展开，
+ *  否则拿到的是字面量 `…` 尾巴。逐字节扫描单遍展开（可含多个变量，不递归展开变量值——
+ *  与 cjpm 行为一致）。String 本机 SDK 无 subString 成员，故按字节拼（镜像 firstQuoted）。 */
+func expandTomlEnv(s: String): String {
+    let bytes = s.toArray()
+    let n = bytes.size
+    let out = ArrayList<UInt8>()
+    var i = 0
+    let DOLLAR: UInt8 = 0x24   // '$'
+    let LBRACE: UInt8 = 0x7B   // '{'
+    let RBRACE: UInt8 = 0x7D   // '}'
+    while (i < n) {
+        if (bytes[i] == DOLLAR && i + 1 < n && bytes[i + 1] == LBRACE) {
+            var j = i + 2
+            while (j < n && bytes[j] != RBRACE) {
+                j++
+            }
+            if (j < n) {
+                let nameBytes = ArrayList<UInt8>()
+                var k = i + 2
+                while (k < j) {
+                    nameBytes.add(bytes[k])
+                    k++
+                }
+                let name = String.fromUtf8(nameBytes.toArray())
+                let value = envOr(name, "")
+                let vbytes = value.toArray()
+                var m = 0
+                while (m < vbytes.size) {
+                    out.add(vbytes[m])
+                    m++
+                }
+                i = j + 1
+                continue
+            }
+        }
+        out.add(bytes[i])
+        i++
+    }
+    return String.fromUtf8(out.toArray())
 }
 
 /** 项目 cjpm.toml 中 cjTauri 依赖路径 */

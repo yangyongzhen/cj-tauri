@@ -43,6 +43,9 @@ public func parseScopeRule(json: JsonValue): Option<ScopeRule> {
     }
     let obj = json.asObject()
     let rule = ScopeRule()
+    // 模式与页面路径走同一套分隔符口径：$HOME 在 Windows 展开出的是 USERPROFILE 原值
+    // （C:\Users\...，反斜杠），不归一的话拿它匹配 normalizeScopePath 的正斜杠结果永远不中
+    // ——`$HOME/**` 在 Windows 上形同虚设（实测 Desktop 文件被拒）。
     if (let Some(a) <- obj.get("allow")) {
         collectScopePatterns(a, rule.allow)
     }
@@ -59,13 +62,15 @@ private func collectScopePatterns(v: JsonValue, out: ArrayList<String>): Unit {
             for (i in 0..arr.size()) {
                 if (let Some(x) <- arr.get(i)) {
                     match (x.kind()) {
-                        case JsonKind.JsString => out.add(expandScopeVars(x.asString().getValue()))
+                        case JsonKind.JsString =>
+                            out.add(toScopeSlashes(expandScopeVars(x.asString().getValue())))
                         case _ => ()
                     }
                 }
             }
         // 单条字符串也收：写 "fs": { "allow": "$HOME/**" } 与写成数组等价，少一处踩坑
-        case JsonKind.JsString => out.add(expandScopeVars(v.asString().getValue()))
+        case JsonKind.JsString =>
+            out.add(toScopeSlashes(expandScopeVars(v.asString().getValue())))
         case _ => ()
     }
 }

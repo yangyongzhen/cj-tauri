@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>仓颉力扣 · cj-tauri</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #1e1e2e; color: #cdd6f4;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* 顶栏：标题 + 工具按钮 */
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; background: #181825;
+    border-bottom: 1px solid #313244; flex: 0 0 auto;
+  }
+  header h1 { font-size: 15px; color: #89b4fa; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  header button {
+    background: #89b4fa; color: #1e1e2e; border: none; border-radius: 6px;
+    padding: 6px 16px; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  header button.ghost { background: #45475a; color: #cdd6f4; }
+  header button:hover { opacity: .85; }
+  #status { font-size: 12px; color: #a6adc8; white-space: nowrap; }
+
+  /* 主区：左题库 + 中编辑器/下终端 */
+  main { flex: 1 1 auto; display: flex; min-height: 0; }
+
+  /* 左：题库 */
+  #sidebar {
+    width: 260px; flex: 0 0 auto; background: #181825;
+    border-right: 1px solid #313244; overflow-y: auto; padding: 8px;
+  }
+  #sidebar h2 { font-size: 12px; color: #a6adc8; padding: 6px 8px; text-transform: uppercase; letter-spacing: .05em; }
+  .group-title {
+    font-size: 11px; color: #89b4fa; padding: 10px 8px 4px;
+    letter-spacing: .06em; opacity: .85;
+  }
+  .prob {
+    padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 2px;
+  }
+  .prob:hover { background: #313244; }
+  .prob.active { background: #45475a; }
+  .prob .pid { color: #a6adc8; font-size: 12px; width: 22px; text-align: right; }
+  .prob .ptitle { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 11px; padding: 1px 8px; border-radius: 99px; flex: 0 0 auto; }
+  .badge.easy   { background: #a6e3a1; color: #1e1e2e; }
+  .badge.medium { background: #f9e2af; color: #1e1e2e; }
+  .badge.hard   { background: #f38ba8; color: #1e1e2e; }
+
+  /* 中：题目 + 编辑器 + 终端（纵向） */
+  #center { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+  #descPane {
+    flex: 0 0 auto; max-height: 32%; overflow-y: auto;
+    padding: 12px 16px; background: #1e1e2e; border-bottom: 1px solid #313244;
+  }
+  #descTitle { font-size: 15px; color: #cdd6f4; margin-bottom: 6px; }
+  #descTitle .badge { margin-left: 8px; vertical-align: 2px; }
+  #descBody { font-size: 13px; line-height: 1.7; color: #bac2de; white-space: pre-wrap; }
+  #editor {
+    flex: 1 1 55%; min-height: 120px;
+    background: #11111b; color: #cdd6f4; border: none; outline: none; resize: none;
+    font-family: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+    font-size: 13.5px; line-height: 1.6; padding: 12px 16px;
+  }
+  #terminalPane {
+    flex: 1 1 45%; min-height: 100px; display: flex; flex-direction: column;
+    border-top: 1px solid #313244; background: #11111b;
+  }
+  #termHeader {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 14px; background: #181825; font-size: 12px; color: #a6adc8; flex: 0 0 auto;
+  }
+  #termHeader .dot { width: 9px; height: 9px; border-radius: 50%; background: #585b70; }
+  #termHeader .dot.ok { background: #a6e3a1; }
+  #termHeader .dot.err { background: #f38ba8; }
+  #termHeader .dot.run { background: #f9e2af; }
+  #terminal {
+    flex: 1; overflow-y: auto; padding: 10px 14px;
+    font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .t-dim { color: #6c7086; }
+  .t-ok { color: #a6e3a1; }
+  .t-err { color: #f38ba8; }
+  .t-warn { color: #f9e2af; }
+  .t-info { color: #89b4fa; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>仓颉力扣</h1>
+    <span id="status" class="t-dim">正在连接桥…</span>
+    <span class="spacer"></span>
+    <button id="btnRun">▶ 运行 (Ctrl+R)</button>
+    <button id="btnReset" class="ghost">重置</button>
+  </header>
+
+  <main>
+    <nav id="sidebar">
+      <h2>题库</h2>
+      <div id="probList"><div class="t-dim" style="padding:8px">加载中…</div></div>
+    </nav>
+
+    <section id="center">
+      <div id="descPane">
+        <div id="descTitle">选择一道题开始</div>
+        <div id="descBody" class="t-dim">左侧点击任意题目，阅读题意后在下方编辑器用仓颉实现算法，点击「运行」判题。</div>
+      </div>
+      <textarea id="editor" spellcheck="false">// 请先选择题目</textarea>
+      <div id="terminalPane">
+        <div id="termHeader">
+          <span class="dot" id="termDot"></span>
+          <span>判题终端</span>
+        </div>
+        <div id="terminal"><span class="t-dim">等待运行…</span></div>
+      </div>
+    </section>
+  </main>
+
+<script>
+'use strict';
+/* 仓颉力扣 · 前端
+   页面是磁盘真文件（app.runUrl 读 ui/index.html），JS 反斜杠不受仓颉三引号转义影响。
+   与桥交互只走 window.__CJ_TAURI__ 的 invoke / listen（AGENTS §3）。 */
+
+var bridge = null;
+var problems = [];
+var currentId = 0;
+var currentProblem = null;
+var dirty = false;
+
+function $(id) { return document.getElementById(id); }
+
+function waitForBridge(cb) {
+  if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { cb(); return; }
+  setTimeout(function () { waitForBridge(cb); }, 50);
+}
+
+/* ---------- 终端输出 ---------- */
+function term(html) {
+  var el = $('terminal');
+  el.insertAdjacentHTML('beforeend', html + '\n');
+  el.scrollTop = el.scrollHeight;
+}
+function termLine(cls, text) {
+  var safe = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  term('<span class="' + cls + '">' + safe + '</span>');
+}
+function termDot(cls) { $('termDot').className = 'dot ' + cls; }
+
+/* cjc 的报错带 ANSI 颜色码（ESC[36m 之类），终端区自配配色，先剥掉再展示 */
+function stripAnsi(s) {
+  return String(s).replace(/\[[0-9;]*m/g, '').replace(/\[[0-9]*[A-Za-z]/g, '');
+}
+
+/* ---------- 状态条 ---------- */
+function status(text) { $('status').textContent = text; }
+
+/* ---------- 题库 ---------- */
+function renderList() {
+  var box = $('probList');
+  box.textContent = '';
+  // 按 category 分组（保持题库给出的顺序）：组头 + 组内题目
+  var groups = [];
+  var byName = {};
+  problems.forEach(function (p) {
+    var cat = p.category || '其他';
+    if (!byName[cat]) { byName[cat] = []; groups.push(cat); }
+    byName[cat].push(p);
+  });
+  groups.forEach(function (cat) {
+    var h = document.createElement('div');
+    h.className = 'group-title';
+    h.textContent = cat;
+    box.appendChild(h);
+    byName[cat].forEach(function (p) {
+      var row = document.createElement('div');
+      row.className = 'prob' + (p.id === currentId ? ' active' : '');
+      var badgeCls = p.difficulty === '简单' ? 'easy' : (p.difficulty === '中等' ? 'medium' : 'hard');
+      row.innerHTML = '<span class="pid">' + p.id + '</span>'
+        + '<span class="ptitle"></span>'
+        + '<span class="badge ' + badgeCls + '">' + p.difficulty + '</span>';
+      row.querySelector('.ptitle').textContent = p.title;
+      row.onclick = function () { selectProblem(p.id); };
+      box.appendChild(row);
+    });
+  });
+}
+
+function selectProblem(id) {
+  currentId = id;
+  bridge.invoke('leetcode:get', { id: id }).then(function (p) {
+    currentProblem = p;
+    renderList();
+    $('descTitle').innerHTML = p.id + '. <span></span><span class="badge ' + badgeOf(p) + '"></span>';
+    $('descTitle').querySelector('span').textContent = p.title;
+    $('descTitle').querySelector('.badge').textContent = p.difficulty;
+    $('descBody').textContent = p.description;
+    // 草稿优先：没存过草稿才落模板
+    return bridge.invoke('leetcode:loadDraft', { id: id }).then(function (d) {
+      $('editor').value = d.code || p.template;
+      dirty = false;
+      status('题目 ' + p.id + ' · ' + p.title);
+      termLine('t-dim', '── 已打开题目 ' + p.id + '. ' + p.title + '（' + p.tests.length + ' 个测试用例）');
+    });
+  }).catch(function (e) { termLine('t-err', '取题目失败: ' + e.message); });
+}
+
+function badgeOf(p) {
+  return p.difficulty === '简单' ? 'easy' : (p.difficulty === '中等' ? 'medium' : 'hard');
+}
+</script>
+<script>
+/* ---------- 运行判题 ---------- */
+var running = false;
+
+function runCode() {
+  if (running) { termLine('t-warn', '已有一次判题在跑，请等它结束'); return; }
+  if (!currentProblem) { termLine('t-warn', '请先在左侧选择一道题'); return; }
+  running = true;
+  termDot('run');
+  status('判题中…（cjc 编译 + 运行）');
+  termLine('t-info', '▶ 运行题目 ' + currentProblem.id + '. ' + currentProblem.title);
+  var t0 = Date.now();
+  bridge.invoke('leetcode:run', { id: currentProblem.id, code: $('editor').value })
+    .then(function (r) {
+      running = false;
+      var wall = Date.now() - t0;
+      if (!r.ok) {
+        // 编译失败：把 cjc 的报错原样给到终端
+        termDot('err');
+        termLine('t-err', '✗ 编译失败（' + wall + 'ms）');
+        termLine('t-dim', '──── cjc 输出 ────');
+        termLine('t-err', stripAnsi(r.compileError) || '(无输出)');
+        status('编译失败');
+        return;
+      }
+      termDot(r.passed === r.total && r.total > 0 ? 'ok' : 'err');
+      termLine('t-dim', '── 判定结果（编译+运行 ' + wall + 'ms）──');
+      if (r.total > 0) {
+        r.results.forEach(function (res, i) {
+          var tc = currentProblem.tests[i];
+          if (res.pass) {
+            termLine('t-ok', '  ✓ 用例 ' + (i + 1) + ' 通过    ' + tc.call + ' == ' + tc.expect);
+          } else {
+            termLine('t-err', '  ✗ 用例 ' + (i + 1) + ' 未通过  ' + tc.call);
+            termLine('t-err', '      期望 ' + tc.expect + '，' + (res.detail || '实际值见上方 got='));
+          }
+        });
+        termLine(r.passed === r.total ? 't-ok' : 't-warn',
+          '通过 ' + r.passed + '/' + r.total + ' 个用例'
+          + (r.passed === r.total ? ' 🎉 全部通过！' : '—— 还有用例没过，再想想'));
+      } else {
+        // 没解析到 RESULT 行：程序自己的 println 原样展示
+        termLine('t-dim', '(程序输出，无判定行)');
+        termLine('t-dim', r.stdout || '(空)');
+      }
+      status('通过 ' + r.passed + '/' + r.total + ' · ' + wall + 'ms');
+      saveDraft();
+    })
+    .catch(function (e) {
+      running = false;
+      termDot('err');
+      termLine('t-err', '✗ 运行失败: ' + e.message);
+      status('运行失败');
+    });
+}
+
+/* ---------- 草稿 ---------- */
+function saveDraft() {
+  if (!currentProblem) { return; }
+  bridge.invoke('leetcode:saveDraft', { id: currentProblem.id, code: $('editor').value })
+    .then(function () { status('已保存草稿 · 题目 ' + currentProblem.id); })
+    .catch(function () { /* 草稿写盘失败不弹窗，终端有一行 stderr */ });
+}
+
+function resetCode() {
+  if (!currentProblem) { return; }
+  $('editor').value = currentProblem.template;
+  saveDraft();
+  termLine('t-warn', '⟲ 代码已重置为模板');
+}
+
+/* ---------- 菜单（原生菜单 → menu:click 事件 → 这里） ---------- */
+function wireMenu() {
+  // 桥的 listen 返回「取消订阅函数」而不是 Promise（native/core/bridge_js.h），
+  // 不能链 .catch——菜单事件没到也不影响按钮操作，静默挂上即可
+  bridge.listen('menu:click', function (payload) {
+    var id = payload && payload.id;
+    termLine('t-dim', '[菜单] ' + id);
+    if (id === 'run.submit') { runCode(); }
+    else if (id === 'run.reset') { resetCode(); }
+    else if (id === 'help.about') {
+      termLine('t-info', '仓颉力扣 · cj-tauri 示例——仓颉后端 + 系统 WebView，判题由 cjc 编译用户代码完成');
+    }
+  });
+}
+
+/* ---------- 编辑器 ---------- */
+function wireEditor() {
+  var ed = $('editor');
+  var saveTimer = null;
+  ed.addEventListener('input', function () {
+    dirty = true;
+    // 停止输入 800ms 后自动存草稿（不抢先在每次按键时写盘）
+    if (saveTimer) { clearTimeout(saveTimer); }
+    saveTimer = setTimeout(saveDraft, 800);
+  });
+  // Tab 缩进：textarea 里插两个空格，别把焦点丢出去
+  ed.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      var s = ed.selectionStart, e = ed.selectionEnd;
+      ed.value = ed.value.slice(0, s) + '  ' + ed.value.slice(e);
+      ed.selectionStart = ed.selectionEnd = s + 2;
+      dirty = true;
+    }
+  });
+  // 快捷键：Ctrl+R 运行（与菜单一致）
+  document.addEventListener('keydown', function (ev) {
+    if (ev.ctrlKey && !ev.shiftKey && ev.key === 'r') { ev.preventDefault(); runCode(); }
+    if (ev.ctrlKey && ev.shiftKey && ev.key === 'R') { ev.preventDefault(); resetCode(); }
+  });
+}
+
+/* ---------- 启动 ---------- */
+waitForBridge(function () {
+  bridge = window.__CJ_TAURI__;
+  status('桥已连接');
+  wireMenu();
+  wireEditor();
+  $('btnRun').onclick = runCode;
+  $('btnReset').onclick = resetCode;
+  bridge.invoke('leetcode:list', {}).then(function (r) {
+    problems = r.problems || [];
+    termLine('t-dim', '题库加载完成：' + problems.length + ' 题');
+    if (problems.length > 0) {
+      selectProblem(problems[0].id);
+    }
+  }).catch(function (e) {
+    termLine('t-err', '题库加载失败: ' + e.message);
+    status('题库加载失败');
+  });
+});
+</script>
+</body>
+</html>

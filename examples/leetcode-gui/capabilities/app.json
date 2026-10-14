@@ -1,0 +1,16 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": [
+    "leetcode:list",
+    "leetcode:get",
+    "leetcode:run",
+    "leetcode:saveDraft",
+    "leetcode:loadDraft",
+    "system:version",
+    "system:ping",
+    "system:echo"
+  ],
+  "permissions": [],
+  "events": ["menu:click"]
+}

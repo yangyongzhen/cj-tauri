@@ -46,3 +46,6 @@ logs/
 
 # 本地留档、不入库（用户裁定：推广渠道与素材只留本机）
 docs/推广渠道与提交素材.md
+
+# 力扣示例的代码草稿（本机数据，不入库）
+examples/leetcode-gui/ui/.draft.json

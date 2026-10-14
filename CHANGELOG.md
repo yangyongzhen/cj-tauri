@@ -120,6 +120,25 @@
 
 ### Changed
 
+- **路径 scope 修复（Windows）：清单模式补分隔符归一，`$HOME/**` 不再形同虚设**：
+  清单里的模式此前只做变量展开——`$HOME` 在 Windows 展开出 `USERPROFILE` 原值（`C:\Users\...`，
+  反斜杠），而页面路径经 `normalizeScopePath` 归一成正斜杠，两侧逐字节比较永远不相等，
+  结果 `allow: ["$HOME/**"]` 写了等于没写（markdown-notes 实测：打开桌面文件被拒）。
+  修复后清单模式与页面路径走同一套分隔符口径（`parseScopeRule` 内补 `toScopeSlashes`），
+  防回归用例 `testScopeRuleNormalizesManifestSlashes` 锁住该口径（两个平台都成立）；
+  Linux 行为不变。全量测试 262/262 通过。
+- **插件体系拆包：一个插件一个子包（`cjTauri.plugins.<名字>`），应用只链接用到的插件**：
+  此前全部插件挤在一个 `cjTauri.plugins` 包里，仓颉的链接粒度是「包 = 静态库」——应用装配任何
+  一个插件就会把整包对象拉进链接：只用 fs/store 的示例被 sqlite FFI 连坐，Windows 构建也要链
+  `-lsqlite3`（markdown-notes 首次在 Windows 构建时实测暴露）。拆分后 11 个插件各自独立成
+  `libcjTauri.plugins.<名字>.a`（codec/FFI 随各自的插件放同子包），导入改成显式
+  `import cjTauri.plugins.<名字>.*`——markdown-notes 的 Windows 产物导入表已核实不含 `sqlite3.dll`。
+  联动：`src/plugins/plugins.cj` 为 cjpm 扫描锚点（目录里没有 `.cj` 文件时子包不被扫描）；
+  `serialHexToBytes`/`serialBytesToHex` 三插件共用，迁入核心 `src/hexutil.cj`
+  （更名 `hexToBytes`/`bytesToHex`）；插件间禁止互相引用（`check-static` 新增 6b-2
+  「src/plugins/ 根禁止平铺」门禁）；框架 mingw `link-option` 补 `-lsqlite3`（导入库由
+  `sqlite3.def` 生成、本机自备，不引用 sqlite 插件的应用不会被链到）。
+  全量测试 261/261 通过。
 - **示例 `markdown-notes` 渲染升级到 marked + Highlight.js，工具栏收进菜单**：
   - **渲染质量**：自写的 Markdown 子集渲染器换成 **marked v12.0.2 + Highlight.js v11.9.0**
     （vendor 进 `ui/vendor/`、装配期读盘内联——`run(html)` 的页面没有真实来源，`<script src>`

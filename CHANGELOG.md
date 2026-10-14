@@ -113,6 +113,19 @@
 
 ### Changed
 
+- **示例 `markdown-notes` 渲染升级到 marked + Highlight.js，工具栏收进菜单**：
+  - **渲染质量**：自写的 Markdown 子集渲染器换成 **marked v12.0.2 + Highlight.js v11.9.0**
+    （vendor 进 `ui/vendor/`、装配期读盘内联——`run(html)` 的页面没有真实来源，`<script src>`
+    相对路径取不到文件；库经 `<template>` 解析 + 白名单清洗：脚本/iframe/事件属性/
+    `javascript:` 一律剥掉，外链补 `noopener`，图片仍降级为占位说明）；
+    排版升级（GFM 表格 / 嵌套列表 / 任务清单等 marked 全集）+ 代码语法高亮。
+    许可证已按 §5 登记（marked MIT、Highlight.js BSD-3-Clause）。
+  - **工具栏撤掉**：新建 / 重命名 / 删除 / 刷新 / 保存五个按钮不再显示在右上角——动作全部
+    收进「文件」菜单（保存走 `Ctrl+S`），删除二次确认改在状态栏提示；页内自检 21 条同步
+    （注入断言改为「script 剥净 + img.onerror 剥净」，渲染断言全数通过 `SELFCHECK DONE passed=21 failed=0`）。
+  - **两个新踩的坑**：① 主脚本注释里出现「脚本结束标记」的字面量会把 `<script>` 块提前终止、
+    整个主脚本不执行（页面停在「等待桥」，注释漏成正文）；② 仓颉块注释里写占位符字面量
+    （星号斜杠）触发嵌套注释 `unterminated block comment`（AGENTS §4 第一条坑的变体）。
 - **示例 `markdown-notes` 用上宿主菜单与选择框（界面观感向 Typora 靠拢）**：
   - **原生菜单栏**（文件 / 视图 / 帮助）：文件操作（新建 `Ctrl+N` / 保存 `Ctrl+S` / 重命名 / 删除 /
     刷新）进菜单，与工具栏按钮收敛到同一批页面动作函数；「视图 → 预览窗格」是**勾选菜单项**

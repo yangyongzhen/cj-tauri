@@ -144,16 +144,12 @@
   }
   .empty { color: var(--dim); font-size: 13px; padding: 10px; white-space: normal; }
 </style>
+<style>/*__VENDOR_CSS__*/</style>
 </head>
 <body>
   <header>
     <h1>Markdown 笔记</h1>
-    <span class="sub" id="wsHint">工作区 notes/（由 run.sh 播种）· 路径出白名单一律被拒</span>
-    <button id="btnNew">新建</button>
-    <button id="btnRename">重命名</button>
-    <button id="btnDelete" class="danger">删除</button>
-    <button id="btnReload">刷新</button>
-    <button id="btnSave" class="primary">保存 (Ctrl+S)</button>
+    <span class="sub" id="wsHint">工作区 notes/（由 run.sh 播种）· 路径出白名单一律被拒 · 文件操作在「文件」菜单</span>
   </header>
   <main>
     <div class="side">
@@ -185,6 +181,7 @@
   </footer>
   <div id="toast"></div>
 
+<script>/*__VENDOR_JS__*/</script>
 <script>
 (function () {
   'use strict';
@@ -232,208 +229,48 @@
   /** 统一取错误文案：桥回的是业务错误原文，别把它吞成 "undefined" */
   function errText(e) { return (e && e.message) ? e.message : String(e); }
 
-  // ------------------------------------------------- Markdown 子集渲染器
-  // 支持：标题 / 无序·有序列表 / 引用 / 围栏代码 / 分隔线 / 段落；
-  //       行内：**粗** *斜* `码` ~~删~~ [文字](链接)。
-  // 有意不做：表格、嵌套列表、原始 HTML 透传、图片渲染（run(html) 的页面没有真实来源，
-  //           相对路径的图取不回来——与其留白框，不如显式降级成一行说明）。
-  // 全程 createElement + textContent，**不拼 innerHTML**：笔记正文因此不可能是注入点。
-  function renderInline(text) {
+  // ------------------------------------------------- Markdown 渲染（marked + highlight.js）
+  // 库由 main.cj 装配期从 ui/vendor/ 读盘内联进占位符——run(html) 的页面
+  // 没有真实来源，<script src> 相对路径取不到文件，只能内联。
+  // 注意：本注释里不能出现「脚本结束标记」的字面量——那会把这个 script 块提前终止，
+  // 整个主脚本不执行（实测：页面停在「等待桥」，注释文本漏成正文）。
+  // 安全：marked v12 已移除 sanitizer 选项，这里渲染后经 <template> 解析（不执行脚本）、
+  // 按白名单剥掉危险标签与事件属性再挂树——笔记正文不可能是注入点。
+  function renderMarkdown(src) {
+    var html = marked.parse(String(src), { breaks: true, mangle: false, headerIds: false });
+    var tpl = document.createElement('template');
+    tpl.innerHTML = html;   // template 内容不执行脚本，解析安全
+    var forbidden = { SCRIPT:1, IFRAME:1, OBJECT:1, EMBED:1, FORM:1, STYLE:1, LINK:1, META:1, BASE:1 };
+    var walk = tpl.content.querySelectorAll('*');
+    for (var i = 0; i < walk.length; i++) {
+      var el = walk[i];
+      if (forbidden[el.tagName]) { el.remove(); continue; }
+      var attrs = [].slice.call(el.attributes);
+      for (var j = 0; j < attrs.length; j++) {
+        var n = attrs[j].name.toLowerCase();
+        var v = attrs[j].value;
+        if (n.indexOf('on') === 0 || ((n === 'href' || n === 'src') && /^\s*javascript:/i.test(v))) {
+          el.removeAttribute(attrs[j].name);
+        }
+      }
+      if (el.tagName === 'A' && el.getAttribute('href')) {
+        el.setAttribute('target', '_blank');
+        el.setAttribute('rel', 'noopener noreferrer');
+      }
+      // 图片保持占位说明（run(html) 页面取不到相对路径的图）
+      if (el.tagName === 'IMG') {
+        var div = document.createElement('div');
+        div.className = 'missing-note';
+        div.textContent = '［图片未渲染：' + (el.getAttribute('alt') || el.getAttribute('src') || '图片') +
+          ' —— run(html) 的页面没有真实来源，取不到相对路径的图］';
+        el.replaceWith(div);
+      }
+    }
     var frag = document.createDocumentFragment();
-    var pending = '';
-    var i = 0;
-
-    function flush() {
-      if (pending) { frag.appendChild(document.createTextNode(pending)); pending = ''; }
-    }
-
-    while (i < text.length) {
-      var ch = text.charAt(i);
-      var two = text.slice(i, i + 2);
-
-      // 行内代码最先判：它内部不再解析（`**` 在代码里就是两个星号）
-      if (ch === '`') {
-        var ic = text.indexOf('`', i + 1);
-        if (ic > i) {
-          flush();
-          var codeEl = document.createElement('code');
-          codeEl.textContent = text.slice(i + 1, ic);
-          frag.appendChild(codeEl);
-          i = ic + 1;
-          continue;
-        }
-      }
-      if (two === '**') {
-        var ib = text.indexOf('**', i + 2);
-        if (ib > i + 1) {
-          flush();
-          var strong = document.createElement('strong');
-          strong.appendChild(renderInline(text.slice(i + 2, ib)));
-          frag.appendChild(strong);
-          i = ib + 2;
-          continue;
-        }
-      }
-      if (two === '~~') {
-        var idel = text.indexOf('~~', i + 2);
-        if (idel > i + 1) {
-          flush();
-          var del = document.createElement('del');
-          del.appendChild(renderInline(text.slice(i + 2, idel)));
-          frag.appendChild(del);
-          i = idel + 2;
-          continue;
-        }
-      }
-      if (ch === '*') {
-        var iem = text.indexOf('*', i + 1);
-        if (iem > i + 1) {
-          flush();
-          var em = document.createElement('em');
-          em.appendChild(renderInline(text.slice(i + 1, iem)));
-          frag.appendChild(em);
-          i = iem + 1;
-          continue;
-        }
-      }
-      if (ch === '[') {
-        var rb = text.indexOf(']', i + 1);
-        if (rb > i && text.charAt(rb + 1) === '(') {
-          var rp = text.indexOf(')', rb + 2);
-          if (rp > rb) {
-            flush();
-            var a = document.createElement('a');
-            a.textContent = text.slice(i + 1, rb);
-            a.href = text.slice(rb + 2, rp);
-            a.title = a.href;
-            frag.appendChild(a);
-            i = rp + 1;
-            continue;
-          }
-        }
-      }
-      pending += ch;
-      i++;
-    }
-    flush();
+    while (tpl.content.firstChild) { frag.appendChild(tpl.content.firstChild); }
     return frag;
   }
 
-  /**
-   * 块级渲染：逐行扫描，一段一段吐节点。
-   * 只认自己列出的语法——认不出的行一律当普通段落（原文可见），
-   * 这样「渲染器少支持一种语法」不会变成「内容凭空消失」。
-   */
-  function renderMarkdown(src) {
-    var out = document.createDocumentFragment();
-    var lines = String(src).split(/\r?\n/);
-    var i = 0;
-    var inFence = false;
-    var fenceLang = '';
-    var fenceBuf = [];
-
-    function flushFence() {
-      var pre = document.createElement('pre');
-      var code = document.createElement('code');
-      if (fenceLang) { code.setAttribute('data-lang', fenceLang); }
-      code.textContent = fenceBuf.join('\n');
-      pre.appendChild(code);
-      out.appendChild(pre);
-      fenceBuf = [];
-      fenceLang = '';
-    }
-
-    while (i < lines.length) {
-      var line = lines[i];
-
-      var fence = /^\s*```\s*([A-Za-z0-9_+-]*)\s*$/.exec(line);
-      if (fence) {
-        if (inFence) { flushFence(); inFence = false; } else { inFence = true; fenceLang = fence[1]; }
-        i++;
-        continue;
-      }
-      if (inFence) { fenceBuf.push(line); i++; continue; }
-      if (/^\s*$/.test(line)) { i++; continue; }
-
-      var h = /^(#{1,6})\s+(.*)$/.exec(line);
-      if (h) {
-        // h5/h6 并到 h4：预览栏不宽，再深的层级只剩噪声（并了但内容不丢）
-        var lvl = Math.min(h[1].length, 4);
-        var hn = document.createElement('h' + lvl);
-        hn.appendChild(renderInline(h[2]));
-        out.appendChild(hn);
-        i++;
-        continue;
-      }
-      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-        out.appendChild(document.createElement('hr'));
-        i++;
-        continue;
-      }
-
-      if (/^\s*>\s?/.test(line)) {
-        var bq = document.createElement('blockquote');
-        while (i < lines.length && /^\s*>\s?/.test(lines[i])) {
-          var qp = document.createElement('p');
-          qp.appendChild(renderInline(lines[i].replace(/^\s*>\s?/, '')));
-          bq.appendChild(qp);
-          i++;
-        }
-        out.appendChild(bq);
-        continue;
-      }
-
-      if (/^\s*[-*+]\s+/.test(line)) {
-        var ul = document.createElement('ul');
-        while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-          var li = document.createElement('li');
-          li.appendChild(renderInline(lines[i].replace(/^\s*[-*+]\s+/, '')));
-          ul.appendChild(li);
-          i++;
-        }
-        out.appendChild(ul);
-        continue;
-      }
-
-      if (/^\s*\d+[.)]\s+/.test(line)) {
-        var ol = document.createElement('ol');
-        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
-          var li2 = document.createElement('li');
-          li2.appendChild(renderInline(lines[i].replace(/^\s*\d+[.)]\s+/, '')));
-          ol.appendChild(li2);
-          i++;
-        }
-        out.appendChild(ol);
-        continue;
-      }
-
-      // 整行图片：显式降级成一行说明（见文件头的「有意不做」），不留白框
-      var img = /^!\[([^\]]*)\]\(([^)]*)\)\s*$/.exec(line);
-      if (img) {
-        var note = document.createElement('div');
-        note.className = 'missing-note';
-        note.textContent = '［图片未渲染：' + (img[1] || img[2]) +
-          ' —— run(html) 的页面没有真实来源，取不到相对路径的图］';
-        out.appendChild(note);
-        i++;
-        continue;
-      }
-
-      // 普通段落：连续非空、且不像别的块起头的行合并成一段
-      var buf = [line];
-      i++;
-      while (i < lines.length && !/^\s*$/.test(lines[i]) &&
-             !/^\s*(```|#{1,6}\s|[-*+]\s|\d+[.)]\s|>|!\[)/.test(lines[i])) {
-        buf.push(lines[i]);
-        i++;
-      }
-      var para = document.createElement('p');
-      para.appendChild(renderInline(buf.join(' ')));
-      out.appendChild(para);
-    }
-    if (inFence) { flushFence(); }   // 没闭合的围栏：把已收集的行照样吐出来，别让内容消失
-    return out;
-  }
 
   // ------------------------------------------------------------ 文件树 / 状态
   function fmtSize(n) {
@@ -510,6 +347,11 @@
     var box = $('preview');
     while (box.firstChild) { box.removeChild(box.firstChild); }
     box.appendChild(renderMarkdown(text));
+    // 代码高亮：marked 只出结构，着色交给 highlight.js（vendor 内联，无 CDN）
+    if (window.hljs) {
+      var codes = box.querySelectorAll('pre code');
+      for (var i = 0; i < codes.length; i++) { hljs.highlightElement(codes[i]); }
+    }
     $('mdStat').textContent = text.length + ' 字符';
   }
 
@@ -663,9 +505,8 @@
 
   var pendingDelete = null;
 
-  function resetDeleteBtn() { $('btnDelete').textContent = '删除'; }
-
-  /** 删除用按钮**二次确认**（不用 confirm：同 prompt 的宿主依赖问题），4 秒没按就自动收回 */
+  /** 删除用**二次确认**（不用 confirm：同 prompt 的宿主依赖问题），4 秒没按就自动收回。
+      确认态显示在状态栏（工具栏按钮已撤，动作都收进「文件」菜单，见文件头注释）。 */
   function requestDelete() {
     if (!state.current) {
       toast('先打开一份笔记再删除');
@@ -674,16 +515,15 @@
     if (pendingDelete === state.current) {
       pendingDelete = null;
       clearTimeout(requestDelete._t);
-      resetDeleteBtn();
       doDelete(state.current);
       return;
     }
     pendingDelete = state.current;
-    $('btnDelete').textContent = '确认删除？';
+    status('再点一次「删除」确认（4 秒内）', 'bad');
     clearTimeout(requestDelete._t);
     requestDelete._t = setTimeout(function () {
       pendingDelete = null;
-      resetDeleteBtn();
+      status('已收回删除确认', '');
     }, 4000);
   }
 
@@ -789,14 +629,12 @@
       else if (id === 'file.save') { saveNote(); }
       else if (id === 'file.rename') { startRename(); }
       else if (id === 'file.delete') { requestDelete(); }
-      else if (id === 'file.reload') { $('btnReload').onclick(); }
+      else if (id === 'file.reload') { reloadAll(); }
       else if (id === 'view.preview') { togglePreview(ev && ev.checked === true); }
       else if (id === 'help.about') { showAbout(); }
     });
-    $('btnNew').onclick = function () { newNote(); };
-    $('btnSave').onclick = function () { saveNote(); };
-    $('btnReload').onclick = function () {
-      // 有未保存改动就别刷（刷掉的是用户刚敲的字）；也不用弹窗问，直接拒绝并说清怎么办
+    // 刷新：有未保存改动就别刷（刷掉的是用户刚敲的字）；不用弹窗问，直接拒绝并说清怎么办
+    function reloadAll() {
       if ($('editor').value !== state.saved) {
         toast('有未保存的改动：先 Ctrl+S 保存，或手动改回原样再刷新');
         return;
@@ -806,9 +644,7 @@
         status('已刷新', 'ok');
         return null;
       });
-    };
-    $('btnRename').onclick = function () { startRename(); };
-    $('btnDelete').onclick = function () { requestDelete(); };
+    }
     // 侧栏页签：文件列表 / 大纲
     $('tabFiles').onclick = function () { switchSideTab('files'); };
     $('tabOutline').onclick = function () { switchSideTab('outline'); };
@@ -985,13 +821,16 @@
     scAssert(results, 'md-image-degraded', holder.querySelectorAll('.missing-note').length === 1,
       '整行图片降级成一行说明，不留白框');
 
-    // ---- 4) 正文不可能成为注入点：渲染器全程 createElement/textContent，不拼 innerHTML
+    // ---- 4) 正文不可能成为注入点：marked 渲染后经白名单清洗——脚本/事件属性剥掉，
+    //         无害标签（如 <b>）保留结构；onerror 事件属性必须消失
     var evil = document.createElement('div');
-    evil.appendChild(renderMarkdown('<img src=x onerror=alert(1)>\n\n**<b>hi</b>**\n'));
+    evil.appendChild(renderMarkdown('<img src=x onerror=alert(1)>\n\n**<b>hi</b>**\n<script>alert(2)<\/script>'));
+    var evilImg = evil.querySelector('img');
     scAssert(results, 'md-no-html-injection',
-      evil.querySelectorAll('img').length === 0 && evil.querySelectorAll('b').length === 0 &&
-      evil.textContent.indexOf('<img src=x onerror=alert(1)>') >= 0,
-      '尖括号原样当文本：' + JSON.stringify(evil.textContent.slice(0, 40)));
+      evil.querySelectorAll('script').length === 0 &&
+      (!evilImg || (!evilImg.getAttribute('onerror') && evilImg.getAttribute('src') === 'x')),
+      'script 剥净=' + (evil.querySelectorAll('script').length === 0) +
+      ' img.onerror 剥净=' + (!evilImg || !evilImg.getAttribute('onerror')));
 
     // ---- 5) fs 正例：写 → 读回逐字相同 → 列表里看得见（`list` 是这一轮给 fs 补的命令）
     invoke('fs:writeText', { path: probe, contents: probeText }).then(function () {

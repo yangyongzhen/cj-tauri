@@ -2,6 +2,7 @@ package markdown_notes
 
 import cjTauri.*
 import cjTauri.plugins.*
+import std.collection.*
 import std.env.*
 import std.fs.*
 import stdx.encoding.json.*
@@ -78,6 +79,37 @@ func readUi(path: String): String {
     }
 }
 
+/** 应用菜单：文件操作集中在原生菜单栏，与工具栏按钮走同一批页面动作（事件 `menu:click`） */
+func buildAppMenu(): MenuModel {
+    var file = ArrayList<MenuItem>()
+    file.add(MenuItem.normalWithAccel("file.new", "新建笔记", "Ctrl+N"))
+    file.add(MenuItem.normalWithAccel("file.save", "保存", "Ctrl+S"))
+    file.add(MenuItem.separator())
+    file.add(MenuItem.normal("file.rename", "重命名…"))
+    file.add(MenuItem.normal("file.delete", "删除…"))
+    file.add(MenuItem.separator())
+    file.add(MenuItem.normal("file.reload", "刷新列表"))
+    var help = ArrayList<MenuItem>()
+    help.add(MenuItem.normal("help.about", "关于…"))
+    var view = ArrayList<MenuItem>()
+    view.add(MenuItem.checkbox("view.preview", "预览窗格", true))
+    var items = ArrayList<MenuItem>()
+    items.add(MenuItem.submenu("文件", file))
+    items.add(MenuItem.submenu("视图", view))
+    items.add(MenuItem.submenu("帮助", help))
+    return MenuModel(items)
+}
+
+/** 菜单事件路由：单窗示例，事件里带 id 就记一行日志（前端经 `menu:click` 接住执行动作） */
+class MenuRouter {
+    public func onShell(json: String, label: String): Unit {
+        let _ = label
+        if (let Some(_) <- json.indexOf("\"menu\"")) {
+            eprintln("[markdown-notes] menu click ${json}")
+        }
+    }
+}
+
 main(): Int64 {
     var selfCheck = false
     if (let Some(v) <- getVariable("CJ_MARKDOWN_SELFCHECK")) {
@@ -99,6 +131,18 @@ main(): Int64 {
         .plugin(StorePlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
+
+    // 原生菜单 + 事件回投：必须在 run() 之前装配（AGENTS §2「预置类宿主能力」）；
+    // 点击事件由框架自动投前端 `menu:click`，能力清单 events 里声明了 "menu" 才放行
+    let router = MenuRouter()
+    app.onShellEvent({ json, label => router.onShell(json, label) })
+    // 默认窗口 label 固定 "main"（与 capabilities 的 windows 一致；DEFAULT_WINDOW_LABEL 非 public）
+    match (app.hostOf("main")) {
+        case Some(_) =>
+            app.setMenuTo("main", buildAppMenu())
+            eprintln("[markdown-notes] menu attached")
+        case None => eprintln("[markdown-notes] 默认窗口未登记，菜单未装")
+    }
 
     app.run(html)
     eprintln("[markdown-notes] after run")

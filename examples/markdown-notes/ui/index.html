@@ -34,6 +34,23 @@
   button.primary { background: var(--accent); color: #0d1226; border-color: var(--accent); font-weight: 600; }
   button.primary:hover { opacity: .86; color: #0d1226; }
   button.danger:hover { border-color: var(--accent2); color: var(--accent2); }
+  /* 自绘 <select>（AGENTS §4）：WebKitGTK 会用原生浅色 combo 的底色/文字盖掉页面配色，
+     -webkit-appearance:none 关掉它，箭头用两段 linear-gradient 画三角；option 也要另写底色 */
+  select.sel {
+    -webkit-appearance: none; appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+      linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+    background-position: right 12px center, right 7px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    background-color: var(--panel2);
+    color: var(--fg); border: 1px solid var(--line); border-radius: 7px;
+    padding: 3px 24px 3px 9px; font-size: 12px; cursor: pointer; max-width: 104px;
+  }
+  select.sel:hover { border-color: var(--accent); }
+  select.sel option { background: var(--panel); color: var(--fg); }
+  select.sel:focus { outline: none; border-color: var(--accent); }
   main { flex: 1 1 auto; display: flex; min-height: 0; }
   .side {
     flex: 0 0 236px; min-width: 150px; background: var(--panel);
@@ -62,7 +79,17 @@
     background: var(--panel2); color: var(--fg); tab-size: 2;
     font: 13px/1.75 ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
   }
-  #preview { flex: 1 1 auto; overflow: auto; padding: 12px 20px 40px; }
+  /* 预览排版（Typora 式）：内容居中收成约 46em 的阅读栏，两侧留白呼吸；标题紧凑、段落行距放宽 */
+  #preview { flex: 1 1 auto; overflow: auto; padding: 24px 32px 48px; }
+  #preview > * { max-width: 46em; margin-left: auto; margin-right: auto; }
+  #preview h1, #preview h2, #preview h3 { line-height: 1.3; margin: 1.1em 0 .45em; }
+  #preview h1:first-child, #preview h2:first-child, #preview p:first-child { margin-top: .2em; }
+  #preview p, #preview li { line-height: 1.85; }
+  #preview code { background: var(--panel2); border-radius: 4px; padding: 1px 5px; font-size: .92em; }
+  #preview blockquote { margin: .8em 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--dim); }
+  #preview hr { border: 0; border-top: 1px solid var(--line); margin: 1.4em auto; }
+  #preview table { border-collapse: collapse; margin: .8em auto; }
+  #preview th, #preview td { border: 1px solid var(--line); padding: 4px 12px; }
   footer {
     flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 5px 14px;
     border-top: 1px solid var(--line); background: var(--panel2); font-size: 12px; color: var(--dim);
@@ -117,14 +144,20 @@
   </header>
   <main>
     <div class="side">
-      <div class="side-head"><span>文件</span><span class="grow"></span><span id="fileCount">0</span></div>
+      <div class="side-head"><span>文件</span><span class="grow"></span><span id="fileCount">0</span>
+        <select id="sortBy" class="sel" title="文件列表排序方式">
+          <option value="name">按名称</option>
+          <option value="size">按大小</option>
+          <option value="mtime">按修改时间</option>
+        </select>
+      </div>
       <div class="files" id="files"><div class="empty">等待桥…</div></div>
     </div>
     <div class="pane">
       <div class="pane-head"><span id="editingName">未打开文件</span><span class="grow"></span><span id="dirtyMark"></span></div>
       <textarea id="editor" spellcheck="false" placeholder="从左边选一份笔记，或者点「新建」…"></textarea>
     </div>
-    <div class="pane">
+    <div class="pane preview">
       <div class="pane-head"><span>预览</span><span class="grow"></span><span id="mdStat">—</span></div>
       <div id="preview"></div>
     </div>
@@ -144,7 +177,7 @@
   // 页面自己绝不拼绝对路径，也不做任何「路径检查」（那属于共享层 src/scope.cj 的职责）。
   var WS = 'notes';
   var LAST_KEY = 'last-open';        // store 里记最近打开的笔记，重启还在
-  var state = { files: [], current: null, saved: '' };
+  var state = { files: [], current: null, saved: '', sortBy: 'name', preview: true };
 
   function $(id) { return document.getElementById(id); }
 
@@ -436,8 +469,12 @@
   function refreshList() {
     return invoke('fs:list', { path: WS }).then(function (items) {
       var arr = (items && items.length !== undefined) ? items : [];
+      // 目录始终在前；文件按侧栏选择框定的顺序排（名称 / 大小 / 修改时间）
+      var by = state.sortBy || 'name';
       state.files = arr.slice().sort(function (a, b) {
         if (!!a.dir !== !!b.dir) { return a.dir ? -1 : 1; }   // 目录在前
+        if (by === 'size') { return Number(b.size) - Number(a.size); }
+        if (by === 'mtime') { return Number(b.mtime || 0) - Number(a.mtime || 0); }
         return String(a.name) < String(b.name) ? -1 : 1;      // 仓颉侧不保证顺序，这里定序
       });
       renderFileList();
@@ -651,7 +688,30 @@
     });
   }
 
+  /** 预览窗格开关：菜单勾选（view.preview）与布局同源；关掉后编辑栏独占整行（Typora 式专注编辑） */
+  function togglePreview(show) {
+    var pane = document.querySelector('.pane.preview');
+    if (pane) { pane.style.display = show ? '' : 'none'; }
+    state.preview = !!show;
+    report('UI preview ' + (show ? 'on' : 'off'));
+  }
+
   function bindUi() {
+    // 原生菜单点击 → 框架自动投 `menu:click`（信封即事件载荷，见 src/shell_event.cj）：
+    // 菜单与工具栏按钮收敛到同一批动作函数，两条入口的行为天然一致
+    window.__CJ_TAURI__.listen('menu:click', function (ev) {
+      var id = ev && ev.id ? String(ev.id) : '';
+      report('UI menu:click ' + id);
+      if (id === 'file.new') { newNote(); }
+      else if (id === 'file.save') { saveNote(); }
+      else if (id === 'file.rename') { startRename(); }
+      else if (id === 'file.delete') { requestDelete(); }
+      else if (id === 'file.reload') { $('btnReload').onclick(); }
+      else if (id === 'view.preview') { togglePreview(ev && ev.checked === true); }
+      else if (id === 'help.about') {
+        toast('cj-tauri Markdown 笔记 —— 仓颉后端 + 系统 WebView 的示例应用');
+      }
+    });
     $('btnNew').onclick = function () { newNote(); };
     $('btnSave').onclick = function () { saveNote(); };
     $('btnReload').onclick = function () {
@@ -668,6 +728,20 @@
     };
     $('btnRename').onclick = function () { startRename(); };
     $('btnDelete').onclick = function () { requestDelete(); };
+    // 侧栏排序选择框（自绘样式，见 .sel）：换排序后重排现有列表即可，不必重新列目录
+    $('sortBy').onchange = function () {
+      state.sortBy = this.value;
+      if (state.files.length) {
+        state.files.sort(function (a, b) {
+          if (!!a.dir !== !!b.dir) { return a.dir ? -1 : 1; }
+          if (state.sortBy === 'size') { return Number(b.size) - Number(a.size); }
+          if (state.sortBy === 'mtime') { return Number(b.mtime || 0) - Number(a.mtime || 0); }
+          return String(a.name) < String(b.name) ? -1 : 1;
+        });
+        renderFileList();
+      }
+      report('UI sortBy=' + state.sortBy);
+    };
     $('editor').addEventListener('input', function () {
       markDirty();
       setPreview($('editor').value);

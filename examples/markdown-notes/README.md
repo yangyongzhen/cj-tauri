@@ -1,6 +1,7 @@
 # Markdown 笔记（examples/markdown-notes）
 
-用 cj-tauri 写的本地 Markdown 笔记：**左侧文件树 / 中间编辑 / 右侧实时预览**，
+用 cj-tauri 写的本地 Markdown 笔记：**左侧文件树 / 中间编辑 / 右侧实时预览**（预览窗格可从
+「视图」菜单整体关掉，进入单栏专注编辑；文件树支持按名称 / 大小 / 修改时间排序）。
 零 Node、零前端构建、零第三方 Markdown 库——渲染器与界面都在一份 `ui/index.html` 里。
 
 它同时是三个框架能力的活样板：

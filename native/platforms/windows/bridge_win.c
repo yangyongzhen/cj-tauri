@@ -1129,6 +1129,43 @@ typedef HRESULT(STDMETHODCALLTYPE *pfn_create_env)(
 
 static const wchar_t *WINDOW_CLASS = L"CjTauriWindow";
 
+/*
+ * 用户数据档案（UserDataFolder）的选择：
+ *   1) 环境变量 WEBVIEW2_USER_DATA_FOLDER 优先——E2E 每轮给独立目录防实例互锁，就靠它；
+ *   2) 默认 %LOCALAPPDATA%\cj-tauri\<exe名>.WebView2——不再落在 exe 旁边（旧行为）。
+ *      exe 旁那份对单文件包是噪音（分发目录里凭空多 10M+ 的缓存堆），挪进
+ *      LOCALAPPDATA 也是 Windows 应用的惯例位置；localStorage（主题/上次打开）照常持久。
+ * 返回 1 = buf 里是可用目录（会就地建目录）；0 = 没定下来（调用方传 NULL 回默认行为）。
+ * 宽字符串拼接一律 lstrcpyW/lstrcatW——本机 mingw 的 swprintf %s 按 MSVCRT 语义收 char*，
+ * 拼出来的宽字符串是垃圾且不报错（AGENTS §4 实测坑）。
+ */
+static int compute_user_data_folder(wchar_t *buf, DWORD cap) {
+    wchar_t exe[MAX_PATH];
+    wchar_t *name;
+    /* 1) 显式环境变量优先（不校验存在性——WebView2 自己会对坏目录报错） */
+    if (GetEnvironmentVariableW(L"WEBVIEW2_USER_DATA_FOLDER", buf, cap) > 0) {
+        return 1;
+    }
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", buf, cap) == 0 || buf[0] == 0) {
+        return 0;
+    }
+    if (!GetModuleFileNameW(NULL, exe, MAX_PATH)) {
+        return 0;
+    }
+    name = wcsrchr(exe, L'\\');
+    name = name ? name + 1 : exe;   /* exe 基名（不含目录） */
+    if (wcslen(buf) + wcslen(name) + wcslen(L"\\cj-tauri\\.WebView2") + 1 >= cap) {
+        return 0;   /* 拼不下就回默认行为，不截断 */
+    }
+    lstrcatW(buf, L"\\cj-tauri");
+    CreateDirectoryW(buf, NULL);           /* 已存在静默跳过 */
+    lstrcatW(buf, L"\\");
+    lstrcatW(buf, name);
+    lstrcatW(buf, L".WebView2");
+    CreateDirectoryW(buf, NULL);
+    return 1;
+}
+
 static DWORD WINAPI host_thread_main(LPVOID param) {
     cj_host *h = (cj_host *)param;
     plat_host *p = h ? (plat_host *)h->plat : NULL;
@@ -1231,10 +1268,27 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     if (h->pending_menu_text && h->pending_menu_text[0]) {
         menu_apply_wire(h, p, h->pending_menu_text);
     }
-    /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理） */
-    fprintf(stderr, "[cj-bridge] window created, requesting WebView2 environment\n");
-    log_hr("CreateCoreWebView2EnvironmentWithOptions",
-           create_env(NULL, NULL, NULL, &p->env.iface));
+    /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理）。
+       用户数据档案：显式选目录（env 覆盖优先，默认 %LOCALAPPDATA%\cj-tauri\<exe名>.WebView2），
+       不再让它默认堆在 exe 旁边；选不下来才传 NULL 回 WebView2 默认行为。
+       磁盘缓存经 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 限到 32MB——loader 原生认这个环境
+       变量（options 传空时生效），免去手写 COM options 对象（WebView2.h 的 C 模式连
+       coclass 的 CLSID 都不声明，CoCreateInstance 路线走不通）。 */
+    {
+        wchar_t udf[1024];
+        PCWSTR udf_arg = NULL;
+        if (compute_user_data_folder(udf, 1024)) {
+            udf_arg = udf;
+            char *udf8 = wide_to_utf8(udf);
+            fprintf(stderr, "[cj-bridge] user data folder: %s\n", udf8 ? udf8 : "(?)");
+            if (udf8) free(udf8);
+        }
+        SetEnvironmentVariableW(L"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                                L"--disk-cache-size=33554432");
+        fprintf(stderr, "[cj-bridge] window created, requesting WebView2 environment\n");
+        log_hr("CreateCoreWebView2EnvironmentWithOptions",
+               create_env(NULL, udf_arg, NULL, &p->env.iface));
+    }
 
     while (GetMessageW(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);

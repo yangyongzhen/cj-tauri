@@ -463,7 +463,9 @@
   `select` 加 `-webkit-appearance:none; appearance:none` 自绘（箭头用 `background-image` 的两段
   `linear-gradient` 画三角），展开列表里的 `option` 另写一遍底色与文字色——它也吃原生样式。
 - **取证脚本别在用户正用着的时候起第二个实例**（2026-10-08 实测）：同一目录的两个实例会共用同一个
-  WebView2 用户数据目录（默认在 exe 旁边 `<exe>.WebView2/`），还会写同一份应用数据（如 `examples/music` 的
+  WebView2 用户数据目录（桥显式选 `%LOCALAPPDATA%\cj-tauri\<exe名>.WebView2`，env
+  `WEBVIEW2_USER_DATA_FOLDER` 优先——2026-10-14 起不再落 exe 旁边；旧版产物仍会在 exe 旁生成
+  `<exe>.WebView2/`），还会写同一份应用数据（如 `examples/music` 的
   `music-library.local.json`）；`taskkill /IM main.exe` 更是把用户那个窗口一并带走。要无人值守验证就
   **复制一份独立副本**（拷 `ui/` + `capabilities/` + `main.exe` + 一个纯 ASCII 的 `check.bat` 设好 `PATH`），
   副本自带自己的数据文件与 WebView2 目录，与真实示例彻底隔离、日志也落副本里——读自己的证据，不打扰用户。

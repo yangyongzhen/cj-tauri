@@ -495,7 +495,7 @@
   当前已登记的第三方代码：**three.js r160**（`examples/typing-poem/ui/vendor/three.min.js`，669 884 字节，
   取自 `three@0.160.0` 的 **UMD** 构建；许可证随文件放在 `ui/vendor/three.LICENSE.txt`，MIT）、
   **marked v12.0.2 + Highlight.js v11.9.0**（`examples/markdown-notes/ui/vendor/` 下的 `marked.min.js`
-  35 479 字节、`highlight.min.js` 121 727 字节、`github-dark.min.css` 1 315 字节，均取自 jsDelivr 的
+  35 479 字节、`highlight.min.js` 121 727 字节、`github-dark-dimmed.min.css` 1 251 字节，均取自 jsDelivr 的
   UMD/CDN 构建、原样分发；许可证随文件放在 `ui/vendor/LICENSE.txt`——marked 为 MIT、
   Highlight.js 为 BSD-3-Clause，markdown-notes 预览渲染与代码高亮用）。
   选 r160 的理由：**它是最后一个带 UMD 构建的版本**（`three@0.161+` 只剩 ESM），而这个示例的页面是

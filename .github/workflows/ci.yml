@@ -67,14 +67,21 @@ jobs:
           SDK_ROOT="$(cd "$(dirname "$CJC")/.." && pwd)"
           echo "CANGJIE_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "PATH=$SDK_ROOT/bin:$SDK_ROOT/tools/bin:$PATH" >> "$GITHUB_ENV"
-          # cjpm.toml 的 bin-dependencies 写死了 /root/.cangjie/stdx/...（本地开发机路径），
-          # runner 上是普通用户，只能 sudo 放到位，否则 cjpm 解析不到 stdx 依赖
+          # cjpm.toml 的 bin-dependencies.path-option 已统一写成 ${CANGJIE_STDX}（issue #3），
+          # cjpm 按进程环境变量展开。stdx 解压位置不固定（目录随版本而变），探测真实
+          # dynamic/stdx 目录后写入 CANGJIE_STDX 交给后续步骤。
           if [ -n "${CANGJIE_STDX_URL:-}" ]; then
             sudo mkdir -p /root/.cangjie/stdx
             curl -fsSL "$CANGJIE_STDX_URL" -o /tmp/cangjie-stdx.tar.gz
             sudo tar xzf /tmp/cangjie-stdx.tar.gz -C /root/.cangjie/stdx
+            STDX_DIR="$(find /root/.cangjie/stdx -type d -path '*/dynamic/stdx' | head -1)"
+            if [ -n "$STDX_DIR" ]; then
+              echo "CANGJIE_STDX=$STDX_DIR" >> "$GITHUB_ENV"
+            else
+              echo "::warning::stdx 解压后未找到 dynamic/stdx 目录，bin-dependencies 可能解析不到"
+            fi
           else
-            echo "::warning::未配置 CANGJIE_STDX_URL；若 cjpm.toml 的 bin-dependencies 指向的 stdx 不存在，后面会报依赖缺失"
+            echo "::warning::未配置 CANGJIE_STDX_URL；源码仓 cjpm.toml 的 stdx 路径依赖 CANGJIE_STDX 环境变量，未配置则 build 会报依赖缺失"
           fi
           "$SDK_ROOT/bin/cjc" --version || true
 

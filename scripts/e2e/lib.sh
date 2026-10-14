@@ -137,12 +137,15 @@ e2e_ensure_sdk() {
       # stdx 的动态库**不在 SDK 目录里**，而仓颉运行时只认 LD_LIBRARY_PATH（不查 PATH）：
       # 少它一条的表象是「应用启动即退、stderr 只有一行
       # cannot open shared object file: libstdx.encoding.json.so」，很容易被读成构建问题。
+      # 源码仓 cjpm.toml 的 path-option 已统一写成 ${CANGJIE_STDX}（issue #3），cjpm 会按
+      # 进程环境变量展开——这里探测到之后必须 export，否则 build/test 解析不到 stdx。
       if [ -z "${CANGJIE_STDX:-}" ]; then
         local d
         for d in "$HOME"/.cangjie/stdx/*/dynamic/stdx; do
           if [ -d "$d" ]; then CANGJIE_STDX="$d"; break; fi
         done
       fi
+      if [ -n "${CANGJIE_STDX:-}" ]; then export CANGJIE_STDX; fi
       export LD_LIBRARY_PATH="$E2E_ROOT/native:${CANGJIE_STDX:+$CANGJIE_STDX:}${CANGJIE_HOME}/runtime/lib/linux_x86_64_cjnative:${CANGJIE_HOME}/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"
       ;;
     windows)
@@ -150,9 +153,11 @@ e2e_ensure_sdk() {
       # CANGJIE_STDX 常被设成盘符形式（D:/...，cjpm.toml 的 path-option 就是这个写法）：
       # 但 PATH 里的盘符形式条目会破坏 MSYS 的路径转换，依赖运行时 DLL 的原生进程
       # 轻则找不到 libcjtbridge.dll、重则 127 无输出（AGENTS §4）——进 PATH 前统一转 POSIX。
+      # 同样要 export 给 cjpm，否则 ${CANGJIE_STDX} 展开为空、bin-dependencies 解析不到。
       if [ -n "${CANGJIE_STDX:-}" ]; then
         local stdx_path="$CANGJIE_STDX"
         command -v cygpath >/dev/null 2>&1 && stdx_path="$(cygpath -u "$CANGJIE_STDX")"
+        export CANGJIE_STDX
         export PATH="$stdx_path:$PATH"
       fi
       ;;

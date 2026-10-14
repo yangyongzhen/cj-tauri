@@ -42,6 +42,9 @@ if [ -z "${CANGJIE_HOME:-}" ]; then
 fi
 [ -n "${CANGJIE_HOME:-}" ] || { echo "[pack] 找不到仓颉 SDK，请设置 CANGJIE_HOME" >&2; exit 1; }
 [ -z "${CANGJIE_STDX:-}" ] && CANGJIE_STDX="/d/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx"
+# 源码仓 cjpm.toml 的 Windows bin-dependencies.path-option 已统一写成 ${CANGJIE_STDX}
+# （issue #3），cjpm 按进程环境变量展开——没 export 的话应用构建时解析不到 stdx。
+export CANGJIE_STDX
 
 case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)

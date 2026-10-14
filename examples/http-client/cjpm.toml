@@ -17,7 +17,7 @@
   link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
-    path-option = ["/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx"]
+    path-option = ["${CANGJIE_STDX}"]
 
 # Windows 侧尚未实机验证（AGENTS §4 记着两件事：单文件静态打包要显式 -lcrypt32，
 # 便携包要自带 libssl-3-x64.dll / libcrypto-3-x64.dll——这个示例还没进打包器）
@@ -25,4 +25,4 @@
   link-option = "-L../../native -lcjtbridge --subsystem=windows"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
-    path-option = ["D:\\cangjie-stdx\\windows_x86_64_cjnative\\dynamic\\stdx"]
+    path-option = ["${CANGJIE_STDX}"]

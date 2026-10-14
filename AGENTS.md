@@ -576,8 +576,9 @@
    免得 CI 因「拿不到 SDK」这种环境原因长期变红）。
 2. `CANGJIE_STDX_URL` —— stdx 压缩包直链（可选；本仓库各 `cjpm.toml` 的 `bin-dependencies` 依赖它）。
 
-两个已知前提（不满足就会红，作业里已分别处理）：① 用 `sudo` 把 stdx 放到 `/root/.cangjie/stdx/` —— `cjpm.toml`
-的 `bin-dependencies` 路径是写死的本地路径，CI runner 是普通用户、`$HOME` 不同；② runner 要装
+两个已知前提（不满足就会红，作业里已分别处理）：① stdx 解压到 `/root/.cangjie/stdx/` 后按
+`*/dynamic/stdx` 探测真实目录写入 `CANGJIE_STDX` —— 源码仓 `cjpm.toml` 的 `bin-dependencies`
+路径统一写 `${CANGJIE_STDX}`（issue #3），cjpm 按进程环境变量展开；② runner 要装
 `gcc pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev` 才链得了 C 桥（`cjpm.toml` 里 `-lcjtbridge -lwebkit2gtk-4.1`）。
 配好 secret 后**实推一次确认变绿再算数**，不要只看 YAML 通过。
 - [ ] 发版相关改动已跑 `bash scripts/check-version.sh` 且全 `ok`

@@ -222,7 +222,7 @@ kbd {
 .float__n { font-family: var(--mono); font-size: 1.28rem; font-weight: 600; color: var(--c2); }
 .float__l { font-size: 12.3px; color: var(--muted); }
 .float--a { left: -34px; bottom: 68px; }
-.float--b { right: -28px; top: 52px; animation-delay: -2.2s; }
+.float--b { right: -28px; top: 14px; animation-delay: -2.2s; }
 .float--c { right: 34px; bottom: -26px; animation-delay: -4.1s; }
 @keyframes floaty { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 
@@ -321,7 +321,7 @@ kbd {
 /* --- 示例轮播（大图）----------------------------------------------------- */
 /* 轨道就是一条原生横向 scroll-snap：脚本没到位时也能拖、也能滚，所以「无 JS
    兜底」不是靠藏内容做的——那条提示行只在控件建好之后收起（.is-ready）。 */
-.carousel { position: relative; }
+.carousel { position: relative; max-width: min(100%, 1360px); margin: 0 auto; }
 .carousel__stage { position: relative; }
 .carousel__viewport {
   overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
@@ -465,20 +465,26 @@ kbd {
 }
 
 /* 大屏（≥1600）：容器放到 1680 之后如果字号不跟着抬，「字小框大」反而更空——
-   抬根字号让行宽 / 行高重新成比例（只动 html，body 是 1rem 会跟着走）；
-   特性区 10 项改排 5 列，正好两整行。 */
+   抬根字号让行宽 / 行高重新成比例（只动 html，body 是 1rem 会跟着走）。
+   特性区（`.grid--3`，6 张卡）不跟着加列：3 列正好两整行，加列会剩一张孤卡。 */
 @media (min-width: 1600px) {
   html { font-size: 17px; }
-  .grid--3 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 @media (min-width: 2100px) { html { font-size: 18px; } :root { --wrap: 1980px; } }
 
-@media (max-width: 1080px) {
-  .hero__grid { grid-template-columns: minmax(0, 1fr); gap: 42px; }
+/* 1440 以下首屏改单列堆叠：两列时文字栏只有 ~600px，中文标题会在词组中间断行
+   （逗号落单）、悬浮卡还会压住正文；堆叠后标题整行放得下，窗口图居中封顶更稳。 */
+@media (max-width: 1439px) {
+  .hero__grid { grid-template-columns: minmax(0, 1fr); gap: 46px; }
+  .hero__lead { max-width: 56em; }
   .win { transform: none; }
+  .mock { max-width: 940px; margin: 0 auto; }
   .float--a { left: 8px; bottom: 30px; }
   .float--b { right: 8px; top: 20px; }
   .float--c { right: 20px; bottom: -18px; }
+  .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1080px) {
   .plugins { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .plat { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }

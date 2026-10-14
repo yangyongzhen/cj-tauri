@@ -120,6 +120,15 @@
 
 ### Changed
 
+- **Windows 用户数据档案挪出 exe 目录（`%LOCALAPPDATA%\cj-tauri\<exe名>.WebView2`）**：
+  此前桥不传 `UserDataFolder`，WebView2 按默认规则在 exe 旁边生成 `<exe名>.WebView2/`
+  （约 10-15 MB 的缓存堆）——对单文件分发目录是纯噪音。现在桥显式选目录：
+  env `WEBVIEW2_USER_DATA_FOLDER` 优先（E2E 每轮独立目录防实例互锁的机制不变），
+  默认落 `%LOCALAPPDATA%\cj-tauri\`（Windows 应用惯例位置；localStorage 里的主题 /
+  「上次打开」照常持久）。另经 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 把 HTTP 磁盘缓存
+  限到 32MB（loader 原生认该变量，免去手写 COM options——WebView2.h 的 C 模式不声明
+  coclass 的 CLSID）。旧 exe 旁的 `.WebView2/` 可整目录删除，下次启动不再生成。
+  取证：干净副本自检 25/25，exe 目录无 `.WebView2`，env 覆盖探针按给定路径生效。
 - **路径 scope 修复（Windows）：清单模式补分隔符归一，`$HOME/**` 不再形同虚设**：
   清单里的模式此前只做变量展开——`$HOME` 在 Windows 展开出 `USERPROFILE` 原值（`C:\Users\...`，
   反斜杠），而页面路径经 `normalizeScopePath` 归一成正斜杠，两侧逐字节比较永远不相等，

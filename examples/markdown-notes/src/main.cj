@@ -1,7 +1,9 @@
 package markdown_notes
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.fs.*
+import cjTauri.plugins.store.*
+import cjTauri.plugins.dialog.*
 import std.collection.*
 import std.env.*
 import std.fs.*
@@ -71,10 +73,10 @@ public class NotesEnvCommand <: CommandHandler {
     }
 }
 
-/** 读前端页面；读不到要说清「在哪启动」，否则报错只有一个找不到的路径 */
+/** 读前端页面：内嵌优先（单文件产物），否则按相对路径读盘（仓库内正常构建走这条） */
 func readUi(path: String): String {
     try {
-        return String.fromUtf8(File.readFrom(path))
+        return textOrFile(PACKED_UI_B64, path, "前端页面")
     } catch (e: Exception) {
         eprintln("[markdown-notes] 读不到前端页面 ${path}：${e}")
         eprintln("[markdown-notes] 请在示例根目录启动（ui/ 与 capabilities/ 都按相对路径解析）")
@@ -90,35 +92,34 @@ func readUi(path: String): String {
  * 库文件缺失不致命——渲染退化为纯文本也不该启动失败，每份读不到只留一行 stderr。
  */
 func inlineVendor(html: String): String {
-    // 元组循环变量在本机 cjc 上取不了 .0/.1 成员（实测 expected ';' or '<NL>', found literal '.0'），
-    // 直接展开成两段读取，省掉抽象
+    // vendor 走内嵌优先（vendorOrFile，下标 = packed_resources.cj 里 VENDOR_FILES 的固定顺序）；
+    // 缺失不致命——渲染退化为纯文本也不该启动失败，每份读不到只留一行 stderr
     var js = ""
-    try {
-        js += String.fromUtf8(File.readFrom("ui/vendor/marked.min.js")) + "\n"
-    } catch (e: Exception) {
-        eprintln("[markdown-notes] vendor 库缺失 ui/vendor/marked.min.js（渲染退化为纯文本）：${e}")
+    match (vendorOrFile(0)) {
+        case Some(t) => js += t + "\n"
+        case None => eprintln("[markdown-notes] vendor 库缺失 ui/vendor/marked.min.js（渲染退化为纯文本）")
     }
-    try {
-        js += String.fromUtf8(File.readFrom("ui/vendor/highlight.min.js")) + "\n"
-    } catch (e: Exception) {
-        eprintln("[markdown-notes] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）：${e}")
+    match (vendorOrFile(1)) {
+        case Some(t) => js += t + "\n"
+        case None => eprintln("[markdown-notes] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）")
     }
     var out = html.replace("/*__VENDOR_JS__*/", js)
     // 三份代码主题全部内联成独立的 <style>：唯一默认打开的是 dimmed（不带 media），
     // 其余 media="not all" 禁用；切换由前端改这些 style 的 media 属性——不重渲、不读盘
-    out = inlineTheme(out, "/*__THEME_DIMMED__*/", "ui/vendor/github-dark-dimmed.min.css")
-    out = inlineTheme(out, "/*__THEME_DARK__*/", "ui/vendor/github-dark.min.css")
-    out = inlineTheme(out, "/*__THEME_ONE__*/", "ui/vendor/atom-one-dark.min.css")
+    out = inlineTheme(out, "/*__THEME_DIMMED__*/", 2, "ui/vendor/github-dark-dimmed.min.css")
+    out = inlineTheme(out, "/*__THEME_DARK__*/", 3, "ui/vendor/github-dark.min.css")
+    out = inlineTheme(out, "/*__THEME_ONE__*/", 4, "ui/vendor/atom-one-dark.min.css")
     return out
 }
 
-/** 读一份 hljs 主题样式替换到对应占位符；缺了就留一行 stderr（切到该主题时前端会退格提示） */
-func inlineTheme(out: String, placeholder: String, path: String): String {
-    try {
-        return out.replace(placeholder, String.fromUtf8(File.readFrom(path)))
-    } catch (e: Exception) {
-        eprintln("[markdown-notes] vendor 样式缺失 ${path}（该主题不可用）：${e}")
-        return out
+/** 读一份 hljs 主题样式替换到对应占位符（vendorIdx = VENDOR_FILES 顺序里的下标）；
+    缺了就留一行 stderr（切到该主题时前端会退格提示） */
+func inlineTheme(out: String, placeholder: String, vendorIdx: Int64, path: String): String {
+    match (vendorOrFile(vendorIdx)) {
+        case Some(t) => return out.replace(placeholder, t)
+        case None =>
+            eprintln("[markdown-notes] vendor 样式缺失 ${path}（该主题不可用）")
+            return out
     }
 }
 
@@ -137,9 +138,17 @@ func buildAppMenu(): MenuModel {
     help.add(MenuItem.normal("help.about", "关于…"))
     // 视图三态互斥（单选语义由 MenuRouter 回写勾选态）：仅编辑 / 分屏 / 仅预览
     var view = ArrayList<MenuItem>()
-    view.add(MenuItem.normalWithAccel("view.mode.edit", "仅编辑", "Ctrl+1"))
-    view.add(MenuItem.normalWithAccel("view.mode.split", "编辑 + 预览", "Ctrl+2"))
-    view.add(MenuItem.normalWithAccel("view.mode.preview", "仅预览", "Ctrl+3"))
+    // 视图三态单选（checkbox 才显示勾选态；此前用的 normal 根本没有勾）
+    view.add(MenuItem.checkbox("view.mode.edit", "仅编辑", false))
+    view.add(MenuItem.checkbox("view.mode.split", "编辑 + 预览", true))
+    view.add(MenuItem.checkbox("view.mode.preview", "仅预览", false))
+    view.add(MenuItem.separator())
+    // 应用主题也是单选组：跟随系统 / 浅色 / 深色 / 护眼 / 墨黑（前端按 CSS 变量整体换肤）
+    view.add(MenuItem.checkbox("apptheme.system", "界面主题：跟随系统", true))
+    view.add(MenuItem.checkbox("apptheme.light", "界面主题：浅色", false))
+    view.add(MenuItem.checkbox("apptheme.dark", "界面主题：深色", false))
+    view.add(MenuItem.checkbox("apptheme.green", "界面主题：护眼", false))
+    view.add(MenuItem.checkbox("apptheme.black", "界面主题：墨黑", false))
     view.add(MenuItem.separator())
     // 代码主题也是单选组；勾选态由应用层模型回写，前端拿 media 属性换样式
     view.add(MenuItem.checkbox("theme.dimmed", "代码主题：Dimmed", true))
@@ -161,6 +170,17 @@ func hasId(json: String, id: String): Bool {
     }
 }
 
+/** 报文里的 id 是否以某前缀开头（按 `"id":"<前缀>` 找，不要求闭合引号）。
+ *  2026-10-14 实测踩坑：之前写 hasId(json, "view.mode.")——多带了闭合引号，
+ *  `"id":"view.mode.edit"` 里根本不含 `"id":"view.mode."` 这个字面量，于是组回写
+ *  从未执行过，单选组的勾选态全部留在初始值（勾可以同时亮着）。 */
+func hasIdPrefix(json: String, prefix: String): Bool {
+    match (json.indexOf("\"id\":\"" + prefix)) {
+        case Some(_) => true
+        case None => false
+    }
+}
+
 /** 菜单事件路由：单窗示例，事件里带 id 就记一行日志（前端经 `menu:click` 接住执行动作）。
  *  视图三态与代码主题是两组「单选」菜单项：命中其中一项，必须把整组勾选态一次写齐——
  *  只回写被点的那一项会让另外两项的勾留在原地，单选组就露馅（AGENTS §2 菜单状态走
@@ -176,14 +196,23 @@ class MenuRouter {
         if (let Some(_) <- json.indexOf("\"menu\"")) {
             eprintln("[markdown-notes] menu click ${json}")
         }
-        // 视图三态互斥：命中其中一项，三项勾选态一起写
-        if (hasId(json, "view.mode.")) {
+        // 视图三态互斥：命中其中一项，三项勾选态一起写（前缀用 hasIdPrefix——
+        // hasId 要求精确匹配带闭合引号，"view.mode." 这种带点的前缀永远不中，见函数注释）
+        if (hasIdPrefix(json, "view.mode.")) {
             this.app.setMenuItemStateTo(label, "view.mode.edit", true, hasId(json, "view.mode.edit"))
             this.app.setMenuItemStateTo(label, "view.mode.split", true, hasId(json, "view.mode.split"))
             this.app.setMenuItemStateTo(label, "view.mode.preview", true, hasId(json, "view.mode.preview"))
         }
+        // 界面主题同组互斥：五份勾选态一起写
+        if (hasIdPrefix(json, "apptheme.")) {
+            this.app.setMenuItemStateTo(label, "apptheme.system", true, hasId(json, "apptheme.system"))
+            this.app.setMenuItemStateTo(label, "apptheme.light", true, hasId(json, "apptheme.light"))
+            this.app.setMenuItemStateTo(label, "apptheme.dark", true, hasId(json, "apptheme.dark"))
+            this.app.setMenuItemStateTo(label, "apptheme.green", true, hasId(json, "apptheme.green"))
+            this.app.setMenuItemStateTo(label, "apptheme.black", true, hasId(json, "apptheme.black"))
+        }
         // 代码主题同组互斥：三份勾选态一起写，保证任一时刻恰好一个勾着
-        if (hasId(json, "theme.")) {
+        if (hasIdPrefix(json, "theme.")) {
             this.app.setMenuItemStateTo(label, "theme.dimmed", true, hasId(json, "theme.dimmed"))
             this.app.setMenuItemStateTo(label, "theme.dark", true, hasId(json, "theme.dark"))
             this.app.setMenuItemStateTo(label, "theme.one", true, hasId(json, "theme.one"))
@@ -214,6 +243,39 @@ main(): Int64 {
         .plugin(DialogPlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，两条路互斥、不会叠加（与 examples/music 同款）。
+    if (PACKED_CAPS_B64.size > 0) {
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[markdown-notes] 能力清单来自内嵌资源（${n} 份）")
+    }
+
+    // 工作区目录在**装配期**建好（单文件 exe 双击启动时没有 run.sh 帮忙播种）：
+    // 建目录是应用装配的事，不该由「页面能调到的命令」持有（fs 插件面里故意没有 mkdir）。
+    // 目录为空就顺手播种一份欢迎笔记——空工作区首启「预览空白、列表没东西」，没人知道从哪开始。
+    // 两个动作都幂等：目录已存在不重建，笔记已存在不覆盖。
+    if (!exists("notes")) {
+        try {
+            Directory.create("notes", recursive: true)
+            eprintln("[markdown-notes] 工作区 notes/ 不存在，已创建")
+        } catch (e: Exception) {
+            eprintln("[markdown-notes] 创建工作区 notes/ 失败（列目录会报错）：${e}")
+        }
+    }
+    if (!exists("notes/欢迎.md")) {
+        let welcome: String = "# 欢迎使用 Markdown 笔记\n\n这是你的第一篇笔记，改改看：\n\n- **粗体**、*斜体*、`行内码`\n- 右侧实时预览，`Ctrl+S` 保存\n\n```js\nvar hello = \"world\";\n```\n"
+        try {
+            File.writeTo("notes/欢迎.md", welcome.toArray())
+            eprintln("[markdown-notes] 已播种欢迎笔记 notes/欢迎.md")
+        } catch (e: Exception) {
+            eprintln("[markdown-notes] 播种欢迎笔记失败（不影响使用）：${e}")
+        }
+    }
 
     // 原生菜单 + 事件回投：必须在 run() 之前装配（AGENTS §2「预置类宿主能力」）；
     // 点击事件由框架自动投前端 `menu:click`，能力清单 events 里声明了 "menu" 才放行

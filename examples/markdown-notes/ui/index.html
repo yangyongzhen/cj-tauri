@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="apptheme-system">
 <head>
 <meta charset="utf-8">
 <title>cj-tauri Markdown 笔记</title>
@@ -70,6 +70,15 @@
   }
   .tab:hover { color: var(--fg); border-bottom-color: transparent; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  /* 视图模式分段切换（编辑 / 分屏 / 预览）：连体按钮组，选中段用强调色描边 */
+  .seg { display: inline-flex; flex: 0 0 auto; }
+  .segbtn {
+    border-radius: 0; border-right-width: 0; padding: 4px 10px; font-size: 12px;
+  }
+  .segbtn:first-child { border-radius: 7px 0 0 7px; }
+  .segbtn:last-child { border-radius: 0 7px 7px 0; border-right-width: 1px; }
+  .segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--panel2); font-weight: 600; }
+  .segbtn.active:hover { color: var(--accent); }
   /* 大纲条目：按层级缩进，点击跳转到对应标题 */
   .out { padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
@@ -82,7 +91,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg);
   }
   .file:hover { background: var(--panel2); }
-  .file.active { background: #24304a; color: var(--accent); }
+  .file.active { background: var(--active); color: var(--accent); }
   .file .size { color: var(--dim); font-size: 11px; margin-left: 6px; }
   .file.dir { color: var(--dim); cursor: default; }
   .pane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
@@ -143,6 +152,30 @@
     border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; display: none;
   }
   .empty { color: var(--dim); font-size: 13px; padding: 10px; white-space: normal; }
+  /* 应用主题（视图菜单「界面主题」单选组）：html 根类切换 CSS 变量整体换肤。
+     :root 默认值 = 深色（跟随系统在系统深色时落到它）；各浅色系另写变量。
+     --active 是侧栏选中项底色（原先硬编码 #24304a，浅色系下糊成一片，一并变量化）。 */
+  html { --active: #24304a; }
+  html.apptheme-dark { --active: #24304a; }
+  html.apptheme-light {
+    --bg: #f5f6fa; --panel: #ffffff; --panel2: #eef0f6; --line: #d9dde8;
+    --fg: #23283a; --dim: #6b7288; --accent: #0e9488; --accent2: #d23c55; --active: #cfe7ec;
+  }
+  html.apptheme-green {
+    --bg: #c9e6cc; --panel: #d6eed9; --panel2: #c2e3c6; --line: #a5cfae;
+    --fg: #213426; --dim: #587a61; --accent: #2f7d4f; --accent2: #b5563c; --active: #b2debb;
+  }
+  html.apptheme-black {
+    --bg: #000000; --panel: #0d0d11; --panel2: #121218; --line: #26262e;
+    --fg: #d8dae0; --dim: #7c7f8a; --accent: #4fd1c5; --accent2: #e94560; --active: #1e2a3a;
+  }
+  /* 跟随系统：系统报浅色时换浅色变量（系统深色时用 :root 默认，无需另写） */
+  @media (prefers-color-scheme: light) {
+    html.apptheme-system {
+      --bg: #f5f6fa; --panel: #ffffff; --panel2: #eef0f6; --line: #d9dde8;
+      --fg: #23283a; --dim: #6b7288; --accent: #0e9488; --accent2: #d23c55; --active: #cfe7ec;
+    }
+  }
 </style>
 <style id="hljs-theme-dimmed">/*__THEME_DIMMED__*/</style>
 <style id="hljs-theme-dark" media="not all">/*__THEME_DARK__*/</style>
@@ -151,6 +184,11 @@
 <body>
   <header>
     <h1>Markdown 笔记</h1>
+    <!-- 视图模式分段切换（编辑 / 分屏 / 预览）：不用每次进菜单（用户反馈 2026-10-14）；
+         与视图菜单、Ctrl+1/2/3 走同一个 setViewMode，勾选态由后端成组回写 -->
+    <span class="seg" id="modeSeg">
+      <button id="modeEdit" class="segbtn">编辑</button><button id="modePreview" class="segbtn">预览</button><button id="modeSplit" class="segbtn active">分屏</button>
+    </span>
     <span class="sub" id="wsHint">工作区 notes/（由 run.sh 播种）· 路径出白名单一律被拒 · 文件操作在「文件」菜单</span>
   </header>
   <main>
@@ -193,7 +231,8 @@
   // 页面自己绝不拼绝对路径，也不做任何「路径检查」（那属于共享层 src/scope.cj 的职责）。
   var WS = 'notes';
   var LAST_KEY = 'last-open';        // store 里记最近打开的笔记，重启还在
-  var state = { files: [], current: null, saved: '', sortBy: 'name' };
+  var THEME_KEY = 'apptheme';        // 界面主题记忆（跟随系统/浅色/深色/护眼/墨黑）
+  var state = { files: [], current: null, saved: '', sortBy: 'name', theme: 'system' };
 
   function $(id) { return document.getElementById(id); }
 
@@ -295,8 +334,7 @@
     if (!state.files.length) {
       var empty = document.createElement('div');
       empty.className = 'empty';
-      empty.textContent = 'notes/ 里没东西。点「新建」写第一篇；工作区由 run.sh 播种' +
-        '（mkdir -p notes + 一份欢迎笔记），示例自己**不建目录**——那属于装配期的事。';
+      empty.textContent = 'notes/ 里没东西。点「新建」写第一篇（目录由应用启动时自动创建）。';
       box.appendChild(empty);
       return;
     }
@@ -304,10 +342,16 @@
     for (var i = 0; i < state.files.length; i++) {
       var f = state.files[i];
       var row = document.createElement('div');
-      // 高亮匹配：工作区内按文件名比，「打开…」选的外部文件（完整路径）不落在列表里，不强行匹配
-      row.className = 'file' + (f.dir ? ' dir' : '') + (state.current === (f.dir ? f.name : WS + '/' + f.name) ? ' active' : '');
+      // 工作区条目 name 是相对名（不含 '/'），「打开…」进来的外路径条目 name 本身就是完整路径——
+      // 以含不含 '/' 区分，active 高亮与点击都用同一条 full 口径。
+      // 展示只取文件名（用户反馈：长路径不好看），完整路径放 title 悬停可见。
+      var isExt = f.name.indexOf('/') >= 0;
+      var full = (f.dir || !isExt) ? (f.dir ? f.name : WS + '/' + f.name) : f.name;
+      var shown = isExt ? f.name.slice(f.name.lastIndexOf('/') + 1) : f.name;
+      row.className = 'file' + (f.dir ? ' dir' : '') + (state.current === full ? ' active' : '');
+      row.title = full;
       var nameSpan = document.createElement('span');
-      nameSpan.textContent = f.dir ? f.name + '/' : f.name;
+      nameSpan.textContent = f.dir ? shown + '/' : shown;
       row.appendChild(nameSpan);
       if (f.dir) {
         row.title = '子目录（本示例的工作区是平铺的，不展开）';
@@ -370,11 +414,26 @@
   }
 
   function openNote(path) {
-    // 路径泛化：工作区内传 name（旧调用点），「打开…」传完整路径——readText 都按路径读
-    var p = (path.indexOf('/') >= 0) ? path : WS + '/' + path;
+    // 路径泛化：工作区内传 name（旧调用点），「打开…」传完整路径——readText 都按路径读。
+    // 绝对路径判定不能只认 '/'：Windows 对话框返回盘符路径（C:\...），反斜杠里没有 '/',
+    // 会被误判成相对路径拼进工作区（实测 notes/C:/Users/...）。盘符 / 正反斜杠开头都算绝对，
+    // 反斜杠顺手归一成 '/'（scope 规范化与 store 记录都按 '/' 走）。
+    var isAbs = /^(\/|\\|[A-Za-z]:[\\/])/.test(path);
+    var p = isAbs ? path.replace(/\\/g, '/') : WS + '/' + path;
     return invoke('fs:readText', { path: p }).then(function (text) {
       state.current = p;
       state.saved = text;
+      // 「打开…」选中的**绝对路径**文件也进左侧列表，否则打开后侧栏看不到它。
+      // 只认真绝对路径（盘符/正斜杠开头）：工作区文件的 p 是相对路径（notes/x.md），
+      // 列表里已有裸名条目，再补一条就出现重复行——点重复行会拼出 notes/notes/x.md
+      // （2026-10-14 实测，截图里同一文件两行就是它）。
+      if (/^(\/|[A-Za-z]:[\\/])/.test(p)) {
+        var found = false;
+        for (var k = 0; k < state.files.length; k++) { if (state.files[k].name === p) { found = true; break; } }
+        if (!found) { state.files.unshift({ name: p, size: text.length, mtime: 0 }); renderFileList(); }
+      }
+      // 头部提示跟随当前文件（用户反馈：原来那句「路径出白名单一律被拒」是静态的，信息量低）
+      $('wsHint').textContent = '当前：' + p;
       $('editor').value = text;
       $('editingName').textContent = p;
       setPreview(text);
@@ -565,12 +624,18 @@
   }
 
   /** 视图三态：edit=仅编辑 / split=分屏 / preview=仅预览（Typora 式全程只盯预览）。
-   *  菜单勾选态由后端成组回写，这里只负责改布局；Ctrl+1/2/3 走同一条路 */
+   *  菜单勾选态由后端成组回写，这里只负责改布局 + 同步页内分段按钮的选中态；
+   *  菜单、页内按钮、Ctrl+1/2/3 三条入口走同一个函数，行为天然一致 */
   function setViewMode(mode) {
     var ed = document.querySelector('.pane.edit');
     var pv = document.querySelector('.pane.preview');
     if (ed) { ed.style.display = (mode === 'preview') ? 'none' : ''; }
     if (pv) { pv.style.display = (mode === 'edit') ? 'none' : ''; }
+    var btns = { edit: 'modeEdit', split: 'modeSplit', preview: 'modePreview' };
+    for (var m in btns) {
+      var b = $(btns[m]);
+      if (b) { b.className = 'segbtn' + (m === mode ? ' active' : ''); }
+    }
     report('UI view ' + mode);
   }
 
@@ -586,6 +651,23 @@
     if (!hit) { status('主题不可用：' + name, 'bad'); return; }
     status('代码主题：' + name, 'ok');
     report('UI theme ' + name);
+  }
+
+  /** 界面主题切换（视图菜单单选组）：换 html 根类，CSS 变量整体换肤。
+      system = 跟随系统（媒体查询），light/dark/green/black 各一套变量。
+      记忆走 store，重启恢复；记不住不影响当次（跟 rememberLast 同款失败口径）。 */
+  function applyAppTheme(name, remember) {
+    var known = { system: 1, light: 1, dark: 1, green: 1, black: 1 };
+    if (!known[name]) { status('界面主题不可用：' + name, 'bad'); return; }
+    state.theme = name;
+    document.documentElement.className = 'apptheme-' + name;
+    if (remember !== false) {
+      invoke('store:set', { key: THEME_KEY, value: name }).catch(function (e) {
+        report('STORE-WARN 记不住界面主题：' + errText(e));
+      });
+    }
+    status('界面主题：' + name, 'ok');
+    report('UI apptheme ' + name);
   }
 
   /** 大纲：从编辑器原文抽标题（#/##/###，跳过代码围栏内的 #），点击滚动到对应行 */
@@ -612,15 +694,20 @@
       row.className = 'out' + (m[1].length >= 3 ? ' lv3' : (m[1].length === 2 ? ' lv2' : ''));
       row.textContent = m[2];
       row.title = '第 ' + (i + 1) + ' 行';
-      (function (line) {
+      // 序号锁定：大纲与预览的标题一一对应（渲染器把围栏内的 # 当代码，两边都不算标题），
+      // 点击时按第 k 个标题同步定位——2026-10-14 实测：只滚 textarea 的话，预览/分屏模式下
+      // 用户盯着预览看不到任何动静（隐藏面板的 scrollTop 设了也白设）。
+      (function (line, idx) {
         row.onclick = function () {
           var ta = $('editor');
           var pos = ta.value.split(/\r?\n/).slice(0, line).join('\n').length + (line ? 1 : 0);
           ta.focus();
           ta.setSelectionRange(pos, pos);
           ta.scrollTop = Math.max(0, (line - 3) * 24);   // 约 24px/行，滚到目标行前 3 行处
+          var hs = $('preview').querySelectorAll('h1, h2, h3');
+          if (idx < hs.length) { hs[idx].scrollIntoView({ block: 'start', behavior: 'smooth' }); }
         };
-      })(i);
+      })(i, found - 1);
       box.appendChild(row);
     }
     if (!found) {
@@ -673,6 +760,7 @@
       else if (id === 'theme.dimmed') { applyTheme('dimmed'); }
       else if (id === 'theme.dark') { applyTheme('dark'); }
       else if (id === 'theme.one') { applyTheme('one'); }
+      else if (id.indexOf('apptheme.') === 0) { applyAppTheme(id.slice('apptheme.'.length)); }
     });
     // 刷新：有未保存改动就别刷（刷掉的是用户刚敲的字）；不用弹窗问，直接拒绝并说清怎么办
     function reloadAll() {
@@ -689,6 +777,10 @@
     // 侧栏页签：文件列表 / 大纲
     $('tabFiles').onclick = function () { switchSideTab('files'); };
     $('tabOutline').onclick = function () { switchSideTab('outline'); };
+    // 视图模式分段按钮：与菜单、Ctrl+1/2/3 走同一个 setViewMode
+    $('modeEdit').onclick = function () { setViewMode('edit'); };
+    $('modeSplit').onclick = function () { setViewMode('split'); };
+    $('modePreview').onclick = function () { setViewMode('preview'); };
     // 侧栏排序选择框（自绘样式，见 .sel）：换排序后重排现有列表即可，不必重新列目录
     $('sortBy').onchange = function () {
       state.sortBy = this.value;
@@ -749,6 +841,12 @@
   function boot() {
     bindUi();
     status('桥已就绪，正在列目录…', '');
+
+    // 恢复界面主题记忆（store 里记的；没有就用默认跟随系统）
+    invoke('store:get', { key: THEME_KEY, default: '' }).then(function (t) {
+      if (t && typeof t === 'string') { applyAppTheme(t, false); }
+      return null;
+    }).catch(function () { /* 记不住就用默认，不打扰初始化 */ });
 
     invoke('system:version').then(function (v) {
       var text = (typeof v === 'string') ? v
@@ -983,6 +1081,25 @@
       var nodes = $('preview').childNodes.length;
       scAssert(results, 'ui-tree-rows-match-list', rows === entries, '行=' + rows + ' 列表=' + entries);
       scAssert(results, 'ui-preview-nodes', nodes > 0, 'nodes=' + nodes);
+
+      // ---- 13) 本轮新增的三件：应用主题换肤、视图分段按钮、模式与按钮态同步。
+      //         断言收尾时把界面恢复到初始态（split + system），不污染后续人工测试
+      applyAppTheme('green', false);
+      scAssert(results, 'ui-apptheme-class', document.documentElement.className === 'apptheme-green',
+        'root=' + document.documentElement.className);
+      applyAppTheme('system', false);
+      scAssert(results, 'ui-apptheme-restore', document.documentElement.className === 'apptheme-system',
+        'root=' + document.documentElement.className);
+      setViewMode('preview');
+      scAssert(results, 'ui-mode-button-sync',
+        $('modePreview').className.indexOf('active') >= 0 &&
+        document.querySelector('.pane.edit').style.display === 'none',
+        'previewBtn=' + $('modePreview').className + ' edit=' + document.querySelector('.pane.edit').style.display);
+      setViewMode('split');
+      scAssert(results, 'ui-mode-restore-split',
+        $('modeSplit').className.indexOf('active') >= 0 &&
+        document.querySelector('.pane.edit').style.display === '',
+        'splitBtn=' + $('modeSplit').className);
 
       if (holder.parentNode) { holder.parentNode.removeChild(holder); }
       report('SELFCHECK DONE passed=' + results.passed + ' failed=' + results.failed +

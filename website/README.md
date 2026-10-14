@@ -104,7 +104,8 @@ bash scripts/site-check.sh --shots      # 再抓中英两态截图到 /tmp/cj-ta
 - 新增截图 → 拷进 `assets/screenshots/` 并在 `index.html` 里引用（引用即纳入存在性检查）。
 - 轮播加屏 → 在 `.carousel__track` 里追一个 `<li class="slide">`（写 `width`/`height` 与
   `data-en-alt`），圆点、序号由脚本按屏数自动生成，不用手改；顺手把该区标题里的「14 屏」也改掉。
-- 调整站宽度只动 `assets/style.css` 顶部 `:root` 的 `--wrap` / `--gutter`（大屏的根字号与容器
-  在 ≥1600 / ≥2100 两条媒体查询里）——不要在各段落里另写 `max-width`，否则「哪段铺满」就开始打架。
+- 调整站宽度只动 `assets/style.css` 顶部 `:root` 的 `--wrap` / `--gutter`（断点都集中在文件末尾的
+  响应式段：≥1400 加宽卡内边距与密度、≥1600 抬根字号并把特性区排 5 列、≥2100 再放宽容器）——
+  不要在各段落里另写 `max-width`，否则「哪段铺满」就开始打架。
 - 不要为了好看引外部字体/图标库：图标一律内联 SVG，字体用系统字体栈。
 - 站点形态或素材口径变了 → 同步本文件与 `CHANGELOG.md`。

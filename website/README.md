@@ -8,14 +8,14 @@
 
 | 路径 | 说明 |
 | --- | --- |
-| `index.html` | 唯一页面：首屏 / 三件套 / 特性 / 架构 / 代码展示 / 插件 / 示例画廊 / 实测数据 / 上手 / 平台状态 / 文档 / 页脚 |
+| `index.html` | 唯一页面：首屏 / 三件套 / 特性 / 架构 / 代码展示 / 插件 / 示例轮播 / 实测数据 / 上手 / 平台状态 / 文档 / 页脚 |
 | `assets/style.css` | 全部样式（深色单一主题，设计令牌在顶部 `:root`） |
-| `assets/app.js` | 中英切换、代码标签页、滚动进场、移动端菜单 |
+| `assets/app.js` | 中英切换、代码标签页、滚动进场、移动端菜单、示例轮播控件 |
 | `assets/favicon.svg` | 站点图标（也是页脚与 OG 卡片里的标识） |
 | `assets/og.svg` → `assets/og.png` | 分享卡片源图与产物（1200×630，`og:image` 用） |
 | `assets/architecture.svg` | 架构图（与 `docs/images/` 同源拷贝） |
 | `assets/dist-size-compare.svg` | 产物体积对比图 |
-| `assets/screenshots/*.png\|jpg` | 实机截图（源自 `docs/images/`，见下「素材口径」） |
+| `assets/screenshots/*.png\|jpg` | 实机截图 14 张：6 张源自 `docs/images/`，8 张为本机补抓（见下「素材口径」） |
 | `.nojekyll` | 关掉 GitHub Pages 的 Jekyll 处理（本项目用不到 Jekyll，且避免它改写文件） |
 
 ## 发布
@@ -57,6 +57,8 @@ bash scripts/site-check.sh --shots      # 再抓中英两态截图到 /tmp/cj-ta
 - **中英文案覆盖**：含中文的文本 / `alt` / `title` 必须配 `data-en*`，漏一个英文态就露中文；
 - 正文里是否残留 markdown 记号（`**强调**` 写进 HTML 就是字面星号——踩过）；
 - 死锚点、标签页与面板是否配对、语言按钮是否成对、HTML 用到的 class 在 CSS 里是否存在；
+- **示例轮播的结构**：屏数、每图 `width`/`height`、视口 / 轨道 / 提示行三样在 HTML 里、提示行有英文、
+  `app.js` 确实会建箭头与圆点（没有脚本时也不能退化成一条没提示的滚动条）；
 - `og.png` 必须是 1200×630，`website/` 总体积。
 
 ## 双语机制
@@ -82,6 +84,10 @@ bash scripts/site-check.sh --shots      # 再抓中英两态截图到 /tmp/cj-ta
   量不到，页面就写「还没量到」，不拿别处的数字替它。
 - **截图**：从 `docs/images/` 的实机取证里挑，拷进 `assets/screenshots/`。>200KB 的转 JPEG
   （`convert x.png -resize '1200>' -strip -quality 82 x.jpg`）——UI 截图里的封面/剧照用 PNG 存纯属浪费。
+  轮播里另外 8 张是**本机补抓**的（`docs/images/` 没收录那几个示例）：Xvfb 起 1280×800 虚拟屏 →
+  `xdotool` 等窗口出现 → ImageMagick `import -window root` 抓整屏 → 裁掉黑边 → 无损压缩。
+  按窗口句柄直抓在这套环境下出来是**空白图**，所以走「整屏 + 裁边」；抓之前记得关掉示例探针的
+  自动退窗开关，否则拍到的是已经关掉的窗口。
 - **OG 卡片**：改文案就改 `assets/og.svg` 再重新渲染一行：
 
   ```bash
@@ -96,5 +102,7 @@ bash scripts/site-check.sh --shots      # 再抓中英两态截图到 /tmp/cj-ta
 - 新增分区 → 左侧导航也要加入口，并让 `site-check` 的锚点检查通过（`#id` 必须有落点）。
 - 新增文案 → 中英成对（`data-en*`）。
 - 新增截图 → 拷进 `assets/screenshots/` 并在 `index.html` 里引用（引用即纳入存在性检查）。
+- 轮播加屏 → 在 `.carousel__track` 里追一个 `<li class="slide">`（写 `width`/`height` 与
+  `data-en-alt`），圆点、序号由脚本按屏数自动生成，不用手改；顺手把该区标题里的「14 屏」也改掉。
 - 不要为了好看引外部字体/图标库：图标一律内联 SVG，字体用系统字体栈。
 - 站点形态或素材口径变了 → 同步本文件与 `CHANGELOG.md`。

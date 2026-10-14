@@ -438,72 +438,172 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
     <div class="wrap">
       <div class="sec-head">
         <span class="kicker" data-en="Examples">示例</span>
-        <h2 class="sec-title" data-en="22 runnable examples — the ones below are on-device screenshots">22 个可直接运行的示例，下面都是实机截图</h2>
-        <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence.">
+        <h2 class="sec-title" data-en="22 runnable examples — 14 of them below, all on-device screenshots">22 个可直接运行的示例，下面 14 屏全是实机截图</h2>
+        <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence. The strip below scrolls sideways — drag it, swipe it, or use the arrows.">
           不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台……
-          每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。
+          每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。下面是一条横向轮播，左右拖动、滚轮横滚或箭头都能翻。
         </p>
       </div>
-      <div class="gal reveal">
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/modbus-poll" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/modbus-poll.png" loading="lazy" width="1400" height="875" alt="Modbus Poll 调试工具主界面" data-en-alt="Modbus polling tool main screen"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="Modbus poll — TCP/RTU debugger">Modbus 调试工具</h3>
-            <p class="gal__desc" data-en="Parallel monitor panels, FC 01-04/05/06/15/16, frame monitor, CSV logging — the pain points of Modbus Poll, addressed.">多面板并行监控、读写 FC 01-04/05/06/15/16、报文监视逐帧滚动、数据记录 CSV——对标 Modbus Poll 并补齐其痛点。</p>
-            <span class="gal__tag">examples/modbus-poll · 5.59 MB single exe</span>
-          </span>
-        </a>
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/serial-waveform" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/serial-waveform.png" loading="lazy" width="1200" height="750" alt="串口实时波形示波器" data-en-alt="Serial realtime waveform oscilloscope"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="Serial oscilloscope">串口实时波形示波器</h3>
-            <p class="gal__desc" data-en="400 Hz sample stream decoded by the serial plugin, drawn on a double-buffered canvas; the page computes its own rate, crossings and dropped frames — 404.2 samples/s measured on Linux.">串口插件解出 400 Hz 样本流，canvas 双缓冲自绘；页面自算速率、上穿与丢帧——Linux 实测 404.2 样本/s。</p>
-            <span class="gal__tag">examples/serial-waveform · verdict=ok</span>
-          </span>
-        </a>
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/music" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/music.jpg" loading="lazy" width="1200" height="750" alt="音乐播放器界面" data-en-alt="Music player interface"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="Music player">音乐播放器</h3>
-            <p class="gal__desc" data-en="Leaderboards, playlists, favourites and synced lyrics with four themes. Cover art is fetched by the host with the right Referer and downscaled before it reaches the page.">榜单、歌单、收藏与同步歌词，4 套主题色。封面由宿主带正确 Referer 取回并缩略后再交给页面。</p>
-            <span class="gal__tag">examples/music · store plugin</span>
-          </span>
-        </a>
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/movie" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/movie.jpg" loading="lazy" width="1200" height="750" alt="观影应用界面" data-en-alt="Movie app interface"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="Movie app">观影应用</h3>
-            <p class="gal__desc" data-en="Charts, search, details and playback — every request goes out from the Cangjie side, the page never calls fetch. Useful as a reference for doing network I/O behind the bridge.">榜单、搜索、详情与播放，所有请求都由仓颉侧发出，页面零 fetch——想看清「网络请求放在后端」长什么样，看它。</p>
-            <span class="gal__tag">examples/movie · 9.42 MB single exe</span>
-          </span>
-        </a>
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/typing-poem" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/typing-poem.jpg" loading="lazy" width="1200" height="750" alt="古诗词打字练习 3D 界面" data-en-alt="Poetry typing practice with 3D cards"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="Poetry typing practice">古诗词打字练习</h3>
-            <p class="gal__desc" data-en="108 poems with per-character pinyin, three.js 3D cards, 404-line self-check. Also the example that proves the viewport must be re-checked every frame on WebView2.">108 首诗逐字拼音、three.js 3D 卡面、404 行自检断言。也是它抓出了「WebView2 视口必须每帧自检」这个坑。</p>
-            <span class="gal__tag">examples/typing-poem · three.js r160</span>
-          </span>
-        </a>
-        <a class="gal__item" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/hello" target="_blank" rel="noopener">
-          <span class="gal__shot"><img src="assets/screenshots/hello.png" loading="lazy" width="1200" height="750" alt="hello 示例：invoke 与事件推送" data-en-alt="hello example: invoke and events"></span>
-          <span class="gal__body">
-            <h3 class="gal__title" data-en="hello — the minimal loop">最小闭环</h3>
-            <p class="gal__desc" data-en="One invoke, one event stream, and a deliberate unauthorized call to show what a rejection looks like. The best file to read first if you want the whole IPC path in one screen.">一次 invoke、一路事件推送，外加一次故意越权调用把拒绝长什么样摊开。想一屏看完 IPC 全路径，先读它。</p>
-            <span class="gal__tag">examples/hello · command not allowed</span>
-          </span>
-        </a>
+      <div class="carousel reveal">
+        <div class="carousel__stage">
+          <!-- 轨道本身是原生横向 scroll-snap：这段 JS 不在，它依然能拖、能滚（下面那行提示还在）；
+               脚本到位后再补悬浮箭头、圆点、序号与自动播放——渐进增强，不是「必须开 JS」。
+               width/height 写的是每张图的实测像素，免得加载时把下面内容顶来顶去。 -->
+          <div class="carousel__viewport" tabindex="0" role="group"
+               aria-label="示例截图轮播，可用左右方向键切换" data-en-aria="Example screenshot carousel, use the left and right arrow keys">
+            <ul class="carousel__track">
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/modbus-poll" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/modbus-poll.png" width="1320" height="860" alt="Modbus Poll 调试工具主界面" data-en-alt="Modbus polling tool main screen"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Modbus poll — TCP/RTU debugger">Modbus 调试工具</h3>
+                    <p class="slide__desc" data-en="Parallel monitor panels, FC 01-04/05/06/15/16, frame monitor, CSV logging — the pain points of Modbus Poll, addressed.">多面板并行监控、读写 FC 01-04/05/06/15/16、报文监视逐帧滚动、数据记录 CSV——对标 Modbus Poll 并补齐其痛点。</p>
+                    <span class="slide__tag">examples/modbus-poll · 5.59 MB single exe</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/serial-waveform" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/serial-waveform.png" width="1200" height="750" loading="lazy" alt="串口实时波形示波器" data-en-alt="Serial realtime waveform oscilloscope"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Serial oscilloscope">串口实时波形示波器</h3>
+                    <p class="slide__desc" data-en="400 Hz sample stream decoded by the serial plugin, drawn on a double-buffered canvas; the page computes its own rate, crossings and dropped frames — 404.2 samples/s measured on Linux.">串口插件解出 400 Hz 样本流，canvas 双缓冲自绘；页面自算速率、上穿与丢帧——Linux 实测 404.2 样本/s。</p>
+                    <span class="slide__tag">examples/serial-waveform · verdict=ok</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/music" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/music.jpg" width="1200" height="769" loading="lazy" alt="音乐播放器界面" data-en-alt="Music player interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Music player">音乐播放器</h3>
+                    <p class="slide__desc" data-en="Leaderboards, playlists, favourites and synced lyrics with four themes. Cover art is fetched by the host with the right Referer and downscaled before it reaches the page.">榜单、歌单、收藏与同步歌词，4 套主题色。封面由宿主带正确 Referer 取回并缩略后再交给页面。</p>
+                    <span class="slide__tag">examples/music · store plugin</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/movie" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/movie.jpg" width="1000" height="641" loading="lazy" alt="观影应用界面" data-en-alt="Movie app interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Movie app">观影应用</h3>
+                    <p class="slide__desc" data-en="Charts, search, details and playback — every request goes out from the Cangjie side, the page never calls fetch. Useful as a reference for doing network I/O behind the bridge.">榜单、搜索、详情与播放，所有请求都由仓颉侧发出，页面零 fetch——想看清「网络请求放在后端」长什么样，看它。</p>
+                    <span class="slide__tag">examples/movie · 9.42 MB single exe</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/typing-poem" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/typing-poem.jpg" width="1180" height="780" loading="lazy" alt="古诗词打字练习 3D 界面" data-en-alt="Poetry typing practice with 3D cards"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Poetry typing practice">古诗词打字练习</h3>
+                    <p class="slide__desc" data-en="108 poems with per-character pinyin, three.js 3D cards, 404-line self-check. Also the example that proves the viewport must be re-checked every frame on WebView2.">108 首诗逐字拼音、three.js 3D 卡面、404 行自检断言。也是它抓出了「WebView2 视口必须每帧自检」这个坑。</p>
+                    <span class="slide__tag">examples/typing-poem · three.js r160</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/hello" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/hello.png" width="901" height="665" loading="lazy" alt="hello 示例：invoke 与事件推送" data-en-alt="hello example: invoke and events"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="hello — the minimal loop">最小闭环</h3>
+                    <p class="slide__desc" data-en="One invoke, one event stream, and a deliberate unauthorized call to show what a rejection looks like. The best file to read first if you want the whole IPC path in one screen.">一次 invoke、一路事件推送，外加一次故意越权调用把拒绝长什么样摊开。想一屏看完 IPC 全路径，先读它。</p>
+                    <span class="slide__tag">examples/hello · command not allowed</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/sqlite-browser" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/sqlite-browser.png" width="1320" height="840" loading="lazy" alt="SQLite 浏览器主界面" data-en-alt="SQLite browser main screen"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="SQLite browser">SQLite 浏览器</h3>
+                    <p class="slide__desc" data-en-html="Cangjie FFI straight into <code>libsqlite3</code> — the first in this repo: object tree, paged data grid and a read-only SQL console. <code>ATTACH</code> is refused per statement by an authorizer, and paths pass the scope check.">仓颉 FFI 直连 <code>libsqlite3</code>——仓库里首例：库对象树、分页数据网格、只读 SQL 调试台。<code>ATTACH</code> 由 authorizer 按语句拒，路径同样要过 scope 校验。</p>
+                    <span class="slide__tag" data-en="examples/sqlite-browser · first FFI in this repo">examples/sqlite-browser · FFI 首例</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/http-client" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/http-client.png" width="1240" height="780" loading="lazy" alt="HTTP API 客户端界面" data-en-alt="HTTP API client interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="HTTP API client">HTTP API 客户端</h3>
+                    <p class="slide__desc" data-en="The Postman shape: request builder, response viewer, collections, history and environment sets. Requests go out from the Cangjie side, where the host allowlist and the response body cap are enforced — the page cannot reach an address the capability file never allowed.">Postman 那一类：请求构建、响应查看、集合与历史、环境变量集。请求一律由仓颉侧发出，主机白名单与响应体上限也在仓颉侧兜底——页面碰不到能力清单没放行的地址。</p>
+                    <span class="slide__tag">examples/http-client · allowlist fail-safe</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/redis-client" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/redis-client.png" width="1280" height="820" loading="lazy" alt="Redis 调试台界面" data-en-alt="Redis console interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Redis console">Redis 调试台</h3>
+                    <p class="slide__desc" data-en="Key-space browsing, typed values, a command line and a pub/sub message stream. RESP2 is implemented in pure Cangjie — no third-party client is linked in.">键空间浏览、类型化取值、命令行与发布订阅消息流。RESP2 协议纯仓颉实现——没有链进任何第三方客户端。</p>
+                    <span class="slide__tag">examples/redis-client · RESP2 in Cangjie</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/mqtt-client" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/mqtt-client.png" width="1180" height="780" loading="lazy" alt="MQTT 调试台界面" data-en-alt="MQTT console interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="MQTT console">MQTT 调试台</h3>
+                    <p class="slide__desc" data-en="Connect, subscribe, publish, and a frame timeline that shows every packet as it arrives. The MQTT 3.1.1 codec is pure Cangjie as well.">连接、订阅、发布，外加一条把每帧报文摊开的时间线。MQTT 3.1.1 报文编解码同样是纯仓颉实现。</p>
+                    <span class="slide__tag">examples/mqtt-client · MQTT 3.1.1</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/markdown-notes" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/markdown-notes.png" width="1180" height="760" loading="lazy" alt="Markdown 笔记界面" data-en-alt="Markdown notes interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Markdown notes">Markdown 笔记</h3>
+                    <p class="slide__desc" data-en-html="File tree, editor and live preview side by side. The renderer is written by hand and never touches <code>innerHTML</code>, the workspace is pinned by path scope, and it reopens the note you were last on.">文件树、编辑、实时预览三联。渲染器自写、全程不碰 <code>innerHTML</code>，工作区由路径 scope 钉死，关掉再开还记得上次那篇。</p>
+                    <span class="slide__tag">examples/markdown-notes · fs + scope</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/serial-assistant" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/serial-assistant.png" width="1180" height="780" loading="lazy" alt="串口调试助手界面" data-en-alt="Serial debug assistant interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Serial debug assistant">串口调试助手</h3>
+                    <p class="slide__desc" data-en="TX/RX colour-coded log, timed send, HEX and text modes side by side. The page self-check ends with its own verdict instead of leaving you to eyeball the log.">TX/RX 分色日志、定时发送、HEX 与文本双模并列。页面自检跑完自己下结论，不用靠人眼扫日志。</p>
+                    <span class="slide__tag">examples/serial-assistant · probe self-check</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/vue-todo" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/vue-todo.png" width="900" height="640" loading="lazy" alt="Vue 3 待办应用界面" data-en-alt="Vue 3 todo app interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Vue 3 todo">Vue 3 待办</h3>
+                    <p class="slide__desc" data-en-html="The same todo commands behind Vue 3 + Vite — proof that the bridge is a plain front-end dependency. <code>cj-tauri dev</code> takes over the Vite dev server and hands its URL to the WebView.">同一套待办命令换成 Vue 3 + Vite——证明这条桥是普通前端依赖。<code>cj-tauri dev</code> 会接管 Vite dev server，把地址交给 WebView。</p>
+                    <span class="slide__tag">examples/vue-todo · Vue 3 + Vite</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/plugin-fs" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/plugin-fs.png" width="1280" height="900" loading="lazy" alt="插件示例：fs 读写与权限对照" data-en-alt="Plugin example: fs read/write and permission comparison"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Plugins: fs / dialog / shell / serial">插件：fs / dialog / shell / serial</h3>
+                    <p class="slide__desc" data-en="Four plugin walkthroughs, each with a permission comparison: the same call is made twice, allowed and denied, and both outcomes show up in the bridge log.">四个插件走查示例，每个都带权限对照：同一次调用跑「放行」与「被拒」两遍，两种结果都摆在桥日志里。</p>
+                    <span class="slide__tag" data-en="examples/plugin-fs · permission comparison">examples/plugin-fs · 权限对照</span>
+                  </div>
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="carousel__foot">
+          <p class="carousel__hint" data-en="Swipe or scroll sideways — 14 examples, every shot taken on a real device">左右拖动或滚动查看——14 个示例，全部实机截图</p>
+        </div>
       </div>
 
       <ul class="more-list reveal" style="margin-top:18px">
-        <li><b>sqlite-browser</b><span data-en="SQLite browser — Cangjie FFI straight to libsqlite3 (first in this repo), ATTACH denied by an authorizer">SQLite 浏览器——仓颉 FFI 直连 <code>libsqlite3</code>（仓库首例），<code>ATTACH</code> 由 authorizer 按语句拒</span></li>
-        <li><b>http-client</b><span data-en="HTTP API client (Postman-like) — requests sent from Cangjie, allowlist and body cap enforced there too">HTTP API 客户端（Postman 那一类）——请求由仓颉侧直发，白名单与响应体上限也在仓颉侧兜底</span></li>
-        <li><b>redis-client</b><span data-en="Redis console — key-space browsing, typed values, pub/sub timeline">Redis 调试台——键空间浏览、类型化取值、发布订阅消息流</span></li>
-        <li><b>mqtt-client</b><span data-en="MQTT console — connect, subscribe, publish, frame timeline">MQTT 调试台——连接、订阅、发布、报文流时间线</span></li>
-        <li><b>markdown-notes</b><span data-en="Markdown notes with live preview — self-written renderer, no innerHTML, workspace pinned by path scope">Markdown 笔记——自写渲染器、不拼 <code>innerHTML</code>，工作区由路径 scope 钉死</span></li>
-        <li><b>serial-assistant</b><span data-en="Serial debug assistant — TX/RX colouring, timed send, probe self-check">串口调试助手——TX/RX 分色日志、定时发送、探针自检</span></li>
-        <li><b>plugin-fs / dialog / shell / serial</b><span data-en="The four plugin walkthroughs, each with a permission comparison">插件四件套——每个都带权限对照</span></li>
-        <li><b>menu · ipc-bench · todo_check · vue_todo</b><span data-en="Native menu bar, IPC benchmark probe, and the same todo app in plain HTML and Vue 3 + Vite">原生菜单栏、IPC 性能探针，以及同一套待办命令的零 Node 版与 Vue 3 + Vite 版</span></li>
+        <li><b>menu · ipc-bench · todo_check</b><span data-en="A native menu bar whose click events are routed back to the page, an IPC benchmark probe, and the same todo commands in plain HTML (no Node in the loop)">原生菜单栏（点选事件回投前端）、IPC 性能探针，以及同一套待办命令的零 Node 版</span></li>
+        <li><b>plugin-dialog · plugin-shell · plugin-serial</b><span data-en="The rest of the plugin walkthroughs — the same call twice, allowed and denied, with both shown in the bridge log">插件四件套的另外三个——同一次调用跑「放行」与「被拒」两遍，两份证据都落桥日志</span></li>
+        <li><b>cli templates: app / app-vue / app-react</b><span data-en="The three scaffold templates: inline HTML with zero Node, plus Vue 3 and React 18 projects whose Vite dev server cj-tauri dev takes over">三套脚手架模板：内联 HTML 的零 Node 版，以及 Vue 3 / React 18 工程——Vite dev server 由 cj-tauri dev 接管</span></li>
       </ul>
     </div>
   </section>

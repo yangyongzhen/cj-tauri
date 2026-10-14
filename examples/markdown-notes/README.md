@@ -1,8 +1,12 @@
 # Markdown 笔记（examples/markdown-notes）
 
+![Markdown 笔记实机效果图（Windows / WebView2，浅色跟随系统主题）](../../docs/images/example-markdown-notes.png)
+
 用 cj-tauri 写的本地 Markdown 笔记：**左侧文件树 / 中间编辑 / 右侧实时预览**（预览窗格可从
 「视图」菜单整体关掉，进入单栏专注编辑；文件树支持按名称 / 大小 / 修改时间排序）。
 零 Node、零前端构建、零第三方 Markdown 库——渲染器与界面都在一份 `ui/index.html` 里。
+上图是 Windows（WebView2）实机截图：界面主题「跟随系统」落到浅色，标题栏是
+「编辑 / 预览 / 分屏」分段切换，头部提示跟随当前文件路径。
 
 它同时是三个框架能力的活样板：
 
@@ -39,7 +43,7 @@ cjpm build && ./target/release/bin/main
 
 - **文件树**：`fs:list` 列 `notes/`，点文件名即 `fs:readText`（目录只显示、不展开——本示例的工作区是平铺的）
 - **编辑**：中间是纯文本域；每敲一个字右边立刻重渲染（渲染是本地的，不触发 IPC）
-- **保存**：`Ctrl+S` 或工具栏「保存」（`fs:writeText`）；标题栏出现「未保存」就是有未落盘的改动
+- **保存**：`Ctrl+S` 或「文件」菜单「保存」（`fs:writeText`）；标题栏出现「未保存」就是有未落盘的改动
 - **新建**：自动取名 `新笔记.md`、`新笔记-2.md`…（**不弹窗问名字**，理由见下）
 - **重命名**：标题栏的行内输入框，回车提交 = **写新 + 删旧**（插件的面里没有 rename，就这两步）
 - **删除**：按两次「删除」（第二次变成「确认删除？」，4 秒不按自动收回）
@@ -108,7 +112,7 @@ cjpm build && ./target/release/bin/main
 
 ## 自检（无人值守取证）
 
-`CJ_MARKDOWN_SELFCHECK=1` 启动时，页面会自动跑一轮 **21 条**断言（开关经 `notes:env` 交给页面——
+`CJ_MARKDOWN_SELFCHECK=1` 启动时，页面会自动跑一轮 **25 条**断言（开关经 `notes:env` 交给页面——
 页面没有进程环境，而「要不要自检」必须由**启动它的脚本**决定）：
 
 ```bash
@@ -153,7 +157,7 @@ bash scripts/e2e/test-linux-markdown-notes.sh     # 无 DISPLAY 时自动进 Xvf
 | 平台 | 状态 |
 | --- | --- |
 | Linux（WebKitGTK） | **已实机跑通**：25/25 断言，日志见上 |
-| Windows（WebView2） | **未验证**（本示例没在 Windows 上跑过，也没进单文件打包） |
+| Windows（WebView2） | **已实机跑通**（2026-10-14）：页内自检 25/25，顶图即 Windows 实机截图；路径 scope 的两个 Windows 边界（盘符路径判定、清单 `$HOME` 反斜杠归一）同轮修复 |
 
 ## 已知边界
 

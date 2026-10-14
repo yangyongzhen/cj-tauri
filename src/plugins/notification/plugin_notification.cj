@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.notification
 
 import cjTauri.*
 

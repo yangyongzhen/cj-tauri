@@ -1,7 +1,9 @@
 package e2efixture
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.notification.*
+import cjTauri.plugins.serial.*
 import std.fs.*
 import stdx.encoding.json.*
 

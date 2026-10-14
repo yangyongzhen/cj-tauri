@@ -20,7 +20,9 @@
     path-option = ["${CANGJIE_STDX}"]
 
 [target.x86_64-w64-mingw32]
-  link-option = "-Lnative -lcjtbridge"
+  # -lsqlite3：sqlite 插件子包需要（导入库 libsqlite3.a 由 sqlite3.def 生成，DLL 本身不入库——
+  # 跑 sqlite 相关测试/应用时本机自备 native/sqlite3.dll；不碰 sqlite 的应用不引用它就不链接）
+  link-option = "-Lnative -lcjtbridge -lsqlite3"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["${CANGJIE_STDX}"]

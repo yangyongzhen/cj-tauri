@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.clipboard
 
 import cjTauri.*
 

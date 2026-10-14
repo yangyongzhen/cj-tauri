@@ -3,7 +3,7 @@ package mqtt_client
 import std.env.*
 import std.fs.*
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.mqtt.*
 import stdx.encoding.json.*
 
 /**

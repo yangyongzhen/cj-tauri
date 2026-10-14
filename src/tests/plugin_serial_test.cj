@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.serial.*
 import std.collection.*
 import stdx.encoding.json.*
 import std.unittest.*
@@ -134,17 +134,17 @@ func testSerialPathWhitelistMirror(): Unit {
 @Test
 func testSerialHexAndTextConversions(): Unit {
     let bytes = [UInt8(0), UInt8(15), UInt8(165), UInt8(255)]
-    @Expect(serialBytesToHex(bytes), "000fa5ff")
+    @Expect(bytesToHex(bytes), "000fa5ff")
 
-    let back = serialHexToBytes("000fa5ff").getOrThrow()
+    let back = hexToBytes("000fa5ff").getOrThrow()
     @Expect(back.size, 4)
-    @Expect(serialBytesToHex(back), "000fa5ff")
+    @Expect(bytesToHex(back), "000fa5ff")
     // 大写十六进制也认
-    @Expect(serialBytesToHex(serialHexToBytes("A5").getOrThrow()), "a5")
+    @Expect(bytesToHex(hexToBytes("A5").getOrThrow()), "a5")
     // 奇数长度 / 非十六进制字符一律拒绝，不猜
-    @Expect(serialHexToBytes("0ff").isNone(), true)
-    @Expect(serialHexToBytes("zz").isNone(), true)
-    @Expect(serialHexToBytes("").getOrThrow().size, 0)
+    @Expect(hexToBytes("0ff").isNone(), true)
+    @Expect(hexToBytes("zz").isNone(), true)
+    @Expect(hexToBytes("").getOrThrow().size, 0)
 
     @Expect(serialBytesToText("hi".toArray()).getOrThrow(), "hi")
     // 二进制帧（不是合法 UTF-8）不该硬塞成一个坏字符串

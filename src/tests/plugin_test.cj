@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.fs.*
 import std.collection.*
 import std.env.*
 import stdx.encoding.json.*

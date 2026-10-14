@@ -1,7 +1,7 @@
 package plugin_shell
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.shell.*
 import stdx.encoding.json.*
 
 /**

@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.serial
 
 import cjTauri.*
 
@@ -146,8 +146,6 @@ let SERIAL_PATH_PREFIXES: Array<String> = ["/dev/ttyUSB", "/dev/ttyACM", "/dev/t
     "/dev/ttyPS", "/dev/ttyTHS", "/dev/ttyXRUSB", "/dev/ttyV", "/dev/tty.", "/dev/cu.",
     "/dev/serial/by-id/", "/dev/serial/by-path/", "/dev/pts/", "COM", "\\\\.\\COM"]
 
-let SERIAL_HEX_DIGITS: String = "0123456789abcdef"
-
 public func serialBaudSupported(baud: Int32): Bool {
     for (b in SERIAL_BAUDS) {
         if (b == baud) {
@@ -236,40 +234,6 @@ public func serialPathLooksAllowed(path: String): Bool {
     return false
 }
 
-/** 字节 → 小写十六进制（二进制帧给前端看的就是它） */
-public func serialBytesToHex(bytes: Array<UInt8>): String {
-    let digits = SERIAL_HEX_DIGITS.toArray()
-    let out = Array<UInt8>(bytes.size * 2, repeat: 0)
-    var i = 0
-    while (i < bytes.size) {
-        let b = bytes[i]
-        out[i * 2] = digits[Int64((b >> 4) & UInt8(0x0F))]
-        out[i * 2 + 1] = digits[Int64(b & UInt8(0x0F))]
-        i++
-    }
-    return String.fromUtf8(out)
-}
-
-/** 十六进制 → 字节；奇数长度或含非十六进制字符返回 None（调用方报可读错误） */
-public func serialHexToBytes(text: String): Option<Array<UInt8>> {
-    let src = text.toArray()
-    if (src.size % 2 != 0) {
-        return None
-    }
-    let out = Array<UInt8>(src.size / 2, repeat: 0)
-    var i = 0
-    while (i < out.size) {
-        let hi = serialHexDigit(src[i * 2])
-        let lo = serialHexDigit(src[i * 2 + 1])
-        if (hi < 0 || lo < 0) {
-            return None
-        }
-        out[i] = UInt8(hi * 16 + lo)
-        i++
-    }
-    return Some(out)
-}
-
 /** 字节 → 文本（无 BOM 假设）：不是合法 UTF-8 就返回 None，调用方保留 hex 即可 */
 public func serialBytesToText(bytes: Array<UInt8>): Option<String> {
     try {
@@ -294,19 +258,6 @@ func serialAsciiLower(s: String): String {
         i++
     }
     return String.fromUtf8(out)
-}
-
-private func serialHexDigit(b: UInt8): Int64 {
-    if (b >= UInt8(48) && b <= UInt8(57)) {
-        return Int64(b - UInt8(48))
-    }
-    if (b >= UInt8(97) && b <= UInt8(102)) {
-        return Int64(b - UInt8(87))
-    }
-    if (b >= UInt8(65) && b <= UInt8(70)) {
-        return Int64(b - UInt8(55))
-    }
-    return -1
 }
 
 /**
@@ -443,7 +394,7 @@ class SerialCommands <: CommandHandler {
         let out = JsonObject()
         // 超时没数据不是错误：前端按 count == 0 判断即可，不必拿 rejected 当「空」
         out.put("count", JsonInt(Int64(bytes.size)))
-        out.put("hex", JsonString(serialBytesToHex(bytes)))
+        out.put("hex", JsonString(bytesToHex(bytes)))
         match (serialBytesToText(bytes)) {
             case Some(t) => out.put("text", JsonString(t))
             // 二进制帧：给 hex 就够，不硬塞一个坏字符串
@@ -458,7 +409,7 @@ class SerialCommands <: CommandHandler {
         let encoding = serialAsciiLower(this.optionalString(args, "encoding", "utf8"))
         var bytes = payload.toArray()
         if (encoding == "hex") {
-            match (serialHexToBytes(payload)) {
+            match (hexToBytes(payload)) {
                 case Some(b) => bytes = b
                 case None => throw CommandException("serial:write refused: data 不是合法十六进制串" +
                     "（应偶数长度、只含 0-9a-f）")

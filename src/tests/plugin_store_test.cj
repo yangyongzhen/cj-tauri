@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.store.*
 import std.collection.*
 import std.fs.*
 import std.sync.*

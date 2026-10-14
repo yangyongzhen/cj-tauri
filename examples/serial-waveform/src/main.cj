@@ -2,7 +2,7 @@ package serial_waveform
 
 import std.env.*
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.serial.*
 import stdx.encoding.json.*
 
 /**

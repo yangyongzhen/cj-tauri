@@ -1,4 +1,4 @@
-package cjTauri.plugins
+package cjTauri.plugins.redis
 
 import cjTauri.*
 
@@ -801,7 +801,7 @@ class RedisCommands <: CommandHandler {
     private func valueBytes(args: JsonObject, valueKey: String, hexKey: String): Array<UInt8> {
         let hex = this.optionalString(args, hexKey)
         if (hex.size > 0) {
-            match (serialHexToBytes(hex)) {
+            match (hexToBytes(hex)) {
                 case Some(b) => return b
                 case None => throw CommandException("redis: argument \"${hexKey}\" is not valid hex")
             }

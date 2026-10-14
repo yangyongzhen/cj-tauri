@@ -22,7 +22,7 @@
 package sqlite_browser
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.sqlite.*
 import std.env.*
 import std.fs.*
 import stdx.encoding.json.*

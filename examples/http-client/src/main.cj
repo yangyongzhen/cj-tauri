@@ -21,7 +21,7 @@
 package http_client
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.fs.*
 import std.collection.*
 // Int64.parse 来自 std.convert 的 parsable 扩展，不导入就是「undeclared identifier 'parse'」
 import std.convert.*

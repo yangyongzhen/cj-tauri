@@ -1,7 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
-import cjTauri.plugins.*
+import cjTauri.plugins.fs.*
 import std.collection.*
 import std.env.*
 import std.fs.*
@@ -117,6 +117,19 @@ func testScopeRuleAcceptsBareStringForm(): Unit {
     let rule = parseScopeRule(JsonValue.fromStr("{\"allow\":\"/plain/**\"}")).getOrThrow()
     @Expect(rule.allow.size, 1)
     @Expect(rule.allow[0], "/plain/**")
+}
+
+@Test
+func testScopeRuleNormalizesManifestSlashes(): Unit {
+    // Windows 回归（2026-10-14 实测）：清单模式里的 $HOME 在 Windows 展开出 USERPROFILE 原值
+    // （反斜杠），不归一的话拿它匹配 normalizeScopePath 的正斜杠结果永远不中——$HOME/** 形同虚设。
+    // 用显式反斜杠模式锁住「清单模式也过同款分隔符归一」这个口径，两个平台都成立。
+    let rule = parseScopeRule(
+        JsonValue.fromStr("{\"allow\":[\"C:\\\\Users\\\\yang\\\\**\",\"$CWD\\\\notes\"]}")).getOrThrow()
+    @Expect(rule.allow[0], "C:/Users/yang/**")
+    @Expect(rule.allow[1], scopeCwdPath() + "/notes")
+    // 归一之后真的能匹配正斜杠目标（foldCase 顺带锁大小写折叠语义）
+    @Expect(globMatch(rule.allow[0], "c:/users/yang/desktop/note.md"), true)
 }
 
 /* ===== 端到端对照组：走真实 fs 插件 + 真实文件 ===== */

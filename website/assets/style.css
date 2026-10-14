@@ -368,12 +368,14 @@ kbd {
 .carousel__dot[aria-current="true"] { width: 24px; border-radius: 5px; background: var(--c2); }
 .carousel__count { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
 .carousel.is-ready .carousel__hint { display: none; }
+/* 每张卡上下两行：上行是示例 / 模板名（等宽字体），下行是说明。此前是左右两栏，名字
+   （`flex: 0 0 auto`）把宽度占死后说明只剩很窄一列，断行碎成好几截，整块看着乱。 */
 .more-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .more-list li {
-  display: flex; gap: 10px; padding: 11px 14px; border: 1px dashed var(--line);
-  border-radius: 11px; font-size: .89rem; color: var(--txt-2);
+  display: flex; flex-direction: column; gap: 7px; padding: 13px 15px;
+  border: 1px dashed var(--line); border-radius: 11px; font-size: .89rem; color: var(--txt-2);
 }
-.more-list b { color: var(--txt); font-weight: 600; font-family: var(--mono); font-size: .92rem; flex: 0 0 auto; }
+.more-list b { color: var(--txt); font-weight: 600; font-family: var(--mono); font-size: .92rem; }
 
 /* --- 插件矩阵 ------------------------------------------------------------ */
 .plugins { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }

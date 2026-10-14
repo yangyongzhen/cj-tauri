@@ -104,13 +104,22 @@ func inlineVendor(html: String): String {
         eprintln("[markdown-notes] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）：${e}")
     }
     var out = html.replace("/*__VENDOR_JS__*/", js)
-    try {
-        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark-dimmed.min.css"))
-        out = out.replace("/*__VENDOR_CSS__*/", css)
-    } catch (e: Exception) {
-        eprintln("[markdown-notes] vendor 样式缺失 github-dark-dimmed.min.css（代码块无高亮配色）：${e}")
-    }
+    // 三份代码主题全部内联成独立的 <style>：唯一默认打开的是 dimmed（不带 media），
+    // 其余 media="not all" 禁用；切换由前端改这些 style 的 media 属性——不重渲、不读盘
+    out = inlineTheme(out, "/*__THEME_DIMMED__*/", "ui/vendor/github-dark-dimmed.min.css")
+    out = inlineTheme(out, "/*__THEME_DARK__*/", "ui/vendor/github-dark.min.css")
+    out = inlineTheme(out, "/*__THEME_ONE__*/", "ui/vendor/atom-one-dark.min.css")
     return out
+}
+
+/** 读一份 hljs 主题样式替换到对应占位符；缺了就留一行 stderr（切到该主题时前端会退格提示） */
+func inlineTheme(out: String, placeholder: String, path: String): String {
+    try {
+        return out.replace(placeholder, String.fromUtf8(File.readFrom(path)))
+    } catch (e: Exception) {
+        eprintln("[markdown-notes] vendor 样式缺失 ${path}（该主题不可用）：${e}")
+        return out
+    }
 }
 
 /** 应用菜单：文件操作集中在原生菜单栏，与工具栏按钮走同一批页面动作（事件 `menu:click`） */
@@ -126,8 +135,16 @@ func buildAppMenu(): MenuModel {
     file.add(MenuItem.normal("file.reload", "刷新列表"))
     var help = ArrayList<MenuItem>()
     help.add(MenuItem.normal("help.about", "关于…"))
+    // 视图三态互斥（单选语义由 MenuRouter 回写勾选态）：仅编辑 / 分屏 / 仅预览
     var view = ArrayList<MenuItem>()
-    view.add(MenuItem.checkbox("view.preview", "预览窗格", true))
+    view.add(MenuItem.normalWithAccel("view.mode.edit", "仅编辑", "Ctrl+1"))
+    view.add(MenuItem.normalWithAccel("view.mode.split", "编辑 + 预览", "Ctrl+2"))
+    view.add(MenuItem.normalWithAccel("view.mode.preview", "仅预览", "Ctrl+3"))
+    view.add(MenuItem.separator())
+    // 代码主题也是单选组；勾选态由应用层模型回写，前端拿 media 属性换样式
+    view.add(MenuItem.checkbox("theme.dimmed", "代码主题：Dimmed", true))
+    view.add(MenuItem.checkbox("theme.dark", "代码主题：GitHub Dark", false))
+    view.add(MenuItem.checkbox("theme.one", "代码主题：One Dark", false))
     var items = ArrayList<MenuItem>()
     items.add(MenuItem.submenu("文件", file))
     items.add(MenuItem.submenu("视图", view))
@@ -135,12 +152,41 @@ func buildAppMenu(): MenuModel {
     return MenuModel(items)
 }
 
-/** 菜单事件路由：单窗示例，事件里带 id 就记一行日志（前端经 `menu:click` 接住执行动作） */
+/** 报文里是否带某 id（精确匹配 "id":"…" 键值；indexOf 返回 Option，走 match 拆 None/Some，
+ *  避开本机 cjc 对 Option 直接比对的坑——AGENTS §4 的 JsonKind/enum 推断教训） */
+func hasId(json: String, id: String): Bool {
+    match (json.indexOf("\"id\":\"" + id + "\"")) {
+        case Some(_) => true
+        case None => false
+    }
+}
+
+/** 菜单事件路由：单窗示例，事件里带 id 就记一行日志（前端经 `menu:click` 接住执行动作）。
+ *  视图三态与代码主题是两组「单选」菜单项：命中其中一项，必须把整组勾选态一次写齐——
+ *  只回写被点的那一项会让另外两项的勾留在原地，单选组就露馅（AGENTS §2 菜单状态走
+ *  setMenuItemStateTo，由应用层模型回写） */
 class MenuRouter {
+    private let app: TauriApp
+
+    init(app: TauriApp) {
+        this.app = app
+    }
+
     public func onShell(json: String, label: String): Unit {
-        let _ = label
         if (let Some(_) <- json.indexOf("\"menu\"")) {
             eprintln("[markdown-notes] menu click ${json}")
+        }
+        // 视图三态互斥：命中其中一项，三项勾选态一起写
+        if (hasId(json, "view.mode.")) {
+            this.app.setMenuItemStateTo(label, "view.mode.edit", true, hasId(json, "view.mode.edit"))
+            this.app.setMenuItemStateTo(label, "view.mode.split", true, hasId(json, "view.mode.split"))
+            this.app.setMenuItemStateTo(label, "view.mode.preview", true, hasId(json, "view.mode.preview"))
+        }
+        // 代码主题同组互斥：三份勾选态一起写，保证任一时刻恰好一个勾着
+        if (hasId(json, "theme.")) {
+            this.app.setMenuItemStateTo(label, "theme.dimmed", true, hasId(json, "theme.dimmed"))
+            this.app.setMenuItemStateTo(label, "theme.dark", true, hasId(json, "theme.dark"))
+            this.app.setMenuItemStateTo(label, "theme.one", true, hasId(json, "theme.one"))
         }
     }
 }
@@ -171,7 +217,7 @@ main(): Int64 {
 
     // 原生菜单 + 事件回投：必须在 run() 之前装配（AGENTS §2「预置类宿主能力」）；
     // 点击事件由框架自动投前端 `menu:click`，能力清单 events 里声明了 "menu" 才放行
-    let router = MenuRouter()
+    let router = MenuRouter(app)
     app.onShellEvent({ json, label => router.onShell(json, label) })
     // 默认窗口 label 固定 "main"（与 capabilities 的 windows 一致；DEFAULT_WINDOW_LABEL 非 public）
     match (app.hostOf("main")) {

@@ -9,5 +9,5 @@
       "deny": ["**/*.secret.md"]
     }
   },
-  "events": []
+  "events": ["menu:click"]
 }

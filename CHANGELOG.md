@@ -111,6 +111,22 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Changed
+
+- **示例 `markdown-notes` 用上宿主菜单与选择框（界面观感向 Typora 靠拢）**：
+  - **原生菜单栏**（文件 / 视图 / 帮助）：文件操作（新建 `Ctrl+N` / 保存 `Ctrl+S` / 重命名 / 删除 /
+    刷新）进菜单，与工具栏按钮收敛到同一批页面动作函数；「视图 → 预览窗格」是**勾选菜单项**
+    （`MenuItem.checkbox`），关掉后编辑栏独占整行（专注编辑）。装配走应用层 API
+    （`setMenuTo` + `onShellEvent`，`run()` 之前），能力清单 `events` 放行 `menu:click`；
+    点击全链路实机取证：桥 `menu clicked: id=…` → 仓颉钩子 → 前端 `[frontend] UI menu:click …`。
+  - **侧栏排序选择框**（`<select>`，按名称 / 大小 / 修改时间）：WebKitGTK 原生 combo 会用浅色样式
+    盖掉深色页面（AGENTS §4 老坑），按 `-webkit-appearance:none` 自绘 + 渐变三角箭头；
+    换排序只重排现有列表，不重新列目录。
+  - **预览排版（Typora 式）**：内容居中收成约 46em 阅读栏，标题紧凑、行距放宽、引用 / 代码 /
+    表格配齐；预览窗格可用菜单整体关掉。
+  - **修链接失败**：SQLite 插件并入框架静态库后，示例 `cjpm.toml` 的 Linux `link-option` 必须带
+    `-lsqlite3`（与 sqlite-browser 同款），否则 `undefined reference to sqlite3_column_bytes`。
+
 ### Added
 
 - **官网落地页（`website/`）**：单页深色站点，**中英双语**（中文即页面正文，英文放 `data-en*` 属性上，由

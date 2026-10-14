@@ -79,6 +79,37 @@ func readUi(path: String): String {
     }
 }
 
+/**
+ * 把 vendor 库内联进页面占位符：run(html) 的页面没有真实来源，`<script src>` 相对路径
+ * 取不到文件，只能装配期读盘内联。占位符是页面里两个形如「斜杠星 VENDOR」的注释标记
+ * （__VENDOR_JS__ 与 __VENDOR_CSS__）——这里不能把它们写全，块注释里出现星号斜杠会
+ * 开嵌套注释（AGENTS §4 第一条坑，实测编译报 unterminated block comment）。
+ * 库文件缺失不致命——渲染退化为纯文本也不该启动失败，每份读不到只留一行 stderr。
+ */
+func inlineVendor(html: String): String {
+    // 元组循环变量在本机 cjc 上取不了 .0/.1 成员（实测 expected ';' or '<NL>', found literal '.0'），
+    // 直接展开成两段读取，省掉抽象
+    var js = ""
+    try {
+        js += String.fromUtf8(File.readFrom("ui/vendor/marked.min.js")) + "\n"
+    } catch (e: Exception) {
+        eprintln("[markdown-notes] vendor 库缺失 ui/vendor/marked.min.js（渲染退化为纯文本）：${e}")
+    }
+    try {
+        js += String.fromUtf8(File.readFrom("ui/vendor/highlight.min.js")) + "\n"
+    } catch (e: Exception) {
+        eprintln("[markdown-notes] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）：${e}")
+    }
+    var out = html.replace("/*__VENDOR_JS__*/", js)
+    try {
+        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark.min.css"))
+        out = out.replace("/*__VENDOR_CSS__*/", css)
+    } catch (e: Exception) {
+        eprintln("[markdown-notes] vendor 样式缺失 github-dark.min.css（代码块无高亮配色）：${e}")
+    }
+    return out
+}
+
 /** 应用菜单：文件操作集中在原生菜单栏，与工具栏按钮走同一批页面动作（事件 `menu:click`） */
 func buildAppMenu(): MenuModel {
     var file = ArrayList<MenuItem>()
@@ -118,10 +149,11 @@ main(): Int64 {
         }
     }
 
-    let html = readUi("ui/index.html")
-    if (html.size == 0) {
+    let htmlRaw = readUi("ui/index.html")
+    if (htmlRaw.size == 0) {
         return 1
     }
+    let html = inlineVendor(htmlRaw)
 
     eprintln("[markdown-notes] main start (selfcheck=${selfCheck})")
 

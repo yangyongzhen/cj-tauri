@@ -22,6 +22,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SITE="$ROOT/website"
 INDEX="$SITE/index.html"
 CSS="$SITE/assets/style.css"
+APP="$SITE/assets/app.js"
 SHOT_DIR="${SITE_SHOT_DIR:-/tmp/cj-tauri-shots}"
 
 DO_SHOTS=0
@@ -297,7 +298,41 @@ if [ "$DO_LINKS" -eq 1 ] && [ "${SITE_CHECK_QUICK:-0}" != "1" ]; then
   fi
 fi
 
-# ---------- 9. 可选：无头截图（给人眼看的证据） ------------------------------
+# ---------- 9. 示例轮播（结构层，不需要浏览器） ------------------------------
+# 轮播的「无 JS 兜底」不是靠藏内容实现的：轨道本身就是原生横向 scroll-snap，
+# 脚本只补箭头 / 圆点 / 序号。所以这里盯两件事——每一屏都有真素材（本地文件 +
+# 尺寸），以及控件确实由脚本建（否则「轮播」会退化成一条没提示的滚动条）。
+n_slides=$(grep -c 'class="slide"' "$INDEX" || true)
+n_shots=$(grep -oE 'assets/screenshots/[^"]+' "$INDEX" | sort -u | wc -l)
+if [ "${n_slides:-0}" -ge 10 ]; then
+  ok "示例轮播 ${n_slides} 屏（引用 ${n_shots} 张实机截图，去重）"
+else
+  fail "示例轮播屏数异常：${n_slides:-0}（应 ≥ 10）"
+fi
+# 整屏尺寸的图必须写 width/height，否则加载过程中轮播高度会跳
+miss_dim=$(grep -oE '<img[^>]*assets/screenshots/[^>]*>' "$INDEX" | grep -vc 'width=' || true)
+if [ "${miss_dim:-0}" -eq 0 ]; then
+  ok "轮播每张图都带 width/height（加载时不跳高）"
+else
+  fail "${miss_dim} 张轮播图缺 width/height"
+fi
+if grep -q 'carousel__viewport' "$INDEX" && grep -q 'carousel__track' "$INDEX" && grep -q 'carousel__hint' "$INDEX"; then
+  ok "轮播结构齐（视口 / 轨道 / 提示行都在 HTML 里，不靠脚本生成）"
+else
+  fail "轮播缺少结构：视口 / 轨道 / 提示行三样必须有一个在 HTML 里"
+fi
+if grep -q 'carousel__hint" data-en=' "$INDEX"; then
+  ok "轮播提示行配了英文（英文态不露中文）"
+else
+  fail "轮播提示行缺 data-en"
+fi
+if grep -q 'carousel__nav' "$APP" && grep -q 'carousel__dot' "$APP" && grep -q 'prefers-reduced-motion' "$APP"; then
+  ok "app.js 会建箭头与圆点，并尊重「减少动态效果」"
+else
+  fail "app.js 缺少箭头 / 圆点 / 减少动态效果判断"
+fi
+
+# ---------- 10. 可选：无头截图（给人眼看的证据） ------------------------------
 if { [ "$DO_SHOTS" -eq 1 ] || [ "${SITE_CHECK_QUICK:-0}" != "1" ]; } && [ "${SITE_CHECK_QUICK:-0}" != "1" ]; then
   if command -v firefox >/dev/null 2>&1; then
     mkdir -p "$SHOT_DIR"

@@ -3,6 +3,7 @@
    1) 中英切换：以 HTML 里的中文为默认内容，英文放在 data-en* 属性上
    2) 滚动进场：IntersectionObserver
    3) 代码标签页、移动端菜单、导航滚动状态
+   4) 示例大轮播：轨道是原生 scroll-snap，箭头 / 圆点 / 序号 / 自动播放由脚本补
    设计取舍：语言切换不走 fetch / 不拆两份 HTML —— 页面在断网、file:// 直开、
    甚至 JS 关掉时都必须是完整的（见文件末尾的兜底）。
    =========================================================================== */
@@ -93,12 +94,14 @@
   }
 
   function setLang(lang) {
+    current = lang;
     apply(lang);
     try { window.localStorage.setItem(STORE_KEY, lang); } catch (e) { /* 隐私模式忽略 */ }
   }
 
+  var current = initialLang();
   collect();
-  apply(initialLang());
+  apply(current);
 
   var langBtns = document.querySelectorAll('.lang__btn');
   for (var lb = 0; lb < langBtns.length; lb++) {
@@ -180,7 +183,158 @@
     });
   }
 
-  /* ---------- 5. 兜底 ------------------------------------------------------ */
+  /* ---------- 5. 示例轮播（渐进增强） --------------------------------------- */
+  // 轨道本身是原生 scroll-snap：这段脚本不跑，页面照样能拖能滚（提示行还留在原地）。
+  // 它只补四样——悬浮箭头、圆点、序号、自动播放；自动播放跟随系统「减少动态效果」，
+  // 悬停 / 聚焦时暂停（有人正看着，别把内容从眼皮底下挪走）。
+  function carouselLabel(el, zhText, enText) {
+    // JS 后建的节点也要跟着切语言：collect() 已经跑过，所以自己补一份 data-zh-aria
+    // 再登记进语言切换表——否则英文态下屏幕阅读器念出来的还是中文。
+    el.setAttribute('aria-label', zhText);
+    el.setAttribute('data-zh-aria', zhText);
+    el.setAttribute('data-en-aria', enText);
+    nodes.push(el);
+  }
+
+  function initCarousel(root) {
+    var viewport = root.querySelector('.carousel__viewport');
+    var track = root.querySelector('.carousel__track');
+    var stage = root.querySelector('.carousel__stage') || root;
+    var foot = root.querySelector('.carousel__foot') || root;
+    var hint = root.querySelector('.carousel__hint');
+    if (!viewport || !track) { return; }
+
+    var slides = Array.prototype.slice.call(track.children);
+    if (slides.length < 2) { return; }
+
+    var SWITCH_MS = 6500;
+    var dotButtons = [];
+    var timer = null;
+    var at = 0;
+
+    var counter = document.createElement('p');
+    counter.className = 'carousel__count';
+    counter.setAttribute('aria-live', 'polite');
+
+    var dots = document.createElement('div');
+    dots.className = 'carousel__dots';
+
+    function offsetOf(slide) { return slide.offsetLeft - track.offsetLeft; }
+
+    function setActive(idx) {
+      at = idx;
+      for (var i = 0; i < dotButtons.length; i++) {
+        dotButtons[i].setAttribute('aria-current', i === idx ? 'true' : 'false');
+      }
+      counter.textContent = (idx + 1) + ' / ' + slides.length;
+    }
+
+    function goTo(idx, smooth) {
+      var to = ((idx % slides.length) + slides.length) % slides.length;
+      var left = offsetOf(slides[to]);
+      // jsdom 与老浏览器没有 Element.scrollTo：退回直接赋 scrollLeft（结果一样，只是不平滑）
+      if (typeof viewport.scrollTo === 'function') {
+        try {
+          viewport.scrollTo({ left: left, behavior: smooth ? 'smooth' : 'auto' });
+        } catch (e) {
+          viewport.scrollLeft = left;   // 只认坐标两参形式的实现会走到这里
+        }
+      } else {
+        viewport.scrollLeft = left;
+      }
+      setActive(to);
+    }
+
+    function stop() { if (timer) { window.clearInterval(timer); timer = null; } }
+    var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    function restart() {
+      stop();
+      if (reduce || document.hidden) { return; }
+      timer = window.setInterval(function () { goTo(at + 1, true); }, SWITCH_MS);
+    }
+
+    function step(delta) { goTo(at + delta, true); restart(); }
+
+    function mkNav(mod, glyph, zhLabel, enLabel) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'carousel__nav carousel__nav--' + mod;
+      b.textContent = glyph;
+      carouselLabel(b, zhLabel, enLabel);
+      b.addEventListener('click', function () { step(mod === 'prev' ? -1 : 1); });
+      stage.appendChild(b);
+    }
+
+    for (var s = 0; s < slides.length; s++) {
+      (function (idx) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'carousel__dot';
+        b.addEventListener('click', function () { goTo(idx, true); restart(); });
+        // 圆点的名字用序号，不抄各页标题：标题会随语言切换而变，序号不会说谎
+        carouselLabel(b, '第 ' + (idx + 1) + ' 个示例', 'Example ' + (idx + 1));
+        dots.appendChild(b);
+        dotButtons.push(b);
+      })(s);
+    }
+    mkNav('prev', '\u2039', '上一个示例', 'Previous example');
+    mkNav('next', '\u203a', '下一个示例', 'Next example');
+    foot.appendChild(dots);
+    foot.appendChild(counter);
+    root.classList.add('is-ready');
+    if (hint) { hint.setAttribute('hidden', ''); }
+
+    // 拖 / 滚轮 / 触控之后圆点与序号要跟上；rAF 合并高频 scroll 事件
+    var pending = false;
+    function syncFromScroll() {
+      var best = 0;
+      var bestDist = Infinity;
+      for (var i = 0; i < slides.length; i++) {
+        var d = Math.abs(offsetOf(slides[i]) - viewport.scrollLeft);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      setActive(best);
+    }
+    viewport.addEventListener('scroll', function () {
+      if (pending) { return; }
+      pending = true;
+      if (window.requestAnimationFrame) {
+        window.requestAnimationFrame(function () { pending = false; syncFromScroll(); });
+      } else {
+        pending = false;
+        syncFromScroll();
+      }
+    }, { passive: true });
+
+    // 键盘：视口可聚焦，方向键 / Home / End 都能翻（没开鼠标也能读完这一条）
+    viewport.addEventListener('keydown', function (ev) {
+      if (ev.key === 'ArrowRight') { step(1); }
+      else if (ev.key === 'ArrowLeft') { step(-1); }
+      else if (ev.key === 'Home') { goTo(0, true); restart(); }
+      else if (ev.key === 'End') { goTo(slides.length - 1, true); restart(); }
+      else { return; }
+      ev.preventDefault();
+    });
+
+    if (!reduce) {
+      restart();
+      root.addEventListener('mouseenter', stop);
+      root.addEventListener('mouseleave', restart);
+      root.addEventListener('focusin', stop);
+      root.addEventListener('focusout', restart);
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) { stop(); } else { restart(); }
+      });
+    }
+
+    goTo(0, false);
+  }
+
+  var carouselRoot = document.querySelector('.carousel');
+  if (carouselRoot) { initCarousel(carouselRoot); }
+  apply(current);   // 控件是后建的：上面登记过中英两份，这里补一次语言
+
+  /* ---------- 6. 兜底 ------------------------------------------------------ */
   // 万一有节点在 JS 之后才出现（或上面任何一步抛错），保证内容不会停在 opacity:0。
   window.addEventListener('load', function () {
     var left = document.querySelectorAll('.reveal:not(.is-in)');

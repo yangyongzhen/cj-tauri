@@ -2,7 +2,7 @@
   "identifier": "default",
   "windows": ["main"],
   "commands": ["report", "notes:env", "system:version"],
-  "permissions": ["fs:default", "store:default"],
+  "permissions": ["fs:default", "store:default", "dialog:default"],
   "scopes": {
     "fs": {
       "allow": ["$CWD/notes", "$CWD/notes/**"],

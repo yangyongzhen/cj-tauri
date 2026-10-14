@@ -129,6 +129,7 @@ main(): Int64 {
         .window(WindowConfig("cj-tauri Markdown 笔记", 1180, 760))
         .plugin(FsPlugin())
         .plugin(StorePlugin())
+        .plugin(DialogPlugin())
         .register("report", ReportCommand())
         .register("notes:env", NotesEnvCommand(selfCheck))
 

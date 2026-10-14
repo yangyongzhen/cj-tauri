@@ -144,7 +144,9 @@
   }
   .empty { color: var(--dim); font-size: 13px; padding: 10px; white-space: normal; }
 </style>
-<style>/*__VENDOR_CSS__*/</style>
+<style id="hljs-theme-dimmed">/*__THEME_DIMMED__*/</style>
+<style id="hljs-theme-dark" media="not all">/*__THEME_DARK__*/</style>
+<style id="hljs-theme-one" media="not all">/*__THEME_ONE__*/</style>
 </head>
 <body>
   <header>
@@ -166,7 +168,7 @@
       <div class="files" id="files"><div class="empty">等待桥…</div></div>
       <div class="files" id="outline" style="display:none"><div class="empty">未打开笔记</div></div>
     </div>
-    <div class="pane">
+    <div class="pane edit">
       <div class="pane-head"><span id="editingName">未打开文件</span><span class="grow"></span><span id="dirtyMark"></span></div>
       <textarea id="editor" spellcheck="false" placeholder="从左边选一份笔记，或者点「新建」…"></textarea>
     </div>
@@ -191,7 +193,7 @@
   // 页面自己绝不拼绝对路径，也不做任何「路径检查」（那属于共享层 src/scope.cj 的职责）。
   var WS = 'notes';
   var LAST_KEY = 'last-open';        // store 里记最近打开的笔记，重启还在
-  var state = { files: [], current: null, saved: '', sortBy: 'name', preview: true };
+  var state = { files: [], current: null, saved: '', sortBy: 'name' };
 
   function $(id) { return document.getElementById(id); }
 
@@ -562,12 +564,28 @@
     });
   }
 
-  /** 预览窗格开关：菜单勾选（view.preview）与布局同源；关掉后编辑栏独占整行（Typora 式专注编辑） */
-  function togglePreview(show) {
-    var pane = document.querySelector('.pane.preview');
-    if (pane) { pane.style.display = show ? '' : 'none'; }
-    state.preview = !!show;
-    report('UI preview ' + (show ? 'on' : 'off'));
+  /** 视图三态：edit=仅编辑 / split=分屏 / preview=仅预览（Typora 式全程只盯预览）。
+   *  菜单勾选态由后端成组回写，这里只负责改布局；Ctrl+1/2/3 走同一条路 */
+  function setViewMode(mode) {
+    var ed = document.querySelector('.pane.edit');
+    var pv = document.querySelector('.pane.preview');
+    if (ed) { ed.style.display = (mode === 'preview') ? 'none' : ''; }
+    if (pv) { pv.style.display = (mode === 'edit') ? 'none' : ''; }
+    report('UI view ' + mode);
+  }
+
+  /** 代码主题切换：改对应 <style id="hljs-theme-*"> 的 media——主题是独立样式表，互不叠加 */
+  function applyTheme(name) {
+    var sheets = document.querySelectorAll('style[id^="hljs-theme-"]');
+    var hit = false;
+    for (var i = 0; i < sheets.length; i++) {
+      var on = sheets[i].id === 'hljs-theme-' + name;
+      sheets[i].media = on ? 'all' : 'not all';
+      if (on) { hit = true; }
+    }
+    if (!hit) { status('主题不可用：' + name, 'bad'); return; }
+    status('代码主题：' + name, 'ok');
+    report('UI theme ' + name);
   }
 
   /** 大纲：从编辑器原文抽标题（#/##/###，跳过代码围栏内的 #），点击滚动到对应行 */
@@ -648,8 +666,13 @@
       else if (id === 'file.rename') { startRename(); }
       else if (id === 'file.delete') { requestDelete(); }
       else if (id === 'file.reload') { reloadAll(); }
-      else if (id === 'view.preview') { togglePreview(ev && ev.checked === true); }
       else if (id === 'help.about') { showAbout(); }
+      else if (id === 'view.mode.edit') { setViewMode('edit'); }
+      else if (id === 'view.mode.split') { setViewMode('split'); }
+      else if (id === 'view.mode.preview') { setViewMode('preview'); }
+      else if (id === 'theme.dimmed') { applyTheme('dimmed'); }
+      else if (id === 'theme.dark') { applyTheme('dark'); }
+      else if (id === 'theme.one') { applyTheme('one'); }
     });
     // 刷新：有未保存改动就别刷（刷掉的是用户刚敲的字）；不用弹窗问，直接拒绝并说清怎么办
     function reloadAll() {
@@ -706,6 +729,18 @@
       if ((ev.ctrlKey || ev.metaKey) && k === 'o') {
         ev.preventDefault();
         openViaDialog();
+      }
+      if ((ev.ctrlKey || ev.metaKey) && k === '1') {
+        ev.preventDefault();
+        setViewMode('edit');
+      }
+      if ((ev.ctrlKey || ev.metaKey) && k === '2') {
+        ev.preventDefault();
+        setViewMode('split');
+      }
+      if ((ev.ctrlKey || ev.metaKey) && k === '3') {
+        ev.preventDefault();
+        setViewMode('preview');
       }
     });
   }

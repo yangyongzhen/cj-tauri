@@ -153,6 +153,12 @@
     截图确认路径上头部、内容进编辑器与预览。
   - **代码高亮主题换 `github-dark-dimmed`**（替代 `github-dark`，冷灰底更贴页面深色面板），
     预览阅读栏 46em → **58em**。
+  - **视图三态切换 + 代码主题选择**：菜单「视图」从单一「预览窗格」勾选升级为**仅编辑 /
+    编辑 + 预览 / 仅预览**三态（快捷键 `Ctrl+1/2/3`，Typora 式全程只盯预览）；三态互斥由
+    应用层按 `menu:click` 报文的 id 成组回写勾选态（`setMenuItemStateTo`），前端只改
+    `display` 不重渲。新增三份 hljs 主题勾选切换（GitHub Dimmed 默认 / GitHub Dark /
+    Atom One Dark）：主题内联成三份独立 `<style id="hljs-theme-*">`，切换 = 改 `media`
+    属性（`not all` 禁用 / `all` 启用），不重渲、不读盘。
   - **修链接失败**：SQLite 插件并入框架静态库后，示例 `cjpm.toml` 的 Linux `link-option` 必须带
     `-lsqlite3`（与 sqlite-browser 同款），否则 `undefined reference to sqlite3_column_bytes`。
 

@@ -5,8 +5,8 @@
   "permissions": ["fs:default", "store:default", "dialog:default"],
   "scopes": {
     "fs": {
-      "allow": ["$CWD/notes", "$CWD/notes/**"],
-      "deny": ["**/*.secret.md"]
+      "allow": ["$CWD/notes", "$CWD/notes/**", "$HOME", "$HOME/**"],
+      "deny": ["**/*.secret.md", "**/.ssh/**", "**/.git/**"]
     }
   },
   "events": ["menu:click"]

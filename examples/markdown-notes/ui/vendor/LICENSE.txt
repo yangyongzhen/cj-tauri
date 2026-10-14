@@ -4,7 +4,7 @@ Vendored third-party assets for the markdown-notes example (ui/vendor/):
   Copyright (c) 2011-2024, Christopher Jeffrey. MIT License
   https://marked.js.org/ (taken from the marked@12.0.2 UMD build)
 
-- Highlight.js v11.9.0 (highlight.min.js, github-dark.min.css)
+- Highlight.js v11.9.0 (highlight.min.js, github-dark-dimmed.min.css)
   Copyright (c) 2006-2023, Ivan Sagalaev. BSD-3-Clause License
   https://highlightjs.org/ (taken from @highlightjs/cdn-assets@11.9.0)
 

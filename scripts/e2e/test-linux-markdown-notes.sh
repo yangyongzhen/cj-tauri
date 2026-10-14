@@ -125,9 +125,10 @@ e2e_assert "目录不可被 remove"     "[frontend] SELFCHECK PASS fs-remove-dir
 e2e_assert "越界读被拒（页面侧）"  "[frontend] SELFCHECK PASS scope-deny-readText"
 e2e_assert "越界列目录被拒"        "[frontend] SELFCHECK PASS scope-deny-list"
 e2e_assert "「..」绕行仍被拒"      "[frontend] SELFCHECK PASS scope-deny-dotdot"
-# 双侧对账：同一次拒绝在**桥侧**也要留痕（页面说「我被拒了」不能自证）
-e2e_assert "越界读被拒（共享层）"  "[cj-tauri] scope denied (fs): src/main.cj"
-e2e_assert "规范化后照样拒"        "[cj-tauri] scope denied (fs): notes/../src/main.cj"
+# 双侧对账：同一次拒绝在**桥侧**也要留痕（页面说「我被拒了」不能自证）。
+# 素材口径与页内自检一致：allow = 工作区 + $HOME（「打开…」要读外部文件），反面素材取 $HOME 外。
+e2e_assert "越界读被拒（共享层）"  "[cj-tauri] scope denied (fs): /etc/hostname"
+e2e_assert "规范化后照样拒"        "scope denied (fs): notes/../../../../../"
 e2e_assert "remove 挡在目录之前"   "fs:remove refused: is a directory"
 
 e2e_assert "store 写读一致"        "[frontend] SELFCHECK PASS store-set-get"

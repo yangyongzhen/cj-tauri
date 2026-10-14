@@ -18,8 +18,11 @@ import stdx.encoding.json.*
  *
  * 能力面（capabilities/default.json）：
  *  - `fs:default`（readText / writeText / exists / list / remove）——但**命令放行 ≠ 路径放行**：
- *    scope 只允许 `$CWD/notes` 与其下（`deny` 兜掉 `*.secret.md`），越界一律拒；
+ *    scope 允许 `$CWD/notes` 与 `$HOME`（「文件 → 打开…」要读外部文件），deny 兜掉
+ *    `*.secret.md` 与 `.ssh` / `.git` 目录（通配写进清单 json，别在注释里照抄——
+ *    星号斜杠会提前闭合本注释，AGENTS §4 第一条坑），越界一律拒；
  *  - `store:default`——记住「上次打开的笔记」，重启还在；
+ *  - `dialog:default`——「打开…」弹原生文件选择框、「关于…」弹模态消息框；
  *  - `notes:env`——把宿主侧的启动参数（自检开关、工作区名）交给页面，页面读不到进程环境变量。
  *
  * 工作区 `notes/` 由 run.sh 播种（`mkdir -p notes` + 一份欢迎笔记）：
@@ -102,10 +105,10 @@ func inlineVendor(html: String): String {
     }
     var out = html.replace("/*__VENDOR_JS__*/", js)
     try {
-        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark.min.css"))
+        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark-dimmed.min.css"))
         out = out.replace("/*__VENDOR_CSS__*/", css)
     } catch (e: Exception) {
-        eprintln("[markdown-notes] vendor 样式缺失 github-dark.min.css（代码块无高亮配色）：${e}")
+        eprintln("[markdown-notes] vendor 样式缺失 github-dark-dimmed.min.css（代码块无高亮配色）：${e}")
     }
     return out
 }
@@ -113,6 +116,7 @@ func inlineVendor(html: String): String {
 /** 应用菜单：文件操作集中在原生菜单栏，与工具栏按钮走同一批页面动作（事件 `menu:click`） */
 func buildAppMenu(): MenuModel {
     var file = ArrayList<MenuItem>()
+    file.add(MenuItem.normalWithAccel("file.open", "打开…", "Ctrl+O"))
     file.add(MenuItem.normalWithAccel("file.new", "新建笔记", "Ctrl+N"))
     file.add(MenuItem.normalWithAccel("file.save", "保存", "Ctrl+S"))
     file.add(MenuItem.separator())

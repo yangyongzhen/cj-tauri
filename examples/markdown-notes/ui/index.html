@@ -92,9 +92,9 @@
     background: var(--panel2); color: var(--fg); tab-size: 2;
     font: 13px/1.75 ui-monospace, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace;
   }
-  /* 预览排版（Typora 式）：内容居中收成约 46em 的阅读栏，两侧留白呼吸；标题紧凑、段落行距放宽 */
-  #preview { flex: 1 1 auto; overflow: auto; padding: 24px 32px 48px; }
-  #preview > * { max-width: 46em; margin-left: auto; margin-right: auto; }
+  /* 预览排版（Typora 式）：内容居中收成约 58em 的阅读栏，两侧留白呼吸；标题紧凑、段落行距放宽 */
+  #preview { flex: 1 1 auto; overflow: auto; padding: 24px 40px 56px; }
+  #preview > * { max-width: 58em; margin-left: auto; margin-right: auto; }
   #preview h1, #preview h2, #preview h3 { line-height: 1.3; margin: 1.1em 0 .45em; }
   #preview h1:first-child, #preview h2:first-child, #preview p:first-child { margin-top: .2em; }
   #preview p, #preview li { line-height: 1.85; }
@@ -302,7 +302,8 @@
     for (var i = 0; i < state.files.length; i++) {
       var f = state.files[i];
       var row = document.createElement('div');
-      row.className = 'file' + (f.dir ? ' dir' : '') + (state.current === f.name ? ' active' : '');
+      // 高亮匹配：工作区内按文件名比，「打开…」选的外部文件（完整路径）不落在列表里，不强行匹配
+      row.className = 'file' + (f.dir ? ' dir' : '') + (state.current === (f.dir ? f.name : WS + '/' + f.name) ? ' active' : '');
       var nameSpan = document.createElement('span');
       nameSpan.textContent = f.dir ? f.name + '/' : f.name;
       row.appendChild(nameSpan);
@@ -366,21 +367,37 @@
     });
   }
 
-  function openNote(name) {
-    return invoke('fs:readText', { path: WS + '/' + name }).then(function (text) {
-      state.current = name;
+  function openNote(path) {
+    // 路径泛化：工作区内传 name（旧调用点），「打开…」传完整路径——readText 都按路径读
+    var p = (path.indexOf('/') >= 0) ? path : WS + '/' + path;
+    return invoke('fs:readText', { path: p }).then(function (text) {
+      state.current = p;
       state.saved = text;
       $('editor').value = text;
-      $('editingName').textContent = WS + '/' + name;
+      $('editingName').textContent = p;
       setPreview(text);
       markDirty();
       renderFileList();
-      rememberLast(name);
+      rememberLast(p);
       return text;
     }).catch(function (e) {
-      status('打开 ' + name + ' 失败：' + errText(e), 'bad');
+      status('打开 ' + p + ' 失败：' + errText(e), 'bad');
       toast('打开失败：' + errText(e));
       return null;
+    });
+  }
+
+  /** 「文件 → 打开…」：原生文件选择框选路径，读回内容进编辑器。
+      选中文件可以落在工作区外——scope 已放宽到 $HOME（deny 兜 .ssh/.git/*.secret.md）。 */
+  function openViaDialog() {
+    invoke('dialog:open', {
+      title: '打开 Markdown 文件',
+      filter: 'Markdown|*.md|所有文件|*.*'
+    }).then(function (picked) {
+      if (!picked || typeof picked !== 'string') { status('未选择文件', ''); return null; }
+      return openNote(picked);
+    }).catch(function (e) {
+      toast('打开失败：' + errText(e));
     });
   }
 
@@ -429,15 +446,15 @@
 
   function saveNote() {
     if (!state.current) {
-      toast('还没打开任何笔记：先「新建」一份');
+      toast('还没打开任何笔记：先「新建」或「打开」一份');
       return Promise.resolve(false);
     }
     var text = $('editor').value;
-    var saving = state.current;
-    return invoke('fs:writeText', { path: WS + '/' + saving, contents: text }).then(function () {
+    var saving = state.current;   // 完整路径（工作区内或「打开…」选来的都行），writeText 按路径写
+    return invoke('fs:writeText', { path: saving, contents: text }).then(function () {
       state.saved = text;
       markDirty();
-      status('已保存 ' + WS + '/' + saving + '（' + text.length + ' 字符）', 'ok');
+      status('已保存 ' + saving + '（' + text.length + ' 字符）', 'ok');
       return refreshList().then(function () { return true; });
     }).catch(function (e) {
       status('保存失败：' + errText(e), 'bad');
@@ -625,7 +642,8 @@
     window.__CJ_TAURI__.listen('menu:click', function (ev) {
       var id = ev && ev.id ? String(ev.id) : '';
       report('UI menu:click ' + id);
-      if (id === 'file.new') { newNote(); }
+      if (id === 'file.open') { openViaDialog(); }
+      else if (id === 'file.new') { newNote(); }
       else if (id === 'file.save') { saveNote(); }
       else if (id === 'file.rename') { startRename(); }
       else if (id === 'file.delete') { requestDelete(); }
@@ -680,9 +698,14 @@
       }, 150);
     });
     document.addEventListener('keydown', function (ev) {
-      if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === 's') {
+      var k = String(ev.key).toLowerCase();
+      if ((ev.ctrlKey || ev.metaKey) && k === 's') {
         ev.preventDefault();
         saveNote();
+      }
+      if ((ev.ctrlKey || ev.metaKey) && k === 'o') {
+        ev.preventDefault();
+        openViaDialog();
       }
     });
   }
@@ -874,17 +897,20 @@
       return expectReject(results, 'fs-remove-dir-refused',
         invoke('fs:remove', { path: WS }), 'is a directory');
     }).then(function () {
-      // ---- 9) scope：命令放行 ≠ 路径放行。src/ 不在 allow 里，读与列目录都必须拒，
+      // ---- 9) scope：命令放行 ≠ 路径放行。allow = 工作区 + $HOME（「打开…」要读外部文件），
+      //         所以反面素材取 $HOME 之外：/etc 与 $HOME 之外的相对攀升都该拒，
       //         而且这条拒在桥 stderr 里留 `scope denied (fs)`（E2E 侧按整行前缀断言）。
       return expectReject(results, 'scope-deny-readText',
-        invoke('fs:readText', { path: 'src/main.cj' }), 'outside the authorized scope');
+        invoke('fs:readText', { path: '/etc/hostname' }), 'outside the authorized scope');
     }).then(function () {
       return expectReject(results, 'scope-deny-list',
-        invoke('fs:list', { path: 'src' }), 'outside the authorized scope');
+        invoke('fs:list', { path: '/etc' }), 'outside the authorized scope');
     }).then(function () {
-      // ---- 10) 越界绕一下也不行：`..` 规范化之后照样按绝对路径判
+      // ---- 10) 越界绕一下也不行：`..` 规范化之后照样按绝对路径判。素材写成**超量攀升**——
+      //         词法规范化在根处截断（爬过 / 就停在 /），层级数与 $HOME 深度无关，
+      //         任何机器上这条都落在 /etc/hostname，必拒。
       return expectReject(results, 'scope-deny-dotdot',
-        invoke('fs:readText', { path: WS + '/../src/main.cj' }), 'outside the authorized scope');
+        invoke('fs:readText', { path: WS + '/../../../../../../../../../../etc/hostname' }), 'outside the authorized scope');
     }).then(function () {
       return null;
     }).catch(function (e) {

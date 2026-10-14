@@ -144,6 +144,15 @@
     对应行；排序选择框只属于文件页签。
   - **预览排版（Typora 式）**：内容居中收成约 46em 阅读栏，标题紧凑、行距放宽、引用 / 代码 /
     表格配齐；预览窗格可用菜单整体关掉。
+  - **文件 → 打开…（`dialog:open`）**：菜单与 `Ctrl+O` 弹**原生文件选择框**，选中路径读回编辑器
+    （`state.current` 泛化成完整路径——工作区内按 `notes/<名>`、外部按绝对路径统一处理）；
+    scope 相应放宽为**工作区 + `$HOME`**（deny 兜 `*.secret.md` / `.ssh/**` / `.git/**`），
+    页内自检的反面素材同步改成 `/etc/hostname` 与「超量 `..` 攀升」（词法规范化在根处截断，
+    层级与 `$HOME` 深度无关），E2E 断言 needle 对齐；Xvfb 实机取证：
+    `menu clicked: id=file.open` → `dialog: kind=0` → `dialog closed: ok=1 path=/root/hello-dialog.md`，
+    截图确认路径上头部、内容进编辑器与预览。
+  - **代码高亮主题换 `github-dark-dimmed`**（替代 `github-dark`，冷灰底更贴页面深色面板），
+    预览阅读栏 46em → **58em**。
   - **修链接失败**：SQLite 插件并入框架静态库后，示例 `cjpm.toml` 的 Linux `link-option` 必须带
     `-lsqlite3`（与 sqlite-browser 同款），否则 `undefined reference to sqlite3_column_bytes`。
 

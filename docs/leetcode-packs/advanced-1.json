@@ -1,0 +1,119 @@
+{
+  "packName": "advanced-1",
+  "packVersion": 1,
+  "description": "进阶题包 1：递归/回溯/图/堆，8 题（id 从 100 起，与内置 19 题不冲突）",
+  "problems": [
+    {
+      "id": 100,
+      "title": "斐波那契数",
+      "difficulty": "简单",
+      "category": "递归与记忆化",
+      "funcName": "fib",
+      "description": "斐波那契数（通常用 F(n) 表示）形成的序列称为斐波那契数列：F(0) = 0，F(1) = 1，F(n) = F(n - 1) + F(n - 2)（n > 1）。给定 n，计算 F(n)。",
+      "template": "func fib(n: Int64): Int64 {\n    // 请在这里实现算法（提示：递归试试会不会超时，再换滚动变量）\n    return 0\n}",
+      "tests": [
+        {"call": "fib(2)", "expect": "1"},
+        {"call": "fib(4)", "expect": "3"},
+        {"call": "fib(25)", "expect": "75025"}
+      ]
+    },
+    {
+      "id": 101,
+      "title": "全排列的个数",
+      "difficulty": "简单",
+      "category": "递归与记忆化",
+      "funcName": "permuteCount",
+      "description": "给定一个不含重复数字的数组 nums，返回其所有可能的全排列的个数。\n请实际实现回溯生成全部排列并计数（生成过程本身就是练习），n 个不同元素的全排列数 = n!。",
+      "template": "func permuteCount(nums: Array<Int64>): Int64 {\n    // 请在这里实现回溯生成全部排列并计数返回\n    return 0\n}",
+      "tests": [
+        {"call": "permuteCount([1, 2, 3])", "expect": "6"},
+        {"call": "permuteCount([1])", "expect": "1"},
+        {"call": "permuteCount([])", "expect": "1"}
+      ]
+    },
+    {
+      "id": 102,
+      "title": "括号生成",
+      "difficulty": "中等",
+      "category": "递归与记忆化",
+      "funcName": "generateParenthesis",
+      "description": "数字 n 代表生成括号的对数，请你生成所有可能并且有效的括号组合，返回组合的个数。\n例如 n=3 时共有 5 种：((()))、(()())、(())()、()(())、()()()。",
+      "template": "func generateParenthesis(n: Int64): Int64 {\n    // 请在这里实现生成过程并计数返回（提示：回溯，任意前缀里左括号数 >= 右括号数）\n    return 0\n}",
+      "tests": [
+        {"call": "generateParenthesis(1)", "expect": "1"},
+        {"call": "generateParenthesis(3)", "expect": "5"},
+        {"call": "generateParenthesis(4)", "expect": "14"}
+      ]
+    },
+    {
+      "id": 103,
+      "title": "岛屿数量",
+      "difficulty": "中等",
+      "category": "递归与记忆化",
+      "funcName": "numIslands",
+      "description": "给你一个由 '1'（陆地）和 '0'（水）组成的二维网格 grid，请你计算网格中岛屿的数量。\n岛屿总是被水包围，并且每座岛屿只能由水平方向和竖方向上相邻的陆地连接形成。\n网格用字符串数组表示，每个字符串是一行。",
+      "template": "func numIslands(grid: Array<String>): Int64 {\n    // 请在这里实现算法（提示：FloodFill——遍历网格，遇到 '1' 计数并感染整片陆地）\n    return 0\n}",
+      "tests": [
+        {"call": "numIslands([\"11110\", \"11010\", \"11000\", \"00000\"])", "expect": "1"},
+        {"call": "numIslands([\"11000\", \"11000\", \"00100\", \"00011\"])", "expect": "3"},
+        {"call": "numIslands([\"0000\"])", "expect": "0"}
+      ]
+    },
+    {
+      "id": 104,
+      "title": "组合总和",
+      "difficulty": "中等",
+      "category": "递归与记忆化",
+      "funcName": "combinationSumCount",
+      "description": "给你一个无重复元素的整数数组 candidates 和一个目标整数 target，找出 candidates 中可以使数字和为目标数 target 的所有不同组合，返回组合的个数。\n同一个数字可以无限制重复被选取。",
+      "template": "func combinationSumCount(candidates: Array<Int64>, target: Int64): Int64 {\n    // 请在这里实现回溯并计数返回\n    return 0\n}",
+      "tests": [
+        {"call": "combinationSumCount([2, 3, 6, 7], 7)", "expect": "2"},
+        {"call": "combinationSumCount([2, 3, 5], 8)", "expect": "3"},
+        {"call": "combinationSumCount([2], 1)", "expect": "0"}
+      ]
+    },
+    {
+      "id": 105,
+      "title": "数组中第 K 个最大元素",
+      "difficulty": "中等",
+      "category": "堆与优先队列",
+      "funcName": "findKthLargest",
+      "description": "给定整数数组 nums 和整数 k，请返回数组中第 k 个最大的元素。要求实现 O(n log n) 以内的算法。",
+      "template": "func findKthLargest(nums: Array<Int64>, k: Int64): Int64 {\n    // 请在这里实现算法（提示：排序 / 快速选择 / 手写堆）\n    return 0\n}",
+      "tests": [
+        {"call": "findKthLargest([3, 2, 1, 5, 6, 4], 2)", "expect": "5"},
+        {"call": "findKthLargest([3, 2, 3, 1, 2, 4, 5, 5, 6], 4)", "expect": "4"},
+        {"call": "findKthLargest([1], 1)", "expect": "1"}
+      ]
+    },
+    {
+      "id": 106,
+      "title": "前 K 个高频元素",
+      "difficulty": "中等",
+      "category": "堆与优先队列",
+      "funcName": "topKFrequent",
+      "description": "给定一个整数数组 nums 和一个整数 k，请返回其中出现频率前 k 高的元素中出现次数最多的那一类的出现次数。\n（简化判定：返回「前 k 高频元素的出现次数之和」。）",
+      "template": "func topKFrequent(nums: Array<Int64>, k: Int64): Int64 {\n    // 请在这里实现算法（提示：计数 + 排序取前 k 个的次数求和）\n    return 0\n}",
+      "tests": [
+        {"call": "topKFrequent([1, 1, 1, 2, 2, 3], 2)", "expect": "5"},
+        {"call": "topKFrequent([1], 1)", "expect": "1"},
+        {"call": "topKFrequent([4, 4, 4, 6, 6, 8], 2)", "expect": "5"}
+      ]
+    },
+    {
+      "id": 107,
+      "title": "课程表",
+      "difficulty": "中等",
+      "category": "堆与优先队列",
+      "funcName": "canFinish",
+      "description": "这个学期你必须选修 numCourses 门课程，记为 0 到 numCourses - 1。\n prerequisites[i] = [a, b] 表示想学课程 a 必须**先**修完课程 b。判断是否可能完成所有课程（即有向图无环）。\nprerequisites 用扁平数组表示：[a0, b0, a1, b1, ...]，每两个一组。",
+      "template": "func canFinish(numCourses: Int64, prerequisites: Array<Int64>): Bool {\n    // 请在这里实现算法（提示：拓扑排序 / DFS 找环）\n    return false\n}",
+      "tests": [
+        {"call": "canFinish(2, [1, 0])", "expect": "true"},
+        {"call": "canFinish(2, [1, 0, 0, 1])", "expect": "false"},
+        {"call": "canFinish(3, [])", "expect": "true"}
+      ]
+    }
+  ]
+}

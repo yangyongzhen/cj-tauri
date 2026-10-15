@@ -32,10 +32,16 @@ fi
 # 产物不存在才构建：E2E 的价值在「跑起来」，构建只是前置（构建日志单独落盘，
 # 别混进证据日志——断言按整行前缀 grep，构建输出会污染计数）。
 # 注意本机坑：改过框架/示例后必须重建，否则跑的是旧产物——这里按「源码比产物新就重建」守一道。
+# 判据要**绝对路径**且**把框架源码算进来**：`ls -t` 给的是相对名，拿它去比绝对路径的产物永远
+# 判「不比它新」（一条永远不触发的检查）；而探针静态链的是框架，只盯 $FIXTURE/src 会漏掉框架改动。
+# 实机 2026-10-15：框架 src/host.cj 给 system:host 补了 hotkey 字段、探针产物没跟着重建，页面读到
+# `hotkey=undefined`，那条断言假红了一轮——产物「存在」就没人再问它新不新。
 STALE=0
 if [ -x "$APP" ]; then
   NEWEST_SRC="$(cd "$FIXTURE" && ls -t src/*.cj cjpm.toml 2>/dev/null | head -1)"
-  if [ -n "$NEWEST_SRC" ] && [ "$NEWEST_SRC" -nt "$APP" ]; then STALE=1; fi
+  if [ -n "$NEWEST_SRC" ] && [ "$FIXTURE/$NEWEST_SRC" -nt "$APP" ]; then STALE=1; fi
+  NEWEST_FW="$(cd "$E2E_ROOT" && ls -t src/*.cj 2>/dev/null | head -1)"
+  if [ -n "$NEWEST_FW" ] && [ "$E2E_ROOT/$NEWEST_FW" -nt "$APP" ]; then STALE=1; fi
 fi
 if [ ! -x "$APP" ] || [ "$STALE" = "1" ]; then
   [ "$STALE" = "1" ] && e2e_info "探针产物比源码旧，重建（防跑旧产物）"
@@ -69,7 +75,7 @@ e2e_assert "页面→宿主 IPC"     "[cj-bridge] js -> native ("
 e2e_assert "端到端往返闭环"    "[e2e] probe:echo 收到:"
 e2e_assert "未授权命令被拒"    "DENY-OK devtools"
 # Windows 能力位的实机面：探针页经 system:host 读回并回投——真实现置位、桩如实报 0 是这条的判据。
-e2e_assert "能力位如实上报"    "host=windows menu=true tray=false dragDrop=true"
+e2e_assert "能力位如实上报"    "host=windows menu=true tray=true dragDrop=true hotkey=true"
 # 拖放（Windows 真实现）：OLE IDropTarget 已挂载（关 WebView2 自带拖放后枚举子窗口覆盖注册）。
 e2e_assert "拖放目标已挂载"    "[cj-bridge] drag dest attached (CF_HDROP)"
 # 剪贴板（Windows 真实现）：写读回环值一致。

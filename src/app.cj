@@ -244,6 +244,27 @@ public class TauriApp <: AppHost {
         return this
     }
 
+    /**
+     * 显示 / 隐藏**默认窗口**（对标 Tauri 2 的 `window.show()` / `window.hide()`）
+     *
+     * 典型用途是「最小化到托盘」的还原路径：托盘菜单项或全局快捷键触发时 `setWindowVisible(true)`。
+     * `run()` / `runUrl()` 之前调用同样有效（宿主记下，建窗时定稿）。
+     */
+    public func setWindowVisible(visible: Bool): TauriApp {
+        return this.setWindowVisibleTo(DEFAULT_WINDOW_LABEL, visible)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setWindowVisible`，作用于 `label` 那个窗口 */
+    public func setWindowVisibleTo(label: String, visible: Bool): TauriApp {
+        match (this.hostOf(label)) {
+            case Some(host) =>
+                host.setWindowVisible(visible)
+            case None =>
+                eprintln("[cj-tauri] setWindowVisible: 未注册的窗口 label \"${label}\"（窗口未改可见性）")
+        }
+        return this
+    }
+
     /** 指定窗口版本（多窗口）：语义同 `setMenuItemState`，作用于 `label` 那个窗口 */
     public func setMenuItemStateTo(label: String, id: String, enabled: Bool, checked: Bool): TauriApp {
         this.applyMenuState(label, id, enabled, checked)
@@ -589,6 +610,9 @@ public class TauriApp <: AppHost {
         this.hub.hostCapabilitiesSink = { label => this.windowCapabilities(label) }
 
         this.host.setWindowConfig(this.config)
+        // 最小化到托盘同属「建窗时定稿」的窗口行为（窗口过程要提前知道这条策略），
+        // 所以与窗口配置一起在 start() 之前交给宿主——能力位不含托盘时平台会拒绝并出声
+        this.host.setMinimizeToTray(this.config.minimizeToTray)
     }
 
     /**

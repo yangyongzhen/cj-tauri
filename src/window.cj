@@ -24,12 +24,20 @@ public class WindowConfig {
     // 空字符串 = 用系统默认图标（默认行为，不影响老应用）。
     public var iconPath: String
 
+    // 最小化到托盘（B 项）：用户在标题栏点「最小化」时窗口**隐藏**（从任务栏消失、只留托盘图标），
+    // 而不是缩成任务栏按钮。默认 false = 老行为不变。
+    // 必须与服务端配套：应用得先 setTray(...)，否则隐藏之后界面上没有任何入口——
+    // 框架不替应用拦这个组合（它不知道应用的托盘菜单长什么样），但真到最小化那一刻平台会
+    // 复核托盘是否**真的**装上了：没装就降级为普通最小化并打一行 stderr，避免「窗口没了也点不回来」。
+    public var minimizeToTray: Bool
+
     public init() {
         this.title = "cj-tauri"
         this.width = 900
         this.height = 640
         this.devTools = true
         this.iconPath = ""
+        this.minimizeToTray = false
     }
 
     public init(title: String, width: Int64, height: Int64) {
@@ -38,5 +46,6 @@ public class WindowConfig {
         this.height = height
         this.devTools = true
         this.iconPath = ""
+        this.minimizeToTray = false
     }
 }

@@ -129,6 +129,13 @@ e2e_ensure_sdk() {
       if [ -d "$c" ]; then CANGJIE_HOME="$c"; break; fi
     done
   fi
+  # CANGJIE_HOME 常由 envsetup.bat / 本机环境变量给出，是**盘符形式**（D:\Program Files (x86)\Cangjie）：
+  # 直接拼进 PATH 会被 MSYS 按「冒号即分隔符」切碎（变成 "D" 与 "\Program Files (x86)\Cangjie/bin"），
+  # 依赖运行时 DLL 的原生进程随即起不来、且**一行输出都没有**（2026-10-15 实机：Windows 入口 11 条断言
+  # 全灭，同一份产物手工带上 POSIX 形式的 PATH 立刻跑通）。与下面 CANGJIE_STDX 同一个坑，统一转 POSIX。
+  if [ "$(e2e_host_platform)" = "windows" ] && command -v cygpath >/dev/null 2>&1; then
+    CANGJIE_HOME="$(cygpath -u "$CANGJIE_HOME")"
+  fi
   [ -n "${CANGJIE_HOME:-}" ] && [ -d "$CANGJIE_HOME" ] || return 1
   export CANGJIE_HOME
   export PATH="$CANGJIE_HOME/bin:$CANGJIE_HOME/tools/bin:$PATH"
@@ -154,12 +161,23 @@ e2e_ensure_sdk() {
       # 但 PATH 里的盘符形式条目会破坏 MSYS 的路径转换，依赖运行时 DLL 的原生进程
       # 轻则找不到 libcjtbridge.dll、重则 127 无输出（AGENTS §4）——进 PATH 前统一转 POSIX。
       # 同样要 export 给 cjpm，否则 ${CANGJIE_STDX} 展开为空、bin-dependencies 解析不到。
-      if [ -n "${CANGJIE_STDX:-}" ]; then
-        local stdx_path="$CANGJIE_STDX"
-        command -v cygpath >/dev/null 2>&1 && stdx_path="$(cygpath -u "$CANGJIE_STDX")"
-        export CANGJIE_STDX
-        export PATH="$stdx_path:$PATH"
+      # 没设环境变量就按常见安装位置兜底（与 scripts/test.sh 同一套探测）：Windows 上运行时
+      # 按 PATH 找 libstdx.*.dll，缺它的表象是**应用启动即退、一行输出都没有**——11 条断言
+      # 全灭却看不出原因（2026-10-15 实测），所以这里宁可一声明确的失败，也不让它静默退。
+      if [ -z "${CANGJIE_STDX:-}" ]; then
+        local cand
+        for cand in /d/cangjie-stdx/*/dynamic/stdx "$HOME"/.cangjie/stdx/*/dynamic/stdx; do
+          if [ -d "$cand" ]; then CANGJIE_STDX="$cand"; break; fi
+        done
       fi
+      if [ -z "${CANGJIE_STDX:-}" ]; then
+        echo "[e2e] 找不到 stdx 动态库目录（设 CANGJIE_STDX 指向 .../dynamic/stdx）：应用会在加载 libstdx.*.dll 时退出且不留日志" >&2
+        return 1
+      fi
+      local stdx_path="$CANGJIE_STDX"
+      command -v cygpath >/dev/null 2>&1 && stdx_path="$(cygpath -u "$CANGJIE_STDX")"
+      export CANGJIE_STDX
+      export PATH="$stdx_path:$PATH"
       ;;
   esac
   return 0

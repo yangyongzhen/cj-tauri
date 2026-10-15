@@ -60,9 +60,10 @@ waitForBridge(function () {
     finish();
   });
 
-  // 宿主能力位：每个平台如实上报自己的能力（Windows 期望 menu=1 tray=0 dragDrop=0）。
+  // 宿主能力位：每个平台如实上报自己的能力（Windows 期望 menu=1 tray=1 hotkey=1 dragDrop=1）。
   t.invoke('system:host').then(function (v) {
-    lines.push('host=' + v.platform + ' menu=' + v.menu + ' tray=' + v.tray + ' dragDrop=' + v.dragDrop);
+    lines.push('host=' + v.platform + ' menu=' + v.menu + ' tray=' + v.tray +
+               ' dragDrop=' + v.dragDrop + ' hotkey=' + v.hotkey);
     finish();
   }).catch(function (e) { lines.push('host FAIL: ' + e.message); finish(); });
 

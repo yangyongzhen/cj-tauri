@@ -31,6 +31,8 @@ class FakeHost <: WebViewHost {
     public var dragDropArgs: String = ""
     public var hotkeyWire: String = ""
     public var trayWire: String = ""
+    public var windowVisibleValue: Bool = true
+    public var minimizeToTrayValue: Bool = false
     // shell 事件回调（菜单点击等）：用例可以自己调它，模拟「桥把事件送进来了」
     public var shellHandler: (String) -> Unit = { _ => }
     // 销毁回调：用例可以自己调它，模拟「桥通知本窗销毁了」
@@ -94,6 +96,15 @@ class FakeHost <: WebViewHost {
 
     public func setTray(wire: String): Unit {
         this.trayWire = wire
+    }
+
+    // 窗口可见性 / 最小化策略：桩只记最后一次设置（用例断言的是「谁被调了、带了什么」）
+    public func setWindowVisible(visible: Bool): Unit {
+        this.windowVisibleValue = visible
+    }
+
+    public func setMinimizeToTray(enabled: Bool): Unit {
+        this.minimizeToTrayValue = enabled
     }
 
     public func hostCapabilities(): Int32 {

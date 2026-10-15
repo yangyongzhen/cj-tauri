@@ -50,6 +50,13 @@
   .item .ts { color: var(--muted); font-size: 10px; flex: 0 0 auto; }
   .item .del { color: var(--muted); cursor: pointer; font-size: 13px; flex: 0 0 auto; }
   .item .del:hover { color: #e05c5c; }
+  /* 「复制」入口必须可见：整行点击就是回写，但没有任何提示时用户读不出这个交互 */
+  .item .copy {
+    color: var(--muted); cursor: pointer; font-size: 11px; flex: 0 0 auto;
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
+  }
+  .item .copy:hover { color: var(--fg); border-color: var(--accent); }
+  .hint { font-size: 11px; color: var(--muted); }
   .item .full { font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-all;
     max-height: 60px; overflow: hidden; }
   .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 13px; }
@@ -61,13 +68,14 @@
   <header>
     <div>
       <div class="title">剪贴板历史 <span id="ver" style="color:var(--muted);font-size:12px"></span></div>
-      <div class="sub">托盘 + 全局快捷键（Ctrl+Alt+V）· cj-tauri</div>
+      <div class="sub">托盘 + 全局快捷键（Ctrl+Alt+V）· 点最小化 = 收进托盘 · cj-tauri</div>
     </div>
     <input id="search" placeholder="搜索历史…">
   </header>
   <div class="toolbar">
     <span class="chip" id="bClear">清空</span>
     <span class="chip" id="bReload">重载</span>
+    <span class="hint">点击条目即复制到剪贴板</span>
     <span id="status">轮询中…</span>
   </div>
   <div id="list"><div class="empty">等待桥就绪…</div></div>
@@ -90,8 +98,15 @@
     history: [],     // [{text, ts}] 新的在前
     lastText: null,  // 上轮读到的剪贴板内容（去重 + 首轮不把「启动时的旧剪贴板」算成新事件）
     pollTimer: null,
-    query: ''
+    query: '',
+    statusHold: 0    // 状态行保持到何时：轮询每 500ms 刷一次状态，会把「已复制」的确认当场抹掉
   };
+
+  // 带保持期的状态写入：holdMs 内轮询不许覆盖它（回写成功这类一次性确认必须让人看得见）
+  function setStatus(text, holdMs) {
+    $('status').textContent = text;
+    S.statusHold = Date.now() + (holdMs || 0);
+  }
 
   function waitForBridge() {
     if (t() && t().invoke) {
@@ -120,6 +135,7 @@
         '<span class="no">#' + (S.history.length - idx) + '</span>' +
         '<span class="preview">' + esc(h.text.replace(/\n/g, ' ⏎ ')) + '</span>' +
         '<span class="ts">' + esc(h.ts) + '</span>' +
+        '<span class="copy">复制</span>' +
         '<span class="del" data-i="' + idx + '" title="删除">✕</span>' +
         '</div>' +
         '<div class="full">' + esc(h.text) + '</div>';
@@ -168,10 +184,10 @@
         void el.offsetWidth; // 重启动画
         el.classList.add('flash');
       }
-      $('status').textContent = '已回写（' + now() + '）';
+      setStatus('已复制到剪贴板（' + now() + '）', 2600);
       report('[clip] write-back ' + text.length + ' chars');
     }).catch(function (e) {
-      $('status').textContent = '回写失败：' + errMsg(e);
+      setStatus('回写失败：' + errMsg(e), 4000);
       report('[clip] write-back FAILED ' + errMsg(e));
     });
   }
@@ -182,8 +198,12 @@
       // read 空板 / 非文本回 null：合法结果
       if (r !== null && r !== undefined && typeof r === 'string' && r.length) {
         if (S.lastText === null) {
-          S.lastText = r; // 首轮只记基线，不把「启动时板子里已有的旧内容」算成捕获
+          // 启动首拍：板子里已有的内容**也入历史**。原实现只记基线就丢弃，于是「先复制 → 再启动」
+          // 的那条内容在列表里根本不存在，读起来就像「没有剪贴板历史」。基线与捕获共用同一条
+          // 入史路径，只有 report 的措辞不同（E2E 靠 baseline 这行做锚点）。
+          S.lastText = r;
           report('[clip] baseline: ' + r.slice(0, 32)); // E2E 对账锚点：基线内容可外部断言
+          addHistory(r);
         } else if (r !== S.lastText) {
           S.lastText = r;
           if (addHistory(r)) {
@@ -191,9 +211,12 @@
           }
         }
       }
-      $('status').textContent = '轮询中…（' + S.history.length + ' 条）';
+      // 轮询每 500ms 都走到这里：正在保持期的确认消息（「已复制到剪贴板」）不能被它当场抹掉
+      if (Date.now() >= S.statusHold) {
+        $('status').textContent = '轮询中…（' + S.history.length + ' 条）';
+      }
     }).catch(function (e) {
-      $('status').textContent = '读取失败：' + errMsg(e);
+      setStatus('读取失败：' + errMsg(e), 0);
     });
     S.pollTimer = setTimeout(poll, 500);
   }
@@ -271,6 +294,11 @@
     t().listen('tray:click', function (ev) {
       var p = ev.payload || ev;
       report('[clip] tray click: ' + (p.id || '?'));
+      // 「显示面板」的**窗口还原**在原生侧完成（app.onShellEvent → setWindowVisible(true)）：
+      // 窗口藏起来时页面没法把自己显出来，这里只补一条用户看得见的确认。
+      if (p.id === 'show') {
+        setStatus('面板已唤出（托盘菜单 ' + now() + '）', 2600);
+      }
       if (p.id === 'clear') { clearAll(); }
       if (p.id === 'quit') { t().invoke('quit', {}).catch(function () {}); }
     });
@@ -281,6 +309,7 @@
         $('search').focus();
         $('search').classList.add('flash');
         setTimeout(function () { $('search').classList.remove('flash'); }, 650);
+        setStatus('快捷键唤出（Ctrl+Alt+V ' + now() + '）', 2600);
       }
     });
     t().invoke('system:version', {}).then(function (r) { $('ver').textContent = 'v' + r.version; }).catch(function () {});

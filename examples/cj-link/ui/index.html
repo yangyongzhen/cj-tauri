@@ -74,6 +74,22 @@
   }
   button.ghost:hover { border-color: var(--accent); color: var(--accent); }
   button.danger { background: var(--err); color: #fff; }
+  .crc-out { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; font-size: 11px; }
+  .crc-row { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+  .crc-row:hover { background: var(--bg); }
+  .crc-row .k { color: var(--muted); }
+  .crc-row .v { font-family: Consolas, monospace; color: var(--accent); }
+  .queue-list { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+  .queue-item {
+    display: flex; align-items: center; gap: 6px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; font-size: 12px;
+    font-family: Consolas, monospace; cursor: pointer;
+  }
+  .queue-item:hover { border-color: var(--accent); }
+  .queue-item .qhex { color: var(--warn); font-size: 10px; flex: 0 0 auto; }
+  .queue-item .qtext { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-item .qdel { color: var(--muted); cursor: pointer; flex: 0 0 auto; font-size: 13px; }
+  .queue-item .qdel:hover { color: var(--err); }
   .hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
   .section {
     flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; padding: 10px; gap: 8px;
@@ -179,6 +195,23 @@
       <div class="hint">
         串口与 TCP 各自独立收发，共用同一块收发日志。发送区格式（HEX/文本）与追加换行对两条链路同时生效。
       </div>
+      <div class="modebox" id="crcBox">
+        <h3>校验计算</h3>
+        <div style="display:flex;gap:6px">
+          <input id="crcInput" placeholder="HEX 负载，如 01 03 00 00 00 02" style="flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:5px 7px;font-size:12px;outline:none">
+          <button class="ghost" id="bCrcCalc">计算</button>
+        </div>
+        <div id="crcOut" class="crc-out" hidden></div>
+      </div>
+      <div class="modebox" id="queueBox">
+        <h3>发送队列</h3>
+        <div id="queueList" class="queue-list"><div class="hint" style="text-align:center">暂无条目——下面输入后点「＋」</div></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input id="queueInput" placeholder="新报文（按当前 HEX 勾选框解释）" style="flex:1;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:5px 7px;font-size:12px;outline:none">
+          <button class="ghost" id="bQueueAdd" title="加入队列">＋</button>
+        </div>
+        <label class="toggle" style="margin-top:6px;font-size:11px"><input type="checkbox" id="queueAutoHex">队列条目按 HEX 发送</label>
+      </div>
       <div style="margin-top:auto">
         <button class="ghost" id="bSaveCfg" style="width:100%">保存面板配置</button>
       </div>
@@ -204,7 +237,10 @@
             <label class="toggle"><input type="checkbox" id="hexMode">HEX</label>
             <label class="toggle"><input type="checkbox" id="appendCRLF">CRLF</label>
           </div>
-          <button class="ghost" id="bTimer" disabled>定时：关</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="ghost" id="bTimer" disabled style="flex:1">定时：关</button>
+            <input id="timerMs" value="1000" title="定时周期（毫秒）" style="width:64px;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:5px;padding:4px 6px;font-size:12px;outline:none">
+          </div>
         </div>
       </div>
     </section>
@@ -475,6 +511,96 @@
     }).catch(function (e) { sysMsg('断开失败：' + errMsg(e)); });
   }
 
+  /* ============ CRC / 校验计算 ============ */
+  var CRC_LABELS = [
+    ['crc16Modbus', 'CRC16-Modbus（低前）'],
+    ['crc16ModbusBig', 'CRC16-Modbus（高前）'],
+    ['crc16Ccitt', 'CRC16-CCITT'],
+    ['sum8', '累加和'],
+    ['xor8', '异或和'],
+    ['lrc', 'LRC'],
+    ['frameWithCrc', '整帧+CRC（可发送）']
+  ];
+  function crcCalc() {
+    var v = $('crcInput').value.trim();
+    if (!v) { return; }
+    t().invoke('link:crcCalc', { data: v, encoding: 'hex', append: true }).then(function (r) {
+      var out = $('crcOut');
+      out.innerHTML = '';
+      CRC_LABELS.forEach(function (kv) {
+        var val = r[kv[0]];
+        if (val === undefined) { return; }
+        var row = document.createElement('div');
+        row.className = 'crc-row';
+        row.innerHTML = '<span class="k">' + kv[1] + '</span><span class="v">' + esc(val) + '</span>';
+        // 点整帧行回填发送框；点其它行复制值进发送框
+        row.addEventListener('click', function () {
+          $('sendInput').value = val.toUpperCase().replace(/(..)(?=.)/g, '$1 ');
+          sysMsg('已填入发送框：' + kv[1] + ' = ' + val);
+        });
+        out.appendChild(row);
+      });
+      out.hidden = false;
+    }).catch(function (e) { sysMsg('校验计算失败：' + errMsg(e)); });
+  }
+
+  /* ============ 发送队列 ============ */
+  var queue = [];   // { text, hex }——hex 为该条目入队时的解释方式（true=HEX）
+  function queueRender() {
+    var box = $('queueList');
+    box.innerHTML = '';
+    if (!queue.length) {
+      box.innerHTML = '<div class="hint" style="text-align:center">暂无条目——下面输入后点「＋」</div>';
+      return;
+    }
+    queue.forEach(function (q, idx) {
+      var el = document.createElement('div');
+      el.className = 'queue-item';
+      el.innerHTML = '<span class="qhex">' + (q.hex ? 'HEX' : 'TXT') + '</span>' +
+        '<span class="qtext">' + esc(q.text) + '</span>' +
+        '<span class="qdel" data-i="' + idx + '" title="删除">✕</span>';
+      el.addEventListener('click', function (ev) {
+        if (ev.target.classList.contains('qdel')) {
+          queue.splice(Number(ev.target.getAttribute('data-i')), 1);
+          queueRender(); queueSave();
+          return;
+        }
+        queueSend(q);
+      });
+      box.appendChild(el);
+    });
+  }
+  function queueSend(q) {
+    if (!(S.serOpen || S.tcpOpen)) { sysMsg('先打开串口或连接网络，再从队列发送'); return; }
+    var isHex = q.hex;
+    if (isHex) {
+      var cleaned = q.text.replace(/\s+/g, '');
+      if (!/^[0-9a-fA-F]+$/.test(cleaned) || cleaned.length % 2 !== 0) {
+        sysMsg('队列条目不是合法 HEX：' + q.text); return;
+      }
+    }
+    var p = { data: isHex ? cleaned : q.text, encoding: isHex ? 'hex' : 'utf8' };
+    if (S.serOpen) {
+      t().invoke('serial:write', { handle: S.serHandle, data: p.data, encoding: p.encoding })
+        .then(function (r) { addLine({ dir: 'tx', text: p.data, hex: hexOf(p), nBytes: r.written || p.data.length }); })
+        .catch(function (e) { S.errCount++; sysMsg('队列发送失败：' + errMsg(e)); });
+    } else {
+      t().invoke('link:netSend', { data: p.data, encoding: p.encoding })
+        .then(function (r) { addLine({ dir: 'tx', text: p.data, hex: hexOf(p), nBytes: r.bytes || p.data.length }); })
+        .catch(function (e) { S.errCount++; sysMsg('队列发送失败：' + errMsg(e)); });
+    }
+  }
+  function queueSave() {
+    if (!t()) { return; }
+    t().invoke('store:set', { key: 'queue', value: queue }).catch(function () {});
+  }
+  function queueLoad() {
+    if (!t()) { return; }
+    t().invoke('store:get', { key: 'queue' }).then(function (r) {
+      if (r.value && r.value.length) { queue = r.value; queueRender(); }
+    }).catch(function () {});
+  }
+
   /* ============ 配置持久化 ============ */
   var CFG_KEY = 'panel';
   function cfgObj() {
@@ -576,6 +702,13 @@
         .catch(function (e) { return null; });
     }
     serialPart.then(function () {
+      /* CRC / 校验小工具自检：Modbus 标准测试向量 01 03 00 00 00 02 → C4 0B（低前） */
+      return step('crcCalc', t().invoke('link:crcCalc', { data: '010300000002', encoding: 'hex', append: true }))
+        .then(function (r) {
+          if (r.crc16Modbus !== 'c40b') { throw new Error('CRC16-Modbus 期望 c40b，拿到 ' + r.crc16Modbus); }
+          report('[selfcheck] crc vector=010300000002 crc16Modbus=' + r.crc16Modbus + ' frame=' + r.frameWithCrc);
+        });
+    }).then(function () {
       return step('tcpConnect', t().invoke('link:netConnect', { mode: 'tcp-client', host: cfg.tcpHost || '127.0.0.1', port: parseInt(cfg.tcpPort || '15021', 10) }))
         .then(function () {
           S.tcpOpen = true;
@@ -667,18 +800,37 @@
     });
     $('bSend').addEventListener('click', doSend);
     $('bSaveCfg').addEventListener('click', saveCfg);
+    /* 发送队列：入队 / 载入 */
+    $('bQueueAdd').addEventListener('click', function () {
+      var v = $('queueInput').value;
+      if (!v) { return; }
+      queue.push({ text: v, hex: $('queueAutoHex').checked });
+      $('queueInput').value = '';
+      queueRender(); queueSave();
+    });
+    $('queueInput').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { $('bQueueAdd').click(); }
+    });
+    queueLoad();
     $('bTimer').addEventListener('click', function () {
       S.timerOn = !S.timerOn;
       this.textContent = '定时：' + (S.timerOn ? '开' : '关');
-      this.classList.toggle('sel', false);
       if (S.timerOn) {
+        var period = function () {
+          var ms = parseInt($('timerMs').value, 10);
+          return (ms >= 50 && ms <= 60000) ? ms : 1000;
+        };
         var tick = function () {
           if (!S.timerOn) { return; }
           doSend();
-          setTimeout(tick, 1000);
+          setTimeout(tick, period());
         };
         tick();
       }
+    });
+    $('bCrcCalc').addEventListener('click', crcCalc);
+    $('crcInput').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') { crcCalc(); }
     });
     serRefresh();
     loadCfg();

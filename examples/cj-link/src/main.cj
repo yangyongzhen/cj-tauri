@@ -97,6 +97,7 @@ main(): Int64 {
         .register("link:netSend", link)
         .register("link:netClose", link)
         .register("link:netStatus", link)
+        .register("link:crcCalc", link)
         .register("link:ping", link)
         .register("report", ReportCommand())
     link.attachApp(app)                            // TCP 读线程要 emit 事件，装配后注入

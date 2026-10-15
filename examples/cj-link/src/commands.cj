@@ -397,6 +397,7 @@ public class LinkCommands <: CommandHandler {
             case "link:netSend" => return this.netSendCmd(args)
             case "link:netClose" => return this.netCloseCmd(args)
             case "link:netStatus" => return this.netStatusCmd()
+            case "link:crcCalc" => return this.crcCalcCmd(args)
             case "link:ping" => return this.pingCmd(args)
             case _ => throw CommandException("unknown link command: ${cmd}")
         }
@@ -744,9 +745,135 @@ public class LinkCommands <: CommandHandler {
         out.put("channels", JsonArray(channels))
         return out
     }
+
+    /**
+     * `link:crcCalc { data, encoding?, append? }`：对负载算全套校验值。
+     * 返回每种算法的 hex（CRC16 附字节序两种变体）；append=true 时额外给出
+     * 「原负载 + Modbus CRC（低字节在前）」的整帧 hex，前端一键填回发送框。
+     */
+    private func crcCalcCmd(args: JsonObject): JsonValue {
+        let payload = this.argStr(args, "data", "")
+        let encoding = this.argStr(args, "encoding", "hex")
+        let append = this.argBool2(args, "append", false)
+        var bytes = payload.toArray()
+        if (encoding == "hex") {
+            match (hexToBytes(payload)) {
+                case Some(b) => bytes = b
+                case None => throw CommandException("link:crcCalc refused: data 不是合法十六进制串")
+            }
+        }
+        if (bytes.size == 0) {
+            throw CommandException("link:crcCalc refused: 负载为空")
+        }
+        let crcM = crc16Modbus(bytes)
+        let crcC = crc16Ccitt(bytes)
+        let sum8 = checksumSum8(bytes)
+        let xor8 = checksumXor8(bytes)
+        let lrc = checksumLrc(bytes)
+        let out = JsonObject()
+        out.put("crc16Modbus", JsonString(crcHex(crcM, true)))
+        out.put("crc16ModbusBig", JsonString(crcHex(crcM, false)))
+        out.put("crc16Ccitt", JsonString(crcHex(crcC, false)))
+        out.put("sum8", JsonString(bytesToHex([sum8])))
+        out.put("xor8", JsonString(bytesToHex([xor8])))
+        out.put("lrc", JsonString(bytesToHex([lrc])))
+        if (append) {
+            let full = ArrayList<UInt8>()
+            for (b in bytes) {
+                full.add(b)
+            }
+            full.add(UInt8(crcM & 0xFFu16))
+            full.add(UInt8((crcM >> 8) & 0xFFu16))
+            out.put("frameWithCrc", JsonString(bytesToHex(full.toArray())))
+        }
+        return out
+    }
+
+    /** argBool 的简化版（crcCalc 专用：缺省 false） */
+    private func argBool2(args: JsonObject, key: String, fallback: Bool): Bool {
+        match (args.get(key)) {
+            case Some(v) => match (v.kind()) {
+                case JsonKind.JsBool => return v.asBool().getValue()
+                case _ => return fallback
+            }
+            case None => return fallback
+        }
+    }
 }
 
 /** UInt8 数组转 Byte 数组（TcpSocket/UdpSocket 收发用 Array<Byte>；Byte 即 UInt8 别名） */
 func bytesToByteArray(src: Array<UInt8>): Array<Byte> {
     return src
+}
+
+/* ===== CRC / 校验小工具（纯函数，命令 link:crcCalc 的核心）===== */
+
+/** CRC16-Modbus（多项式 0x8005 反射，初值 0xFFFF；工控/Modbus RTU 标准） */
+public func crc16Modbus(bytes: Array<UInt8>): UInt16 {
+    var crc: UInt16 = 0xFFFF
+    for (b in bytes) {
+        crc = crc ^ UInt16(b)
+        var i = 0
+        while (i < 8) {
+            if ((crc & 1u16) != 0u16) {
+                crc = (crc >> 1) ^ 0xA001u16
+            } else {
+                crc = crc >> 1
+            }
+            i++
+        }
+    }
+    return crc
+}
+
+/** CRC16-CCITT（多项式 0x1021，初值 0xFFFF） */
+public func crc16Ccitt(bytes: Array<UInt8>): UInt16 {
+    var crc: UInt16 = 0xFFFF
+    for (b in bytes) {
+        crc = crc ^ (UInt16(b) << 8)
+        var i = 0
+        while (i < 8) {
+            if ((crc & 0x8000u16) != 0u16) {
+                crc = (crc << 1) ^ 0x1021u16
+            } else {
+                crc = crc << 1
+            }
+            i++
+        }
+    }
+    return crc
+}
+
+/** 累加和（所有字节之和的低 8 位） */
+public func checksumSum8(bytes: Array<UInt8>): UInt8 {
+    var s: UInt16 = 0
+    for (b in bytes) {
+        s = s + UInt16(b)
+    }
+    return UInt8(s & 0xFFu16)
+}
+
+/** 异或和（所有字节逐个异或） */
+public func checksumXor8(bytes: Array<UInt8>): UInt8 {
+    var s: UInt8 = 0
+    for (b in bytes) {
+        s = s ^ b
+    }
+    return s
+}
+
+/** LRC（纵向冗余校验：-(累加和) 的低 8 位，MODBUS ASCII 用） */
+public func checksumLrc(bytes: Array<UInt8>): UInt8 {
+    var s: UInt16 = 0
+    for (b in bytes) {
+        s = s + UInt16(b)
+    }
+    return UInt8((0x100u16 - (s & 0xFFu16)) & 0xFFu16)
+}
+
+/** CRC16 结果的字节序变体（hex 输出）：big = 高字节在前，little = 低字节在前（Modbus 惯例） */
+func crcHex(crc: UInt16, little: Bool): String {
+    let hi = bytesToHex([UInt8((crc >> 8) & 0xFFu16)])
+    let lo = bytesToHex([UInt8(crc & 0xFFu16)])
+    return if (little) { lo + hi } else { hi + lo }
 }

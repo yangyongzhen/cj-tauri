@@ -16,7 +16,10 @@ cj-tauri 示例：串口与 TCP 客户端共用一块收发日志的调试小工
   收均走宿主事件推送 `link:tcpData`（报文带 `mode`/`channel`/`from` 字段区分来源）。
 - **收发日志**：HEX/ASCII 双显（双显/HEX/文本三档视图）、方向分色（↑TX 黄 / ↓RX 绿 / ·系统灰）、
   毫秒时间戳、按方向过滤、TX/RX 字节与错误计数。
-- **发送区**：HEX/文本双模式、追加 CRLF、定时发送（1s 周期）。
+- **发送区**：HEX/文本双模式、追加 CRLF、定时发送（周期 50ms–60s 可调）。
+- **发送队列**：常用报文存成列表（HEX/TXT 各自标记），点一条发一条，随 store 持久化。
+- **校验计算**：`link:crcCalc` 算 CRC16-Modbus（低前/高前）、CRC16-CCITT、累加和、异或和、LRC，
+  一键取「整帧+CRC」回填发送框（协议逻辑在仓颉侧，前端只展示）。
 - **面板配置持久化**：`store:get/set` 落 `store.json`，重启自动恢复。
 
 ## 命令表
@@ -27,6 +30,7 @@ cj-tauri 示例：串口与 TCP 客户端共用一块收发日志的调试小工
 | `store:get/set` | store 插件 | 面板配置持久化 |
 | `link:serialList` | 应用级 | 串口枚举统一出口 |
 | `link:netConnect/netSend/netClose/netStatus` | 应用级 | 网络会话（TCP 客户端 / TCP 服务器 / UDP，`mode` 参数区分） |
+| `link:crcCalc` | 应用级 | 校验计算（CRC16-Modbus/CCITT、累加和、异或和、LRC、整帧拼装） |
 | `link:ping` / `report` / `quit` | 应用级 | 探针自检辅助 |
 
 能力清单见 `capabilities/default.json`——没声明的命令一律 `command not allowed`。
@@ -44,9 +48,10 @@ cd examples/cj-link && cjpm run
 ## 探针自检（自动化取证）
 
 `CJ_LINK_PROBE=1` 时宿主经 document-start 预执行脚本注入配置，页面自动跑
-「串口 open→write→read→close + TCP connect→send→recv→close + UDP connect→send→recv→close」共 10 步，
+「串口 open→write→read→close + CRC 标准向量（01 03 00 00 00 02 → c40b）+ TCP connect→send→recv→close
++ UDP connect→send→recv→close」共 11 步，
 逐项经 `report` 回投 stderr；对端由 `cj-link-peer.py` 扮演（串口 pty echo + TCP echo + UDP echo），
-收发证据落在应用进程之外（`rx` 文件 + 对端日志）。`run.sh` 的 30 条断言全绿即三条链路都是活的。
+收发证据落在应用进程之外（`rx` 文件 + 对端日志）。`run.sh` 的 33 条断言全绿即三条链路都是活的。
 
 ```bash
 CJ_LINK_PROBE=1 CJ_LINK_PROBE_SERIAL_PATH=/dev/pts/N \

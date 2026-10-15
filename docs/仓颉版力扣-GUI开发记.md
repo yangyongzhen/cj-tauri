@@ -17,7 +17,62 @@
 
 所以它名义上是「刷题 GUI」，实际是我给自己的框架找的一块试金石。判题机是真判题，题库是真题目，不是摆拍。
 
-## 二、它长什么样
+## 二、先说清楚 cj-tauri 是什么
+
+后面所有内容都建立在这一句话上：**`cj-tauri` 是用仓颉语言实现的 Tauri 2 对应物**——把 Tauri（Rust + 系统 WebView）的三件套架构在仓颉里独立实现了一遍：**WebView 宿主 + IPC 双向桥 + 能力安全模型**。前端照旧用任意 Web 技术（HTML/CSS/JS，另有 Vue 3、React 18 模板），后端用仓颉静态编译，产物是**不带 Chromium 的原生桌面应用**：Windows 走 WebView2，Linux 走 WebKitGTK，鸿蒙 ArkWeb 是架构预留位。
+
+跟「换个语言重写一遍」相比，真正让我觉得有意思的是仓颉这门语言的形状把几件事推到了前台：
+
+- **平台差异只允许出现在两处**：仓颉侧的 `@When` 条件编译，和 C 桥的 `native/bridge_*.c`。IPC、能力校验、命令分发必须跨平台共用——所以我敢拿「同一个示例在 Windows 与 Linux 上都跑起来」当验收标准，而不是维护两套逻辑。
+- **安全模型是「能力清单 + 三处联动」**：一个命令要能调，得同时做到「实现 handler」「`app.register(...)` 注册」「在 `capabilities/*.json` 里声明」。默认最小权限，漏一处分别得到 `command not registered` 或 `command not allowed`——下面这个力扣示例的 9 个命令就是照这条规矩配的。
+- **命令是异步分发的**：校验在调用线程上同步做（未授权 / 未注册当场拒），通过的命令 `spawn` 到 worker 线程执行、结果回投给前端。所以「等编译器好几秒」的判题命令不会把窗口冻住——这条不是设计上的锦上添花，是被真机卡顿逼出来的。
+- **命令放行 ≠ 参数放行**：清单还能给插件写路径 scope（`deny` 优先、`allow` 必须显式命中，支持 `$HOME` 这类变量），插件自己声明吃不吃这层限制。
+
+一个最小工程长这样（`cj-tauri create` 生成的就是这套，只是默认模板把页面内联进了二进制）：
+
+```
+myapp/
+├── cjpm.toml             # 仓颉工程；Windows 分支已带 --subsystem=windows（双击不弹控制台黑窗）
+├── src/main.cj           # 装配：TauriApp().window(...).register("greet", …) → app.run(html)
+├── capabilities/app.json # 能力清单：命令与事件的放行表（不声明 = 前端调不到）
+└── ui/index.html         # 前端；经 window.__CJ_TAURI__ 的 invoke / listen / emit 与后端通信
+```
+
+### 怎么把它装起来用
+
+两条路，看你想干什么。
+
+**A. 起一个新工程**（Node 环境即可拿到 CLI）：
+
+```bash
+npx cj-tauri create myapp     # 脚手架；另有 --template vue|react
+cd myapp
+npx cj-tauri dev              # 编译并起窗口；vue/react 模板会接管它们的 Vite dev server
+```
+
+**B. 跑仓库里的示例**（这篇讲的力扣就在 `examples/leetcode-gui`）：
+
+```bash
+git clone https://atomgit.com/qq8864/cj-tauri.git && cd cj-tauri
+cd native && ./build_linux.sh          # 先编 C 桥；Windows 用 native\build_win.bat
+                                       # 产物必须落在 native/ 根，cjpm.toml 按那个路径找库
+cd ../examples/hello && cjpm build && ./run.sh   # Windows：run.bat
+```
+
+两条路的前置都一样：**仓颉 SDK 1.2.0（含 stdx）进 PATH**（`cjc` 要能被找到）。另外 Windows 需要 WebView2 Runtime 与 mingw-w64 gcc，Linux 需要 libwebkit2gtk-4.1 + GTK3 + gcc。跑起来后 `cj-tauri info` 能打出应用的装配结果（插件与命令清单），加 `--json` 给机器读——我给这个示例核对「哪些命令真的被放行了」时就靠它。
+
+### 去哪儿找它
+
+| 想找什么 | 地址 |
+| --- | --- |
+| 仓库（主托管，双推 AtomGit + GitHub） | **[atomgit.com/qq8864/cj-tauri](https://atomgit.com/qq8864/cj-tauri)** |
+| 官网（中英双语，源文件在 `website/`） | **[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)** |
+| npm（CLI 与脚手架） | [npmjs.com/package/cj-tauri](https://www.npmjs.com/package/cj-tauri) |
+| 上手文档 | `README.md`（概览与示例一览）、`docs/使用文档.md`（从零到窗口） |
+| 设计取舍 | `docs/设计决策记录.md`（每个长期决策的「为什么」与真实代价） |
+| 开发契约与坑清单 | `AGENTS.md`（这篇里的坑大半也在那儿有一份） |
+
+## 三、它长什么样
 
 一张实机截图就能说明白（窗口 1280×820，Windows WebView2）：
 
@@ -59,7 +114,7 @@ capabilities/app.json ─ 能力清单：这 9 个命令与 menu:click / dragdro
 
 前端只经 `window.__CJ_TAURI__` 的 `invoke / listen / emit`，没有任何自己写的 `postMessage`。这一条是框架的红线，示例也不例外。
 
-## 三、判题机：把你的代码拼成一份能编译的程序
+## 四、判题机：把你的代码拼成一份能编译的程序
 
 这块是这个示例最有意思的地方，也是「真判题」和「假演示」的分界线。
 
@@ -99,7 +154,7 @@ if (r1 == 5) {
 
 编译是成功的，失败在「怎么把它叫起来」。修法照框架里已有的 `cjcExeName()` 范式加一个 `judgeExeName()`：编译 `-o` 的产物名、编译缓存的路径、调用命令行**三处同源**地按平台分叉（Windows 带 `.exe`，Linux 不带）。这种「同一件事写在三个地方」的坑，唯一的解法就是让这三处共用同一个函数。
 
-## 四、题库：19 题 → 100 题，答案跟着题走
+## 五、题库：19 题 → 100 题，答案跟着题走
 
 最初的 19 题（两数之和、爬楼梯、打家劫舍这类）够跑通链路，但摆出来实在不像个刷题的地方。于是扩到了 **100 题、11 个分类**：
 
@@ -142,7 +197,7 @@ if (r1 == 5) {
 
 原因是**新客户端 + 还没推上去的新题包**：远端还是旧的 100–107，而内置题库已经占满 1..100，旧题包的 `id=100` 正好和内置第 100 题撞车。规则要求「题包不许覆盖内置题」，所以**拒得对**——问题出在数据没跟着代码走。把新题包推上去就好了，而且顺手确认了一件事：旧客户端不会因此坏（它的下限是 `>=100`，新的 200–207 照样满足）。
 
-## 五、前端：为什么 CodeMirror 必须「内联」，以及「一个 exe」是怎么打出来的
+## 六、前端：为什么 CodeMirror 必须「内联」，以及「一个 exe」是怎么打出来的
 
 页面本身没什么好说的：一个三栏 flex 布局，深色主题，编辑器区挂 CodeMirror 5。真正花时间的是两件事。
 
@@ -176,7 +231,7 @@ vendor 读不到时会降级：页面留空注释，编辑器退化成纯 textar
 - **子系统默认是 console**：默认链接出来的是控制台程序，双击会先弹一个黑窗口（交付后用户第一条反馈就是这个）。所以 `link-option` 里必须写 `--subsystem=windows`，而且脚本收尾会 `objdump -p` 复核一次（必须是 `00000002`），免得被人改回去只靠肉眼发现。
 - **「按名字 LoadLibrary」的组件不在 PE 导入表里**：`WebView2Loader.dll`、OpenSSL 的 `libssl-3-x64.dll` / `libcrypto-3-x64.dll` 都属于这一类——递归解析导入表收不全，只能靠打包脚本单独收（单文件包里 loader 是内嵌进 exe、首次运行释放到 `%TEMP%`）。
 
-## 六、那些让我返工的坑（附判据）
+## 七、那些让我返工的坑（附判据）
 
 写到这里，把真正花掉时间的几条集中记一下。它们的共同点是：**表现和病因经常只差一个判据**。
 
@@ -215,7 +270,7 @@ vendor 读不到时会降级：页面留空注释，编辑器退化成纯 textar
 
 更阴的是第一层 `Directory.create` 外面套了个空 `catch`，失败是静默的，报出来的是第二层——所以我一开始还在想「`target` 怎么会不存在」。修法就是显式补建顶层 `target`；教训两条：**「环境里恰好存在的东西」不是依赖，是隐性假设**；**空 catch 会把真正的失败点往后挪一层**，挪出来的错会指向一个看起来不可能的原因。
 
-## 七、怎么用它
+## 八、怎么用它
 
 ### 前置条件
 
@@ -271,15 +326,15 @@ cjpm build
 ### 免 SDK 分发：一个 exe
 
 ```bash
-bash scripts/pack-win-single.sh leetcode-gui
-# => examples/leetcode-gui/dist-single/leetcode_gui.exe
+bash scripts/pack-win-single.sh examples/leetcode-gui
+# => examples/leetcode-gui/dist-single/leetcode-gui.exe
 ```
 
 产物是一个**不带任何随行文件**的 exe：页面、CodeMirror、能力清单全在二进制里，双击就开（仍然需要 WebView2 Runtime）。但要说清楚边界：**判题依然要本机有 `cjc`**——我把题目和编辑器装进了包里，编译器没法装（那是几百 MB 的 SDK）。所以这个包对「只想看看界面/读题」的人友好，对「要判题」的人还是得装 SDK。
 
 所有本地数据（进度、题包缓存、判题临时目录）都落在**启动时的工作目录**下——仓库里跑就在示例目录，打包产物跑就在你双击/启动它的那个目录，删掉不心疼。单文件包也因此可以放在任意空目录里跑，不会和别人的进度文件搅在一起。
 
-## 八、写在最后
+## 九、写在最后
 
 回头看，这个示例做的其实是三件事：
 
@@ -296,6 +351,15 @@ bash scripts/pack-win-single.sh leetcode-gui
 - 平台实测以 Windows（WebView2）为主，Linux 侧的框架链路是通的，鸿蒙 ArkWeb 目前还是架构预留位。
 
 如果你想拿它当工具，装好 SDK 直接 `run.bat`；如果拿它当 `cj-tauri` 的样本，建议从 `src/commands.cj` 里的 `RunCommand` 开始读——那一百来行把「仓颉应用怎么把外部编译器用起来」讲得比文档清楚。
+
+## 相关链接
+
+- **仓库（主托管）**：[atomgit.com/qq8864/cj-tauri](https://atomgit.com/qq8864/cj-tauri)
+- **官网**（中英双语）：[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)
+- **npm**（CLI 与脚手架）：[npmjs.com/package/cj-tauri](https://www.npmjs.com/package/cj-tauri)
+- **这个示例**：[examples/leetcode-gui](https://atomgit.com/qq8864/cj-tauri/tree/main/examples/leetcode-gui)（含 README、题库与打包脚本）
+- **单文件 exe**：`examples/leetcode-gui/dist-single/leetcode-gui.exe`——随仓库分发，不装 SDK 也能先把界面点一遍（判题仍要本机 `cjc`）
+- **同类示例**：`examples/modbus-poll`（Modbus 调试工具，对标 Modbus Poll）、`examples/markdown-notes`、`examples/typing-poem`、`examples/music` 等，全部在 `examples/` 下
 
 
 

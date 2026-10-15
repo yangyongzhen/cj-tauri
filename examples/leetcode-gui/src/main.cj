@@ -2,7 +2,7 @@ package leetcode_gui
 
 import cjTauri.*
 import std.collection.*
-import std.fs.*
+import stdx.encoding.json.*
 
 /**
  * 仓颉版力扣 · cj-tauri 示例应用
@@ -28,39 +28,22 @@ import std.fs.*
 /** 前端页面路径（工作目录 = 项目根） */
 let UI_PATH = "ui/index.html"
 
-/** vendor 库路径（CodeMirror 5，MIT，见 ui/vendor/codemirror.LICENSE.txt 与 AGENTS §5 登记） */
-let VENDOR_CSS = "ui/vendor/codemirror.min.css"
-let VENDOR_JS = "ui/vendor/codemirror.min.js"
-
 /**
- * 读 vendor 文件；缺失返回 None（页面占位符留空注释，编辑器降级 textarea）。
+ * 读前端页面并把 CodeMirror 内联进占位符：内嵌优先（单文件产物没有随行的 ui/），
+ * 否则按相对路径读盘——两条路都在 `src/packed_resources.cj`。
+ *
  * 页面是 run(html) 的内联来源（Windows 下 NavigateToString，无真实来源），
  * `<script src>` 相对路径不成立，vendor 必须内联——markdown-notes 同款做法。
  */
-func vendorOrNone(path: String, what: String): Option<String> {
-    try {
-        return Some(String.fromUtf8(File.readFrom(path)))
-    } catch (e: Exception) {
-        eprintln("[lc] vendor 缺失 ${path}（${what}降级为纯 textarea）：${e}")
-        return None
-    }
-}
-
-/** 读前端页面并把 vendor 内联进占位符；读不到页面给可读错误 */
 func readUi(): String {
-    var html = ""
-    try {
-        html = String.fromUtf8(File.readFrom(UI_PATH))
-    } catch (e: Exception) {
-        throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/leetcode-gui 目录下启动")
-    }
-    match (vendorOrNone(VENDOR_CSS, "编辑器样式")) {
+    var html = textOrFile(PACKED_UI_B64, UI_PATH, "前端页面")
+    match (vendorOrFile(0)) {
         case Some(t) => html = html.replace("/*__VENDOR_CSS__*/", t)
-        case None => ()
+        case None => eprintln("[lc] vendor 缺失 ${VENDOR_FILES[0]}（编辑器样式降级）")
     }
-    match (vendorOrNone(VENDOR_JS, "语法高亮与行号")) {
+    match (vendorOrFile(1)) {
         case Some(t) => html = html.replace("/*__VENDOR_CORE__*/", t)
-        case None => ()
+        case None => eprintln("[lc] vendor 缺失 ${VENDOR_FILES[1]}（语法高亮与行号降级为纯 textarea）")
     }
     return html
 }
@@ -111,6 +94,19 @@ main(): Int64 {
         .register("leetcode:fetchMore", FetchMoreCommand())
         .register("leetcode:solution", SolutionCommand())
         .register("leetcode:stats", StatsCommand())
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var capsN: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            capsN += 1
+        }
+        eprintln("[lc] 能力清单来自内嵌资源（${capsN} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
+    }
 
     // 预置类能力：菜单必须在 start()/run() 之前定稿
     app.setMenu(buildMenu())

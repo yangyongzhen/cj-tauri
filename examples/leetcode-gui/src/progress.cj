@@ -14,8 +14,8 @@ import stdx.encoding.json.*
  *   - solved 只涨不降：已经全过过的题，后面再提交失败也不丢「已解决」标记；
  *   - 文件损坏按没有处理（与草稿/题包缓存同一口径），下次判题重写。
  *
- * 参考答案：solutionFor(id) 在 src/solutions.cj（raw 字符串存代码，零转义），
- * 27 题答案已逐题过「答案 + harness」cjc 编译与逐用例运行验证。
+ * 参考答案：随题走——题目的 solution 字段（内嵌题库与远程题包同一字段，转义见
+ * problems_data.cj 顶部铁律）；答案已逐题过「答案 + harness」cjc 编译与逐用例运行验证。
  */
 
 /** 统计落盘位置（工作目录 = 项目根） */
@@ -103,7 +103,7 @@ public class SolutionCommand <: CommandHandler {
         let _ = cmd
         let _ = ipc
         let id = intArg(args, "id", 0)
-        let code = solutionFor(id)
+        let code = problemSolutionById(id)
         if (code.size == 0) {
             throw CommandException("题 ${id} 暂无参考答案")
         }

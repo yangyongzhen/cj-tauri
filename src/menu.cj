@@ -121,7 +121,8 @@ public class MenuModel {
         return MenuModel.emit(this.items, 0)
     }
 
-    private static func emit(items: ArrayList<MenuItem>, depth: Int64): String {
+    /** 包内共享（TrayModel 的托盘菜单复用同一遍发射器，别再抄一份格式） */
+    static func emit(items: ArrayList<MenuItem>, depth: Int64): String {
         var out = ""
         for (item in items) {
             if (!MenuModel.wireSafe(item.id) || !MenuModel.wireSafe(item.label) ||

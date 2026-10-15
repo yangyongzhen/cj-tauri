@@ -46,7 +46,8 @@
   当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过），
   **文件拖入已完成**（`DragDropPolicy` + `setDragDrop`，start 前定稿；URI 解析在 C 桥 core，
   报文 `drop` → 前端 `dragdrop:files`，Linux 实机取证、Windows 同名桩），
-  **托盘暂缓**（用户裁定：Linux 依赖 libayatana-appindicator3；Windows 侧也未做，`tray=0` 如实）。
+  **托盘已解禁**（2026-10-15 用户裁定：剪贴板历史管理器驱动，Linux 走 libayatana-appindicator3、
+  RFC-002 §6.3 的可选编译约定不变——无依赖机器编译照过、`tray=0` 如实；Windows 侧随示例排期）。
   事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
   应用侧一律挂**可叠加**的 `app.onShellEvent((json, label) => …)`，并自动投前端事件
   （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；

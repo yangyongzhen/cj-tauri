@@ -30,6 +30,12 @@
 #include <termios.h>
 #include <time.h>
 #include "bridge_core.h"
+#ifdef CJ_HAVE_X11
+#include <X11/Xlib.h>
+#endif
+#ifdef CJ_HAVE_TRAY
+#include <libayatana-appindicator/app-indicator.h>
+#endif
 
 /* ===== 菜单栏（RFC-002 §5.4 / §5.5）=====
    core 把线路文本交下来，本文件翻译成 GTK 菜单栏。菜单栏是**每窗口**资源（GtkMenuBar 挂在
@@ -72,6 +78,20 @@ typedef struct plat_host {
     int thread_set;
     volatile int thread_done; /* 宿主线程跑完（收尾最后一步）：只有它为 1 才敢 free 这个结构，
                                  见 cj_plat_fini 里「为什么不 join」的注释 */
+    /* --- 全局快捷键（CJ_HAVE_X11 编译期开关；grab 线程独占自己的 X 连接，
+            命令经 hk_cmd 投递、触发事件经 hk_evt 回 GTK 线程——Xlib 的多线程安全不想赌，
+            单线程拥有一切 X 资源；仓颉回调仍只发生在 GTK 线程，与菜单/拖放同一纪律）--- */
+    int hk_cmd[2];      /* [0] 读端（grab 线程 poll）[1] 写端（cj_plat_set_global_hotkeys 发 'R'/'Q'）*/
+    int hk_evt[2];      /* [0] 读端（GTK 线程 50ms 轮询）[1] 写端（grab 线程写触发 id 行）*/
+    pthread_t hk_thread;
+    int hk_thread_started;
+    int hk_boot;          /* grab 线程是否已起（懒启动：首次 set_global_hotkeys 才建线程与管道）*/
+    guint hk_evt_src;     /* GTK 侧事件轮询的 source id（收尾时 g_source_remove）*/
+    volatile int hk_quit; /* 收尾旗标：grab 线程见到即退出 */
+    volatile int hk_done; /* grab 线程跑完（fini 回收状态的另一半条件）*/
+#ifdef CJ_HAVE_TRAY
+    AppIndicator *tray;   /* 当前托盘；NULL = 没有。GTK 线程专属，重建 = 释放旧的再建 */
+#endif
 } plat_host;
 
 /* ===== 同步原语（core 只用这些，绝不直接碰 pthread）===== */
@@ -193,6 +213,10 @@ static void menu_clear_slots(plat_host *p);
    各投一次，实机驱动脚本按它把鼠标点到项的中心——见函数定义处的注释 */
 static void menu_post_layout(cj_host *h);
 static void drag_dest_apply(cj_host *h, plat_host *p, int enabled, int files);
+#ifdef CJ_HAVE_TRAY
+static void tray_apply_wire(cj_host *h, plat_host *p, const char *wire);
+static void tray_remove(plat_host *p);
+#endif
 
 void cj_plat_init(cj_host *h) {
     plat_host *p;
@@ -202,6 +226,12 @@ void cj_plat_init(cj_host *h) {
         fprintf(stderr, "[cj-bridge] init failed: out of memory\n");
         return;
     }
+    /* fd 0 是合法描述符（stdin）：管道字段 calloc 出来的 0 会被误当「已打开」，
+       必须显式置 -1（「未创建」的约定值），首次 set_global_hotkeys 时才真正 pipe() */
+    p->hk_cmd[0] = -1;
+    p->hk_cmd[1] = -1;
+    p->hk_evt[0] = -1;
+    p->hk_evt[1] = -1;
     h->plat = p;
 }
 
@@ -210,6 +240,32 @@ int cj_plat_fini(cj_host *h) {
     if (!h) return 1;
     p = (plat_host *)h->plat;
     if (!p) return 1;
+    /* 全局快捷键 grab 线程先收：置旗标 + 发 'Q'，有界等它退出（等不到照旧留着状态不阻塞，
+       与宿主线程同一口径）。evt 轮询 source 挂在 GTK 主循环上，主循环已随窗口退出而结束，
+       这里 remove 是幂等兜底（GSource 句柄已无效时 g_source_remove 只告警，故先判非 0）。 */
+    if (p->hk_thread_started) {
+        char q = 'Q';
+        p->hk_quit = 1;
+        if (p->hk_cmd[1] >= 0) {
+            ssize_t w = write(p->hk_cmd[1], &q, 1);
+            (void)w;
+        }
+        {
+            int spin_hk = 0;
+            while (!p->hk_done && spin_hk < 500) { /* 最多约 1s */
+                usleep(2000);
+                spin_hk++;
+            }
+        }
+        if (p->hk_evt_src) {
+            g_source_remove(p->hk_evt_src);
+            p->hk_evt_src = 0;
+        }
+        pthread_detach(p->hk_thread);
+        p->hk_thread_started = 0;
+    }
+    if (p->hk_cmd[0] >= 0) { close(p->hk_cmd[0]); close(p->hk_cmd[1]); p->hk_cmd[0] = p->hk_cmd[1] = -1; }
+    if (p->hk_evt[0] >= 0) { close(p->hk_evt[0]); close(p->hk_evt[1]); p->hk_evt[0] = p->hk_evt[1] = -1; }
     /* 这里**不能 join**：宿主线程收尾时要进入仓颉运行时（窗口销毁回调 on_destroy），
        而在仓颉线程里阻塞 join 会与运行时的「停处理器」握手互等——实测约 1/6 概率整进程挂死，
        栈是 cj_plat_fini → pthread_join ↔ CJ_CJThreadMexit → CJ_ProcessorStopWithLastCheck。
@@ -577,6 +633,18 @@ static void *gtk_thread_main(void *arg) {
     if (h->pending_drop_enabled) {
         drag_dest_apply(h, p, h->pending_drop_enabled, h->pending_drop_files);
     }
+#ifdef CJ_HAVE_TRAY
+    /* 托盘：装配期已 set_tray 过的这时建出来（appindicator 不依赖窗口，但要在 GTK 线程） */
+    if (h->pending_tray && h->pending_tray[0]) {
+        tray_apply_wire(h, p, h->pending_tray);
+    }
+#endif
+    /* 全局快捷键：应用在 run() 之前 set 时 cj_bridge_init 还没跑（plat 未分配），
+       cj_plat_set_global_hotkeys 那会儿拿不到 plat 只能静默返回——托盘靠上面的装配点
+       兜住了，快捷键同样在这里补延迟注册（grab 线程懒启动） */
+    if (h->pending_hotkeys && h->pending_hotkeys[0]) {
+        cj_plat_set_global_hotkeys(h, h->pending_hotkeys);
+    }
     cj_core_set_ready(h);
 
     /* 页面来源：URL 优先（cj_bridge_load_url），否则内联 HTML（cj_bridge_start） */
@@ -602,6 +670,9 @@ static void *gtk_thread_main(void *arg) {
     p->box = NULL;      /* 随窗口一起销毁了 */
     p->menubar = NULL;
     menu_clear_slots(p); /* 槽里的 app_id 是我们 malloc 的，跟平台状态一起收 */
+#ifdef CJ_HAVE_TRAY
+    tray_remove(p);      /* 托盘是应用级资源，不随窗口销毁：这里兜底摘除（幂等） */
+#endif
     /* 兜底：非关窗路径退出主循环时也要通知一次（幂等，正常路径已触发过） */
     cj_core_window_destroyed(h);
     /* 最后一步才立这个标记：cj_plat_fini 见到它才 free 平台状态（此刻本线程已不再碰 p）*/
@@ -1025,10 +1096,24 @@ void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     /* 本平台的静态能力：菜单栏已落地（GTK 的菜单栏不需要可选依赖）；拖放已落地（7.B，
-       gtk_drag_dest，无新依赖）；托盘不做（Linux 依赖 libayatana-appindicator3，用户裁定暂缓——
-       RFC-003 第 1 期本侧只收拖放）；通知走 freedesktop Notifications（会话总线），
-       Xvfb 下无通知守护进程时命令会失败——能力位表示「协议层可用」，运行期成败由命令如实回传 */
+       gtk_drag_dest，无新依赖）；通知走 freedesktop Notifications（会话总线），
+       Xvfb 下无通知守护进程时命令会失败——能力位表示「协议层可用」，运行期成败由命令如实回传。
+       全局快捷键按 CJ_HAVE_X11 编译期开关如实（RFC-002 §6.3 可选编译；运行期 X 打不开
+       （Wayland）在 grab 线程里再打一行，位域只表达编译期事实）。
+       托盘同理按 CJ_HAVE_TRAY 如实（libayatana-appindicator3 编进来了才置位）。 */
+#ifdef CJ_HAVE_X11
+#ifdef CJ_HAVE_TRAY
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY | CJ_CAP_TRAY;
+#else
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY;
+#endif
+#else
+#ifdef CJ_HAVE_TRAY
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_TRAY;
+#else
     return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
+#endif
+#endif
 }
 
 /* ===== 拖放（RFC-002 §5；7.B Linux 侧）===== */
@@ -1074,6 +1159,578 @@ static void drag_dest_apply(cj_host *h, plat_host *p, int enabled, int files) {
         gtk_drag_dest_unset(p->view);
         fprintf(stderr, "[cj-bridge] drag dest detached\n");
     }
+}
+
+/* =========================================================================
+ *  托盘（RFC-002 §7.C；Linux = libayatana-appindicator3，可选编译 CJ_HAVE_TRAY）
+ *
+ *  线程纪律与菜单相同：AppIndicator / GtkMenu 只在 GTK 线程上创建与释放
+ *  （activate 回调本来就是 GTK 主循环在发，交回 core 不跨线程）。运行期整表重建走
+ *  g_idle_add 投到本线程；宿主线程收尾段（gtk_main 返回后）unref 兜底摘除。
+ *  菜单行走 cj_core_menu_walk 的同一遍解析（平铺一层，depth 恒 0），
+ *  头部两行 icon/tooltip 由本层自己切出来。
+ * ========================================================================= */
+#ifdef CJ_HAVE_TRAY
+
+/* 托盘菜单项的回调上下文：id 是我们 malloc 的（随 widget 存亡，走 destroy notify 释放） */
+typedef struct tray_item_ctx {
+    cj_host *h;
+    char *id;
+} tray_item_ctx;
+
+static void tray_item_ctx_free(gpointer data, GClosure *closure) {
+    tray_item_ctx *c = (tray_item_ctx *)data;
+    (void)closure;
+    if (!c) return;
+    free(c->id);
+    free(c);
+}
+
+static void tray_on_activate(GtkMenuItem *item, gpointer ud) {
+    tray_item_ctx *c = (tray_item_ctx *)ud;
+    (void)item;
+    if (!c || !c->h) return;
+    cj_core_tray_clicked(c->h, c->id);
+}
+
+typedef struct tray_build_ctx {
+    cj_host *h;
+    GtkMenuShell *menu;
+} tray_build_ctx;
+
+/** 平铺一层的托盘菜单：kind 与菜单线路同码（n/c/s；m 丢弃——v1 不支持子菜单） */
+static void tray_add_row(void *ctx, int depth, char kind, const char *id,
+                         const char *label, int flags, const char *accel) {
+    tray_build_ctx *c = (tray_build_ctx *)ctx;
+    GtkWidget *item;
+    int enabled = (flags & 1) ? 1 : 0;
+    int checked = (flags & 2) ? 1 : 0;
+    (void)depth;
+    (void)accel;
+    if (!c || !c->menu) return;
+    if (kind == 's') {
+        gtk_menu_shell_append(c->menu, gtk_separator_menu_item_new());
+        return;
+    }
+    if (kind == 'm') {
+        fprintf(stderr, "[cj-bridge] tray: submenu dropped (v1 tray menu is flat): %s\n", label);
+        return;
+    }
+    item = (kind == 'c') ? gtk_check_menu_item_new_with_label(label)
+                         : gtk_menu_item_new_with_label(label);
+    gtk_widget_set_sensitive(item, enabled ? TRUE : FALSE);
+    if (kind == 'c') {
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
+    }
+    if (id[0]) {
+        tray_item_ctx *tc = (tray_item_ctx *)calloc(1, sizeof(*tc));
+        if (!tc) return;
+        tc->h = c->h;
+        tc->id = strdup(id);
+        if (!tc->id) {
+            free(tc);
+            return;
+        }
+        g_signal_connect_data(item, "activate", G_CALLBACK(tray_on_activate), tc,
+                              tray_item_ctx_free, (GConnectFlags)0);
+    }
+    gtk_menu_shell_append(c->menu, item);
+}
+
+/** 头部两行（icon/tooltip）之外的部分——调用方保证至少两行 */
+static const char *tray_menu_part(const char *wire) {
+    int nl = 0;
+    const char *p = wire;
+    while (*p && nl < 2) {
+        if (*p == '\n') nl++;
+        p++;
+    }
+    return p;
+}
+
+/** 跳到下一行行首（最后一行没有 \n 就到串尾） */
+static const char *tray_next_line(const char *p) {
+    const char *nl = strchr(p, '\n');
+    return nl ? nl + 1 : p + strlen(p);
+}
+
+static void tray_apply_wire(cj_host *h, plat_host *p, const char *wire) {
+    char icon[512];
+    char tooltip[512];
+    const char *menu_part;
+    GtkWidget *menu;
+    tray_build_ctx ctx;
+    AppIndicator *ind;
+
+    if (!p) return;
+    if (!wire || !wire[0]) {
+        tray_remove(p);
+        return;
+    }
+    /* 逐行推进：第 1 行 icon、第 2 行 tooltip、剩下的全是菜单行。
+       （第一版「先跳两行再找 tooltip」永远找不着——tooltip 在第 2 行，跳两行已经越过它了） */
+    icon[0] = '\0';
+    tooltip[0] = '\0';
+    menu_part = wire;
+    if (strncmp(menu_part, "icon\t", 5) == 0) {
+        const char *v = menu_part + 5;
+        const char *nl = strchr(v, '\n');
+        size_t n = nl ? (size_t)(nl - v) : strlen(v);
+        if (n >= sizeof(icon)) n = sizeof(icon) - 1;
+        memcpy(icon, v, n);
+        icon[n] = '\0';
+        menu_part = tray_next_line(menu_part);
+    }
+    if (strncmp(menu_part, "tooltip\t", 8) == 0) {
+        const char *v = menu_part + 8;
+        const char *nl = strchr(v, '\n');
+        size_t n = nl ? (size_t)(nl - v) : strlen(v);
+        if (n >= sizeof(tooltip)) n = sizeof(tooltip) - 1;
+        memcpy(tooltip, v, n);
+        tooltip[n] = '\0';
+        menu_part = tray_next_line(menu_part);
+    }
+
+    tray_remove(p);
+    menu = gtk_menu_new();
+    ctx.h = h;
+    ctx.menu = GTK_MENU_SHELL(menu);
+    cj_core_menu_walk(menu_part, tray_add_row, &ctx);
+    gtk_widget_show_all(menu);
+
+    /* 图标：给了路径走 set_icon_full（绝对路径 libappindicator 自己处理）；没给用主题图标兜底 */
+    ind = app_indicator_new("cj-tauri-tray", icon[0] ? icon : "dialog-information",
+                            APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
+    app_indicator_set_status(ind, APP_INDICATOR_STATUS_ACTIVE);
+    if (icon[0]) {
+        app_indicator_set_icon_full(ind, icon, "cj-tauri tray icon");
+    }
+    if (tooltip[0]) {
+        app_indicator_set_title(ind, tooltip);
+    }
+    app_indicator_set_menu(ind, GTK_MENU(menu));
+    p->tray = ind;
+    fprintf(stderr, "[cj-bridge] tray applied: icon=%s tooltip=%d bytes\n",
+            icon[0] ? icon : "(theme)", (int)strlen(tooltip));
+}
+
+static void tray_remove(plat_host *p) {
+    if (!p) return;
+    if (p->tray) {
+        g_object_unref(p->tray); /* 创建引用归我们：unref 即摘除（GtkMenu 随之释放） */
+        p->tray = NULL;
+        fprintf(stderr, "[cj-bridge] tray removed\n");
+    }
+}
+
+/* 运行期整表重建的 idle 载荷（与 menu_wire_idle 同形，不复用是让回调各回各的函数） */
+typedef struct tray_wire_idle {
+    cj_host *h;
+    char *wire;
+} tray_wire_idle;
+
+static gboolean tray_wire_idle_cb(gpointer data) {
+    tray_wire_idle *m = (tray_wire_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        if (p) tray_apply_wire(m->h, p, m->wire);
+    }
+    free(m->wire);
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+#endif /* CJ_HAVE_TRAY */
+
+void cj_plat_set_tray(cj_host *h, const char *wire) {
+#ifndef CJ_HAVE_TRAY
+    (void)h;
+    (void)wire;
+    fprintf(stderr, "[cj-bridge] tray not compiled in (no libayatana-appindicator3) - ignored\n");
+#else
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !wire) return;
+    if (!p->window) {
+        /* 未就绪：core 已把线路记在 h->pending_tray，宿主线程装配时取用 */
+        fprintf(stderr, "[cj-bridge] tray deferred: window not ready\n");
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        tray_apply_wire(h, p, wire);
+        return;
+    }
+    {
+        tray_wire_idle *m = (tray_wire_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->wire = strdup(wire);
+        if (!m->wire) {
+            free(m);
+            return;
+        }
+        g_idle_add(tray_wire_idle_cb, m);
+        fprintf(stderr, "[cj-bridge] tray posted to gtk thread (%d bytes)\n", (int)strlen(wire));
+    }
+#endif
+}
+
+/* =========================================================================
+ *  全局快捷键（RFC-003 第 5 期；Linux = X11 XGrabKey，可选编译 CJ_HAVE_X11）
+ *
+ *  线程与管道拓扑（Xlib 的线程安全不想赌——单线程拥有一切 X 资源，命令/事件全走管道）：
+ *    [任意线程] cj_plat_set_global_hotkeys ─'R'+长度+wire─▶ hk_cmd[1]→[0]
+ *    [grab 线程] poll hk_cmd → 整表替换（ungrab 旧表再 grab 新表）；KeyPress → id 行 ─▶ hk_evt[1]→[0]
+ *    [GTK 线程] g_timeout 50ms 轮询 hk_evt → cj_core_hotkey_pressed（仓颉回调只发生在 GTK 线程，
+ *               与菜单/拖放同一纪律——绝不在 grab 线程碰仓颉运行时）
+ *
+ *  X 错误处理：Xlib 的错误处理器是**每线程**状态，grab 线程里安装/恢复不影响 GTK 线程的处理器；
+ *  BadAccess（组合键已被别的程序占用）按「该条注册失败」处理，打日志继续，不是致命错。
+ *
+ *  锁定键坑（照修）：NumLock/CapsLock/ScrollLock 开着时 modifier state 多一位，
+ *  XGrabKey 按 state 精确匹配——同一组合必须把 3 个锁定位的 8 种变体全部 grab，否则
+ *  「开着 NumLock 就失灵」。事件匹配时反过来把锁定位掩掉再比。
+ * ========================================================================= */
+#define HK_MAX_KEYS  32
+#define HK_ID_MAX    128
+#define HK_LOCK_MASKS (Mod2Mask | LockMask | Mod5Mask)
+
+#ifdef CJ_HAVE_X11
+
+typedef struct hk_entry {
+    int used;
+    int keycode;
+    unsigned int mods;   /* 不含锁定位的修饰键（Shift/Ctrl/Alt/Super）*/
+    char id[HK_ID_MAX];
+} hk_entry;
+
+typedef struct hk_state {
+    Display *dpy;        /* grab 线程独占的 X 连接；NULL = 打不开（Wayland 等），如实降级 */
+    Window root;
+    hk_entry keys[HK_MAX_KEYS];
+    int count;
+} hk_state;
+
+/* Xlib 错误处理器（每线程）：只记 BadAccess（组合键被占用），其余交给默认处理 */
+static int g_hk_badaccess = 0;
+static int hk_xerror_handler(Display *dpy, XErrorEvent *ev) {
+    (void)dpy;
+    if (ev->error_code == BadAccess) {
+        g_hk_badaccess = 1;
+        return 0;
+    }
+    return 0;
+}
+
+/** 修饰键名 → mask；认不出返回 -1（整行丢弃并打日志） */
+static int hk_mod_bit(const char *name, unsigned int *out) {
+    if (strcmp(name, "Ctrl") == 0 || strcmp(name, "Control") == 0) { *out = ControlMask; return 0; }
+    if (strcmp(name, "Alt") == 0)  { *out = Mod1Mask; return 0; }
+    if (strcmp(name, "Shift") == 0) { *out = ShiftMask; return 0; }
+    if (strcmp(name, "Super") == 0 || strcmp(name, "Win") == 0) { *out = Mod4Mask; return 0; }
+    return -1;
+}
+
+/** 键名 → keysym：常用别名（加速器文案惯例）+ 其余原样交给 XStringToKeysym */
+static KeySym hk_keysym_of(const char *name) {
+    if (strcmp(name, "Enter") == 0) { return XStringToKeysym("Return"); }
+    if (strcmp(name, "Esc") == 0)   { return XStringToKeysym("Escape"); }
+    return XStringToKeysym(name); /* "a" / "F1" / "Return" / "Up" 都是合法 keysym 名 */
+}
+
+/** 注销当前整表（8 种锁定位变体逐个 ungrab，与 grab 一一对应） */
+static void hk_ungrab_all(hk_state *s) {
+    int i, lock;
+    for (i = 0; i < s->count; i++) {
+        if (!s->keys[i].used) continue;
+        for (lock = 0; lock < 8; lock++) {
+            unsigned int extra = 0;
+            if (lock & 1) extra |= Mod2Mask;
+            if (lock & 2) extra |= LockMask;
+            if (lock & 4) extra |= Mod5Mask;
+            XUngrabKey(s->dpy, s->keys[i].keycode, s->keys[i].mods | extra, s->root);
+        }
+        s->keys[i].used = 0;
+    }
+    s->count = 0;
+    XSync(s->dpy, False);
+}
+
+/** grab 一条（8 变体 + XSync 收错误）；被占用返回 0（该条出局，其余照常） */
+static int hk_grab_one(hk_state *s, int keycode, unsigned int mods, const char *id) {
+    int lock;
+    XErrorHandler prev;
+    if (s->count >= HK_MAX_KEYS) {
+        fprintf(stderr, "[cj-bridge] hotkey: table full (%d), dropped: %s\n", HK_MAX_KEYS, id);
+        return 0;
+    }
+    prev = XSetErrorHandler(hk_xerror_handler);
+    g_hk_badaccess = 0;
+    for (lock = 0; lock < 8; lock++) {
+        unsigned int extra = 0;
+        if (lock & 1) extra |= Mod2Mask;
+        if (lock & 2) extra |= LockMask;
+        if (lock & 4) extra |= Mod5Mask;
+        XGrabKey(s->dpy, keycode, mods | extra, s->root, True, GrabModeAsync, GrabModeAsync);
+    }
+    XSync(s->dpy, False);
+    (void)XSetErrorHandler(prev);
+    if (g_hk_badaccess) {
+        /* 已被别的程序 grab：把本条已 grab 上的变体退掉，如实报占用 */
+        for (lock = 0; lock < 8; lock++) {
+            unsigned int extra = 0;
+            if (lock & 1) extra |= Mod2Mask;
+            if (lock & 2) extra |= LockMask;
+            if (lock & 4) extra |= Mod5Mask;
+            XUngrabKey(s->dpy, keycode, mods | extra, s->root);
+        }
+        XSync(s->dpy, False);
+        return 0;
+    }
+    s->keys[s->count].used = 1;
+    s->keys[s->count].keycode = keycode;
+    s->keys[s->count].mods = mods;
+    snprintf(s->keys[s->count].id, HK_ID_MAX, "%s", id);
+    s->count++;
+    return 1;
+}
+
+/** 整表替换：ungrab 旧表 → 逐行解析 wire → grab 新表（解析不了的行整行丢弃并打日志） */
+static void hk_apply_wire(hk_state *s, const char *wire) {
+    char *copy, *line, *nl;
+    hk_ungrab_all(s);
+    if (!wire || !wire[0]) {
+        fprintf(stderr, "[cj-bridge] hotkeys cleared\n");
+        return;
+    }
+    copy = strdup(wire);
+    if (!copy) return;
+    line = copy;
+    while (line && line[0]) {
+        char *colon, *accel, *id, *tok, *save;
+        char accel_orig[128];
+        unsigned int mods = 0;
+        KeySym sym;
+        int ok = 1;
+        nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        colon = strchr(line, ':');
+        if (!colon || colon == line) {
+            fprintf(stderr, "[cj-bridge] hotkey line skipped (no 'accel:id'): %s\n", line);
+            goto next_line;
+        }
+        *colon = '\0';
+        accel = line;
+        id = colon + 1;
+        snprintf(accel_orig, sizeof(accel_orig), "%s", accel); /* strtok 会原地改坏 accel，日志留原始文本 */
+        /* 修饰键：'+' 分隔逐个解析，最后一个 token 是键名 */
+        save = NULL;
+        tok = strtok_r(accel, "+", &save);
+        while (tok) {
+            unsigned int bit;
+            char *next = strtok_r(NULL, "+", &save);
+            if (!next) break; /* tok 是键名 */
+            if (hk_mod_bit(tok, &bit) == 0) {
+                mods |= bit;
+            } else {
+                fprintf(stderr, "[cj-bridge] hotkey: unknown modifier \"%s\" in: %s:%s\n", tok, accel, id);
+                ok = 0;
+                break;
+            }
+            tok = next;
+        }
+        if (ok && tok) {
+            sym = hk_keysym_of(tok);
+            if (sym == NoSymbol) {
+                fprintf(stderr, "[cj-bridge] hotkey: unknown key \"%s\" in: %s:%s\n", tok, accel, id);
+                ok = 0;
+            } else {
+                int code = XKeysymToKeycode(s->dpy, sym);
+                if (code == 0) {
+                    fprintf(stderr, "[cj-bridge] hotkey: no keycode for \"%s\"\n", tok);
+                    ok = 0;
+                } else if (hk_grab_one(s, code, mods, id)) {
+                    fprintf(stderr, "[cj-bridge] hotkey grab: %s:%s (code=%d mods=0x%x)\n",
+                            accel_orig, id, code, mods);
+                } else {
+                    fprintf(stderr, "[cj-bridge] hotkey grab failed (in use?): %s:%s\n", accel_orig, id);
+                }
+            }
+        }
+next_line:
+        line = nl ? nl + 1 : NULL;
+    }
+    free(copy);
+}
+
+/** 定长读（grab 线程的命令协议：'R' + 4 字节长度 + wire） */
+static int hk_read_full(int fd, void *buf, size_t n) {
+    char *p = (char *)buf;
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, p + got, n - got);
+        if (r <= 0) return -1;
+        got += (size_t)r;
+    }
+    return 0;
+}
+
+/** grab 线程主体：独占 X 连接；命令（整表替换 / 退出）走 hk_cmd，触发走 hk_evt */
+static void *hk_thread_main(void *ud) {
+    cj_host *h = (cj_host *)ud;
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    hk_state st;
+    if (!p) return NULL;
+    memset(&st, 0, sizeof(st));
+    st.dpy = XOpenDisplay(NULL);
+    if (!st.dpy) {
+        /* Wayland 会话 / 无 X：能力位是编译期静态事实，这里如实降级——事件不会来 */
+        fprintf(stderr, "[cj-bridge] hotkey: XOpenDisplay failed (Wayland? X11 unavailable)\n");
+    } else {
+        st.root = DefaultRootWindow(st.dpy);
+        /* pending 不在这里应用：宿主线程装配点必发 'R'（整表替换），启动时再应用一遍
+           只会重复注册（实测同一组合 grab 日志出两行）。'R' 在管道里等着，本线程进循环就取到。 */
+    }
+    while (!p->hk_quit) {
+        fd_set rf;
+        struct timeval tv;
+        int xfd = st.dpy ? XConnectionNumber(st.dpy) : -1;
+        int maxfd = (p->hk_cmd[0] > xfd) ? p->hk_cmd[0] : xfd;
+        FD_ZERO(&rf);
+        FD_SET(p->hk_cmd[0], &rf);
+        if (xfd >= 0) FD_SET(xfd, &rf);
+        tv.tv_sec = 0;
+        tv.tv_usec = 500 * 1000; /* 500ms：hk_quit 的兜底检查周期 */
+        if (select(maxfd + 1, &rf, NULL, NULL, &tv) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (p->hk_quit) break;
+        if (FD_ISSET(p->hk_cmd[0], &rf)) {
+            char cmd;
+            if (hk_read_full(p->hk_cmd[0], &cmd, 1) != 0) break;
+            if (cmd == 'Q') break;
+            if (cmd == 'R') {
+                unsigned int len = 0;
+                char *wire;
+                if (hk_read_full(p->hk_cmd[0], &len, sizeof(len)) != 0) break;
+                if (len > 65536) break; /* 防御：线路文本不该有这么长 */
+                wire = (char *)malloc(len + 1);
+                if (!wire) break;
+                if (hk_read_full(p->hk_cmd[0], wire, len) != 0) {
+                    free(wire);
+                    break;
+                }
+                wire[len] = '\0';
+                if (st.dpy) {
+                    hk_apply_wire(&st, wire);
+                } else {
+                    fprintf(stderr, "[cj-bridge] hotkeys set but X11 unavailable - ignored\n");
+                }
+                free(wire);
+            }
+        }
+        if (st.dpy && xfd >= 0 && FD_ISSET(xfd, &rf)) {
+            while (XPending(st.dpy)) {
+                XEvent ev;
+                int i;
+                XNextEvent(st.dpy, &ev);
+                if (ev.type != KeyPress) continue;
+                for (i = 0; i < st.count; i++) {
+                    unsigned int mods = ev.xkey.state & ~HK_LOCK_MASKS;
+                    if (st.keys[i].used && st.keys[i].keycode == (int)ev.xkey.keycode &&
+                        st.keys[i].mods == mods) {
+                        char line[HK_ID_MAX + 2];
+                        int n = snprintf(line, sizeof(line), "%s\n", st.keys[i].id);
+                        /* PIPE_BUF 之上的写才可能交错；单行远小于 4KB，原子 */
+                        if (write(p->hk_evt[1], line, (size_t)n) > 0) {
+                            fprintf(stderr, "[cj-bridge] hotkey fired: %s\n", st.keys[i].id);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (st.dpy) {
+        hk_ungrab_all(&st);
+        XCloseDisplay(st.dpy);
+    }
+    p->hk_done = 1;
+    return NULL;
+}
+
+/** GTK 侧：50ms 轮询 hk_evt，把触发的 id 逐行交回 core（仓颉回调只在本线程发生） */
+static gboolean hk_evt_poll(gpointer data) {
+    cj_host *h = (cj_host *)data;
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    char buf[1024];
+    ssize_t n;
+    if (!p) return G_SOURCE_REMOVE;
+    do {
+        n = read(p->hk_evt[0], buf, sizeof(buf) - 1);
+        if (n > 0) {
+            ssize_t i = 0;
+            buf[n] = '\0';
+            while (i < n) {
+                ssize_t j = i;
+                while (j < n && buf[j] != '\n') j++;
+                if (j > i) {
+                    buf[j] = '\0';
+                    cj_core_hotkey_pressed(h, buf + i);
+                }
+                i = j + 1;
+            }
+        }
+    } while (n > 0);
+    return G_SOURCE_CONTINUE;
+}
+
+#else /* !CJ_HAVE_X11：能力位不置位，调用打一行如实说明（可选编译约定，RFC-002 §6.3） */
+
+static gboolean hk_evt_poll(gpointer data) {
+    (void)data;
+    return G_SOURCE_REMOVE;
+}
+
+#endif /* CJ_HAVE_X11 */
+
+void cj_plat_set_global_hotkeys(cj_host *h, const char *wire) {
+#ifndef CJ_HAVE_X11
+    (void)wire;
+    fprintf(stderr, "[cj-bridge] global hotkeys not compiled in (no X11 dev) - ignored\n");
+    (void)h;
+#else
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    unsigned int len;
+    if (!p) return;
+    /* 懒启动：首次调用才建管道与 grab 线程（不用全局快捷键的应用零改动、零线程） */
+    if (!p->hk_boot) {
+        if (pipe(p->hk_cmd) != 0 || pipe(p->hk_evt) != 0) {
+            fprintf(stderr, "[cj-bridge] hotkey: pipe failed (errno=%d)\n", errno);
+            return;
+        }
+        fcntl(p->hk_evt[0], F_SETFL, fcntl(p->hk_evt[0], F_GETFL) | O_NONBLOCK);
+        p->hk_boot = 1;
+        if (pthread_create(&p->hk_thread, NULL, hk_thread_main, h) == 0) {
+            p->hk_thread_started = 1;
+            p->hk_evt_src = g_timeout_add(50, hk_evt_poll, h);
+            fprintf(stderr, "[cj-bridge] hotkey grab thread started (X11)\n");
+        } else {
+            fprintf(stderr, "[cj-bridge] hotkey: pthread_create failed\n");
+            return;
+        }
+    }
+    /* 管道写对 <=PIPE_BUF 的块是原子的：任意线程可直接写，无需投到 GTK 线程 */
+    len = wire ? (unsigned int)strlen(wire) : 0;
+    {
+        char cmd = 'R';
+        ssize_t w1 = write(p->hk_cmd[1], &cmd, 1);
+        ssize_t w2 = write(p->hk_cmd[1], &len, sizeof(len));
+        ssize_t w3 = (len > 0) ? write(p->hk_cmd[1], wire, len) : 0;
+        (void)w1; (void)w2; (void)w3; /* 失败由 grab 线程侧 read_full 兜住并退出循环 */
+    }
+#endif
 }
 
 /* =========================================================================

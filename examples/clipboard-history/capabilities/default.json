@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "system:version",
+    "system:host",
+    "clipboard:read",
+    "clipboard:write",
+    "store:get",
+    "store:set",
+    "report",
+    "quit"
+  ],
+  "permissions": ["clipboard:default", "store:default"],
+  "events": ["tray:click", "hotkey:press"]
+}

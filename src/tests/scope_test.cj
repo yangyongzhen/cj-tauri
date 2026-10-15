@@ -128,8 +128,25 @@ func testScopeRuleNormalizesManifestSlashes(): Unit {
         JsonValue.fromStr("{\"allow\":[\"C:\\\\Users\\\\yang\\\\**\",\"$CWD\\\\notes\"]}")).getOrThrow()
     @Expect(rule.allow[0], "C:/Users/yang/**")
     @Expect(rule.allow[1], scopeCwdPath() + "/notes")
-    // 归一之后真的能匹配正斜杠目标（foldCase 顺带锁大小写折叠语义）
-    @Expect(globMatch(rule.allow[0], "c:/users/yang/desktop/note.md"), true)
+    // 归一之后真的能匹配正斜杠目标。大小写折叠只在 Windows 锁——foldCase 的设计口径是
+    // 「Linux 文件系统大小写敏感，globMatch 保持敏感」，这条断言按平台分支，别把 Linux 锁死。
+    let rxTarget = if (scopeCaseFoldsOnThisPlatform()) {
+        "c:/users/yang/desktop/note.md"
+    } else {
+        "C:/Users/yang/desktop/note.md"
+    }
+    @Expect(globMatch(rule.allow[0], rxTarget), true)
+}
+
+/** 本平台 globMatch 是否折叠大小写（与 scope.cj foldCase 的平台口径一致，测试专用） */
+@When[os == "Windows"]
+func scopeCaseFoldsOnThisPlatform(): Bool {
+    return true
+}
+
+@When[os == "Linux"]
+func scopeCaseFoldsOnThisPlatform(): Bool {
+    return false
 }
 
 /* ===== 端到端对照组：走真实 fs 插件 + 真实文件 ===== */

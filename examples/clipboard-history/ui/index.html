@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>剪贴板历史 · cj-tauri</title>
+<style>
+  :root {
+    --bg: #14181f; --panel: #1b212b; --panel2: #222a36; --line: #2e3947;
+    --fg: #d8e0ea; --muted: #8391a5; --accent: #4da3ff; --ok: #3fbf7f; --warn: #e0a83c;
+    font-size: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--fg); height: 100vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  }
+  header .title { font-weight: 600; font-size: 15px; }
+  header .sub { color: var(--muted); font-size: 11px; }
+  #search {
+    margin-left: auto; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
+    font-size: 13px; outline: none; width: 220px;
+  }
+  #search:focus { border-color: var(--accent); }
+  .toolbar { display: flex; gap: 8px; padding: 8px 14px; flex: 0 0 auto; align-items: center; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
+    font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+  }
+  .chip:hover { color: var(--fg); }
+  #status { margin-left: auto; font-size: 11px; color: var(--muted); }
+  #list { flex: 1 1 auto; overflow-y: auto; padding: 6px 14px 14px; }
+  .item {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+  }
+  .item:hover { border-color: var(--accent); }
+  .item.current { border-color: var(--ok); }
+  .item .row1 { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .item .no { color: var(--muted); font-size: 11px; flex: 0 0 auto; }
+  .item .preview {
+    flex: 1 1 auto; font-size: 12px; color: var(--fg); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; font-family: Consolas, monospace;
+  }
+  .item .ts { color: var(--muted); font-size: 10px; flex: 0 0 auto; }
+  .item .del { color: var(--muted); cursor: pointer; font-size: 13px; flex: 0 0 auto; }
+  .item .del:hover { color: #e05c5c; }
+  .item .full { font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-all;
+    max-height: 60px; overflow: hidden; }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 13px; }
+  .flash { animation: flash 0.6s; }
+  @keyframes flash { 0% { border-color: var(--accent); } 100% { border-color: var(--line); } }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">剪贴板历史 <span id="ver" style="color:var(--muted);font-size:12px"></span></div>
+      <div class="sub">托盘 + 全局快捷键（Ctrl+Alt+V）· cj-tauri</div>
+    </div>
+    <input id="search" placeholder="搜索历史…">
+  </header>
+  <div class="toolbar">
+    <span class="chip" id="bClear">清空</span>
+    <span class="chip" id="bReload">重载</span>
+    <span id="status">轮询中…</span>
+  </div>
+  <div id="list"><div class="empty">等待桥就绪…</div></div>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var t = function () { return window.__CJ_TAURI__; };
+  var report = function (line) {
+    if (t() && t().invoke) { t().invoke('report', { line: line }); }
+  };
+  function errMsg(e) { return (e && e.message) ? e.message : String(e); }
+  function pad(n, w) { n = String(n); while (n.length < (w || 2)) { n = '0' + n; } return n; }
+  function now() {
+    var d = new Date();
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  var S = {
+    history: [],     // [{text, ts}] 新的在前
+    lastText: null,  // 上轮读到的剪贴板内容（去重 + 首轮不把「启动时的旧剪贴板」算成新事件）
+    pollTimer: null,
+    query: ''
+  };
+
+  function waitForBridge() {
+    if (t() && t().invoke) {
+      try { boot(); } catch (e) { report('[boot] ERROR ' + errMsg(e)); }
+      return;
+    }
+    setTimeout(waitForBridge, 60);
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function render() {
+    var list = $('list');
+    list.innerHTML = '';
+    var q = S.query.toLowerCase();
+    var shown = 0;
+    S.history.forEach(function (h, idx) {
+      if (q && h.text.toLowerCase().indexOf(q) < 0) { return; }
+      shown++;
+      var el = document.createElement('div');
+      el.className = 'item' + (idx === 0 ? ' current' : '');
+      el.innerHTML =
+        '<div class="row1">' +
+        '<span class="no">#' + (S.history.length - idx) + '</span>' +
+        '<span class="preview">' + esc(h.text.replace(/\n/g, ' ⏎ ')) + '</span>' +
+        '<span class="ts">' + esc(h.ts) + '</span>' +
+        '<span class="del" data-i="' + idx + '" title="删除">✕</span>' +
+        '</div>' +
+        '<div class="full">' + esc(h.text) + '</div>';
+      el.addEventListener('click', function (ev) {
+        if (ev.target.classList.contains('del')) {
+          del(Number(ev.target.getAttribute('data-i')));
+          return;
+        }
+        writeBack(h.text, el);
+      });
+      list.appendChild(el);
+    });
+    if (!shown) {
+      list.innerHTML = '<div class="empty">' +
+        (S.history.length ? '没有匹配「' + esc(S.query) + '」的条目' : '暂无历史——复制点文本试试（500ms 内捕获）') + '</div>';
+    }
+  }
+
+  function persist() {
+    // 上限 200 条，防 store.json 无限膨胀；store:set 是异步命令，失败静默（下次变更再试）
+    var keep = S.history.slice(0, 200);
+    t().invoke('store:set', { key: 'history', value: keep }).catch(function () {});
+  }
+
+  function addHistory(text) {
+    // 与首条重复则提升到顶（时间戳刷新），其余位置去重靠轮询侧 lastText 比对
+    if (S.history.length && S.history[0].text === text) { return false; }
+    S.history.forEach(function (h, i) {
+      if (h.text === text) { S.history.splice(i, 1); }
+    });
+    S.history.unshift({ text: text, ts: now() });
+    if (S.history.length > 200) { S.history.length = 200; }
+    render(); persist();
+    return true;
+  }
+
+  function del(i) {
+    S.history.splice(i, 1);
+    render(); persist();
+  }
+
+  function writeBack(text, el) {
+    t().invoke('clipboard:write', { text: text }).then(function () {
+      if (el) {
+        el.classList.remove('flash');
+        void el.offsetWidth; // 重启动画
+        el.classList.add('flash');
+      }
+      $('status').textContent = '已回写（' + now() + '）';
+      report('[clip] write-back ' + text.length + ' chars');
+    }).catch(function (e) {
+      $('status').textContent = '回写失败：' + errMsg(e);
+      report('[clip] write-back FAILED ' + errMsg(e));
+    });
+  }
+
+  function poll() {
+    if (!t() || !t().invoke) { return; }
+    t().invoke('clipboard:read', {}).then(function (r) {
+      // read 空板 / 非文本回 null：合法结果
+      if (r !== null && r !== undefined && typeof r === 'string' && r.length) {
+        if (S.lastText === null) {
+          S.lastText = r; // 首轮只记基线，不把「启动时板子里已有的旧内容」算成捕获
+          report('[clip] baseline: ' + r.slice(0, 32)); // E2E 对账锚点：基线内容可外部断言
+        } else if (r !== S.lastText) {
+          S.lastText = r;
+          if (addHistory(r)) {
+            report('[clip] captured ' + r.length + ' chars: ' + r.slice(0, 40));
+          }
+        }
+      }
+      $('status').textContent = '轮询中…（' + S.history.length + ' 条）';
+    }).catch(function (e) {
+      $('status').textContent = '读取失败：' + errMsg(e);
+    });
+    S.pollTimer = setTimeout(poll, 500);
+  }
+
+  function clearAll() {
+    S.history = [];
+    render(); persist();
+    t().invoke('store:set', { key: 'history', value: [] }).catch(function () {});
+    $('status').textContent = '已清空（' + now() + '）';
+  }
+
+  // 剪贴板是单槽（core 层 clip_busy 防并发）：轮询 read 与探针 write 撞车时 write 会被
+  // 拒回 code=-3（首轮 E2E 实测：baseline-write 撞上轮询首拍 read）。探针写一律带退避重试。
+  function tryWrite(text, tag, cb, attempt) {
+    var n = attempt || 0;
+    t().invoke('clipboard:write', { text: text }).then(function () {
+      cb();
+    }).catch(function (e) {
+      if (n < 8) {
+        setTimeout(function () { tryWrite(text, tag, cb, n + 1); }, 400);
+      } else {
+        report('[selfcheck] ' + tag + ': FAIL ' + errMsg(e) + ' (retries exhausted)');
+      }
+    });
+  }
+
+  function probe() {
+    var pA = 'clip-probe-' + Date.now();
+    var pB = 'clip-probe2-' + Date.now();
+    // 轮询的基线语义：**第一个非空读数只记基线、不算捕获**（启动时板子里已有的旧内容不算新事件）。
+    // 所以探针写两枪：A 只用来占基线，B 才是被捕获的负载。
+    // 还要**等基线建立再开写**：单槽防并发（clip_busy），首拍 read 在途时 write 会被拒。
+    report('[selfcheck] probe begin');
+    var waited = 0;
+    var gate = setInterval(function () {
+      waited += 100;
+      if (S.lastText !== null || waited > 6000) {
+        clearInterval(gate);
+        if (S.lastText === null) {
+          report('[selfcheck] probe: FAIL (6s 内轮询没建立基线，写不安全)');
+          return;
+        }
+        tryWrite(pA, 'baseline-write', function () {
+          report('[selfcheck] baseline-write: PASS ' + pA);
+          setTimeout(function () {
+            tryWrite(pB, 'write', function () {
+              report('[selfcheck] write: PASS ' + pB);
+              var n = 0;
+              var iv = setInterval(function () {
+                n++;
+                var hit = S.history.some(function (h) { return h.text === pB; });
+                if (hit) {
+                  clearInterval(iv);
+                  report('[selfcheck] capture: PASS (poll ' + (n * 500) + 'ms)');
+                  var first = S.history[0];
+                  tryWrite(first.text, 'write-back', function () {
+                    report('[selfcheck] write-back: PASS ' + first.text.slice(0, 40));
+                    report('[selfcheck] 3/3 passed');
+                    // 退出交给 E2E（CJ_CLIP_PROBE_QUIT=0 时应用留着，供外部回读与快捷键取证）
+                    if (cfg.quit !== '0') { t().invoke('quit', {}).catch(function () {}); }
+                  });
+                } else if (n > 16) {
+                  clearInterval(iv);
+                  report('[selfcheck] capture: FAIL (8s 内轮询没捕获到第二次写入)');
+                }
+              }, 500);
+            });
+          }, 900);
+        });
+      }
+    }, 100);
+  }
+
+  function boot() {
+    t().listen('tray:click', function (ev) {
+      var p = ev.payload || ev;
+      report('[clip] tray click: ' + (p.id || '?'));
+      if (p.id === 'clear') { clearAll(); }
+      if (p.id === 'quit') { t().invoke('quit', {}).catch(function () {}); }
+    });
+    t().listen('hotkey:press', function (ev) {
+      var p = ev.payload || ev;
+      report('[clip] hotkey: ' + (p.id || '?'));
+      if (p.id === 'show-panel') {
+        $('search').focus();
+        $('search').classList.add('flash');
+        setTimeout(function () { $('search').classList.remove('flash'); }, 650);
+      }
+    });
+    t().invoke('system:version', {}).then(function (r) { $('ver').textContent = 'v' + r.version; }).catch(function () {});
+    // 能力位锚点：E2E 断言「hotkey/tray 如实上报」靠这一行的回投（页面不调就没有锚）
+    t().invoke('system:host', {}).then(function (r) {
+      report('[clip] host caps: ' + JSON.stringify(r));
+    }).catch(function () {});
+    $('search').addEventListener('input', function () {
+      S.query = this.value;
+      render();
+    });
+    $('bClear').addEventListener('click', clearAll);
+    $('bReload').addEventListener('click', function () {
+      t().invoke('store:get', { key: 'history' }).then(function (r) {
+        if (r.value && r.value.length) { S.history = r.value; render(); }
+      }).catch(function () {});
+    });
+    // 启动：先读回持久化的历史，再开轮询。
+    // store:get 对缺键回 null（不是 {value:…}）——读 r.value 前先判空，
+    // 否则首轮抛 TypeError 落进 catch，链在 then 里的探针就永远不会跑（首轮 E2E 实测踩过）。
+    t().invoke('store:get', { key: 'history' }).then(function (r) {
+      if (r && r.value && r.value.length) { S.history = r.value; }
+      render();
+      poll();
+      if (window.__CLIP_PROBE__) { probe(); }
+    }).catch(function () {
+      render();
+      poll();
+      if (window.__CLIP_PROBE__) { probe(); }
+    });
+  }
+  waitForBridge();
+})();
+</script>
+</body>
+</html>

@@ -102,7 +102,7 @@
             <svg class="btn__ico" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M11 2 4 11h4l-1 7 7-9h-4l1-7Z"/></svg>
             <span data-en="Get started in 5 minutes">5 分钟上手</span>
           </a>
-          <a class="btn btn--ghost" href="#examples" data-en="See 22 examples">看 22 个示例</a>
+          <a class="btn btn--ghost" href="#examples" data-en="See 23 examples">看 23 个示例</a>
           <a class="btn btn--ghost" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/modbus-poll/dist-single/modbus-poll.exe" target="_blank" rel="noopener" data-en="Download a .exe">下载单文件 exe</a>
         </div>
         <div class="hero__trust">
@@ -438,7 +438,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
     <div class="wrap">
       <div class="sec-head">
         <span class="kicker" data-en="Examples">示例</span>
-        <h2 class="sec-title" data-en="22 runnable examples — 14 of them below, all on-device screenshots">22 个可直接运行的示例，下面 14 屏全是实机截图</h2>
+        <h2 class="sec-title" data-en="23 runnable examples — 16 of them below, all on-device screenshots">23 个可直接运行的示例，下面 16 屏全是实机截图</h2>
         <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence. The strip below scrolls sideways — drag it, swipe it, or use the arrows.">
           不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台……
           每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。下面是一条横向轮播，左右拖动、滚轮横滚或箭头都能翻。
@@ -469,6 +469,16 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                     <h3 class="slide__title" data-en="Markdown notes — tree / edit / preview">Markdown 笔记：树 / 编辑 / 预览</h3>
                     <p class="slide__desc" data-en="marked + Highlight.js vendored and inlined at assembly, self-written renderer, path scope to a notes/ workspace; 5 UI themes, native menus, 4.8 MB single exe.">marked + Highlight.js 装配期内联、自写渲染器零注入面，路径 scope 圈定 notes/ 工作区；五套界面主题、原生菜单，单文件 4.8 MB。</p>
                     <span class="slide__tag">examples/markdown-notes · 4.8 MB single exe</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/leetcode-gui" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/leetcode-gui.png" width="1280" height="800" loading="lazy" alt="仓颉力扣主界面：题库 / 编辑器 / 判题终端" data-en-alt="Cangjie LeetCode: problem list / editor / judge terminal"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Cangjie LeetCode — the judge runs cjc">仓颉力扣：判题器就是 cjc</h3>
+                    <p class="slide__desc" data-en="Three panes — problem list (8 categories, filter by difficulty/status), CodeMirror editor with a hand-written Cangjie mode, judge terminal. The host splices your code with a harness, compiles with cjc and runs it, verdict per test case; compile cache, 10s timeout, progress stats, reference solutions, and problem packs pulled from a git repo.">三栏布局：题库（8 大分类，按难度/状态筛选）、CodeMirror 编辑器（自写仓颉高亮）、判题终端——后端把你的代码与 harness 拼接后交给 cjc 编译运行，逐用例判定；带编译缓存、10 秒超时、进度统计与参考答案，题库可从公共 git 仓拉题包扩展。</p>
+                    <span class="slide__tag">examples/leetcode-gui · cjc online judge</span>
                   </div>
                 </a>
               </li>

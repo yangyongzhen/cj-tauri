@@ -11,6 +11,48 @@
 
 ### Added
 
+- **`examples/leetcode-gui` 可打成单文件 exe（免 SDK 分发）**：打包侧新增 `src/packed_assets.cj`
+  空存根与 `src/packed_resources.cj`，页面 / CodeMirror vendor / 能力清单统一改成「内嵌优先、
+  否则读盘」；`scripts/pack-win-single.sh` 的 vendor 清单改为「示例自带 `ui/vendor/pack-files.txt`
+  就按它逐行打，否则沿用默认 5 份」。产物 `examples/leetcode-gui/dist-single/leetcode-gui.exe`
+  （10.2MB、`Subsystem=00000002`、导入表 0 个非系统 DLL）实机验证：标题「仓颉力扣  cj-tauri」、
+  题库「100 题」、CodeMirror 带行号与高亮（未降级为 textarea）、「参考答案」载入编辑器（12 行）、
+  判题 3/3 全过（`编译 + 运行 657ms`）。**包内不含 SDK，判题仍要求本机 `cjc`**；进度 / 题包缓存 /
+  判题临时目录都落在**启动时的工作目录**下——放在任意空目录里跑即可，不与他人进度串数据。
+
+- **新增《仓颉版力扣 GUI 开发记》**（`docs/仓颉版力扣-GUI开发记.md`）：这个示例的来路、判题链路、
+  题库 19 → 100 的扩量与两层自检、题包号段，以及一路踩到的坑与判据；面向读者，不替代示例 README。
+
+- **`examples/leetcode-gui` 内置题库 19 → 100 题，参考答案改为「随题内嵌」**：新增 81 道网络经典题
+  （数组与双指针 / 字符串 / 二叉树 / 动态规划 / 哈希与计数 / 栈与队列 / 贪心 / 链表 / 递归与回溯 /
+  二分与排序 / 位运算与数学共 11 个分类，难度 简单 45 / 中等 53 / 困难 2），每题带 `template`
+  与 3 条用例；**参考答案从 `src/solutions.cj` 迁进题库 JSON 的 `solution` 字段**
+  （`SolutionCommand` 按 id 从题库取，`solutions.cj` 退役），远程题包因此也能自带解答。
+  远程题包 `advanced-1` 的 8 题 id 从 100–107 挪到 200–207（合并仍按 id 覆盖，避开内置 1..100），
+  题包校验的 id 下限从 100 提到 200。108 题逐题过「模板 + harness 编译」与
+  「答案 + harness 逐用例 PASS」两层批量自检（口径与脚本见示例 README §6）。
+
+- **Windows 托盘 + 全局快捷键真实现（能力位如实置位）**：托盘走 `Shell_NotifyIconW`（图标按
+  `SM_CXSMICON` 载入 `.ico`，png 载不动就回落系统缺省图标并出声；菜单是 `CreatePopupMenu`——
+  托盘菜单只弹不挂窗口，避开「`SetMenu` 只收 `CreateMenu` 句柄」那条坑），点击按
+  `{"kind":"tray","id":…}` 经 on_shell 回投（与 Linux 同信封）；全局快捷键走 `RegisterHotKey`，
+  wire 词法与 Linux 同规（Ctrl/Alt/Shift/Super + 常用键名 + Enter/Esc 别名），注册失败（被占用）
+  如实打 stderr 且不致命，`WM_HOTKEY` 回投 `hotkey:press`。窗口销毁前 `NIM_DELETE` 摘图标
+  （漏摘会在系统托盘留幽灵图标）。至此 Windows 的 `system:host` 报
+  `menu=1 tray=1 hotkey=1 dragDrop=1`。
+- **窗口可见性 + 最小化到托盘（RFC-003 第 5 期收尾，两平台同时落地）**：新增宿主基元
+  `setWindowVisible(visible)`（Windows `ShowWindow`、Linux `gtk_widget_hide/show` + 抬到前台，
+  隐藏态 WebView 与页面照常活着）与策略位 `setMinimizeToTray(enabled)`
+  （`WindowConfig.minimizeToTray`）：开启后点标题栏「最小化」不再缩到任务栏，而是把窗口藏起来，
+  还原走应用自己的托盘菜单 / 全局快捷键。**平台会在最小化那一刻复核托盘是否真的挂上了**
+  （能力位不含 `CJ_CAP_TRAY`，或应用压根没 `setTray`）：没装就如实降级为普通最小化并打一行
+  stderr——「窗口藏起来却没有还原入口」比「不支持」更糟（Windows 拦 `WM_SYSCOMMAND`，
+  Linux 拦 `window-state-event` 的 ICONIFIED）。
+- **`examples/clipboard-history` 补齐还原路径**：托盘菜单加「显示面板」（点它或按 Ctrl+Alt+V
+  经 `app.onShellEvent` → `setWindowVisible(true)` 把窗口唤回——**窗口级动作只能在原生做**：
+  页面在隐藏态照样跑，却没有任何办法把自己显出来），窗口开 `minimizeToTray`；前端补
+  「面板已唤出 / 快捷键唤出」状态行反馈（`tray:click` / `hotkey:press` 两条监听）。
+
 - **示例 `examples/cj-link`：串口/网络二合一调试助手（cj-Link）**：串口走官方 `serial` 插件
   （参数面板 + 前端轮询收）、网络走应用级 `link:netConnect/netSend/netClose/netStatus`
   （`std.net`，**三种模式**：TCP 客户端 5s 建连超时 / TCP 服务器本机监听 accept 多客户端（上限 16，
@@ -35,7 +77,7 @@
 - **Windows 实机 E2E 入口（`scripts/e2e/test-windows-bridge.sh`）**：与 Linux 入口同构（同一
   fixture 探针、同一套公共层与证据 JSON），断言随能力位落地扩到 **11 条**：能力清单加载 / 桥注入 /
   页面→宿主 IPC / 端到端往返 / 未授权命令被拒 / `system:host` 能力位如实上报（`host=windows
-  menu=true tray=false dragDrop=true`）/ 剪贴板写读回环（值一致）/ 拖放目标已挂载
+  menu=true tray=true dragDrop=true hotkey=true`）/ 剪贴板写读回环（值一致）/ 拖放目标已挂载
   （`drag dest attached (CF_HDROP)`）/ 通知 toast 已投递（`notification SENT-OK`）/ 串口枚举链路
   （`serial:list ports=`）。探针应用同步扩面：装配 `ClipboardPlugin` / `NotificationPlugin` /
   `SerialPlugin` 并 `setDragDrop(DragDropPolicy(true, true))`，再调 `system:host`——能力位的
@@ -107,6 +149,23 @@
 
 ### Fixed
 
+- **修：`examples/leetcode-gui` 的判题在单文件包上必失败（顶层 `target` 没建）**：判题工作目录是
+  `target/leetcode/<题号>-<时间戳>-<序号>/`，建目录时只建了下面那一级，顶层 `target/` 依赖
+  「构建树里本来就有」——示例正常构建时它天然存在，于是开发期从没暴露；从空目录启动的打包产物报
+  `建判题目录失败：FSException: Failed to create directory 'target/leetcode/1-44097-1', parent
+  directory 'target/leetcode' does not exist`（而第一层 `Directory.create` 的失败还被空 `catch`
+  吞掉，报出来的是第二层，指向一个看起来不可能的原因）。现在逐级显式创建（先 `target` 再
+  `target/leetcode`），仓库内行为不变；打包产物上复验判题 3/3 通过。
+
+- **`examples/leetcode-gui` 的判题在 Windows 上静默全灭**：判题产物由 `cjc main.cj -o judge` 编译，
+  而 cmd.exe 的命令解析只认「名字 + PATHEXT」——对无后缀的 `judge` 既不匹配裸名，也不认
+  `.\judge` 这种带路径写法（实测两种写法都报「不是内部或外部命令」，与文件权限无关）。于是每次点
+  「运行」都死在跑 harness 那一步、stdout 为空，页面只能显示「(程序输出，无判定行) / (空)」——
+  而编译明明是成功的（耗时照常报出），失败毫无凭证。修法是把产物名按平台分叉
+  （新增 `judgeExeName()`：Windows `judge.exe` / Linux 不变），**编译 `-o`、编译缓存路径、
+  `cmd`/`sh` 的调用行三处同源**（三处漏一处即回归静默失败）。实测：题 1 参考答案
+  `judge id=1 exit=0 stdoutBytes=45`（三条 CRLF 的 `RESULT n PASS`）且 `solved=true`；
+  题 107. 课程表 参考答案 3/3 全过，页面逐条打出 `✓ 用例 n 通过 canFinish(…) == …`。
 - **通知「发后即忘」在未声明 `CJ_CAP_NOTIFICATION` 的平台被读成成功**：core 投递成功即返回 0，
   UI 线程里平台实际失败（`-> failed`）没人带回命令层——Windows 桩阶段页面侧拿到的是「发送成功」。
   现 core 在投递前查能力位，未声明当场回 `-4` 并打
@@ -122,6 +181,24 @@
   `msedgewebview2.exe` 杀不干净，下一实例撞 `0x800700aa`（用户数据目录被占用）——改 `ps -W` 映射
   Windows pid 后 `taskkill //F //T` 整树杀；② 每轮运行给独立 `WEBVIEW2_USER_DATA_FOLDER`，
   实例间互不锁；③ `CANGJIE_STDX` 常是盘符形式（`D:/...`），进 PATH 前 `cygpath -u` 转 POSIX。
+- **Windows 实机 E2E 入口的两处静默失败（跑起来才发现，断言全灭而看不出原因）**：
+  ① `lib.sh` 只给 `CANGJIE_STDX` 转了 POSIX，`CANGJIE_HOME` 没转——本机环境给的是盘符形式
+  （`D:\Program Files (x86)\Cangjie`），拼进 PATH 后被 MSYS 按「冒号即分隔符」切碎（拆成 `D` 与
+  `\Program Files...`），依赖运行时 DLL 的产物**启动即退、一行输出都没有**；
+  ② 同文件在 Windows 上只**在 `CANGJIE_STDX` 已导出时**才把 stdx 目录放进 PATH，没设环境变量时连
+  探测都没有（Linux 分支本来就会探 `~/.cangjie/stdx/*`）——缺 `libstdx.*.dll` 的表象与①一模一样。
+  现在两边都先探测再进 PATH，且探测不到时明确打一行「找不到 stdx 动态库目录」并失败，不再让
+  「应用没起来」冒充「功能不对」。
+- **`scripts/test.sh` 的 Windows 分支只把 stdx 放进 PATH、从没 `export CANGJIE_STDX`**：cjpm 按
+  **进程环境变量**展开 `cjpm.toml` 里的 `${CANGJIE_STDX}`，没导出就收到空值，报的却是
+  `root package 'cjTauri' imports package 'stdx.encoding.json' … not added as a dependency in cjpm.toml`
+  （看着像 toml 漏配）。本机新开会话直接 `bash scripts/test.sh` 必炸，只有先手工导出过才过。
+  现在探测到就 `export`，探测面也从写死一个路径改成 `/d/cangjie-stdx/*/dynamic/stdx` 与
+  `~/.cangjie/stdx/*/dynamic/stdx`。
+- **`scripts/e2e/test-windows-bridge.sh` 的产物新鲜度检查形同虚设**：`ls -t src/*.cj` 给的是**相对名**，
+  拿它去比绝对路径的产物永远判「不比它新」（一条永不触发的检查）；且只盯探针自己的源码——探针静态链
+  的是框架，改框架不动探针源码时照样跑旧产物（本轮 `src/host.cj` 给 `system:host` 补了 `hotkey` 字段，
+  页面读到 `hotkey=undefined`、那条断言假红一轮）。改绝对路径比较，并把 `$E2E_ROOT/src/*.cj` 一并计入。
 - **两条软链接 scope 单测在无符号链接特权的 Windows 上如实跳过**：建链被系统拒（错误 1314）时
   打一行 `[skip]` 说明后返回，不再误报 ERROR（判定面由 Linux 轮覆盖）。
 - **`host_webkit.cj` 的 `std.collection.*` import 改限定名**：Windows 侧报 unused 警告、Linux 侧

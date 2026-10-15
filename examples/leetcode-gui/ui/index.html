@@ -106,6 +106,9 @@
     <nav id="sidebar">
       <h2>题库</h2>
       <div id="probList"><div class="t-dim" style="padding:8px">加载中…</div></div>
+      <div style="padding:8px 4px">
+        <button id="btnMore" class="ghost" style="width:100%;background:#45475a;color:#cdd6f4;border:none;border-radius:8px;padding:7px 0;font-size:12.5px;cursor:pointer">⬇ 加载更多题包</button>
+      </div>
     </nav>
 
     <section id="center">
@@ -330,6 +333,43 @@ function wireEditor() {
   });
 }
 
+/* ---------- 加载更多（远程题包） ---------- */
+var fetching = false;
+
+function fetchMore() {
+  if (fetching) { termLine('t-warn', '已在拉取题包，请稍候'); return; }
+  fetching = true;
+  var btn = $('btnMore');
+  btn.disabled = true;
+  btn.textContent = '⬇ 拉取中…';
+  termDot('run');
+  termLine('t-info', '⬇ 正在拉取远程题包…');
+  bridge.invoke('leetcode:packs', {}).then(function (r) {
+    return bridge.invoke('leetcode:fetchMore', { pack: (r.packs || [])[0] });
+  }).then(function (r) {
+    fetching = false;
+    btn.disabled = false;
+    btn.textContent = '⬇ 加载更多题包';
+    termDot('ok');
+    termLine('t-ok', '✓ 题包 ' + r.pack + ' 合并完成：新增 ' + r.added + ' 题'
+      + (r.replaced > 0 ? '、更新 ' + r.replaced + ' 题' : '')
+      + '，题库现有 ' + r.total + ' 题');
+    // 缓存已落盘（后端写 problems-remote.local.json），重启后这些题仍在
+    return bridge.invoke('leetcode:list', {}).then(function (lr) {
+      problems = lr.problems || [];
+      renderList();
+      termLine('t-dim', '题库列表已刷新（含远程题，按分类分组）');
+    });
+  }).catch(function (e) {
+    fetching = false;
+    btn.disabled = false;
+    btn.textContent = '⬇ 加载更多题包';
+    termDot('err');
+    termLine('t-err', '✗ 加载更多失败: ' + e.message);
+    termLine('t-dim', '（内置题库不受影响；联网失败时请检查网络后重试）');
+  });
+}
+
 /* ---------- 启动 ---------- */
 waitForBridge(function () {
   bridge = window.__CJ_TAURI__;
@@ -338,6 +378,7 @@ waitForBridge(function () {
   wireEditor();
   $('btnRun').onclick = runCode;
   $('btnReset').onclick = resetCode;
+  $('btnMore').onclick = fetchMore;
   bridge.invoke('leetcode:list', {}).then(function (r) {
     problems = r.problems || [];
     termLine('t-dim', '题库加载完成：' + problems.length + ' 题');

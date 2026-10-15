@@ -7,6 +7,8 @@
     "leetcode:run",
     "leetcode:saveDraft",
     "leetcode:loadDraft",
+    "leetcode:packs",
+    "leetcode:fetchMore",
     "system:version",
     "system:ping",
     "system:echo"

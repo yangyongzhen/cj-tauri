@@ -24,7 +24,7 @@
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
    当前 193 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，162 项断言，不依赖 SDK / 图形栈），入口是
+   （`native/tests/test_bridge_core.c`，187 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
    实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
@@ -47,7 +47,13 @@
   **文件拖入已完成**（`DragDropPolicy` + `setDragDrop`，start 前定稿；URI 解析在 C 桥 core，
   报文 `drop` → 前端 `dragdrop:files`，Linux 实机取证、Windows 同名桩），
   **托盘已解禁**（2026-10-15 用户裁定：剪贴板历史管理器驱动，Linux 走 libayatana-appindicator3、
-  RFC-002 §6.3 的可选编译约定不变——无依赖机器编译照过、`tray=0` 如实；Windows 侧随示例排期）。
+  RFC-002 §6.3 的可选编译约定不变——无依赖机器编译照过、`tray=0` 如实；**Windows 走
+  `Shell_NotifyIconW` 已落地**，菜单用 `CreatePopupMenu`、点击回投 `{"kind":"tray","id":…}`），
+  **全局快捷键两平台齐了**（Linux X11 grab / Windows `RegisterHotKey`，同一套 accel 词法：
+  注册失败如实在 stderr 说明、不致命），
+  **窗口可见性 + 最小化到托盘是宿主基元**（`setWindowVisible` / `setMinimizeToTray`，不占能力位——
+  没有平台只有一半）：隐藏态页面照常跑，还原入口由应用给（托盘菜单 / 全局快捷键），
+  最小化那一刻平台复核托盘是否**真的**装上了，没装就如实降级为普通最小化 + 一行 stderr。
   事件分发的落法：宿主层 `setShellHandler` 是**单槽**（框架装一次做分发），
   应用侧一律挂**可叠加**的 `app.onShellEvent((json, label) => …)`，并自动投前端事件
   （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；
@@ -152,6 +158,17 @@
   写 `\n` 会变成真换行，把 JS 字符串或单行注释拆断 → 整段 `<script>` 语法错误 → 页面里一行都不执行，
   而 stderr 毫无提示（实测踩坑：`examples/plugin-fs` 的验证脚本静默全灭，靠对照 `examples/hello` 才定位）。
   内联 JS 里避免出现反斜杠（换行用 `String.fromCharCode(10)`，正则改用 `indexOf`），改完用 `node --check` 验一遍。
+- **三引号字符串的「首个换行」与「两层转义」是两个独立坑**（2026-10-15 实测，`examples/leetcode-gui` 题库）：
+  ① `"""` 之后**第一个换行会被吞掉**——想让字符串以换行开头就得再写一个换行，把内容写在 `"""` 同一行的
+  第一个字符位置会丢；② 把整份 JSON 内嵌进 `"""` 时源码里的转义是**两层**（先 JSON 转义、再三引号转义）：
+  JSON 的 `\n` 在源码里写 `\\n`、字符串字面量的引号写 `\\\"`；反解义后 JSON 文本里带**裸换行**
+  （合法 JSON 允许），拿 python `json.loads()` 做批量自检必须 `strict=False`，否则报
+  `Invalid control character`；③ 题库里的二叉树用例按**文件头声明的**「下标 i 的孩子在 2i+1 / 2i+2」
+  写，别照 LeetCode 的压缩层序写期望值——两套约定下同一串数组是不同的树（实测就是这么红了一条）；
+  ④ 题库本体是**仓颉源码里的三引号字符串**，里面的 `${…}` 是**活的插值**：题面/模板/答案写了
+  `${x}` 会被当变量引用，应用一编译就报 `undeclared identifier 'x'`（要拼字符串就写 `x.toString()`）。
+  **逐题单编的批量自检看不出来**（那时代码是独立源码、变量在作用域内），必须另加一条「题库文本不许含
+  `${`」的守卫——`examples/leetcode-gui` 的自检脚本里有这条。
 - `@When` 的平台取值**首字母大写**：`@When[os == "Windows"]` / `"Linux"`，不是 `windows`。
 - 迭代 `String` 得到的是 **`UInt8` 字节**（不是码点、也不是 `Rune`，本条 2026-10-07 实测更正）：
   按码点数汉字得自己判 UTF-8 首字节（`(b & 0xC0u8) != 0x80u8` 才算一个），`String.size` 同样是**字节数**。
@@ -243,6 +260,15 @@
   的日志文件 mtime 没变、`grep PASS` 计到 0 才露馅）。二选一：`cmd //c xxx.bat`（靠 MSYS 改写）
   或 `MSYS_NO_PATHCONV=1 cmd.exe /c "xxx.bat"`。**判真假一律看副作用**（日志 mtime / 行数 / 断言计数），
   别只看退出码——退出码 0 在这里什么都不证明。
+- **cmd.exe 不执行「没有后缀」的可执行文件**（2026-10-15 实测，`examples/leetcode-gui` 的判题）：
+  仓颉 `cjc main.cj -o judge` 在 Windows 上产出的文件就叫 `judge`（**不补 `.exe`**），而 cmd 的命令
+  解析只认「名字 + PATHEXT」——裸名 `judge` 与带路径的 `.\judge` **两种写法都报「不是内部或外部命令」**
+  （与文件权限无关，那个 PE 拷到别处改名 `.exe` 立刻能跑）。表象极具误导性：编译成功、耗时照常报出，
+  只有「执行产物」那一步空跑（stdout 0 字节），上层读成「程序没输出」→ 整条链路静默全灭，
+  页面只显示「(程序输出，无判定行)」，stderr 里连一行失败都没有。修法是**产物名按平台分叉**
+  （`@When` 一平台一份，Windows 带 `.exe`）并让**编译 `-o`、缓存路径、shell 调用行三处同源**，
+  漏任一处即回归静默失败。**同类风险面**：任何「先自己编译、再执行产物」的链路（脚手架、插件、
+  E2E 探针的自建二进制）——Windows 上都要认这个名字后缀，且失败要留 stderr 凭证。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
 - **`CANGJIE_STDX` 要指 stdx 的 `dynamic/stdx`（DLL 目录），不是 stdx 包根**：`cli/src/resolve.cj`
@@ -250,6 +276,12 @@
   在那个新工程里 `cjpm build` 才炸：`root package '<名>' imports package 'stdx.encoding.json' in its
   source code, but the dependency info is missing`。CLI 自己的报错文案里就写着「指向 stdx 动态库目录」，
   按它给即可（实测 2026-10-08；本机是 `D:/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx`）。
+- **`cjpm build success` 不等于产物存在：增量缓存会跳过链接**（2026-10-15 实测，`examples/leetcode-gui`）：
+  上一轮构建被中断过（可执行文件被占用 / 被删）之后，`target/release/incremental-cache.json` 仍认为它是最新的，
+  于是 `cjpm build` 只重编包对象、**不重新链接**却照报 `build success`——`target/release/bin/` 里只剩 `*.cjo`，
+  启动时看到的却是 `拒绝访问。`（cmd）或 `No such file or directory`（bash，exit 127），极容易误判成权限 / 杀软问题。
+  修法：`rm -f target/release/incremental-cache.json target/release/bin/*.cjo` 再 `cjpm build`。
+  **判据看产物**（`ls -l target/release/bin/`），别只看 cjpm 的退出码与那行 success。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。
 - **拉取「改了 C 桥导出」的提交后，先重建桥再跑测试/构建**：`native/libcjtbridge.so`（Windows 侧
   `libcjtbridge.dll`）是**本地产物、不入库**。菜单能力位那次 C 桥加了 5 个 `cj_bridge_*` 导出，
@@ -485,6 +517,20 @@
 - **跨平台脚本别拉解释器做小事**（2026-10-13 实测）：`e2e-evidence.sh` 原用 python3 做 JSON 转义，
   注释写「本机与 CI 都有」——Windows 机上没有，转义全空、证据成了坏 JSON（断言名为空、版本断行）。
   转义这类小事用纯 bash 实现；解释器不可得时的自检走回退链（`python3 → python → py -3`）。
+- **E2E 的启动环境有两处会让「应用一启动就退、日志一行都没有」**（2026-10-15 实测，`scripts/e2e/lib.sh`）：
+  ① `CANGJIE_HOME` 来自 envsetup.bat / 本机环境变量时是**盘符形式**（`D:\Program Files (x86)\Cangjie`），
+  直接拼进 PATH 会被 MSYS 按「冒号即分隔符」切碎（拆成 `D` 与 `\Program Files...`）——与 `CANGJIE_STDX`
+  那条同源，进 PATH 前统一 `cygpath -u`；② **stdx 目录没进 PATH**：Windows 上运行时按 PATH 找
+  `libstdx.*.dll`，缺它的表象与①完全一样（0 行输出 + 退出码 127），原先只在环境变量已导出时才加它，
+  现在会先探测再明确打一行失败。**判据：先手工带 POSIX 形式的 PATH 前台跑一遍产物**——能跑通就说明
+  是启动环境的问题，别去查代码或产物。同族的第三种形状：`scripts/test.sh` 的 Windows 分支只把 stdx
+  放进 PATH 而**没 `export CANGJIE_STDX`**，cjpm 展开 `${CANGJIE_STDX}` 得到空值，报的却是
+  `root package 'cjTauri' imports package 'stdx.encoding.json' … not added as a dependency in cjpm.toml`
+  （看着像 toml 漏配）——**凡是「探到了变量」，先 `export` 再谈进 PATH**。
+- **实机入口的「产物新鲜度」检查只认探针自己的源码 = 假红**（2026-10-15 实测）：`ls -t src/*.cj` 给的是
+  **相对名**，拿它比绝对路径的产物**永远判「不比它新」**（一条永不触发的检查）；而且探针静态链的是框架，
+  只盯 `$FIXTURE/src` 会漏掉框架改动——本轮框架给 `system:host` 补了 `hotkey` 字段、探针产物没重建，
+  页面读到 `hotkey=undefined`，断言白红一轮。两处都改绝对路径比较，并把 `$E2E_ROOT/src/*.cj` 一起计入。
 
 ## 5. 文档与提交
 

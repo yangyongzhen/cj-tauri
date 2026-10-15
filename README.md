@@ -99,7 +99,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [sqlite-browser](examples/sqlite-browser) | **SQLite 数据库浏览器**：库对象 / 数据分页网格（排序、类型上色、超长单元格截断标记）/ SQL 调试台（只读与可写两个按钮）；**仓颉 FFI 直连系统 `libsqlite3`**（仓库首例，不经 C 桥），命令放行与路径 scope 两层、只读走内核级连接、`ATTACH` 由 authorizer 按语句拒；示例自带夹具对端，Linux 实机 E2E 49 条断言（含**进程外**只读复查页面写入的那一行） |
 | [serial-assistant](examples/serial-assistant) | **串口调试助手**：参数面板、TX/RX 分色收发日志、定时发送、探针自检 |
 | [cj-link](examples/cj-link) | **串口/网络二合一调试助手**：串口（serial 插件）+ 网络三模式（TCP 客户端 / TCP 服务器多客户端广播 / UDP，`std.net`）共用收发日志，HEX/ASCII 双显、发送队列、校验计算（CRC16-Modbus/CCITT 等，`link:crcCalc`）、定时发送（周期可调）、面板配置持久化（store 插件）；对端由 pty echo + TCP/UDP echo 扮演，Linux 实机 run.sh 33 条断言两侧对账 |
-| [clipboard-history](examples/clipboard-history) | **剪贴板历史管理器**：**托盘**（`TrayModel`，libayatana-appindicator3 可选编译）+ **全局快捷键**（`HotkeyModel`，X11 grab）两个能力位的首个消费者——托盘菜单（清空/退出）与 Ctrl+Alt+V 唤出全走框架事件（`tray:click` / `hotkey:press`），历史捕获是前端 500ms 轮询 `clipboard:read` 去重（零新命令），点击条目 `clipboard:write` 回写并以 `xclip -o` 外部回读对账；Linux 实机 E2E 15/15 |
+| [clipboard-history](examples/clipboard-history) | **剪贴板历史管理器**：**托盘** + **全局快捷键**两个能力位的首个消费者，**Windows（`Shell_NotifyIconW` / `RegisterHotKey`）与 Linux（libayatana-appindicator3 可选编译 / X11 grab）都已跑通**——托盘菜单（显示面板 / 清空 / 退出）与 `Ctrl+Alt+V` 唤回全走框架事件（`tray:click` / `hotkey:press`），**「最小化到托盘」走宿主基元**（`WindowConfig.minimizeToTray`，平台上没装托盘就如实降级为普通最小化并打 stderr）；历史捕获是前端 500ms 轮询 `clipboard:read` 去重（零新命令），点击条目 `clipboard:write` 回写并以 `xclip -o`（Linux）/ 系统剪贴板读回（Windows）对账；Linux 实机 E2E 15/15，Windows 侧另有实机链「最小化 → 窗口隐藏 → 快捷键唤回」 |
 | [serial-waveform](examples/serial-waveform) | **串口实时波形示波器**：`serial` 插件 + canvas 双缓冲自绘，行协议 `<序号>,<值>`；400 Hz 样本流下页面自算速率/上穿/丢帧，实机取证见该目录 README |
 | [movie](examples/movie) | **观影应用**：榜单/搜索/详情/播放，数据全由仓颉侧 HTTP 取回，前端零 fetch |
 | [music](examples/music) | **音乐播放器**：榜单/歌单/收藏/分享 + 同步歌词 + 4 套主题色，封面由宿主带 Referer 取回并缩略 |
@@ -209,8 +209,11 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 - ✅ 插件体系 v1 + 官方插件（fs / dialog / shell / serial / store / clipboard / notification / menu）；
   命令级白名单、命名权限集、**路径 scope**（RFC-003 第 4 期）三层闸门，Windows + Linux 实机证据
 - ✅ 命令异步分发（慢命令不冻窗口）、多窗口按 label 路由、插件清单 `info --json` 机器可读
+- ✅ 宿主能力位：菜单 / **托盘** / **全局快捷键** / 文件拖入 / 通知——Windows（WebView2）与
+  Linux（WebKitGTK）双实现、`system:host` 如实上报；「最小化到托盘」是宿主基元（`minimizeToTray`，
+  没装托盘就如实降级为普通最小化）
 - ✅ 工程化：189 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
-- 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件（托盘 / 全局快捷键）
+- 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件
 
 ## 仓库与推送
 

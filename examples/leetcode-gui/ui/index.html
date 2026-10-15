@@ -27,6 +27,12 @@
   header button.ghost { background: #45475a; color: #cdd6f4; }
   header button:hover { opacity: .85; }
   #status { font-size: 12px; color: #a6adc8; white-space: nowrap; }
+  #progressChip {
+    font-size: 11.5px; color: #a6e3a1; background: rgba(166, 227, 161, .12);
+    padding: 2px 10px; border-radius: 99px; white-space: nowrap;
+  }
+  /* 已解决的题：标题后带绿色对勾 */
+  .prob.solved .ptitle::after { content: " ✓"; color: #a6e3a1; font-weight: 700; }
 
   /* 主区：左题库 + 中编辑器/下终端 */
   main { flex: 1 1 auto; display: flex; min-height: 0; }
@@ -97,7 +103,10 @@
   <header>
     <h1>仓颉力扣</h1>
     <span id="status" class="t-dim">正在连接桥…</span>
+    <span id="progressChip" hidden></span>
     <span class="spacer"></span>
+    <button id="btnSolution" class="ghost">参考答案</button>
+    <button id="btnStats" class="ghost">统计</button>
     <button id="btnRun">▶ 运行 (Ctrl+R)</button>
     <button id="btnReset" class="ghost">重置</button>
   </header>
@@ -138,6 +147,7 @@ var problems = [];
 var currentId = 0;
 var currentProblem = null;
 var dirty = false;
+var solvedSet = {};   // 题号 -> true（来自 leetcode:stats 的 solvedIds）
 
 function $(id) { return document.getElementById(id); }
 
@@ -185,7 +195,7 @@ function renderList() {
     box.appendChild(h);
     byName[cat].forEach(function (p) {
       var row = document.createElement('div');
-      row.className = 'prob' + (p.id === currentId ? ' active' : '');
+      row.className = 'prob' + (p.id === currentId ? ' active' : '') + (solvedSet[p.id] ? ' solved' : '');
       var badgeCls = p.difficulty === '简单' ? 'easy' : (p.difficulty === '中等' ? 'medium' : 'hard');
       row.innerHTML = '<span class="pid">' + p.id + '</span>'
         + '<span class="ptitle"></span>'
@@ -260,6 +270,11 @@ function runCode() {
         termLine(r.passed === r.total ? 't-ok' : 't-warn',
           '通过 ' + r.passed + '/' + r.total + ' 个用例'
           + (r.passed === r.total ? ' 🎉 全部通过！' : '—— 还有用例没过，再想想'));
+        if (r.passed === r.total && r.total > 0) {
+          // 全过：后端已落统计（recordJudgeResult 在判题返回前执行），
+          // 这里刷新徽标与列表对勾，并在终端给一条进度反馈
+          refreshStats(true);
+        }
       } else {
         // 没解析到 RESULT 行：程序自己的 println 原样展示
         termLine('t-dim', '(程序输出，无判定行)');
@@ -370,6 +385,49 @@ function fetchMore() {
   });
 }
 
+/* ---------- 进度统计与参考答案 ---------- */
+function refreshStats(celebrate) {
+  return bridge.invoke('leetcode:stats', {}).then(function (s) {
+    solvedSet = {};
+    (s.solvedIds || []).forEach(function (id) { solvedSet[id] = true; });
+    renderList();
+    var chip = $('progressChip');
+    if (s.total > 0) {
+      chip.hidden = false;
+      chip.textContent = '已解决 ' + s.solved + '/' + s.total + ' 题';
+    }
+    if (celebrate) {
+      var pct = s.total > 0 ? Math.round(s.solved * 100 / s.total) : 0;
+      termLine('t-ok', '📊 进度：已解决 ' + s.solved + '/' + s.total + '（' + pct + '%）'
+        + (s.solved === s.total ? ' 🏆 全部题目已解决！' : '，继续加油'));
+    }
+    return s;
+  });
+}
+
+function showStats() {
+  refreshStats(false).then(function (s) {
+    var pct = s.total > 0 ? Math.round(s.solved * 100 / s.total) : 0;
+    termLine('t-info', '═══ 做题进度 ═══');
+    termLine('t-ok', '已解决 ' + s.solved + ' / ' + s.total + ' 题（尝试过 ' + s.attempted + ' 题，完成率 ' + pct + '%）');
+    (s.categories || []).forEach(function (c) {
+      var bar = '';
+      for (var i = 0; i < c.total; i++) { bar += (i < c.solved ? '█' : '░'); }
+      termLine(c.solved > 0 ? 't-ok' : 't-dim', '  ' + c.category + '  ' + bar + '  ' + c.solved + '/' + c.total);
+    });
+  }).catch(function (e) { termLine('t-err', '取统计失败: ' + e.message); });
+}
+
+function loadSolution() {
+  if (!currentProblem) { termLine('t-warn', '请先选择一道题'); return; }
+  bridge.invoke('leetcode:solution', { id: currentProblem.id }).then(function (r) {
+    $('editor').value = r.code;
+    saveDraft();
+    termLine('t-warn', '📖 已载入题 ' + currentProblem.id + ' 的参考答案——点「运行」可验证，建议先读懂再自己写一遍');
+    status('已载入参考答案 · 题目 ' + currentProblem.id);
+  }).catch(function (e) { termLine('t-err', e.message); });
+}
+
 /* ---------- 启动 ---------- */
 waitForBridge(function () {
   bridge = window.__CJ_TAURI__;
@@ -379,6 +437,9 @@ waitForBridge(function () {
   $('btnRun').onclick = runCode;
   $('btnReset').onclick = resetCode;
   $('btnMore').onclick = fetchMore;
+  $('btnSolution').onclick = loadSolution;
+  $('btnStats').onclick = showStats;
+  refreshStats(false);   // 启动即取一次进度：徽标 + 列表对勾
   bridge.invoke('leetcode:list', {}).then(function (r) {
     problems = r.problems || [];
     termLine('t-dim', '题库加载完成：' + problems.length + ' 题');

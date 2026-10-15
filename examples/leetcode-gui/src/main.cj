@@ -28,13 +28,41 @@ import std.fs.*
 /** 前端页面路径（工作目录 = 项目根） */
 let UI_PATH = "ui/index.html"
 
-/** 读前端页面；读不到时给可读错误（通常是没有在示例目录下启动） */
-func readUi(): String {
+/** vendor 库路径（CodeMirror 5，MIT，见 ui/vendor/codemirror.LICENSE.txt 与 AGENTS §5 登记） */
+let VENDOR_CSS = "ui/vendor/codemirror.min.css"
+let VENDOR_JS = "ui/vendor/codemirror.min.js"
+
+/**
+ * 读 vendor 文件；缺失返回 None（页面占位符留空注释，编辑器降级 textarea）。
+ * 页面是 run(html) 的内联来源（Windows 下 NavigateToString，无真实来源），
+ * `<script src>` 相对路径不成立，vendor 必须内联——markdown-notes 同款做法。
+ */
+func vendorOrNone(path: String, what: String): Option<String> {
     try {
-        return String.fromUtf8(File.readFrom(UI_PATH))
+        return Some(String.fromUtf8(File.readFrom(path)))
+    } catch (e: Exception) {
+        eprintln("[lc] vendor 缺失 ${path}（${what}降级为纯 textarea）：${e}")
+        return None
+    }
+}
+
+/** 读前端页面并把 vendor 内联进占位符；读不到页面给可读错误 */
+func readUi(): String {
+    var html = ""
+    try {
+        html = String.fromUtf8(File.readFrom(UI_PATH))
     } catch (e: Exception) {
         throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/leetcode-gui 目录下启动")
     }
+    match (vendorOrNone(VENDOR_CSS, "编辑器样式")) {
+        case Some(t) => html = html.replace("/*__VENDOR_CSS__*/", t)
+        case None => ()
+    }
+    match (vendorOrNone(VENDOR_JS, "语法高亮与行号")) {
+        case Some(t) => html = html.replace("/*__VENDOR_CORE__*/", t)
+        case None => ()
+    }
+    return html
 }
 
 /** 原生菜单模型：运行 / 重置 / 关于。id 与前端 menu:click 的处理一一对应 */

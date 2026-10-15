@@ -15,7 +15,7 @@
 | `assets/og.svg` → `assets/og.png` | 分享卡片源图与产物（1200×630，`og:image` 用） |
 | `assets/architecture.svg` | 架构图（与 `docs/images/` 同源拷贝） |
 | `assets/dist-size-compare.svg` | 产物体积对比图 |
-| `assets/screenshots/*.png\|jpg` | 实机截图 14 张：6 张源自 `docs/images/`，8 张为本机补抓（见下「素材口径」） |
+| `assets/screenshots/*.png\|jpg` | 实机截图 15 张：6 张源自 `docs/images/`，9 张为本机补抓（见下「素材口径」） |
 | `.nojekyll` | 关掉 GitHub Pages 的 Jekyll 处理（本项目用不到 Jekyll，且避免它改写文件） |
 
 ## 发布

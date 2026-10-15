@@ -51,7 +51,8 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 
 ## 3. 题库与分类
 
-19 题内嵌在 `src/problems_data.cj`（启动时解析一次），按 8 个主流分类分组：
+题库 = **内置 19 题**（离线兜底）+ **远程题包**（「加载更多」拉取，见 §3.1）。
+内置题内嵌在 `src/problems_data.cj`（启动时解析一次），按 8 个主流分类分组：
 
 | 分类 | 题目 |
 | --- | --- |
@@ -63,6 +64,35 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 | 动态规划 | 爬楼梯、打家劫舍、最大子数组和 |
 | 贪心 | 买卖股票的最佳时机、分发饼干 |
 | 位运算与数学 | 只出现一次的数字、计数质数 |
+
+### 3.1 加载更多：远程题包
+
+题库不止内置的 19 题——侧栏底部的「⬇ 加载更多题包」会从**公共 git 仓的 raw 直链**拉取
+题包 JSON，schema 校验通过后合并进题库（内置 19 题 + 题包题同池、按分类分组渲染）：
+
+```
+点「加载更多」→ leetcode:fetchMore → 下载 docs/leetcode-packs/<包名>.json
+            → 校验（字段齐 / 远程 id>=100 / call+expect 是字符串）
+            → 合并进题库 + 写本地缓存 problems-remote.local.json
+下次启动    → 缓存自动并入（二次离线可用；缓存损坏按没有处理）
+```
+
+首发的进阶题包（递归/回溯/堆，8 题）在本仓
+[`docs/leetcode-packs/advanced-1.json`](../../leetcode-packs/advanced-1.json)。
+
+几条安全与失败口径：
+
+| 口径 | 理由 |
+| --- | --- |
+| URL 白名单写死在仓颉侧（`src/remote_packs.cj` 的 `PACK_BASE_URL`），前端只传题包名，且题包名过字符白名单 | 页面可控的任意 URL 等于开放 SSRF；拼不出外链与路径穿越 |
+| https 显式 `TlsClientConfig()`，走系统证书库校验 | 仓颉 HTTP 客户端不带默认 TLS；不关校验 |
+| 响应体 256KB 上限，读满即停 | 不把内存交给对端 |
+| 远程题 id 必须 ≥ 100 | 与内置 1..19 不冲突；重复 id 按覆盖更新（题包升版路径） |
+| 下载失败**如实报错**，内置题库照常用 | 不把网络问题伪装成「没有更多题」 |
+
+**怎么加一个新题包**：往 `docs/leetcode-packs/` 放一个同构 JSON（`packName` + `problems`
+数组，格式与内置题库完全一致），再在 `src/remote_packs.cj` 的 `AVAILABLE_PACKS` 里加一行
+包名——出题人提交一个 JSON 就是题库的一次更新。改完务必照 §6 的批量编译自检跑一遍新题。
 
 每条题目数据带：`funcName`（要实现的函数名）、`template`（仓颉函数签名 + TODO 占位）、
 `tests`（用例数组：`call` 是完整调用表达式、`expect` 是期望结果的仓颉字面量）。

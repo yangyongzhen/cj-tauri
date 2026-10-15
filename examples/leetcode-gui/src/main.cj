@@ -59,6 +59,10 @@ func onShellEvent(json: String, label: String): Unit {
 main(): Int64 {
     eprintln("[lc] main start")
 
+    // 远程题包缓存并入（problems-remote.local.json，上次「加载更多」的结果）：
+    // 在 PROBLEMS 被任何命令读到之前完成，缓存题与内置题同池
+    loadPackCache()
+
     let html = readUi()
 
     let app = TauriApp()
@@ -69,6 +73,8 @@ main(): Int64 {
         .register("leetcode:run", RunCommand())
         .register("leetcode:saveDraft", SaveDraftCommand())
         .register("leetcode:loadDraft", LoadDraftCommand())
+        .register("leetcode:packs", ListPacksCommand())
+        .register("leetcode:fetchMore", FetchMoreCommand())
 
     // 预置类能力：菜单必须在 start()/run() 之前定稿
     app.setMenu(buildMenu())

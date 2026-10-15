@@ -35,6 +35,35 @@ let JUDGE_DIR = "target/leetcode"
 /** 单次运行超时（毫秒）：死循环不能把 worker 线程钉死——到点杀进程如实报超时 */
 let JUDGE_TIMEOUT_MS: Int64 = 10000
 
+/**
+ * 判题编译开关（唯一来源）：静态链接 + 去符号 —— 动态产物会在运行期按 PATH 找仓颉运行时
+ * DLL，命中别代的运行时就是「无法定位程序输入点」载入失败（理由详见 judge()）。
+ * 缓存键也由它派生：只按源码哈希键控时，改了开关仍会命中旧参数编出来的产物。
+ */
+let JUDGE_COMPILE_FLAGS: Array<String> = ["--static", "--static-std", "--strip-all"]
+
+/** 判题编译实参：调整开关只改 JUDGE_COMPILE_FLAGS 一处 */
+private func judgeCompileArgs(binName: String): Array<String> {
+    let args = ArrayList<String>()
+    args.add("main.cj")
+    args.add("-o")
+    args.add(binName)
+    for (f in JUDGE_COMPILE_FLAGS) {
+        args.add(f)
+    }
+    return args.toArray()
+}
+
+/** 缓存键里的编译开关签名（开关变了 = 换一份产物，旧缓存必须失效） */
+private func judgeFlagsSig(): String {
+    let sb = StringBuilder()
+    for (f in JUDGE_COMPILE_FLAGS) {
+        sb.append(f)
+        sb.append(" ")
+    }
+    return sb.toString()
+}
+
 /** 判题子目录序号（时间戳到秒不够区分连续两次判题，叠一个进程内自增号） */
 var judgeSeq: Int64 = 0
 
@@ -302,10 +331,12 @@ public class RunCommand <: CommandHandler {
         }
         File.writeTo(Path(workDir + "/main.cj"), source.toArray())
 
-        // 编译缓存：按源码哈希键控——同一份源码（反复提交/换题号同代码）直接跳过编译。
+        // 编译缓存：按「源码 + 编译开关」哈希键控——同一份源码（反复提交/换题号同代码）跳过编译。
+        // 开关必须进键：只按源码键控时，改成静态链接后旧缓存照样命中，用户端会原样回放
+        // 动态链接编出来的产物（实机「升级后还是同一个错」的成因）。
         // 缓存只是「源码 → 产物」映射，哈希碰撞最坏跑一次旧二进制（判定不 PASS），
         // 下一次判题即按现源码重编修正，不破坏「同源码同结果」语义
-        let cacheDir = JUDGE_DIR + "/cache/" + sourceHash(source)
+        let cacheDir = JUDGE_DIR + "/cache/" + sourceHash(source + "|" + judgeFlagsSig())
         let binName = judgeExeName()
         let cachedBin = cacheDir + "/" + binName
         if (!exists(Path(workDir + "/" + binName))) {
@@ -319,7 +350,12 @@ public class RunCommand <: CommandHandler {
                         eprintln("[lc] cjc not found: ${CJC_GUIDE}")
                         throw CommandException(CJC_GUIDE)
                 }
-                let comp = tryRun(cjc, ["main.cj", "-o", binName], workDir)
+                // 静态链接 + 去符号：动态链接的判题产物会在**运行期**去找仓颉运行时 DLL，
+                // 解析到哪一份取决于 PATH / 系统目录，而不同代的运行时 ABI 名字并不一致
+                // （实测用户端报「无法定位程序输入点 CJMCC_ExclusiveScope」，本 SDK 的运行时
+                // 导出的是带下划线的 CJ_MCC_*）——同一份源码本机 3/3、用户机器编译完就载入失败。
+                // 链进去就与 PATH 无关；--strip-all 把 25MB 压回 2.7MB（与动态版体积相当）。
+                let comp = tryRun(cjc, judgeCompileArgs(binName), workDir)
                 if (comp[0] != 0) {
                     eprintln("[lc] compile failed id=${id}: ${comp[2]}")
                     var obj = JsonObject()

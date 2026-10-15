@@ -125,7 +125,9 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 1. **拼源码**：用户代码 + 生成的 harness（`main` 里逐条 `let rK = <call>`、与 `<expect>`
    字面量直接 `==` 比较、打印 `RESULT K PASS/FAIL` 行）；
 2. **写盘**：`target/leetcode/<题号>-<时间戳>-<序号>/main.cj`，每次判题一个独立子目录；
-3. **编译**：`cjc main.cj -o judge`（`cjc` 取 `CANGJIE_HOME/bin/cjc`，退回 PATH）；
+3. **编译**：`cjc main.cj -o judge --static --static-std --strip-all`（`cjc` 取 `CANGJIE_HOME/bin/cjc`，
+   退回 PATH）——**必须静态链接**：动态产物在运行期按 PATH 找仓颉运行时 DLL，一旦命中别代的运行时
+   就是「无法定位程序输入点」载入失败（实机踩过，详见 §5.1）；`--strip-all` 把 25MB 压回 2.7MB；
 4. **运行**：执行 `./judge`，解析 stdout 里的 `RESULT` 行；
 5. **回投**：判定结果经 IPC 返回前端，终端逐用例着色展示。
 
@@ -149,8 +151,14 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 所以输出经 shell 重定向进工作目录的文件再读回——这是平台差异唯一进 `@When` 的地方
 （Linux `sh` / Windows `cmd.exe`）。
 
-编译结果按源码哈希缓存（`target/leetcode/cache/<哈希>/judge`）：反复提交同一份代码
-直接跳过编译（实机取证 `compile cache hit`），判题从 1~3 秒降到 100ms 量级。
+编译结果按「源码 + 编译开关」哈希缓存（`target/leetcode/cache/<哈希>/judge`）：反复提交同一份代码直接跳过编译
+（实机取证 `compile cache hit`），判题降到 100ms 量级；冷编译实测约 0.4~1 秒——产物走静态链接 +
+去符号后 2.7MB（动态版 2.1MB），每份**唯一**源码占一个缓存条目，体积代价与从前相当。
+开关（`JUDGE_COMPILE_FLAGS`）必须进键：只按源码键控时，一旦改了编译参数，旧缓存照样命中，
+用户端会原样回放「用旧参数编出来的产物」——表象就是升级了版本、报错还是那一个。
+静态链接是**运行期**的硬要求：动态产物要按 PATH 找仓颉运行时 DLL，命中别代运行时的报错是
+「无法定位程序输入点 `CJMCC_ExclusiveScope`」（本 SDK 导出的是带下划线的 `CJ_MCC_*`）——
+同一份判题源码本机 3/3 通过、换了台机器就一编译完即载入失败；链进去之后与 PATH 再无关系。
 哈希用「左移 7 + 右移 57 + 异或字节」的滚动哈希——**不能用乘法基哈希（FNV 之类）**：
 仓颉整数乘法溢出抛 `OverflowException`（实测），不是 C 那样静默回绕。
 
@@ -227,7 +235,8 @@ def build(p, kind, code, hs):
     body = '' if 'import ' in code else 'import std.collection.*\n'
     open('%s/main.cj' % d, 'w', encoding='utf-8').write(body + code + hs)
     exe = 'judge.exe' if os.name == 'nt' else 'judge'   # Windows 上不带 .exe 的产物跑不起来
-    r = subprocess.run(['cjc', 'main.cj', '-o', exe], cwd=d, capture_output=True, text=True)
+    # 与判题侧同参数：静态链接，运行期不去找仓颉运行时 DLL
+    r = subprocess.run(['cjc', 'main.cj', '-o', exe, '--static', '--static-std', '--strip-all'], cwd=d, capture_output=True, text=True)
     if r.returncode != 0:
         return '编译失败: ' + (r.stderr or '')[:200]
     if kind == 'tmpl':

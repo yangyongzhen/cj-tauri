@@ -517,6 +517,21 @@
 - **跨平台脚本别拉解释器做小事**（2026-10-13 实测）：`e2e-evidence.sh` 原用 python3 做 JSON 转义，
   注释写「本机与 CI 都有」——Windows 机上没有，转义全空、证据成了坏 JSON（断言名为空、版本断行）。
   转义这类小事用纯 bash 实现；解释器不可得时的自检走回退链（`python3 → python → py -3`）。
+- **应用调 `cjc` 编出来的东西要交付到别的机器，必须静态链接**（2026-10-15 实测，`examples/leetcode-gui`
+  判题）：`cjc main.cj -o judge` 默认**动态**链接，产物在运行期由 loader 按 PATH / 系统目录解析
+  `libcangjie-runtime.dll`——命中别代运行时时 ABI 名字对不上，报「无法定位程序输入点
+  `CJMCC_ExclusiveScope`」（本 SDK 的运行时导出的是带下划线的 `CJ_MCC_*`），进程连 `main` 都进不去、
+  stdout 与 stderr 全空，页面上看着像「运行没反应」；而**同一份源码在本机跑得出 3/3 PASS**（换一次
+  PATH 就复现，别把「本机过了」当交付判据）。修法是编译命令带 `--static --static-std --strip-all`：
+  `--strip-all` 把静态产物从 25MB 压回 2.7MB（动态版 2.1MB，体积代价可忽略，冷编译约 0.4~1 秒）；
+  判据是**只给 `C:\windows\system32;C:\windows` 也能跑出 `RESULT PASS`**，且 `objdump -p` 的导入表里
+  不再出现 `libcangjie-*`/`libboundscheck`（`cjc --help` 里这三个开关都有，不用外部 strip）。
+  **同一轮还踩到它的下游：改了编译开关必须让它进产物缓存键**（2026-10-15 实测）——判题按「源码哈希 →
+  产物」缓存，键里只有源码时，改成静态链接后**旧缓存照样命中**，把动态链接编出的旧产物原样拿去跑，
+  用户端表象是「升级了新版本、报错一字不差」（排查时容易怀疑新版本没生效、或又去查产物）。键取
+  「源码 + 开关签名」（开关收敛到 `commands.cj` 的 `JUDGE_COMPILE_FLAGS` 一处），旧条目自然失效、
+  不必手工清缓存。判据：在旧缓存键目录里放一个 31 字节的假产物——修后不再出现 `compile cache hit`、
+  重新编译的产物导入表里没有仓颉运行时 DLL、判题照旧 3/3 PASS（那个假文件毫发无损）。
 - **E2E 的启动环境有两处会让「应用一启动就退、日志一行都没有」**（2026-10-15 实测，`scripts/e2e/lib.sh`）：
   ① `CANGJIE_HOME` 来自 envsetup.bat / 本机环境变量时是**盘符形式**（`D:\Program Files (x86)\Cangjie`），
   直接拼进 PATH 会被 MSYS 按「冒号即分隔符」切碎（拆成 `D` 与 `\Program Files...`）——与 `CANGJIE_STDX`

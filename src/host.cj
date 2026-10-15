@@ -180,6 +180,30 @@ public interface WebViewHost {
     func setTray(wire: String): Unit
 
     /**
+     * 显示 / 隐藏本窗口（对标 Tauri 2 的 `window.show()` / `window.hide()`）
+     *
+     * 隐藏 = 从任务栏与屏幕上消失（Windows 走 `ShowWindow(SW_HIDE)`，Linux 走 `gtk_widget_hide`），
+     * 事件循环照常跑、页面照常活着——所以「最小化到托盘」的还原路径（托盘菜单 / 全局快捷键）才成立。
+     * 两头都能调：`start()` 之前调只记下（建窗时按它定稿，隐藏态的窗口首次出现前就是隐藏的）；
+     * 之后调用投到宿主 UI 线程执行。显示时顺带把窗口提到前台（Linux 是 `gtk_window_present`，
+     * Windows 是 `SetForegroundWindow`）。
+     * 这是**宿主基元**，两平台都实现，不占能力位（没有平台只有一半）。
+     */
+    func setWindowVisible(visible: Bool): Unit
+
+    /**
+     * 最小化到托盘（RFC-003 第 5 期余项，`WindowConfig.minimizeToTray` 的落点）
+     *
+     * enabled=true 时，用户在标题栏点「最小化」不再缩到任务栏，而是**隐藏窗口**
+     * （= `setWindowVisible(false)` 的效果）；还原走应用自己的托盘菜单 / 全局快捷键。
+     * 必须在 `start()` / `startUrl()` 之前调用（窗口过程要在建窗时就知道这条策略）。
+     * 真到最小化那一刻，平台会复核托盘是否**真的**装上了（能力位不含 `CJ_CAP_TRAY`，
+     * 或应用压根没调 `setTray`）：没装就如实降级为普通最小化并打一行 stderr——
+     * 窗口藏起来却没有任何还原入口，是比「不支持」更糟的结果。
+     */
+    func setMinimizeToTray(enabled: Bool): Unit
+
+    /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
      *
      * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。

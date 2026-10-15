@@ -234,6 +234,23 @@ void cj_plat_set_tray(cj_host *h, const char *wire) {
     snprintf(g_tray_last_wire, sizeof(g_tray_last_wire), "%s", wire ? wire : "");
 }
 
+/* ---- 窗口可见性 / 最小化到托盘：桩平台没有窗口，只记录调用（接线层自检用）---- */
+static int g_win_visible_calls;
+static int g_win_visible_last = -1;
+void cj_plat_set_window_visible(cj_host *h, int visible) {
+    (void)h;
+    g_win_visible_calls++;
+    g_win_visible_last = visible;
+}
+
+static int g_min_tray_calls;
+static int g_min_tray_last = -1;
+void cj_plat_set_minimize_to_tray(cj_host *h, int enabled) {
+    (void)h;
+    g_min_tray_calls++;
+    g_min_tray_last = enabled;
+}
+
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     g_caps_calls++;
@@ -407,6 +424,22 @@ int main(void) {
     CHECK(h->devtools == 0, "devtools 可关");
     cj_bridge_set_devtools(h, 1);
     CHECK(h->devtools == 1, "devtools 可开");
+
+    /* --- 2b. 窗口可见性 / 最小化到托盘：两头都能用，但「建窗前」只记不下发 --- */
+    case_begin("set_window_visible / set_minimize_to_tray");
+    cj_bridge_set_window_visible(h, 0);
+    CHECK(h->win_visible == 0, "未就绪：记下待定可见性");
+    CHECK(g_win_visible_calls == 0, "未就绪：不下发平台（建窗时按 h->win_visible 定稿，省一次闪烁）");
+    h->ready = 1;
+    cj_bridge_set_window_visible(h, 1);
+    CHECK(h->win_visible == 1 && g_win_visible_calls == 1 && g_win_visible_last == 1,
+          "就绪后：投平台执行显示");
+    cj_bridge_set_minimize_to_tray(h, 1);
+    CHECK(h->minimize_to_tray == 1 && g_min_tray_calls == 1 && g_min_tray_last == 1,
+          "最小化到托盘策略转给平台");
+    cj_bridge_set_minimize_to_tray(h, 0);
+    CHECK(h->minimize_to_tray == 0 && g_min_tray_last == 0, "策略可关（回到普通最小化）");
+    h->ready = 0; /* 后面的用例还按「未启动」的前提走 */
 
     /* --- 3. 预执行脚本：忽略空串、顺序保持、容量翻倍 --- */
     case_begin("add_init_script 顺序与扩容");

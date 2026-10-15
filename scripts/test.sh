@@ -60,10 +60,17 @@ case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*)
         export PATH="$CANGJIE_HOME/bin:$CANGJIE_HOME/tools/bin:$CANGJIE_HOME/runtime/lib/windows_x86_64_cjnative:$CANGJIE_HOME/tools/lib:$PATH"
         export PATH="$ROOT/native:$ROOT/native/webview2:$PATH"
-        if [ -z "${CANGJIE_STDX:-}" ] && [ -d "/d/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx" ]; then
-            CANGJIE_STDX="/d/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx"
+        # 探测到了还必须 **export**：cjpm.toml 的 bin-dependencies.path-option 写的是 ${CANGJIE_STDX}，
+        # 由 cjpm 按**进程环境变量**展开——只进 PATH 不导出，cjpm 收到空值，报的是
+        # `root package 'cjTauri' imports package 'stdx.encoding.json' ... not added as a dependency
+        # in cjpm.toml`（看着像 toml 漏配，其实是这一行没导出；2026-10-15 实测）。
+        if [ -z "${CANGJIE_STDX:-}" ]; then
+            for d in /d/cangjie-stdx/*/dynamic/stdx "$HOME"/.cangjie/stdx/*/dynamic/stdx; do
+                if [ -d "$d" ]; then CANGJIE_STDX="$d"; break; fi
+            done
         fi
         if [ -n "${CANGJIE_STDX:-}" ]; then
+            export CANGJIE_STDX
             export PATH="$CANGJIE_STDX:$PATH"
         fi
         ;;

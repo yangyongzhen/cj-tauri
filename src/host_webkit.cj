@@ -131,6 +131,20 @@ foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Uni
 foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
 
 /**
+ * 窗口可见性（`show()` / `hide()` 的 C 侧落点）：start 之前调只记 pending，就绪后投 GTK 线程执行
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_set_window_visible(h: CPointer<Unit>, visible: Int32): Unit
+
+/**
+ * 最小化到托盘策略位（须在 start 之前调）：GTK 侧据此把 window-state-event 里的 iconify 改写成 hide
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_set_minimize_to_tray(h: CPointer<Unit>, enabled: Int32): Unit
+
+/**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
 @When[os == "Linux"]
@@ -274,6 +288,30 @@ public class WebKitHost <: WebViewHost {
         this.ensureHandle()
         unsafe {
             cj_bridge_set_tray(this.handle, LibC.mallocCString(wire))
+        }
+    }
+
+    public func setWindowVisible(visible: Bool): Unit {
+        // 与 setTray 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）；就绪后投 GTK 线程执行
+        this.ensureHandle()
+        var v: Int32 = 0
+        if (visible) {
+            v = 1
+        }
+        unsafe {
+            cj_bridge_set_window_visible(this.handle, v)
+        }
+    }
+
+    public func setMinimizeToTray(enabled: Bool): Unit {
+        // 策略位：GTK 侧要在建窗时连 window-state-event 信号，所以只在 start() 之前调才有意义
+        this.ensureHandle()
+        var e: Int32 = 0
+        if (enabled) {
+            e = 1
+        }
+        unsafe {
+            cj_bridge_set_minimize_to_tray(this.handle, e)
         }
     }
 

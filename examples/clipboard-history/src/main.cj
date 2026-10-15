@@ -11,16 +11,18 @@ import stdx.encoding.json.*
 /**
  * clipboard-history：剪贴板历史管理器（工具计划④）
  *
- * 框架两个新能力位的首个消费者：**托盘**（TrayModel，Linux 走 libayatana-appindicator3）+
- * **全局快捷键**（HotkeyModel，Linux 走 X11 grab）。历史捕获与回写**零新命令**——
+ * 框架两个新能力位的首个消费者：**托盘**（TrayModel；Linux 走 libayatana-appindicator3、
+ * Windows 走 Shell_NotifyIconW）+ **全局快捷键**（HotkeyModel；Linux 走 X11 grab、
+ * Windows 走 RegisterHotKey）。历史捕获与回写**零新命令**——
  * 前端 500ms 轮询 `clipboard:read` 去重入历史，回写 `clipboard:write`；托盘点击与快捷键
  * 由框架自动投前端事件 `tray:click` / `hotkey:press`（capability events 已声明）。
  *
  * 仓颉侧只做装配（§2 架构契约：IPC/分发/校验共用，平台差异只在桥）：
- *  - 托盘：图标 + 菜单（显示/隐藏、置顶窗口开关、清空、退出）——`start()` 之前定稿；
+ *  - 托盘：图标 + 菜单（显示面板、清空、退出）——`start()` 之前定稿；
  *  - 全局快捷键：Ctrl+Alt+V 唤出面板——同在 `start()` 之前；
- *  - shell 事件分发：`app.onShellEvent` 挂可叠加钩子，把 tray/hotkey 转投前端（框架已做），
- *    应用侧只留一行日志作实机凭证。
+ *  - 最小化到托盘：`WindowConfig.minimizeToTray`（点最小化 = 藏进托盘，还原走托盘菜单/快捷键）；
+ *  - shell 事件：**窗口级动作走原生**（窗口藏起来之后页面还在跑，却没有办法把自己显出来，
+ *    只有 `setWindowVisible` 做得到）；页面级动作（清空 / 聚焦搜索框）交给框架投的前端事件。
  *
  * 探针模式（CJ_CLIP_PROBE=1）：预执行脚本注入配置，页面自动跑「写剪贴板→轮询捕获→
  * 历史断言→点击回写→外部回读」并逐项 report 回投 stderr；对端由 E2E 脚本用 xclip 扮演。
@@ -94,19 +96,48 @@ func iconPath(): String {
     }
 }
 
+/** 从 shell 事件信封里取 id（托盘点击 / 快捷键触发都带 `{"kind":…,"id":…}`）。
+    解析不了按「无 id」处理——与 core 侧「没有 id 的点击无法路由」同一口径，不猜。 */
+func shellEventId(json: String): String {
+    try {
+        let root = JsonValue.fromStr(json)
+        match (root.kind()) {
+            case JsonKind.JsObject =>
+                match (root.asObject().get("id")) {
+                    case Some(v) =>
+                        match (v.kind()) {
+                            case JsonKind.JsString => return v.asString().getValue()
+                            case _ => ()
+                        }
+                    case None => ()
+                }
+            case _ => ()
+        }
+    } catch (e: Exception) {
+        eprintln("[cj-clip] shell event 不是 JSON，按无 id 处理：${e}")
+    }
+    return ""
+}
+
 main(): Int64 {
     eprintln("[cj-clip] main start")
 
+    // 最小化到托盘：点标题栏「最小化」不再缩到任务栏，而是把窗口**藏起来**（还原走托盘菜单
+    // 「显示面板」或 Ctrl+Alt+V）。必须与 setTray 配套——真到最小化那一刻，平台会复核托盘是否
+    // 真的装上了，没装就如实降级为普通最小化 + 一行 stderr（契约见 WindowConfig.minimizeToTray）。
+    let win = WindowConfig("剪贴板历史 · cj-tauri", 1080, 760)
+    win.minimizeToTray = true
+
     let app = TauriApp()
-        .window(WindowConfig("剪贴板历史 · cj-tauri", 720, 560))
+        .window(win)
         .plugin(ClipboardPlugin())                 // 剪贴板读写（clipboard:read/write）
         .plugin(StorePlugin())                     // 历史与偏好持久化（store.json）
         .register("report", ReportCommand())
 
     // 托盘必须在 start() 之前定稿（RFC-002 §7.C：赶在页面加载前；默认窗经 hostOf 回落拿得到）。
-    // 菜单只放**能完整实现**的项：框架还没有窗口 show/hide 原语（RFC-003 第 5 期余项），
-    // 「显示/隐藏」那种项不放假承诺——clear/quit 都由前端事件处理器真实落地。
+    // 「显示面板」放在第一项：窗口藏进托盘之后，用户只有从这里或快捷键回得来。
     let trayMenu = ArrayList<MenuItem>()
+    trayMenu.add(MenuItem.normal("show", "显示面板"))
     trayMenu.add(MenuItem.normal("clear", "清空历史"))
     trayMenu.add(MenuItem.separator())
     trayMenu.add(MenuItem.normal("quit", "退出"))
@@ -116,10 +147,18 @@ main(): Int64 {
     let hotkeys = HotkeyModel().add("Ctrl+Alt+V", "show-panel")
     app.setGlobalHotkeys(hotkeys)
 
-    // 应用侧 shell 钩子（可叠加）：框架已把 tray/hotkey 自动投前端，这里只留实机凭证日志
+    // 应用侧 shell 钩子（可叠加）：框架已把 tray/hotkey 自动投前端，这里补**窗口级**动作。
+    // 窗口藏起来之后页面照样在跑，但它没有任何办法把自己显出来（没有 window.show——那正是
+    // 本能力位存在的理由），所以「还原可见性」只能在原生侧做；「清空历史 / 聚焦搜索框」这类
+    // 页面级动作由前端事件处理器做（见 ui/index.html 的 listen）。
     app.onShellEvent({ json: String, label: String =>
         let _ = label
         eprintln("[cj-clip] shell event: ${json}")
+        let id = shellEventId(json)
+        if (id == "show" || id == "show-panel") {
+            app.setWindowVisible(true)
+            eprintln("[cj-clip] panel restored by ${id}")
+        }
     })
 
     app.register("quit", QuitCommand(app))

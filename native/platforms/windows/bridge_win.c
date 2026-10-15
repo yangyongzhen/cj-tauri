@@ -77,6 +77,20 @@ typedef struct menu_slot {
     int checked;
 } menu_slot;
 
+/* ===== 全局快捷键（RFC-003 第 5 期）=====
+   线路文本一行一条 `<accel>:<id>`（见 bridge_core.h 的 pending_hotkeys 注释）。
+   RegisterHotKey 只认「修饰键位掩码 + 虚拟键码」，本层负责把 accel 词法翻译成这两样；
+   解析不了 / 被系统占用的那条整行丢弃并出声（不静默吞，与 Linux 的 X11 grab 口径一致）。 */
+#define CJ_HOTKEY_MAX 16
+
+typedef struct hotkey_slot {
+    int id;         /* RegisterHotKey 的 id（1..CJ_HOTKEY_MAX）；WM_HOTKEY 的 wParam 就是它 */
+    char *app_id;   /* 应用给的稳定标识：回投 core 的 cj_core_hotkey_pressed 用它 */
+    UINT mods;      /* MOD_CONTROL / MOD_ALT / MOD_SHIFT / MOD_WIN 的按位或（0 = 无修饰）*/
+    UINT vk;        /* 虚拟键码（VK_*）*/
+    int registered; /* RegisterHotKey 成功；失败的那条不参与回投 */
+} hotkey_slot;
+
 /* ===== 每个宿主的平台私有状态 =====
    原先是一堆进程级单例（g_hwnd / g_controller / g_environment / g_webview / g_host_thread_id …）。
    现在挂在自己的 cj_host->plat 上，平台函数一律从入参句柄取状态。 */
@@ -101,6 +115,17 @@ typedef struct plat_host {
     int menu_item_count;
     /* --- 拖放（7.B Windows 真实现，只在 UI 线程挂 / 摘）--- */
     IDropTarget *drop_target;                 /* 我们的拖放目标；NULL = 尚未创建 */
+    /* --- 托盘（Shell_NotifyIconW，只在 UI 线程上建 / 换 / 拆）--- */
+    NOTIFYICONDATAW nid;                      /* 图标注册块：hWnd/uID/uCallbackMessage 一次填好 */
+    int tray_added;                           /* 图标真挂上去了（最小化拦截拿它做降级判据）*/
+    HMENU tray_menu;                          /* 托盘菜单（左键 / 右键都弹它）；NULL = 没有 */
+    menu_slot tray_items[CJ_MENU_MAX_ITEMS];  /* 命令 id ↔ 应用 id：WM_COMMAND 靠它回投 */
+    int tray_item_count;
+    /* --- 全局快捷键（RegisterHotKey，只在 UI 线程上注册 / 注销）--- */
+    hotkey_slot hotkeys[CJ_HOTKEY_MAX];
+    int hotkey_count;
+    /* --- 最小化到托盘：托盘没装上时「降级为普通最小化」只出声一次 --- */
+    int min_to_tray_warned;
 } plat_host;
 
 /* 拖放目标的挂/摘（定义在文件后部）：controller 完成回调与 wnd_proc 都要调 */
@@ -198,6 +223,15 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_MENU_ITEM (WM_APP + 8)  /* 运行期改单项状态：lParam = menu_state_msg*（UI 线程释放）*/
 #define WM_CJT_UI (WM_APP + 9)         /* 通用 UI 投递（剪贴板等）：lParam = cj_ui_msg*（UI 线程释放）*/
 #define WM_CJT_DRAG_DROP (WM_APP + 10) /* 运行期挂/摘拖放：lParam = drag_drop_msg*（UI 线程释放）*/
+#define WM_CJT_TRAY (WM_APP + 11)      /* 运行期换托盘：lParam = strdup 的线路文本（UI 线程释放）*/
+#define WM_CJT_HOTKEYS (WM_APP + 12)   /* 运行期换快捷键表：lParam = strdup 的线路文本（UI 线程释放）*/
+#define WM_CJT_VISIBLE (WM_APP + 13)   /* 运行期改可见性：wParam = 0 隐藏 / 1 显示 */
+#define WM_CJT_TRAY_NOTIFY (WM_APP + 14) /* 托盘图标的回调消息（Shell_NotifyIconW 的 uCallbackMessage）*/
+
+/* 托盘菜单项的命令 id 从 1000 起：TrackPopupMenu 的 WM_COMMAND 也落到本窗口，
+   与菜单栏的命令 id（从 1 起）分开放，WM_COMMAND 才能判别是哪一个表。 */
+#define CJ_TRAY_CMD_BASE 1000
+#define CJ_TRAY_UID 1 /* NOTIFYICONDATAW.uID：一个进程一个托盘图标 */
 
 /* 运行期改单项状态：跨线程传递的小包裹（谁 post 谁分配，UI 线程处理完释放）*/
 typedef struct menu_state_msg {
@@ -224,6 +258,13 @@ static void serial_err(char *err, int err_len, const char *fmt, ...);
 static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire);
 static void menu_apply_item_state(plat_host *p, const char *id, int enabled, int checked);
 static void menu_clear_slots(plat_host *p);
+/* 托盘 / 全局快捷键 / 窗口可见性实现同样在文件末尾；宿主线程与窗口过程要用，先声明 */
+static void tray_apply_wire(cj_host *h, plat_host *p, const char *wire);
+static void tray_remove(plat_host *p);
+static void hotkey_apply_wire(plat_host *p, const char *wire);
+static void hotkey_unregister_all(plat_host *p);
+static void window_apply_visible(plat_host *p, int visible);
+static int accel_parse(const char *accel, UINT *mods, UINT *vk);
 
 /* ===== COM 回调实现（完成/事件 handler）===== */
 
@@ -956,6 +997,21 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_COMMAND: {
         /* 菜单项：LOWORD(wp) 是建菜单时分配的命令 id；0 = 没有命令（分隔线 / 子菜单标题）*/
         UINT cmd = (UINT)LOWORD(wp);
+        if (h && p && cmd >= CJ_TRAY_CMD_BASE) {
+            /* 托盘项：命令 id 从 CJ_TRAY_CMD_BASE 起，与菜单栏的命令 id 空间分开放，
+               否则两个表（menu_items / tray_items）会互相抢同一个 id。 */
+            int ti = (int)(cmd - CJ_TRAY_CMD_BASE);
+            if (ti >= 0 && ti < p->tray_item_count) {
+                menu_slot *s = &p->tray_items[ti];
+                if (s->kind == 'c') {
+                    s->checked = s->checked ? 0 : 1;
+                    CheckMenuItem(p->tray_menu, cmd,
+                                  MF_BYCOMMAND | (s->checked ? MF_CHECKED : MF_UNCHECKED));
+                }
+                cj_core_tray_clicked(h, s->app_id);
+            }
+            return 0;
+        }
         if (h && p && cmd) {
             int i;
             for (i = 0; i < p->menu_item_count; i++) {
@@ -970,6 +1026,77 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 cj_core_menu_clicked(h, s->app_id, s->enabled, s->checked);
                 break;
             }
+        }
+        return 0;
+    }
+    case WM_HOTKEY: {
+        /* wParam = RegisterHotKey 时给的 id；只回投真的注册成功的那条 */
+        int i;
+        if (p) {
+            for (i = 0; i < p->hotkey_count; i++) {
+                if (p->hotkeys[i].id == (int)wp && p->hotkeys[i].registered) {
+                    cj_core_hotkey_pressed(h, p->hotkeys[i].app_id);
+                    break;
+                }
+            }
+        }
+        return 0;
+    }
+    case WM_SYSCOMMAND:
+        /* 最小化到托盘：把「最小化」改写成「隐藏」。**只在托盘真挂上时才拦**——
+           没有托盘还把窗口藏起来，用户就再也点不回来了；宁可如实降级为普通最小化并出声一次。 */
+        if (p && h && (wp & 0xFFF0) == SC_MINIMIZE && h->minimize_to_tray) {
+            if (p->tray_added) {
+                ShowWindow(hwnd, SW_HIDE);
+                fprintf(stderr, "[cj-bridge] minimize -> hidden to tray\n");
+                return 0;
+            }
+            if (!p->min_to_tray_warned) {
+                p->min_to_tray_warned = 1;
+                fprintf(stderr, "[cj-bridge] minimize_to_tray ignored: no tray icon yet "
+                                "(set_tray / CJ_CAP_TRAY) - normal minimize\n");
+            }
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    case WM_CJT_TRAY: {
+        /* lParam 是调用方 strdup 的线路文本：宿主线程用完即释放（与 WM_CJT_MENU 同规）*/
+        char *wire = (char *)lp;
+        if (wire && h && p) {
+            tray_apply_wire(h, p, wire);
+        }
+        free(wire);
+        return 0;
+    }
+    case WM_CJT_HOTKEYS: {
+        char *wire = (char *)lp;
+        if (p) {
+            hotkey_apply_wire(p, wire ? wire : "");
+        }
+        free(wire);
+        return 0;
+    }
+    case WM_CJT_VISIBLE:
+        if (p && p->hwnd) {
+            window_apply_visible(p, (int)wp);
+        }
+        return 0;
+    case WM_CJT_TRAY_NOTIFY: {
+        /* 托盘图标回调：NOTIFYICON_VERSION_4 口径下 wParam 是图标坐标、lParam 低位是事件。
+           左键与右键都弹菜单——Linux 的 appindicator 本来就只有菜单（没有「图标激活」语义），
+           两边行为一致，应用侧就不必为平台分叉写代码。 */
+        UINT ev = (UINT)LOWORD(lp);
+        if (p && p->tray_menu &&
+            (ev == WM_LBUTTONUP || ev == NIN_SELECT ||
+             ev == WM_RBUTTONUP || ev == WM_CONTEXTMENU)) {
+            POINT pt;
+            pt.x = (LONG)(short)LOWORD(wp);
+            pt.y = (LONG)(short)HIWORD(wp);
+            /* SetForegroundWindow + 事后 WM_NULL 是 TrackPopupMenu 的老规矩：
+               少了前者菜单不会消失，少了后者菜单会残留到下次点击 */
+            SetForegroundWindow(hwnd);
+            TrackPopupMenu(p->tray_menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+                           pt.x, pt.y, 0, hwnd, NULL);
+            PostMessageW(hwnd, WM_NULL, 0, 0);
         }
         return 0;
     }
@@ -1002,6 +1129,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_DESTROY:
         if (p) {
+            /* 托盘图标先摘：不摘的话进程退出后系统托盘里会留一个点不动的幽灵图标 */
+            tray_remove(p);
+            hotkey_unregister_all(p);
             /* 拖放目标先摘：RevokeDragDrop 释放系统对我们 COM 对象的引用 */
             drag_dest_apply(h, p, 0);
             if (p->drop_target) {
@@ -1268,6 +1398,19 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     if (h->pending_menu_text && h->pending_menu_text[0]) {
         menu_apply_wire(h, p, h->pending_menu_text);
     }
+    /* 托盘 / 快捷键同规：装配期把「start() 之前设好的」线路落下去（运行期改动走 WM_CJT_*）。
+       RegisterHotKey 要求窗口已存在，所以不能更早做。 */
+    if (h->pending_tray && h->pending_tray[0]) {
+        tray_apply_wire(h, p, h->pending_tray);
+    }
+    if (h->pending_hotkeys && h->pending_hotkeys[0]) {
+        hotkey_apply_wire(p, h->pending_hotkeys);
+    }
+    /* 窗口初始可见性：**建窗后立刻定稿**（比「先显示再藏起来」少一次闪烁）。
+       WebView2 还没就绪也无妨——SW_HIDE 是窗口层状态，页面照常加载。 */
+    if (!h->win_visible) {
+        window_apply_visible(p, 0);
+    }
     /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理）。
        用户数据档案：显式选目录（env 覆盖优先，默认 %LOCALAPPDATA%\cj-tauri\<exe名>.WebView2），
        不再让它默认堆在 exe 旁边；选不下来才传 NULL 回 WebView2 默认行为。
@@ -1303,6 +1446,10 @@ done:
         p->menu = NULL;
     }
     menu_clear_slots(p);
+    /* 托盘图标与全局快捷键也归本线程回收：图标不摘会让系统托盘留幽灵图标，
+       快捷键不注销会跟着窗口句柄一起失效——WM_DESTROY 里已摘过一次，两个函数都幂等 */
+    tray_remove(p);
+    hotkey_unregister_all(p);
     if (p->controller) {
         p->controller->lpVtbl->Close(p->controller);
         p->controller = NULL;
@@ -1670,24 +1817,449 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     /* 本平台的静态能力：菜单栏、拖放（OLE IDropTarget）、通知（PowerShell toast）已落地；
-       托盘按用户裁定暂缓，不置 CJ_CAP_TRAY；全局快捷键本侧暂为桩（实机轮补 RegisterHotKey），不置 CJ_CAP_HOTKEY */
-    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
+       托盘（Shell_NotifyIconW）与全局快捷键（RegisterHotKey）2026-10-15 随剪贴板历史示例落地——
+       托盘菜单与窗口菜单共用线路格式与回投通道，点击都经 on_shell（{"kind":"tray","id":"…"}）。 */
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_TRAY | CJ_CAP_HOTKEY;
 }
 
-/* 全局快捷键（RFC-003 第 5 期）：Windows 侧桩——同名同签名保上层零平台分支，
-   实现随示例排期（RegisterHotKey 需要消息循环挂钩，届时照菜单/拖放的投递形态落）。 */
+/* ===== 全局快捷键（RFC-003 第 5 期，Windows 真实现）=====
+   分工与 Linux 侧逐条对齐：wire 解析在平台层（core 只把线路文本交下来），词法也是同一套
+   （修饰键名 Ctrl/Control、Alt、Shift、Super/Win；键名 Enter/Esc 两个别名 + 常用键表）——
+   同一份应用配置两平台都认，认不出的那条整行丢弃并出声。
+
+   RegisterHotKey 要求窗口已存在，所以整表在**宿主线程建窗之后**应用一次（host_thread_main，
+   见 core 的装配点）；运行期改动一律 PostMessage(WM_CJT_HOTKEYS) 回宿主线程做，
+   与菜单 / 拖放同一纪律：绝不在别的线程碰窗口。 */
+
+/** 修饰键名 → MOD_*；认不出返回 -1（整行丢弃并打日志） */
+static int hk_mod_bit(const char *name, UINT *out) {
+    if (strcmp(name, "Ctrl") == 0 || strcmp(name, "Control") == 0) { *out = MOD_CONTROL; return 0; }
+    if (strcmp(name, "Alt") == 0) { *out = MOD_ALT; return 0; }
+    if (strcmp(name, "Shift") == 0) { *out = MOD_SHIFT; return 0; }
+    if (strcmp(name, "Super") == 0 || strcmp(name, "Win") == 0) { *out = MOD_WIN; return 0; }
+    return -1;
+}
+
+/** 键名 → 虚拟键码；认不出返回 0（整行丢弃并打日志）。
+    XStringToKeysym 的镜像：单字符 / F1..F24 / 常用编辑与导航键，外加 Enter、Esc 两个别名。 */
+static UINT hk_vk_of(const char *name) {
+    size_t n = strlen(name);
+    if (n == 1) {
+        char c = name[0];
+        if (c >= 'a' && c <= 'z') return (UINT)(c - 'a' + 'A'); /* VK_A..VK_Z 与 ASCII 大写同值 */
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return (UINT)c;
+    }
+    if ((name[0] == 'F' || name[0] == 'f') && n >= 2 && n <= 3) {
+        int num = atoi(name + 1);
+        if (num >= 1 && num <= 24) return (UINT)(VK_F1 + num - 1);
+    }
+    if (strcmp(name, "Enter") == 0 || strcmp(name, "Return") == 0) return VK_RETURN;
+    if (strcmp(name, "Esc") == 0 || strcmp(name, "Escape") == 0) return VK_ESCAPE;
+    if (strcmp(name, "Space") == 0) return VK_SPACE;
+    if (strcmp(name, "Tab") == 0) return VK_TAB;
+    if (strcmp(name, "Backspace") == 0) return VK_BACK;
+    if (strcmp(name, "Delete") == 0) return VK_DELETE;
+    if (strcmp(name, "Insert") == 0) return VK_INSERT;
+    if (strcmp(name, "Home") == 0) return VK_HOME;
+    if (strcmp(name, "End") == 0) return VK_END;
+    if (strcmp(name, "PgUp") == 0 || strcmp(name, "PageUp") == 0) return VK_PRIOR;
+    if (strcmp(name, "PgDn") == 0 || strcmp(name, "PageDown") == 0) return VK_NEXT;
+    if (strcmp(name, "Up") == 0) return VK_UP;
+    if (strcmp(name, "Down") == 0) return VK_DOWN;
+    if (strcmp(name, "Left") == 0) return VK_LEFT;
+    if (strcmp(name, "Right") == 0) return VK_RIGHT;
+    return 0;
+}
+
+/** 注销整表并清空槽位（幂等：WM_DESTROY 与宿主线程收尾都会调） */
+static void hotkey_unregister_all(plat_host *p) {
+    int i;
+    if (!p) return;
+    for (i = 0; i < p->hotkey_count; i++) {
+        if (p->hotkeys[i].registered && p->hwnd) {
+            UnregisterHotKey(p->hwnd, p->hotkeys[i].id);
+        }
+        p->hotkeys[i].registered = 0;
+        free(p->hotkeys[i].app_id);
+        p->hotkeys[i].app_id = NULL;
+    }
+    p->hotkey_count = 0;
+}
+
+/** 整表替换：注销旧表 → 逐行解析 wire → 注册新表（解析不了 / 被占用的那条出局，其余照常） */
+static void hotkey_apply_wire(plat_host *p, const char *wire) {
+    char *copy, *line, *nl;
+    if (!p || !p->hwnd) return;
+    hotkey_unregister_all(p);
+    if (!wire || !wire[0]) {
+        fprintf(stderr, "[cj-bridge] hotkeys cleared\n");
+        return;
+    }
+    copy = strdup(wire);
+    if (!copy) return;
+    line = copy;
+    while (line && line[0]) {
+        char *colon, *accel, *id, *tok, *save;
+        char accel_orig[128];
+        UINT mods = 0, vk = 0;
+        int ok = 1;
+        nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        colon = strchr(line, ':');
+        if (!colon || colon == line) {
+            fprintf(stderr, "[cj-bridge] hotkey line skipped (no 'accel:id'): %s\n", line);
+            goto next_line;
+        }
+        *colon = '\0';
+        accel = line;
+        id = colon + 1;
+        snprintf(accel_orig, sizeof(accel_orig), "%s", accel); /* strtok 会原地改坏 accel，日志留原文 */
+        /* 修饰键：'+' 分隔逐个解析，最后一个 token 是键名（与 Linux 同一个循环）*/
+        save = NULL;
+        tok = strtok_r(accel, "+", &save);
+        while (tok) {
+            UINT bit;
+            char *next = strtok_r(NULL, "+", &save);
+            if (!next) break; /* tok 是键名 */
+            if (hk_mod_bit(tok, &bit) == 0) {
+                mods |= bit;
+            } else {
+                fprintf(stderr, "[cj-bridge] hotkey: unknown modifier \"%s\" in: %s:%s\n",
+                        tok, accel_orig, id);
+                ok = 0;
+                break;
+            }
+            tok = next;
+        }
+        if (ok && tok) {
+            vk = hk_vk_of(tok);
+            if (vk == 0) {
+                fprintf(stderr, "[cj-bridge] hotkey: unknown key \"%s\" in: %s:%s\n",
+                        tok, accel_orig, id);
+                ok = 0;
+            }
+        }
+        if (ok && tok) {
+            if (p->hotkey_count >= CJ_HOTKEY_MAX) {
+                fprintf(stderr, "[cj-bridge] hotkey: table full (%d), dropped: %s\n", CJ_HOTKEY_MAX, id);
+            } else {
+                hotkey_slot *s = &p->hotkeys[p->hotkey_count];
+                s->id = p->hotkey_count + 1; /* WM_HOTKEY 的 wParam：从 1 起，0 不用 */
+                s->mods = mods;
+                s->vk = vk;
+                s->app_id = strdup(id);
+                s->registered = RegisterHotKey(p->hwnd, s->id, mods, vk) ? 1 : 0;
+                if (s->registered) {
+                    fprintf(stderr, "[cj-bridge] hotkey registered: %s:%s (vk=0x%02x mods=0x%04x)\n",
+                            accel_orig, id, (unsigned)vk, (unsigned)mods);
+                    p->hotkey_count++;
+                } else {
+                    /* ERROR_HOTKEY_ALREADY_REGISTERED(1409) = 已被别的程序占用：如实报，不致命 */
+                    fprintf(stderr, "[cj-bridge] hotkey register failed (in use?): %s:%s (err=%lu)\n",
+                            accel_orig, id, (unsigned long)GetLastError());
+                    free(s->app_id);
+                    s->app_id = NULL;
+                }
+            }
+        }
+next_line:
+        line = nl ? nl + 1 : NULL;
+    }
+    free(copy);
+}
+
+/* 全局快捷键：装配期（窗口尚未建）静默退出——host_thread_main 建窗后会拿 pending 再应用一次；
+   运行期改动投到宿主线程做（RegisterHotKey / UnregisterHotKey 都必须与窗口同线程）。 */
 void cj_plat_set_global_hotkeys(cj_host *h, const char *wire) {
-    (void)h;
-    (void)wire;
-    fprintf(stderr, "[cj-bridge] global hotkeys not implemented on windows yet - ignored\n");
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->hwnd) return; /* 见上：pending 由 host_thread_main 应用，这里重复应用只会重复注册 */
+    if (cj_plat_is_ui_thread(h)) {
+        hotkey_apply_wire(p, wire ? wire : "");
+        return;
+    }
+    {
+        char *dup = strdup(wire ? wire : "");
+        if (!dup) return;
+        if (!PostMessageW(p->hwnd, WM_CJT_HOTKEYS, 0, (LPARAM)dup)) {
+            fprintf(stderr, "[cj-bridge] hotkeys: post failed: %lu\n", (unsigned long)GetLastError());
+            free(dup);
+        }
+    }
 }
 
-/* 托盘（RFC-002 §7.C）：Windows 侧桩——同名同签名保上层零平台分支，
-   实现随示例排期（Shell_NotifyIconW + build_win.bat 加 -lshell32，见 RFC-002 §3 的登记）。 */
+/* ===== 托盘（RFC-002 §7.C，Windows 真实现）=====
+   线路与菜单共用一套格式（前两行 icon / tooltip，其后是平铺一层的菜单行，见 bridge_core.h 的
+   pending_tray 注释）：行解析照样走 core 的 cj_core_menu_walk，本层只把行翻成 HMENU + 图标。
+
+   托盘菜单用 **CreatePopupMenu**（只弹不挂窗口）：AGENTS §4 那条坑（SetMenu 只收 CreateMenu
+   的菜单栏句柄，塞 popup 进去以 ERROR_INVALID_PARAMETER(87) 静默失败）在托盘侧不存在——
+   托盘菜单从不交给 SetMenu，只交给 TrackPopupMenu。
+
+   图标：应用给的是 png / ico 路径。LoadImageW(IMAGE_ICON) 只认 .ico（png 失败**不报错**，
+   只是拿到 NULL），而 IMAGE_BITMAP 拿到的句柄不是 HICON、塞进 NOTIFYICONDATAW.hIcon 画不出来——
+   所以口径是：.ico 按 SM_CXSMICON 载入；其它扩展名出声跳过，用系统缺省图标（比给一个画不出来的
+   句柄诚实）；空路径直接用缺省图标。**图标必须在窗口销毁前 NIM_DELETE**（WM_DESTROY 里做），
+   否则进程退出后系统托盘会留一个点不动的幽灵图标。 */
+
+typedef struct tray_build_ctx {
+    plat_host *p;
+    HMENU menu;
+} tray_build_ctx;
+
+static void tray_clear_slots(plat_host *p) {
+    int i;
+    if (!p) return;
+    for (i = 0; i < p->tray_item_count; i++) {
+        free(p->tray_items[i].app_id);
+        p->tray_items[i].app_id = NULL;
+    }
+    p->tray_item_count = 0;
+}
+
+/** 摘掉托盘图标与菜单（幂等：WM_DESTROY 与宿主线程收尾都会调） */
+static void tray_remove(plat_host *p) {
+    if (!p) return;
+    if (p->tray_added) {
+        Shell_NotifyIconW(NIM_DELETE, &p->nid);
+        p->tray_added = 0;
+        /* 句柄归谁：LoadImageW 出来的是我们自己的一份，得 DestroyIcon；
+           LoadIconW(NULL, IDI_APPLICATION) 是共享资源，绝不能销毁 */
+        if (p->nid.hIcon && p->nid.hIcon != LoadIconW(NULL, IDI_APPLICATION)) {
+            DestroyIcon(p->nid.hIcon);
+        }
+        p->nid.hIcon = NULL;
+        fprintf(stderr, "[cj-bridge] tray removed\n");
+    }
+    if (p->tray_menu) {
+        DestroyMenu(p->tray_menu);
+        p->tray_menu = NULL;
+    }
+    tray_clear_slots(p);
+}
+
+/** 载入托盘图标：拿不到就回落到系统缺省图标（永远返回一个可用句柄） */
+static HICON tray_load_icon(const char *path) {
+    HICON ic = NULL;
+    if (path && path[0]) {
+        wchar_t *w = utf8_to_wide(path);
+        if (w) {
+            ic = (HICON)LoadImageW(NULL, w, IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
+                                   GetSystemMetrics(SM_CYSMICON), LR_LOADFROMFILE);
+            if (!ic) {
+                fprintf(stderr, "[cj-bridge] tray: icon load failed (%s) - system default used "
+                                "(Windows sidebar icons must be .ico, png is not loadable)\n", path);
+            }
+            free(w);
+        }
+    }
+    if (!ic) ic = LoadIconW(NULL, IDI_APPLICATION);
+    return ic;
+}
+
+/** 平铺一层的托盘菜单：kind 与菜单线路同码（n 普通 / c 勾选 / s 分隔线；m 丢弃——v1 托盘菜单平铺）*/
+static void tray_add_row(void *ctx, int depth, char kind, const char *id,
+                         const char *label, int flags, const char *accel) {
+    tray_build_ctx *c = (tray_build_ctx *)ctx;
+    plat_host *p;
+    UINT cmd, mflags;
+    int enabled = (flags & 1) ? 1 : 0;
+    int checked = (flags & 2) ? 1 : 0;
+    (void)depth; /* 托盘菜单平铺：层级位忽略 */
+    if (!c || !c->p || !c->menu) return;
+    p = c->p;
+    if (kind == 's') {
+        AppendMenuW(c->menu, MF_SEPARATOR, 0, NULL);
+        return;
+    }
+    if (kind == 'm') {
+        fprintf(stderr, "[cj-bridge] tray: submenu dropped (v1 tray menu is flat): %s\n", label);
+        return;
+    }
+    if (p->tray_item_count >= CJ_MENU_MAX_ITEMS) {
+        fprintf(stderr, "[cj-bridge] tray: item limit reached, dropped: %s\n", id);
+        return;
+    }
+    cmd = (UINT)(CJ_TRAY_CMD_BASE + p->tray_item_count); /* 与菜单栏命令 id 空间分开，见 WM_COMMAND */
+    mflags = enabled ? 0 : MF_GRAYED;
+    if (kind == 'c' && checked) mflags |= MF_CHECKED;
+    {
+        /* 标签：accel 非空时用制表符并进去（Win32 会把 \t 之后右对齐——正是快捷键栏位置）*/
+        size_t n = strlen(label) + (accel && accel[0] ? strlen(accel) + 1 : 0) + 1;
+        char *tmp = (char *)malloc(n);
+        wchar_t *wlabel;
+        if (!tmp) return;
+        snprintf(tmp, n, "%s%s%s", label, (accel && accel[0]) ? "\t" : "", accel ? accel : "");
+        wlabel = utf8_to_wide(tmp);
+        free(tmp);
+        if (!wlabel) return;
+        if (!AppendMenuW(c->menu, mflags, cmd, wlabel)) {
+            fprintf(stderr, "[cj-bridge] tray: append item failed: %lu\n",
+                    (unsigned long)GetLastError());
+            free(wlabel);
+            return;
+        }
+        free(wlabel);
+    }
+    {
+        menu_slot *s = &p->tray_items[p->tray_item_count];
+        s->cmd_id = cmd;
+        s->app_id = strdup(id);
+        s->kind = kind;
+        s->enabled = enabled;
+        s->checked = checked;
+        p->tray_item_count++;
+    }
+}
+
+/** 跳下一行行首（与 Linux 侧同名同义：最后一行没有 \n 就到串尾）*/
+static const char *tray_next_line(const char *p) {
+    const char *nl = strchr(p, '\n');
+    return nl ? nl + 1 : p + strlen(p);
+}
+
+/** 整表替换：空线路 = 移除托盘；否则重建图标 + 菜单（重复 setTray = 整体换）*/
+static void tray_apply_wire(cj_host *h, plat_host *p, const char *wire) {
+    char icon[512];
+    char tooltip[512];
+    const char *menu_part;
+    tray_build_ctx ctx;
+    wchar_t *wtip;
+    HICON new_icon;
+    DWORD op;
+
+    if (!p || !p->hwnd) return;
+    if (!wire || !wire[0]) {
+        tray_remove(p);
+        return;
+    }
+    /* 逐行推进：第 1 行 icon、第 2 行 tooltip、剩下全是菜单行。
+       （第一版「先跳两行再找 tooltip」永远找不着——tooltip 在第 2 行，跳两行已经越过它了） */
+    icon[0] = '\0';
+    tooltip[0] = '\0';
+    menu_part = wire;
+    if (strncmp(menu_part, "icon\t", 5) == 0) {
+        const char *v = menu_part + 5;
+        const char *nl = strchr(v, '\n');
+        size_t n = nl ? (size_t)(nl - v) : strlen(v);
+        if (n >= sizeof(icon)) n = sizeof(icon) - 1;
+        memcpy(icon, v, n);
+        icon[n] = '\0';
+        menu_part = tray_next_line(menu_part);
+    }
+    if (strncmp(menu_part, "tooltip\t", 8) == 0) {
+        const char *v = menu_part + 8;
+        const char *nl = strchr(v, '\n');
+        size_t n = nl ? (size_t)(nl - v) : strlen(v);
+        if (n >= sizeof(tooltip)) n = sizeof(tooltip) - 1;
+        memcpy(tooltip, v, n);
+        tooltip[n] = '\0';
+        menu_part = tray_next_line(menu_part);
+    }
+
+    /* 菜单整表重建（与菜单栏同规：旧 HMENU 与旧映射一起作废）*/
+    if (p->tray_menu) {
+        DestroyMenu(p->tray_menu);
+        p->tray_menu = NULL;
+    }
+    tray_clear_slots(p);
+    {
+        HMENU menu = CreatePopupMenu();
+        if (menu) {
+            ctx.p = p;
+            ctx.menu = menu;
+            cj_core_menu_walk(menu_part, tray_add_row, &ctx);
+            p->tray_menu = menu;
+        }
+    }
+
+    /* 图标 + 提示 + 回调消息：三者每次整体重填（NOTIFYICONDATAW 由平台层持有）*/
+    if (p->nid.hIcon && p->nid.hIcon != LoadIconW(NULL, IDI_APPLICATION)) {
+        DestroyIcon(p->nid.hIcon); /* 换图标前先放掉上一份（LoadImageW 的所有权在我们手上）*/
+    }
+    memset(&p->nid, 0, sizeof(p->nid));
+    p->nid.cbSize = sizeof(p->nid);
+    p->nid.hWnd = p->hwnd;
+    p->nid.uID = CJ_TRAY_UID;
+    p->nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    p->nid.uCallbackMessage = WM_CJT_TRAY_NOTIFY;
+    p->nid.hIcon = tray_load_icon(icon);
+    wtip = utf8_to_wide(tooltip);
+    if (wtip) {
+        /* szTip 是定长宽字符数组：lstrcpynW 会保证 NUL 收尾（宽字符拷贝一律走 Win32，
+           mingw 的 swprintf %s 收的是 char*，拿它拼宽串会静默出垃圾——见 AGENTS §4）*/
+        lstrcpynW(p->nid.szTip, wtip, (int)(sizeof(p->nid.szTip) / sizeof(wchar_t)));
+        free(wtip);
+    }
+
+    op = p->tray_added ? NIM_MODIFY : NIM_ADD;
+    if (Shell_NotifyIconW(op, &p->nid)) {
+        p->tray_added = 1;
+        p->nid.uVersion = NOTIFYICON_VERSION_4; /* 回调口径：wParam 坐标 / lParam 事件 */
+        Shell_NotifyIconW(NIM_SETVERSION, &p->nid);
+        fprintf(stderr, "[cj-bridge] tray %s: items=%d icon=%s tooltip=%s\n",
+                op == NIM_ADD ? "added" : "updated", p->tray_item_count,
+                icon[0] ? icon : "(system default)", tooltip[0] ? tooltip : "(none)");
+    } else {
+        fprintf(stderr, "[cj-bridge] tray add failed: %lu\n", (unsigned long)GetLastError());
+    }
+}
+
+/* 托盘：装配期（窗口尚未建）静默退出——host_thread_main 建窗后会拿 pending 再应用一次；
+   运行期改动投到宿主线程做（Shell_NotifyIconW 的回调消息落在窗口上，必须与窗口同线程）。 */
 void cj_plat_set_tray(cj_host *h, const char *wire) {
-    (void)h;
-    (void)wire;
-    fprintf(stderr, "[cj-bridge] tray not implemented on windows yet - ignored\n");
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->hwnd) return; /* 见上：pending 由 host_thread_main 应用 */
+    if (cj_plat_is_ui_thread(h)) {
+        tray_apply_wire(h, p, wire ? wire : "");
+        return;
+    }
+    {
+        char *dup = strdup(wire ? wire : "");
+        if (!dup) return;
+        if (!PostMessageW(p->hwnd, WM_CJT_TRAY, 0, (LPARAM)dup)) {
+            fprintf(stderr, "[cj-bridge] tray: post failed: %lu\n", (unsigned long)GetLastError());
+            free(dup);
+        }
+    }
+}
+
+/* ===== 窗口可见性 / 最小化到托盘（RFC-003 第 5 期余项）=====
+   两条都只动**窗口层**：ShowWindow(SW_HIDE / SW_SHOW) 不销毁 WebView2，页面照旧跑、轮询照旧，
+   只是看不见——所以「最小化到托盘」不需要任何页面侧配合。还原入口是应用自己的事
+   （托盘菜单 / 全局快捷键里调 setWindowVisible(true)），框架不替它决定。
+
+   WM_SYSCOMMAND 的拦截在 wnd_proc：那条路径要求托盘**真的挂上了**（p->tray_added），
+   没挂就如实降级为普通最小化并打一行 stderr——理由见那里的注释。 */
+
+static void window_apply_visible(plat_host *p, int visible) {
+    if (!p || !p->hwnd) return;
+    ShowWindow(p->hwnd, visible ? SW_SHOW : SW_HIDE);
+    if (visible) {
+        SetForegroundWindow(p->hwnd); /* 藏过的窗口 SW_SHOW 不会自己激活：顺手提到前面 */
+    }
+    fprintf(stderr, "[cj-bridge] window %s\n", visible ? "shown" : "hidden");
+}
+
+void cj_plat_set_window_visible(cj_host *h, int visible) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->hwnd) return; /* 建窗前设的可见性由 host_thread_main 按 h->win_visible 定稿 */
+    if (cj_plat_is_ui_thread(h)) {
+        window_apply_visible(p, visible);
+        return;
+    }
+    PostMessageW(p->hwnd, WM_CJT_VISIBLE, visible ? 1 : 0, 0);
+}
+
+/* 最小化到托盘这里只**记一条策略**（并重置提醒位）：真正的拦截发生在用户按下最小化的那一刻
+   （WM_SYSCOMMAND），那时才知道托盘到底挂上了没有；此刻窗口层没有可做的事。 */
+void cj_plat_set_minimize_to_tray(cj_host *h, int enabled) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    p->min_to_tray_warned = 0;
+    fprintf(stderr, "[cj-bridge] minimize_to_tray: %s\n", enabled ? "on" : "off");
 }
 
 /* IDropTarget COM 对象（mingw C 模式，与文件里其余 COM 对象同风格）。

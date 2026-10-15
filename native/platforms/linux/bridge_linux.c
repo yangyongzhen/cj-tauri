@@ -89,6 +89,8 @@ typedef struct plat_host {
     guint hk_evt_src;     /* GTK 侧事件轮询的 source id（收尾时 g_source_remove）*/
     volatile int hk_quit; /* 收尾旗标：grab 线程见到即退出 */
     volatile int hk_done; /* grab 线程跑完（fini 回收状态的另一半条件）*/
+    /* --- 窗口可见性 / 最小化到托盘（RFC-003 第 5 期余项）--- */
+    int min_to_tray_warned; /* 「托盘没挂上，最小化降级」只出声一次（重新设策略时复位）*/
 #ifdef CJ_HAVE_TRAY
     AppIndicator *tray;   /* 当前托盘；NULL = 没有。GTK 线程专属，重建 = 释放旧的再建 */
 #endif
@@ -217,6 +219,10 @@ static void drag_dest_apply(cj_host *h, plat_host *p, int enabled, int files);
 static void tray_apply_wire(cj_host *h, plat_host *p, const char *wire);
 static void tray_remove(plat_host *p);
 #endif
+/* 窗口可见性：装配点（建窗后按 h->win_visible 定稿）与运行期 g_idle 投递都要用，先声明 */
+static void window_apply_visible(plat_host *p, int visible);
+/* 最小化到托盘的拦截点：建窗时挂 signal，定义在文件后段的平台原语区 */
+static gboolean on_window_state(GtkWidget *w, GdkEventWindowState *ev, gpointer ud);
 
 void cj_plat_init(cj_host *h) {
     plat_host *p;
@@ -628,6 +634,13 @@ static void *gtk_thread_main(void *arg) {
         menu_apply_wire(h, p, h->pending_menu_text);
     }
     gtk_widget_show_all(p->window);
+    /* 可见性定稿：装配期 setWindowVisible(false) 过的（h->win_visible == 0）建好就不显示
+       （与拖放 / 托盘同一条「未就绪先记、建窗时读」的路）*/
+    if (!h->win_visible) {
+        window_apply_visible(p, 0);
+    }
+    /* 最小化到托盘：拦 GTK 的图标化（真拦不拦看托盘**是否真的挂上了**，见 on_window_state）*/
+    g_signal_connect(p->window, "window-state-event", G_CALLBACK(on_window_state), h);
     /* 拖放策略：装配期已 set_drag_drop 过的（pending 字段非 0）这时挂 drag dest；
        运行期再改的走 cj_plat_set_drag_drop 投 UI 线程重挂。默认关（0=不注册），现有应用零改动 */
     if (h->pending_drop_enabled) {
@@ -1091,6 +1104,100 @@ void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
         m->files = files ? 1 : 0;
         g_idle_add(drag_idle_cb, m);
     }
+}
+
+/* ===== 窗口可见性 / 最小化到托盘（RFC-003 第 5 期余项）=====
+   两条都只动**窗口层**：gtk_widget_hide() 不销毁窗口与 WebKitWebView，页面照旧跑、轮询照旧，
+   只是看不见——所以「最小化到托盘」不需要任何页面侧配合。还原入口是应用自己的事
+   （托盘菜单 / 全局快捷键里调 setWindowVisible(true)），框架不替它决定。
+
+   拦截点在 GTK 的 "window-state-event"：用户按下最小化时窗口进入 ICONIFIED，若策略开着
+   **且托盘真的挂上了**，就把窗口 hide 掉并吃掉这个事件（返回 TRUE，GTK 不再图标化），
+   从用户视角看就是「最小化进了托盘」。托盘没挂上就如实降级为普通最小化 + 一行 stderr
+   （与 Windows 侧 WM_SYSCOMMAND 同一条纪律：宁可说出「不支持」，也不能让窗口藏起来没入口点回来）。 */
+
+/** 托盘是否真的挂上了（CJ_HAVE_TRAY 没编进来时恒为 0：能力位如实，这里也如实）*/
+static int tray_installed(plat_host *p) {
+#ifdef CJ_HAVE_TRAY
+    return p->tray != NULL;
+#else
+    (void)p;
+    return 0;
+#endif
+}
+
+/** 用户按下最小化（或从最小化恢复）时触发：策略 + 托盘齐备才改写成「藏进托盘」*/
+static gboolean on_window_state(GtkWidget *w, GdkEventWindowState *ev, gpointer ud) {
+    cj_host *h = (cj_host *)ud;
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !ev || !h->minimize_to_tray) return FALSE;
+    if (!(ev->new_window_state & GDK_WINDOW_STATE_ICONIFIED)) return FALSE;
+    if (tray_installed(p)) {
+        gtk_widget_hide(w);
+        fprintf(stderr, "[cj-bridge] minimize -> tray (window hidden)\n");
+        return TRUE; /* 吃掉事件：GTK 不再执行默认的图标化 */
+    }
+    if (!p->min_to_tray_warned) {
+        p->min_to_tray_warned = 1; /* 只出声一次：用户每按一次最小化都打会刷屏 */
+        fprintf(stderr, "[cj-bridge] minimize_to_tray: no tray installed - plain minimize\n");
+    }
+    return FALSE;
+}
+
+static void window_apply_visible(plat_host *p, int visible) {
+    if (!p || !p->window) return;
+    if (visible) {
+        gtk_widget_show(p->window);
+        gtk_window_present(GTK_WINDOW(p->window)); /* 藏过的窗口 show 不会自己激活：顺手提到前面 */
+    } else {
+        gtk_widget_hide(p->window);
+    }
+    fprintf(stderr, "[cj-bridge] window %s\n", visible ? "shown" : "hidden");
+}
+
+typedef struct visible_idle {
+    cj_host *h;
+    int visible;
+} visible_idle;
+
+static gboolean visible_idle_cb(gpointer data) {
+    visible_idle *m = (visible_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        if (p) window_apply_visible(p, m->visible);
+    }
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
+void cj_plat_set_window_visible(cj_host *h, int visible) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->window) {
+        /* 未就绪：core 已把可见性写进 h->win_visible，建窗时读（与拖放同一条路）*/
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        window_apply_visible(p, visible);
+        return;
+    }
+    {
+        visible_idle *m = (visible_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->visible = visible ? 1 : 0;
+        g_idle_add(visible_idle_cb, m);
+    }
+}
+
+/* 最小化到托盘这里只**记一条策略**（并复位提醒位）：真正的拦截发生在用户按下最小化的那一刻
+   （window-state-event），此刻窗口层没有可做的事——与 Windows 侧同形。 */
+void cj_plat_set_minimize_to_tray(cj_host *h, int enabled) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    p->min_to_tray_warned = 0;
+    fprintf(stderr, "[cj-bridge] minimize_to_tray: %s\n", enabled ? "on" : "off");
 }
 
 int cj_plat_host_capabilities(cj_host *h) {

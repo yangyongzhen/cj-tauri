@@ -46,6 +46,7 @@ cj_host *cj_bridge_create(void) {
     h->win_w = 900;
     h->win_h = 640;
     h->devtools = 1;
+    h->win_visible = 1; /* 默认显示：没碰窗口可见性的应用行为不变 */
     h->js_lock = cj_plat_sync_create();
     h->dlg_lock = cj_plat_sync_create();
     h->clip_lock = cj_plat_sync_create();
@@ -97,11 +98,13 @@ void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d) {
     cj_plat_init(h); /* 平台一次性初始化（Windows 在这里装 COM vtbl 并打 init 日志） */
     /* 能力位：平台给静态事实（有没有菜单 / 托盘 / 拖放），core 只缓存——仓颉侧 system:host 如实上报 */
     h->capabilities = cj_plat_host_capabilities(h);
-    fprintf(stderr, "[cj-bridge] host capabilities: 0x%x (menu=%d tray=%d dragDrop=%d)\n",
+    fprintf(stderr, "[cj-bridge] host capabilities: 0x%x (menu=%d tray=%d dragDrop=%d notify=%d hotkey=%d)\n",
             (unsigned)h->capabilities,
             (h->capabilities & CJ_CAP_MENU) ? 1 : 0,
             (h->capabilities & CJ_CAP_TRAY) ? 1 : 0,
-            (h->capabilities & CJ_CAP_DRAG_DROP) ? 1 : 0);
+            (h->capabilities & CJ_CAP_DRAG_DROP) ? 1 : 0,
+            (h->capabilities & CJ_CAP_NOTIFICATION) ? 1 : 0,
+            (h->capabilities & CJ_CAP_HOTKEY) ? 1 : 0);
 }
 
 /* ===== 窗口配置 / 预执行脚本（必须在 cj_bridge_start 之前注入）===== */
@@ -219,6 +222,28 @@ void cj_bridge_set_tray(cj_host *h, const char *wire) {
     /* 两头都能用：未就绪时平台只记（宿主线程装配时读 h->pending_tray）；
        就绪后投 UI 线程重建。平台没编托盘支持时在 cj_plat_* 里打一行如实说明。 */
     cj_plat_set_tray(h, h->pending_tray ? h->pending_tray : "");
+}
+
+/* ===== 窗口可见性 / 最小化到托盘（RFC-003 第 5 期余项）===== */
+
+void cj_bridge_set_window_visible(cj_host *h, int visible) {
+    if (!h) return;
+    fprintf(stderr, "[cj-bridge] set window visible: %d\n", visible ? 1 : 0);
+    h->win_visible = visible ? 1 : 0;
+    /* 两头都能用：**未就绪时到此为止**——平台建窗时读 h->win_visible 定稿（建窗那一刻就定下来，
+       比「先显示再藏起来」少一次闪烁）；就绪后平台投 UI 线程执行。 */
+    if (h->ready) {
+        cj_plat_set_window_visible(h, h->win_visible);
+    }
+}
+
+void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled) {
+    if (!h) return;
+    h->minimize_to_tray = enabled ? 1 : 0;
+    fprintf(stderr, "[cj-bridge] set minimize to tray: %d\n", h->minimize_to_tray);
+    /* 这里只记 + 转给平台，**不**在此刻查能力位：能力位（cj_plat_init）与「应用有没有真的 setTray」
+       的先后顺序不稳定，提前拒绝会误伤。策略在**真要最小化那一刻**由平台复核托盘是否装上了。 */
+    cj_plat_set_minimize_to_tray(h, h->minimize_to_tray);
 }
 
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */

@@ -116,20 +116,34 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
 /**
- * 全局快捷键（RFC-003 第 5 期）：Windows 侧当前为桩（能力位如实不置位），同名同签名
- * 保上层零平台分支——Linux 实机先行，Windows 实现随示例排期
+ * 全局快捷键（RFC-003 第 5 期）：Windows 侧走 `RegisterHotKey`（见 native/platforms/windows/
+ * bridge_win.c），wire 词法与 Linux 同规（Ctrl/Alt/Shift/Super + 常用键名），触发经 on_shell 回投
  */
 @When[os == "Windows"]
 @C
 foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Unit
 
 /**
- * 托盘（RFC-002 §7.C）：Windows 侧当前为桩（能力位如实不置位），同名同签名
- * 保上层零平台分支——Linux 实机先行，Windows 实现（Shell_NotifyIconW）随示例排期
+ * 托盘（RFC-002 §7.C）：Windows 侧走 `Shell_NotifyIconW`（菜单是 CreatePopupMenu，只弹不挂窗口），
+ * 点击与 Linux 同信封回投 `{"kind":"tray","id":…}`
  */
 @When[os == "Windows"]
 @C
 foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
+
+/**
+ * 窗口可见性（`show()` / `hide()` 的 C 侧落点）：start 之前调只记 pending，就绪后投 UI 线程执行
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_window_visible(h: CPointer<Unit>, visible: Int32): Unit
+
+/**
+ * 最小化到托盘策略位（须在 start 之前调）：窗口过程据此把「最小化」改写成「隐藏」
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_minimize_to_tray(h: CPointer<Unit>, enabled: Int32): Unit
 
 /**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
@@ -278,6 +292,30 @@ public class WebView2Host <: WebViewHost {
         this.ensureHandle()
         unsafe {
             cj_bridge_set_tray(this.handle, LibC.mallocCString(wire))
+        }
+    }
+
+    public func setWindowVisible(visible: Bool): Unit {
+        // 与 setTray 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）；就绪后投宿主 UI 线程
+        this.ensureHandle()
+        var v: Int32 = 0
+        if (visible) {
+            v = 1
+        }
+        unsafe {
+            cj_bridge_set_window_visible(this.handle, v)
+        }
+    }
+
+    public func setMinimizeToTray(enabled: Bool): Unit {
+        // 策略位：窗口过程要在建窗时就拿到它，所以只在 start() 之前调有意义（与 setDragDropPolicy 同规）
+        this.ensureHandle()
+        var e: Int32 = 0
+        if (enabled) {
+            e = 1
+        }
+        unsafe {
+            cj_bridge_set_minimize_to_tray(this.handle, e)
         }
     }
 

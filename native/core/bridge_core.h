@@ -137,6 +137,15 @@ typedef struct cj_host {
     char *win_icon;  /* NULL = 系统默认图标 */
     int devtools;    /* 开发者工具开关 */
 
+    /* 窗口初始可见性（cj_bridge_set_window_visible 存入）：1 = 显示（默认，老应用行为不变）、
+       0 = 窗口建好即隐藏。**只解决「建窗那一刻该不该显示」**——运行期改可见性由平台直接投
+       UI 线程执行，不需要它。 */
+    int win_visible;
+
+    /* 最小化到托盘（cj_bridge_set_minimize_to_tray 存入）：1 = 平台把「最小化」改写成「隐藏」。
+       真到最小化那一刻平台还会复核托盘是否真装上了（没有就如实降级为普通最小化 + 一行 stderr）。 */
+    int minimize_to_tray;
+
     /* --- 预执行脚本（cj_bridge_add_init_script 追加，WebView 创建时逐条注入到
        document-start；插件的 jsShim 走这条通道，注册顺序排在 BRIDGE_JS 之后）--- */
     char **init_scripts;
@@ -241,6 +250,16 @@ void cj_plat_set_global_hotkeys(cj_host *h, const char *wire);
    未就绪时只记下（宿主线程装配时读 h->pending_tray）；已就绪时投 UI 线程重建。
    平台不支持 / 依赖没编进来时打一行 stderr 如实说明（可选编译，RFC-002 §6.3）。 */
 void cj_plat_set_tray(cj_host *h, const char *wire);
+
+/* 窗口可见性（RFC-003 第 5 期余项：最小化到托盘的还原路径）。
+   未就绪时平台**什么都不做**——core 已把值写进 h->win_visible，平台建窗时读它定稿；
+   已就绪时投 UI 线程执行（Linux = gtk_widget_show/hide + gtk_window_present，Windows = ShowWindow）。 */
+void cj_plat_set_window_visible(cj_host *h, int visible);
+
+/* 最小化到托盘策略（须在建窗前调）：平台把窗口过程 / 窗口状态信号里的「最小化」改写成「隐藏」。
+   平台在**真要最小化那一刻**复核托盘是否真的装上了（能力位 / 应用有没有 setTray）：
+   没装就降级为普通最小化并打一行 stderr——窗口藏起来却没有还原入口是比「不支持」更糟的结果。 */
+void cj_plat_set_minimize_to_tray(cj_host *h, int enabled);
 
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
@@ -409,6 +428,14 @@ CJ_BRIDGE_API void cj_bridge_set_global_hotkeys(cj_host *h, const char *wire);
 /* 托盘（RFC-002 §7.C）：wire 见 pending_tray 注释（icon/tooltip 两行 + 菜单项），空串 = 移除。
    两头都能用：未就绪时记 pending（宿主线程装配时读），就绪后平台投 UI 线程重建。 */
 CJ_BRIDGE_API void cj_bridge_set_tray(cj_host *h, const char *wire);
+
+/* 窗口可见性（对标 Tauri 的 window.show()/hide()）：visible=1 显示并提到前台、0 隐藏。
+   两头都能用：未 start 时只记下（平台建窗时按 h->win_visible 定稿），start 之后投 UI 线程执行。 */
+CJ_BRIDGE_API void cj_bridge_set_window_visible(cj_host *h, int visible);
+
+/* 最小化到托盘策略（须在 cj_bridge_start 之前调）：1 = 平台把「最小化」改写成「隐藏」。
+   平台在真要最小化那一刻复核托盘是否装上，没装则降级为普通最小化 + 一行 stderr。 */
+CJ_BRIDGE_API void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled);
 
 /* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
 CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);

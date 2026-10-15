@@ -40,6 +40,13 @@
     border-right: 1px solid var(--line); padding: 10px; overflow-y: auto;
     display: flex; flex-direction: column; gap: 10px;
   }
+  .tabs { display: flex; gap: 6px; }
+  .tab {
+    flex: 1; background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 0; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .tab.sel { background: var(--accent); color: #10233c; border-color: var(--accent); }
+  .modebox[hidden] { display: none; }
   .modebox { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--panel2); }
   .modebox h3 { font-size: 12px; color: var(--accent); margin-bottom: 8px; }
   .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
@@ -125,6 +132,10 @@
   </header>
   <main>
     <aside>
+      <div class="tabs">
+        <button class="tab sel" id="tabSerial">串口</button>
+        <button class="tab" id="tabTcp">网络</button>
+      </div>
       <div class="modebox" id="serialBox">
         <h3>串口</h3>
         <div class="field">
@@ -148,14 +159,21 @@
         </div>
         <button id="bSerConnect" style="width:100%">打开串口</button>
       </div>
-      <div class="modebox" id="tcpBox">
-        <h3>网络（TCP 客户端）</h3>
+      <div class="modebox" id="tcpBox" hidden>
+        <h3>网络</h3>
+        <div class="field"><label>模式</label>
+          <select id="netMode">
+            <option value="tcp-client">TCP 客户端</option>
+            <option value="tcp-server">TCP 服务器</option>
+            <option value="udp">UDP 客户端</option>
+          </select></div>
         <div class="row2">
-          <div class="field" style="flex:2"><label>主机</label>
+          <div class="field" style="flex:2" id="fTcpHost"><label>主机</label>
             <input id="tcpHost" value="127.0.0.1" placeholder="host"></div>
-          <div class="field"><label>端口</label>
+          <div class="field"><label id="lPort">端口</label>
             <input id="tcpPort" value="8080" placeholder="port"></div>
         </div>
+        <div class="hint" id="netHint" style="margin-bottom:8px">与对端 host:port 建立连接后收发。</div>
         <button id="bTcpConnect" style="width:100%">连接</button>
       </div>
       <div class="hint">
@@ -321,7 +339,7 @@
         })
         .catch(function (e) { S.errCount++; sysMsg('串口发送失败：' + errMsg(e)); });
     } else if (S.tcpOpen) {
-      t().invoke('link:tcpSend', { data: p.data, encoding: p.encoding })
+      t().invoke('link:netSend', { data: p.data, encoding: p.encoding })
         .then(function (r) { addLine({ dir: 'tx', text: p.data, hex: hexOf(p), nBytes: r.bytes || p.data.length }); })
         .catch(function (e) { S.errCount++; sysMsg('TCP 发送失败：' + errMsg(e)); });
     }
@@ -417,30 +435,44 @@
     });
   }
 
-  /* ============ TCP 链路 ============ */
-  function tcpConnect() {
+  /* ============ 网络链路（TCP 客户端 / TCP 服务器 / UDP 客户端）============ */
+  function modeLabel(m) {
+    return m === 'tcp-server' ? 'TCP 服务器' : m === 'udp' ? 'UDP' : 'TCP 客户端';
+  }
+  function netApplyModeUi() {
+    var m = $('netMode').value;
+    $('fTcpHost').style.display = (m === 'tcp-server') ? 'none' : '';
+    $('lPort').textContent = (m === 'tcp-server') ? '监听端口' : '端口';
+    $('netHint').textContent =
+      m === 'tcp-server' ? '本机监听该端口，可接多个客户端；发送缺省广播，可按通道定向发。'
+      : m === 'udp' ? '与对端 host:port 建立 UDP 通道后收发（数据报语义，无连接状态）。'
+      : '与对端 host:port 建立连接后收发。';
+  }
+  function netConnect() {
+    var mode = $('netMode').value;
     var host = $('tcpHost').value.trim();
     var port = parseInt($('tcpPort').value, 10);
-    if (!host || !port) { sysMsg('请填写 TCP 主机与端口'); return; }
-    if (S.serOpen) { sysMsg('已开着串口，先关闭再连 TCP（单链路收发）'); return; }
-    sysMsg('TCP 连接中：' + host + ':' + port + ' …');
-    t().invoke('link:tcpConnect', { host: host, port: port }).then(function (r) {
+    if (mode !== 'tcp-server' && !host) { sysMsg('请填写主机'); return; }
+    if (!port) { sysMsg('请填写端口'); return; }
+    if (S.serOpen) { sysMsg('已开着串口，先关闭再连网络（单链路收发）'); return; }
+    sysMsg(modeLabel(mode) + (mode === 'tcp-server' ? ' 监听 :' + port + ' …' : ' 连接 ' + host + ':' + port + ' …'));
+    t().invoke('link:netConnect', { mode: mode, host: host, port: port }).then(function (r) {
       S.tcpOpen = true; S.conn = 'tcp';
-      $('bTcpConnect').textContent = '断开';
+      $('bTcpConnect').textContent = mode === 'tcp-server' ? '停止监听' : '断开';
       $('bTcpConnect').classList.add('danger');
       setStatus();
-      sysMsg('TCP 已连接：' + r.host + ':' + r.port);
-    }).catch(function (e) { S.errCount++; sysMsg('TCP 连接失败：' + errMsg(e)); });
+      sysMsg(modeLabel(mode) + (mode === 'tcp-server' ? ' 已监听本机 :' + r.port : ' 已连接：' + r.host + ':' + r.port));
+    }).catch(function (e) { S.errCount++; sysMsg(modeLabel(mode) + ' 失败：' + errMsg(e)); });
   }
 
-  function tcpDisconnect() {
-    t().invoke('link:tcpClose', {}).then(function () {
+  function netDisconnect() {
+    t().invoke('link:netClose', {}).then(function () {
       S.tcpOpen = false; S.conn = 'none';
       $('bTcpConnect').textContent = '连接';
       $('bTcpConnect').classList.remove('danger');
       setStatus();
-      sysMsg('TCP 已断开');
-    }).catch(function (e) { sysMsg('TCP 断开失败：' + errMsg(e)); });
+      sysMsg('网络已断开');
+    }).catch(function (e) { sysMsg('断开失败：' + errMsg(e)); });
   }
 
   /* ============ 配置持久化 ============ */
@@ -449,7 +481,7 @@
     return {
       serPort: $('serPort').value, serBaud: $('serBaud').value, serData: $('serData').value,
       serParity: $('serParity').value, serStop: $('serStop').value,
-      tcpHost: $('tcpHost').value, tcpPort: $('tcpPort').value,
+      tcpHost: $('tcpHost').value, tcpPort: $('tcpPort').value, netMode: $('netMode').value,
       hexMode: $('hexMode').checked, appendCRLF: $('appendCRLF').checked,
       hexView: S.hexView
     };
@@ -471,6 +503,7 @@
       if (c.serStop) { $('serStop').value = c.serStop; }
       if (c.tcpHost) { $('tcpHost').value = c.tcpHost; }
       if (c.tcpPort) { $('tcpPort').value = c.tcpPort; }
+      if (c.netMode) { $('netMode').value = c.netMode; netApplyModeUi(); }
       $('hexMode').checked = !!c.hexMode;
       $('appendCRLF').checked = !!c.appendCRLF;
       if (c.hexView) { setHexView(c.hexView); }
@@ -543,14 +576,14 @@
         .catch(function (e) { return null; });
     }
     serialPart.then(function () {
-      return step('tcpConnect', t().invoke('link:tcpConnect', { host: cfg.tcpHost || '127.0.0.1', port: parseInt(cfg.tcpPort || '15021', 10) }))
+      return step('tcpConnect', t().invoke('link:netConnect', { mode: 'tcp-client', host: cfg.tcpHost || '127.0.0.1', port: parseInt(cfg.tcpPort || '15021', 10) }))
         .then(function () {
           S.tcpOpen = true;
           return new Promise(function (resolve) {
             setTimeout(function () { resolve(); }, 300);
           });
         })
-        .then(function () { return step('tcpSend', t().invoke('link:tcpSend', { data: 'cj-link-tcp-ping', encoding: 'utf8' })); })
+        .then(function () { return step('tcpSend', t().invoke('link:netSend', { data: 'cj-link-tcp-ping', encoding: 'utf8' })); })
         .then(function () {
           return new Promise(function (resolve, reject) {
             var n = 0;
@@ -561,7 +594,26 @@
             }, 150);
           });
         })
-        .then(function () { return step('tcpClose', t().invoke('link:tcpClose', {})).then(function () { S.tcpOpen = false; }); });
+        .then(function () { return step('tcpClose', t().invoke('link:netClose', {})).then(function () { S.tcpOpen = false; }); });
+    }).then(function () {
+      if (!cfg.udpPort) { return null; }
+      return step('udpConnect', t().invoke('link:netConnect', { mode: 'udp', host: cfg.tcpHost || '127.0.0.1', port: parseInt(cfg.udpPort, 10) }))
+        .then(function () {
+          S.tcpOpen = true;
+          return step('udpSend', t().invoke('link:netSend', { data: 'cj-link-udp-ping', encoding: 'utf8' }));
+        })
+        .then(function () {
+          return new Promise(function (resolve, reject) {
+            var n = 0;
+            var iv = setInterval(function () {
+              n++;
+              var got = S.log.filter(function (m) { return m.dir === 'rx' && m.text && m.text.indexOf('cj-link-udp-ping') >= 0; });
+              if (got.length) { clearInterval(iv); report('[selfcheck] udp rx text=cj-link-udp-ping'); resolve(); }
+              else if (n > 20) { clearInterval(iv); reject(new Error('UDP 3 秒内没收到回包')); }
+            }, 150);
+          });
+        })
+        .then(function () { return step('udpClose', t().invoke('link:netClose', {})).then(function () { S.tcpOpen = false; }); });
     }).then(function () {
       report('[selfcheck] ' + ok + '/' + (ok + fail) + ' passed');
       sysMsg('自检完成：' + ok + '/' + (ok + fail) + ' 通过');
@@ -578,11 +630,14 @@
   function boot() {
     t().listen('link:tcpData', function (ev) {
       var p = ev.payload || ev;
-      if (p.dir === 'rx') { addLine({ dir: 'rx', hex: p.hex, text: p.text || '', nBytes: (p.hex ? p.hex.replace(/\s+/g, '').length / 2 : 0) }); }
+      if (p.dir === 'rx') {
+        var extra = p.from ? ' ← ' + p.from : (p.channel ? ' [#' + p.channel + ']' : '');
+        addLine({ dir: 'rx', hex: p.hex, text: (p.text || '') + extra, nBytes: (p.hex ? p.hex.replace(/\s+/g, '').length / 2 : 0) });
+      }
     });
     t().listen('link:tcpState', function (ev) {
       var p = ev.payload || ev;
-      sysMsg('TCP 状态：' + p.state + (p.detail ? '（' + p.detail + '）' : ''));
+      sysMsg('网络状态：' + p.state + (p.detail ? '（' + p.detail + '）' : ''));
       if (p.state === 'closed' || p.state === 'error') {
         if (S.tcpOpen) { S.tcpOpen = false; $('bTcpConnect').textContent = '连接'; $('bTcpConnect').classList.remove('danger'); setStatus(); }
       }
@@ -594,9 +649,22 @@
     });
     baudSel.value = '115200';
     bindChips();
+    /* 串口/网络 Tab 切换：一次只露一个连接面板 */
+    $('tabSerial').addEventListener('click', function () {
+      $('tabSerial').classList.add('sel'); $('tabTcp').classList.remove('sel');
+      $('serialBox').hidden = false; $('tcpBox').hidden = true;
+    });
+    $('tabTcp').addEventListener('click', function () {
+      $('tabTcp').classList.add('sel'); $('tabSerial').classList.remove('sel');
+      $('tcpBox').hidden = false; $('serialBox').hidden = true;
+    });
     $('bSerRefresh').addEventListener('click', serRefresh);
     $('bSerConnect').addEventListener('click', function () { S.serOpen ? serDisconnect() : serConnect(); });
-    $('bTcpConnect').addEventListener('click', function () { S.tcpOpen ? tcpDisconnect() : tcpConnect(); });
+    $('bTcpConnect').addEventListener('click', function () { S.tcpOpen ? netDisconnect() : netConnect(); });
+    $('netMode').addEventListener('change', function () {
+      netApplyModeUi();
+      if (S.tcpOpen) { sysMsg('模式已切换为「' + modeLabel(this.value) + '」——断开后重新连接生效'); }
+    });
     $('bSend').addEventListener('click', doSend);
     $('bSaveCfg').addEventListener('click', saveCfg);
     $('bTimer').addEventListener('click', function () {

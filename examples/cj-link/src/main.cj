@@ -93,9 +93,10 @@ main(): Int64 {
         .plugin(SerialPlugin())                    // 串口能力
         .plugin(StorePlugin())                     // 配置持久化（store.json）
         .register("link:serialList", link)         // link:* 全部共用一个处理器
-        .register("link:tcpConnect", link)
-        .register("link:tcpSend", link)
-        .register("link:tcpClose", link)
+        .register("link:netConnect", link)
+        .register("link:netSend", link)
+        .register("link:netClose", link)
+        .register("link:netStatus", link)
         .register("link:ping", link)
         .register("report", ReportCommand())
     link.attachApp(app)                            // TCP 读线程要 emit 事件，装配后注入
@@ -106,10 +107,12 @@ main(): Int64 {
         let serialPath = envOr("CJ_LINK_PROBE_SERIAL_PATH", "")
         let tcpHost = envOr("CJ_LINK_PROBE_TCP_HOST", "127.0.0.1")
         let tcpPort = envOr("CJ_LINK_PROBE_TCP_PORT", "15021")
+        let udpPort = envOr("CJ_LINK_PROBE_UDP_PORT", "15022")
         let quit = envOr("CJ_LINK_PROBE_QUIT", "1")
         let js = "window.__LINK_PROBE__ = { serialPath: " + JsonString(serialPath).toJsonString() +
             ", tcpHost: " + JsonString(tcpHost).toJsonString() +
             ", tcpPort: " + JsonString(tcpPort).toJsonString() +
+            ", udpPort: " + JsonString(udpPort).toJsonString() +
             ", quit: " + JsonString(quit).toJsonString() + " };\n"
         match (app.hostOf("main")) {
             case Some(host) =>

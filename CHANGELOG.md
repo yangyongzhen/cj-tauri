@@ -18,8 +18,12 @@
   （报文带 mode/channel/from 区分来源），串口与网络共用一块收发日志（HEX/ASCII 双显、方向分色、
   毫秒时间戳、按方向过滤、TX/RX 计数）；面板配置经 `store` 插件持久化。对端由 `cj-link-peer.py`
   一条进程扮演（串口 pty echo + TCP echo + UDP echo），`run.sh` 自动套 Xvfb 跑探针自检
-  （串口 + TCP + UDP 各 open/connect→send→recv→close 共 10 步）与 30 条断言，
+  （串口 + CRC 标准向量 + TCP + UDP 共 11 步）与 33 条断言，
   两端证据都在应用进程之外。
+- **cj-Link 发送增强三件**：**发送队列**（常用报文列表，HEX/TXT 各自标记，点条目即发，
+  随 store 持久化）、**校验计算**（`link:crcCalc` 命令算 CRC16-Modbus（低前/高前）/CRC16-CCITT/
+  累加和/异或和/LRC，可一键取「整帧+CRC」回填发送框，协议逻辑在仓颉侧）、
+  **定时发送周期可调**（50ms–60s 输入框，原来固定 1s）。
 
 - **源码仓 `cjpm.toml` 的 stdx 路径改为环境变量引用（机器无关，issue #3）**：根与 `examples/*`
   共 24 个 `cjpm.toml` 的 `[target.*.bin-dependencies] path-option` 不再写死本机绝对路径，

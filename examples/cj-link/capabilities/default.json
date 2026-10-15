@@ -8,6 +8,7 @@
     "link:netSend",
     "link:netClose",
     "link:netStatus",
+    "link:crcCalc",
     "link:ping",
     "report",
     "quit"

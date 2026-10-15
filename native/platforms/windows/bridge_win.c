@@ -2651,14 +2651,39 @@ long long cj_plat_serial_open(const char *path, const cj_serial_cfg *cfg, char *
     return id;
 }
 
-/* 读：OVERLAPPED 发起，等事件最多 timeout_ms；0 = 超时无数据（与 Linux poll 口径一致） */
+/* 读：OVERLAPPED 发起，等事件最多 timeout_ms；0 = 超时无数据（与 Linux poll 口径一致）
+ *
+ * 预算必须**按每次调用逐次下发给驱动**：打开时那套 `ReadIntervalTimeout=MAXDWORD` + 两个
+ * total 全 0 是「立即交回已有字节」语义——没数据时驱动当场把请求完成成 0 字节、ReadFile
+ * 返回 TRUE，下面按预算等事件的分支根本进不去（实测 2026-10-15：预算 1000ms 的读 0ms 就
+ * 交回 0 字节，`serial:read` 的 timeoutMs 形同虚设，前端只能靠高频轮询碰运气）。
+ * 这里改成 `ReadIntervalTimeout=0` + `ReadTotalTimeoutConstant=预算`：有第一个字节就立刻
+ * 完成、没有就等满预算，与 Linux 的 poll 同一口径；只有预算为 0 才用「立即返回」那套。
+ * WaitForSingleObject 继续留着，作为驱动不按套路完成时的兜底（比预算多给一点余量）。 */
 int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms, char *err, int err_len) {
     HANDLE hd = serial_handle_of(h, err, err_len);
+    COMMTIMEOUTS to;
     OVERLAPPED ov;
     DWORD got = 0;
     BOOL ok;
 
     if (!hd) return -4;
+
+    memset(&to, 0, sizeof(to));
+    if (timeout_ms > 0) {
+        to.ReadIntervalTimeout = 0;
+        to.ReadTotalTimeoutMultiplier = 0;
+        to.ReadTotalTimeoutConstant = (DWORD)timeout_ms;
+    } else {
+        to.ReadIntervalTimeout = MAXDWORD;
+        to.ReadTotalTimeoutMultiplier = 0;
+        to.ReadTotalTimeoutConstant = 0;
+    }
+    if (!SetCommTimeouts(hd, &to)) {
+        serial_err(err, err_len, "serial: SetCommTimeouts(预算 %d ms) 失败: lu=%lu",
+                   timeout_ms, (unsigned long)GetLastError());
+        return -3;
+    }
 
     memset(&ov, 0, sizeof(ov));
     ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
@@ -2668,7 +2693,7 @@ int cj_plat_serial_read(long long h, unsigned char *buf, int len, int timeout_ms
     }
     ok = ReadFile(hd, buf, (DWORD)len, &got, &ov);
     if (!ok && GetLastError() == ERROR_IO_PENDING) {
-        DWORD w = WaitForSingleObject(ov.hEvent, timeout_ms > 0 ? (DWORD)timeout_ms : 0);
+        DWORD w = WaitForSingleObject(ov.hEvent, (DWORD)(timeout_ms > 0 ? timeout_ms + 250 : 0));
         if (w == WAIT_TIMEOUT) {
             /* 预算用尽：撤销这次读再走，驱动里不挂未完成请求 */
             CancelIo(hd);

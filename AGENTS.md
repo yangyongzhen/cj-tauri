@@ -276,6 +276,13 @@
   在那个新工程里 `cjpm build` 才炸：`root package '<名>' imports package 'stdx.encoding.json' in its
   source code, but the dependency info is missing`。CLI 自己的报错文案里就写着「指向 stdx 动态库目录」，
   按它给即可（实测 2026-10-08；本机是 `D:/cangjie-stdx/windows_x86_64_cjnative/dynamic/stdx`）。
+- **框架的 `${CANGJIE_STDX}` 靠进程环境变量展开：打包脚本不会替你设，漏了就报成「框架缺依赖」**
+  （2026-10-16 实测）：仓库根 `cjpm.toml` 的 `bin-dependencies` 写 `${CANGJIE_STDX}`，而
+  `scripts/pack-win-single.sh` 是在 `dist-single/work/` 里自建副本编译——它把**应用副本**的 stdx 路径
+  写死成绝对路径，但**框架包**（`path = ../..` 指回仓库根）仍按自己的 `cjpm.toml` 展开那个变量。
+  没导出时的报错是 `root package 'cjTauri' imports package 'stdx.encoding.json' in its source code,
+  but the dependency info is missing`——指向框架、看着像「框架忘了声明依赖」，其实是环境变量没进进程。
+  跑打包器前先 `export CANGJIE_STDX=<stdx>/<三元组>/dynamic/stdx`（POSIX 形式，MSYS 负责转换）。
 - **`cjpm build success` 不等于产物存在：增量缓存会跳过链接**（2026-10-15 实测，`examples/leetcode-gui`）：
   上一轮构建被中断过（可执行文件被占用 / 被删）之后，`target/release/incremental-cache.json` 仍认为它是最新的，
   于是 `cjpm build` 只重编包对象、**不重新链接**却照报 `build success`——`target/release/bin/` 里只剩 `*.cjo`，
@@ -283,6 +290,18 @@
   修法：`rm -f target/release/incremental-cache.json target/release/bin/*.cjo` 再 `cjpm build`。
   **判据看产物**（`ls -l target/release/bin/`），别只看 cjpm 的退出码与那行 success。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。
+- **Windows 串口的读预算要「按每次调用」下发给驱动，否则 `timeoutMs` 形同虚设**（2026-10-16 实测，
+  `native/platforms/windows/bridge_win.c`）：`SetCommTimeouts` 的 `ReadIntervalTimeout=MAXDWORD` +
+  两个 total 全 0 是**「立刻交回已有字节」**语义——缓冲里没数据时驱动当场把请求完成成 0 字节、
+  `ReadFile` 返回 TRUE，于是 C 桥里「等 OVERLAPPED 事件最多 timeout_ms」那条分支**根本进不去**
+  （按同参数写的小 C 程序复现：预算 1000ms 的读 0ms 就交回 `got=0`）。表象是 `serial:read` 只返回
+  「恰好已经躺在缓冲里」的字节，前端只能靠高频轮询碰运气；示例自检里串口那步读回 0 字节，
+  `rx text=` 与 `close` 两条明细凭空消失（10/10 而不是 11/11）。修法：每次读之前用
+  `SetCommTimeouts` 下发 `ReadIntervalTimeout=0` + `ReadTotalTimeoutConstant=预算`（有首字节立刻
+  完成、没有就等满预算，与 Linux 的 `poll` 同口径），**只有预算为 0 才用「立即返回」那套**。
+  判据：探针 10/10 → 11/11（串口 `read` 拿回 `hex=636a2d6c696e6b2d70696e67`）。
+  教训是通用的：凡「宿主 API 声称按预算等」的实现，都别信「打开时设过一次就够了」——
+  预算类语义要逐次随调用下发，且验的时候要**用一个真的没数据的时间窗**去打它。
 - **拉取「改了 C 桥导出」的提交后，先重建桥再跑测试/构建**：`native/libcjtbridge.so`（Windows 侧
   `libcjtbridge.dll`）是**本地产物、不入库**。菜单能力位那次 C 桥加了 5 个 `cj_bridge_*` 导出，
   没重建桥就直接 `cjpm test`/`cjpm build` 会在**链接期**炸出一串
@@ -491,6 +510,13 @@
   white-space: nowrap`，让说明那一段（`min-width: 0; flex: 1 1 auto`）去收缩截断。
   **改过布局就抓一张图看**——Windows 抓 WebView2 内容用 `PrintWindow(hwnd, dc, 2)`（脚本见 `.atomcode/shot.ps1`，
   普通 `BitBlt` 只能拍到空白）。
+- **抓屏抓到的永远是「那一刻压在这片坐标最上面的窗口」**（2026-10-16 实测）：`SetForegroundWindow`
+  会被系统静默拒绝（不看返回值就当它成功了），此时 `CopyFromScreen` 拍到的是**别人的窗口**——
+  于是「截图看起来布局正常」完全可能是一张别的程序的图，拿它当界面凭证会一路骗到最后。
+  可靠做法：`ShowWindow(hwnd, SW_RESTORE)` → `SetWindowPos(hwnd, HWND_TOPMOST, 10, 10, …)` 顶到最前，
+  **并且把窗口挪进屏内**（窗口有一角在屏外时，那片坐标拍到的也是屏外内容），抓完 `HWND_NOTOPMOST` 还原；
+  `GetWindowRect` 给的尺寸可能比屏幕还大，别默认它在屏内。判据：拍完先自己看一眼图里是不是目标窗口
+  （标题栏 + 自己的 UI），别看命令退出码。
 - **WebKitGTK 的 `<select>` 会用原生 combo 的浅色样式盖掉页面配色**（2026-10-09 实测：`serial-assistant`
   深色页里四个下拉框白底浅字几乎不可读，页面 CSS 的 `background`/`color` 都不生效）。深色页面一律给
   `select` 加 `-webkit-appearance:none; appearance:none` 自绘（箭头用 `background-image` 的两段

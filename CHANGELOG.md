@@ -11,6 +11,19 @@
 
 ### Added
 
+- **`examples/cj-link` 可在 Windows 上直接运行并打成单文件 exe（免 SDK 分发）**：示例补 `run.bat`
+  （`build` / 起窗 / `selfcheck` 三档，判绿口径是「日志里没有 FAIL 行」）与打包存根
+  （`src/packed_assets.cj` 空存根 + `src/packed_resources.cj`，前端页面 `ui/index.html` 与能力清单
+  统一「内嵌优先、否则读盘」——源码树里改页面即生效，打包后页面进二进制、产物只有一个 exe）。
+  产物 `examples/cj-link/dist-single/cj-link.exe`（5,745,664 字节、`Subsystem=00000002`、
+  导入表 8 个 DLL 全是系统库：msvcrt / KERNEL32 / WS2_32 / SHELL32 / dbghelp / comdlg32 / USER32 /
+  ole32）实机验证：标题「cj-Link · 串口/网络调试助手」、1180x780、串口枚举 2 个端口，
+  探针自检 **11/11**（串口 / CRC 标准向量 / TCP / UDP 全活）。**串口那侧走的是真线**：本机
+  COM1↔COM2 是一对互通的虚拟串口，对端用 `System.IO.Ports` 拿 COM2「收什么回什么」，对端日志留
+  报文级凭证（收到 12 字节 `cj-link-ping`）。Windows 的探针对端因此拆成两个进程（python 管
+  TCP/UDP echo、PowerShell 管串口 echo）——Linux 那份 `cj-link-peer.py` 靠 pty 扮演串口，
+  Windows 没有 pty。
+
 - **`examples/leetcode-gui` 可打成单文件 exe（免 SDK 分发）**：打包侧新增 `src/packed_assets.cj`
   空存根与 `src/packed_resources.cj`，页面 / CodeMirror vendor / 能力清单统一改成「内嵌优先、
   否则读盘」；`scripts/pack-win-single.sh` 的 vendor 清单改为「示例自带 `ui/vendor/pack-files.txt`
@@ -148,6 +161,17 @@
   README 文档索引与 `AGENTS.md` §2 已挂入口：做出或推翻长期决策时同轮更新对应条目。
 
 ### Fixed
+
+- **修：Windows 串口读的 `timeoutMs` 形同虚设（`serial:read` 不等数据、当场返回 0 字节）**：
+  打开串口时设的 `ReadIntervalTimeout=MAXDWORD` + 两个 total 全 0 是「立刻交回已有字节」语义——
+  缓冲里没数据时驱动当场把请求完成成 0 字节、`ReadFile` 返回 TRUE，C 桥里那条「等 OVERLAPPED 事件
+  最多 timeout_ms」的分支**根本进不去**（按同一套参数写的小 C 程序复现：预算 1000ms 的读 0ms 就
+  交回 `got=0`）。表象是 `serial:read` 只返回「恰好已经躺在缓冲里」的字节，前端只能靠高频轮询碰运气；
+  示例自检里串口那步读回 0 字节、`rx text=` 与 `close` 两条明细直接消失（10/10 而不是 11/11）。
+  修法：预算**按每次调用**用 `SetCommTimeouts` 逐次下发给驱动（`ReadIntervalTimeout=0` +
+  `ReadTotalTimeoutConstant=预算`）——有第一个字节立刻完成、没有就等满预算，与 Linux 的 `poll`
+  同一口径；只有预算为 0 才用「立即返回」那套，`WaitForSingleObject` 留作兜底。
+  复现前后探针 10/10 → **11/11**（串口 `read` 拿回 `hex=636a2d6c696e6b2d70696e67`）。
 
 - **修：`examples/leetcode-gui` 的判题产物在别的机器上「编译成功却起不来」**：判题产物原本是
   **动态链接**，运行期由 loader 按 PATH / 系统目录解析仓颉运行时 DLL——命中别代运行时时 ABI

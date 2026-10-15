@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>cj-Link · 串口/网络调试助手</title>
+<style>
+  :root {
+    --bg: #14181f; --panel: #1b212b; --panel2: #222a36; --line: #2e3947;
+    --fg: #d8e0ea; --muted: #8391a5; --accent: #4da3ff; --ok: #3fbf7f;
+    --warn: #e0a83c; --err: #e05c5c; --tx: #e0a83c; --rx: #3fbf7f;
+    font-size: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--fg); height: 100vh;
+    display: flex; flex-direction: column; overflow: hidden;
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 8px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  }
+  header .title { font-weight: 600; font-size: 15px; }
+  header .sub { color: var(--muted); font-size: 11px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .dot.on { background: var(--ok); }
+  .dot.err { background: var(--err); }
+  .stats { display: flex; gap: 8px; }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 10px; font-size: 11px; color: var(--muted); text-align: center; min-width: 72px;
+  }
+  .stat b { display: block; font-size: 14px; color: var(--fg); }
+  .stat.tx b { color: var(--tx); }
+  .stat.rx b { color: var(--rx); }
+  main { flex: 1 1 auto; display: flex; min-height: 0; }
+  aside {
+    width: 270px; flex: 0 0 auto; background: var(--panel);
+    border-right: 1px solid var(--line); padding: 10px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .modebox { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--panel2); }
+  .modebox h3 { font-size: 12px; color: var(--accent); margin-bottom: 8px; }
+  .field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+  .field label { font-size: 11px; color: var(--muted); }
+  .field select, .field input {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 5px 7px; font-size: 13px; outline: none;
+    -webkit-appearance: none; appearance: none;
+  }
+  .field select {
+    background-image: linear-gradient(45deg, transparent 49%, var(--muted) 50%),
+                      linear-gradient(-45deg, transparent 49%, var(--muted) 50%);
+    background-position: calc(100% - 14px) 55%, calc(100% - 9px) 55%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+  }
+  .row2 { display: flex; gap: 8px; }
+  .row2 .field { flex: 1; }
+  button {
+    background: var(--accent); color: #10233c; border: 0; border-radius: 6px;
+    padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--line); font-weight: 400;
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.danger { background: var(--err); color: #fff; }
+  .hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .section {
+    flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; padding: 10px; gap: 8px;
+  }
+  .logbar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 0 0 auto;
+  }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
+    font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+  }
+  .chip.sel { color: var(--accent); border-color: var(--accent); }
+  .chip:hover { color: var(--fg); }
+  #log {
+    flex: 1 1 auto; overflow-y: auto; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; font-family: Consolas, "JetBrains Mono", monospace;
+    font-size: 12px; line-height: 1.6;
+  }
+  .line { display: flex; gap: 10px; white-space: pre-wrap; word-break: break-all; }
+  .line .ts { color: var(--muted); flex: 0 0 auto; }
+  .line .dir { flex: 0 0 18px; text-align: center; font-weight: 700; }
+  .line.tx .dir { color: var(--tx); }
+  .line.rx .dir { color: var(--rx); }
+  .line.sys .dir { color: var(--muted); }
+  .line.sys { color: var(--muted); }
+  .line .body { flex: 1 1 auto; min-width: 0; }
+  .line .body .txt { color: var(--fg); }
+  .line.rx .body .txt { color: var(--rx); }
+  .line.tx .body .txt { color: var(--tx); }
+  .line .body .hx { color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; margin-top: 40px; }
+  .sendbar { flex: 0 0 auto; display: flex; gap: 8px; align-items: flex-start; }
+  #sendInput {
+    flex: 1 1 auto; background: var(--panel); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+    font-family: Consolas, monospace; font-size: 13px; outline: none; min-height: 40px;
+    resize: vertical;
+  }
+  #sendInput:focus { border-color: var(--accent); }
+  .sendopts { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <div class="title">cj-Link <span id="ver" style="color:var(--muted);font-size:12px"></span></div>
+      <div class="sub">串口 / 网络二合一调试助手 · cj-tauri</div>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">未连接</span></div>
+    <div class="stats">
+      <div class="stat tx"><b id="txBytes">0</b><span>TX 字节</span></div>
+      <div class="stat rx"><b id="rxBytes">0</b><span>RX 字节</span></div>
+      <div class="stat"><b id="errCount">0</b><span>错误</span></div>
+    </div>
+  </header>
+  <main>
+    <aside>
+      <div class="modebox" id="serialBox">
+        <h3>串口</h3>
+        <div class="field">
+          <label>端口</label>
+          <div style="display:flex;gap:6px">
+            <select id="serPort" style="flex:1"><option value="">（点击刷新枚举）</option></select>
+            <button class="ghost" id="bSerRefresh" title="重新枚举">↻</button>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>波特率</label>
+            <select id="serBaud"></select></div>
+          <div class="field"><label>数据位</label>
+            <select id="serData"><option>8</option><option>7</option><option>6</option><option>5</option></select></div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>校验位</label>
+            <select id="serParity"><option value="none">无</option><option value="odd">奇</option><option value="even">偶</option></select></div>
+          <div class="field"><label>停止位</label>
+            <select id="serStop"><option>1</option><option>2</option></select></div>
+        </div>
+        <button id="bSerConnect" style="width:100%">打开串口</button>
+      </div>
+      <div class="modebox" id="tcpBox">
+        <h3>网络（TCP 客户端）</h3>
+        <div class="row2">
+          <div class="field" style="flex:2"><label>主机</label>
+            <input id="tcpHost" value="127.0.0.1" placeholder="host"></div>
+          <div class="field"><label>端口</label>
+            <input id="tcpPort" value="8080" placeholder="port"></div>
+        </div>
+        <button id="bTcpConnect" style="width:100%">连接</button>
+      </div>
+      <div class="hint">
+        串口与 TCP 各自独立收发，共用同一块收发日志。发送区格式（HEX/文本）与追加换行对两条链路同时生效。
+      </div>
+      <div style="margin-top:auto">
+        <button class="ghost" id="bSaveCfg" style="width:100%">保存面板配置</button>
+      </div>
+    </aside>
+    <section class="section">
+      <div class="logbar">
+        <span class="hint">收发日志</span>
+        <span class="chip sel" data-f="all">全部</span>
+        <span class="chip" data-f="rx">接收</span>
+        <span class="chip" data-f="tx">发送</span>
+        <span class="chip" data-f="sys">系统</span>
+        <span class="chip" id="bAutoscroll">自动滚动：开</span>
+        <span class="chip" id="bHexView">视图：双显</span>
+        <span class="chip" id="bClear">清空</span>
+        <span class="chip" id="bPollRx" style="margin-left:auto">串口轮询：关</span>
+      </div>
+      <div id="log"><div class="empty">等待桥就绪…</div></div>
+      <div class="sendbar">
+        <textarea id="sendInput" rows="2" placeholder="输入要发送的内容（HEX 模式填如 01 03 00 00 00 02 C4 0B）"></textarea>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button id="bSend" disabled style="min-width:96px">发送</button>
+          <div class="sendopts">
+            <label class="toggle"><input type="checkbox" id="hexMode">HEX</label>
+            <label class="toggle"><input type="checkbox" id="appendCRLF">CRLF</label>
+          </div>
+          <button class="ghost" id="bTimer" disabled>定时：关</button>
+        </div>
+      </div>
+    </section>
+  </main>
+<script>
+/* ============ 桥与工具 ============ */
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var t = function () { return window.__CJ_TAURI__; };
+  var report = function (line) {
+    if (t()) { t().invoke('report', { line: line }); }
+  };
+
+  function waitForBridge() {
+    if (t() && t().invoke) {
+      try { boot(); } catch (e) { report('[boot] ERROR ' + errMsg(e) + '\n' + (e && e.stack ? e.stack : '')); }
+      return;
+    }
+    setTimeout(waitForBridge, 60);
+  }
+
+  function pad(n, w) { n = String(n); while (n.length < (w || 2)) { n = '0' + n; } return n; }
+  function ts() {
+    var d = new Date();
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) + '.' + pad(d.getMilliseconds(), 3);
+  }
+
+  /* ============ 状态 ============ */
+  var S = {
+    conn: 'none',        // none | serial | tcp
+    serOpen: false,
+    tcpOpen: false,
+    filter: 'all',
+    autoscroll: true,
+    hexView: 'dual',     // dual | hex | text
+    polling: false,
+    pollTimer: null,
+    timerOn: false,
+    txBytes: 0, rxBytes: 0, errCount: 0,
+    serHandle: 0,
+    log: []
+  };
+
+  function setStatus() {
+    var dot = $('dot'), st = $('statusText');
+    if (S.serOpen || S.tcpOpen) {
+      dot.className = 'dot on';
+      st.textContent = (S.serOpen ? '串口' : '') + (S.serOpen && S.tcpOpen ? ' + ' : '') + (S.tcpOpen ? 'TCP' : '') + ' 已连接';
+    } else {
+      dot.className = 'dot';
+      st.textContent = '未连接';
+    }
+    $('bSend').disabled = !(S.serOpen || S.tcpOpen);
+  }
+
+  function sysMsg(text) {
+    addLine({ dir: 'sys', text: text, ts: ts() });
+  }
+
+  function addLine(m) {
+    m.dir = m.dir || 'sys';
+    m.text = m.text || '';
+    m.hex = m.hex || '';
+    m.ts = m.ts || ts();
+    S.log.push(m);
+    if (S.filter === 'all' || S.filter === m.dir || m.dir === 'sys') {
+      renderLine(m);
+    }
+    if (m.dir === 'tx') { S.txBytes += (m.nBytes || m.text.length); }
+    if (m.dir === 'rx') { S.rxBytes += (m.nBytes || m.text.length); }
+    $('txBytes') && 0; // noop 防止占位
+    updateStats();
+  }
+
+  function updateStats() {
+    $('txBytes').textContent = S.txBytes;
+    $('rxBytes').textContent = S.rxBytes;
+    $('errCount').textContent = S.errCount;
+  }
+
+  function fmtBody(m) {
+    var parts = [];
+    if (S.hexView === 'dual' || S.hexView === 'hex') { parts.push('<div class="hx">' + esc(m.hex) + '</div>'); }
+    if (S.hexView === 'dual' || S.hexView === 'text') { parts.push('<div class="txt">' + esc(m.text) + '</div>'); }
+    return parts.join('');
+  }
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderLine(m) {
+    var el = document.createElement('div');
+    el.className = 'line ' + m.dir;
+    el.innerHTML = '<span class="ts">' + m.ts + '</span>' +
+      '<span class="dir">' + (m.dir === 'tx' ? '↑' : m.dir === 'rx' ? '↓' : '·') + '</span>' +
+      '<span class="body">' + (m.dir === 'sys' ? '<div class="txt">' + esc(m.text) + '</div>' : fmtBody(m)) + '</span>';
+    var log = $('log');
+    var empty = log.querySelector('.empty');
+    if (empty) { empty.remove(); }
+    log.appendChild(el);
+    if (S.autoscroll) { log.scrollTop = log.scrollHeight; }
+  }
+
+  function rerenderAll() {
+    var log = $('log');
+    log.innerHTML = '';
+    for (var i = 0; i < S.log.length; i++) {
+      var m = S.log[i];
+      if (S.filter === 'all' || S.filter === m.dir || m.dir === 'sys') { renderLine(m); }
+    }
+    if (!S.log.length) { log.innerHTML = '<div class="empty">等待桥就绪…</div>'; }
+  }
+
+  /* ============ 收发公共入口 ============ */
+  function payloadBytes() {
+    var raw = $('sendInput').value;
+    var hexMode = $('hexMode').checked;
+    var crlf = $('appendCRLF').checked;
+    if (crlf) { raw = raw + '\r\n'; }
+    return { data: raw, encoding: hexMode ? 'hex' : 'utf8' };
+  }
+
+  function doSend() {
+    if (!(S.serOpen || S.tcpOpen)) { return; }
+    var p = payloadBytes();
+    if (!p.data) { return; }
+    if (S.serOpen) {
+      t().invoke('serial:write', { handle: S.serHandle, data: p.data, encoding: p.encoding })
+        .then(function (r) {
+          addLine({ dir: 'tx', text: p.data, hex: hexOf(p), nBytes: r.written || p.data.length });
+        })
+        .catch(function (e) { S.errCount++; sysMsg('串口发送失败：' + errMsg(e)); });
+    } else if (S.tcpOpen) {
+      t().invoke('link:tcpSend', { data: p.data, encoding: p.encoding })
+        .then(function (r) { addLine({ dir: 'tx', text: p.data, hex: hexOf(p), nBytes: r.bytes || p.data.length }); })
+        .catch(function (e) { S.errCount++; sysMsg('TCP 发送失败：' + errMsg(e)); });
+    }
+  }
+  function hexOf(p) {
+    if (p.encoding === 'hex') { return p.data.replace(/\s+/g, '').toLowerCase(); }
+    var out = '';
+    for (var i = 0; i < p.data.length; i++) {
+      var h = p.data.charCodeAt(i).toString(16);
+      out += (h.length < 2 ? '0' : '') + h + ' ';
+    }
+    return out.trim();
+  }
+  function errMsg(e) {
+    return (e && e.message) ? e.message : String(e);
+  }
+
+  /* ============ 串口链路 ============ */
+  function serRefresh() {
+    t().invoke('link:serialList', {}).then(function (r) {
+      var sel = $('serPort');
+      sel.innerHTML = '';
+      var ports = r.ports || [];
+      if (!ports.length) {
+        sel.innerHTML = '<option value="">（未发现串口）</option>';
+        sysMsg('串口枚举完成：0 个端口');
+        return;
+      }
+      for (var i = 0; i < ports.length; i++) {
+        var o = document.createElement('option');
+        o.value = ports[i]; o.textContent = ports[i];
+        sel.appendChild(o);
+      }
+      sysMsg('串口枚举完成：' + ports.length + ' 个端口');
+    }).catch(function (e) { sysMsg('串口枚举失败：' + errMsg(e)); });
+  }
+
+  function serConnect() {
+    var path = $('serPort').value;
+    if (!path) { sysMsg('请先选择串口（点 ↻ 枚举）'); return; }
+    if (S.tcpOpen) { sysMsg('已连着 TCP，先断开再开串口（单链路收发）'); return; }
+    t().invoke('serial:open', {
+      path: path,
+      baud: parseInt($('serBaud').value, 10),
+      dataBits: parseInt($('serData').value, 10),
+      parity: $('serParity').value,
+      stopBits: parseInt($('serStop').value, 10)
+    }).then(function (r) {
+      S.serOpen = true; S.serHandle = r.handle; S.conn = 'serial';
+      $('bSerConnect').textContent = '关闭串口';
+      setStatus();
+      sysMsg('串口已打开：' + path + ' @ ' + $('serBaud').value + ' ' + $('serData').value +
+        $('serParity').value[0].toUpperCase() + $('serStop').value);
+      startPoll();
+    }).catch(function (e) { S.errCount++; sysMsg('打开串口失败：' + errMsg(e)); });
+  }
+
+  function serDisconnect() {
+    stopPoll();
+    t().invoke('serial:close', { handle: S.serHandle }).then(function () {
+      S.serOpen = false; S.serHandle = 0; S.conn = 'none';
+      $('bSerConnect').textContent = '打开串口';
+      setStatus();
+      sysMsg('串口已关闭');
+    }).catch(function (e) { S.errCount++; sysMsg('关闭串口失败：' + errMsg(e)); });
+  }
+
+  function startPoll() {
+    if (S.polling) { return; }
+    S.polling = true;
+    $('bPollRx').textContent = '串口轮询：开';
+    $('bPollRx').classList.add('sel');
+    pollOnce();
+  }
+  function stopPoll() {
+    S.polling = false;
+    if (S.pollTimer) { clearTimeout(S.pollTimer); S.pollTimer = null; }
+    $('bPollRx').textContent = '串口轮询：关';
+    $('bPollRx').classList.remove('sel');
+  }
+  function pollOnce() {
+    if (!S.polling || !S.serOpen) { return; }
+    t().invoke('serial:read', { handle: S.serHandle, maxBytes: 1024, timeoutMs: 200 }).then(function (r) {
+      if (r.count > 0) {
+        var text = (r.text !== undefined) ? r.text : '';
+        addLine({ dir: 'rx', hex: r.hex, text: text, nBytes: r.count });
+      }
+      if (S.polling && S.serOpen) { S.pollTimer = setTimeout(pollOnce, 60); }
+    }).catch(function (e) {
+      S.errCount++;
+      sysMsg('串口读失败：' + errMsg(e));
+      if (S.polling && S.serOpen) { S.pollTimer = setTimeout(pollOnce, 500); }
+    });
+  }
+
+  /* ============ TCP 链路 ============ */
+  function tcpConnect() {
+    var host = $('tcpHost').value.trim();
+    var port = parseInt($('tcpPort').value, 10);
+    if (!host || !port) { sysMsg('请填写 TCP 主机与端口'); return; }
+    if (S.serOpen) { sysMsg('已开着串口，先关闭再连 TCP（单链路收发）'); return; }
+    sysMsg('TCP 连接中：' + host + ':' + port + ' …');
+    t().invoke('link:tcpConnect', { host: host, port: port }).then(function (r) {
+      S.tcpOpen = true; S.conn = 'tcp';
+      $('bTcpConnect').textContent = '断开';
+      $('bTcpConnect').classList.add('danger');
+      setStatus();
+      sysMsg('TCP 已连接：' + r.host + ':' + r.port);
+    }).catch(function (e) { S.errCount++; sysMsg('TCP 连接失败：' + errMsg(e)); });
+  }
+
+  function tcpDisconnect() {
+    t().invoke('link:tcpClose', {}).then(function () {
+      S.tcpOpen = false; S.conn = 'none';
+      $('bTcpConnect').textContent = '连接';
+      $('bTcpConnect').classList.remove('danger');
+      setStatus();
+      sysMsg('TCP 已断开');
+    }).catch(function (e) { sysMsg('TCP 断开失败：' + errMsg(e)); });
+  }
+
+  /* ============ 配置持久化 ============ */
+  var CFG_KEY = 'panel';
+  function cfgObj() {
+    return {
+      serPort: $('serPort').value, serBaud: $('serBaud').value, serData: $('serData').value,
+      serParity: $('serParity').value, serStop: $('serStop').value,
+      tcpHost: $('tcpHost').value, tcpPort: $('tcpPort').value,
+      hexMode: $('hexMode').checked, appendCRLF: $('appendCRLF').checked,
+      hexView: S.hexView
+    };
+  }
+  function saveCfg() {
+    if (!t()) { return; }
+    t().invoke('store:set', { key: CFG_KEY, value: cfgObj() }).then(function () {
+      sysMsg('面板配置已保存（store.json）');
+    }).catch(function (e) { sysMsg('保存配置失败：' + errMsg(e)); });
+  }
+  function loadCfg() {
+    if (!t()) { return; }
+    t().invoke('store:get', { key: CFG_KEY }).then(function (r) {
+      var c = r.value;
+      if (!c) { return; }
+      if (c.serBaud) { $('serBaud').value = c.serBaud; }
+      if (c.serData) { $('serData').value = c.serData; }
+      if (c.serParity) { $('serParity').value = c.serParity; }
+      if (c.serStop) { $('serStop').value = c.serStop; }
+      if (c.tcpHost) { $('tcpHost').value = c.tcpHost; }
+      if (c.tcpPort) { $('tcpPort').value = c.tcpPort; }
+      $('hexMode').checked = !!c.hexMode;
+      $('appendCRLF').checked = !!c.appendCRLF;
+      if (c.hexView) { setHexView(c.hexView); }
+      sysMsg('已恢复上次的面板配置');
+    }).catch(function () { /* 首次运行没有配置，静默 */ });
+  }
+
+  /* ============ 面板事件 ============ */
+  function bindChips() {
+    var chips = document.querySelectorAll('.chip[data-f]');
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].addEventListener('click', function () {
+        document.querySelectorAll('.chip[data-f]').forEach(function (c) { c.classList.remove('sel'); });
+        this.classList.add('sel');
+        S.filter = this.getAttribute('data-f');
+        rerenderAll();
+      });
+    }
+    $('bAutoscroll').addEventListener('click', function () {
+      S.autoscroll = !S.autoscroll;
+      this.textContent = '自动滚动：' + (S.autoscroll ? '开' : '关');
+      this.classList.toggle('sel', S.autoscroll);
+    });
+    $('bClear').addEventListener('click', function () {
+      S.log = []; rerenderAll(); sysMsg('日志已清空');
+    });
+    $('bHexView').addEventListener('click', function () {
+      setHexView(S.hexView === 'dual' ? 'hex' : S.hexView === 'hex' ? 'text' : 'dual');
+    });
+    $('bPollRx').addEventListener('click', function () {
+      if (S.polling) { stopPoll(); } else { startPoll(); }
+    });
+  }
+  function setHexView(v) {
+    S.hexView = v;
+    $('bHexView').textContent = '视图：' + (v === 'dual' ? '双显' : v === 'hex' ? 'HEX' : '文本');
+    rerenderAll();
+  }
+
+  /* ============ 探针自检（CJ_LINK_PROBE=1 时注入）============ */
+  function probe() {
+    var cfg = window.__LINK_PROBE__ || {};
+    var steps = [];
+    var ok = 0, fail = 0;
+    function step(name, promise) {
+      return promise.then(function (r) {
+        ok++; report('[selfcheck] ' + name + ': PASS' + (r && r.hex ? ' hex=' + r.hex : ''));
+        return r;
+      }).catch(function (e) {
+        fail++; report('[selfcheck] ' + name + ': FAIL ' + errMsg(e));
+        throw e;
+      });
+    }
+    sysMsg('探针模式：开始自检');
+    var serialPart = Promise.resolve();
+    if (cfg.serialPath) {
+      serialPart = step('open', t().invoke('serial:open', { path: cfg.serialPath, baud: 115200 }))
+        .then(function (h) {
+          S.serHandle = h.handle; S.serOpen = true;
+          return step('write', t().invoke('serial:write', { handle: h.handle, data: 'cj-link-ping', encoding: 'utf8' }));
+        })
+        .then(function () { return step('read', t().invoke('serial:read', { handle: S.serHandle, maxBytes: 256, timeoutMs: 1000 })); })
+        .then(function (r) {
+          if (r.count <= 0) { throw new Error('串口读回 0 字节'); }
+          report('[selfcheck] rx text=' + (r.text || ''));
+          return step('close', t().invoke('serial:close', { handle: S.serHandle })).then(function () {
+            S.serOpen = false; return r;
+          });
+        })
+        .catch(function (e) { return null; });
+    }
+    serialPart.then(function () {
+      return step('tcpConnect', t().invoke('link:tcpConnect', { host: cfg.tcpHost || '127.0.0.1', port: parseInt(cfg.tcpPort || '15021', 10) }))
+        .then(function () {
+          S.tcpOpen = true;
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(); }, 300);
+          });
+        })
+        .then(function () { return step('tcpSend', t().invoke('link:tcpSend', { data: 'cj-link-tcp-ping', encoding: 'utf8' })); })
+        .then(function () {
+          return new Promise(function (resolve, reject) {
+            var n = 0;
+            var iv = setInterval(function () {
+              n++;
+              if (S.log.some(function (m) { return m.dir === 'rx'; })) { clearInterval(iv); resolve(); }
+              else if (n > 20) { clearInterval(iv); reject(new Error('TCP 3 秒内没收到回包')); }
+            }, 150);
+          });
+        })
+        .then(function () { return step('tcpClose', t().invoke('link:tcpClose', {})).then(function () { S.tcpOpen = false; }); });
+    }).then(function () {
+      report('[selfcheck] ' + ok + '/' + (ok + fail) + ' passed');
+      sysMsg('自检完成：' + ok + '/' + (ok + fail) + ' 通过');
+      report('[probe] ALL DONE');
+      if (cfg.quit !== '0' && t().invoke) {
+        t().invoke('quit', {}).catch(function () {});
+      }
+    }).catch(function (e) {
+      report('[probe] FAILED: ' + errMsg(e));
+    });
+  }
+
+  /* ============ 启动 ============ */
+  function boot() {
+    t().listen('link:tcpData', function (ev) {
+      var p = ev.payload || ev;
+      if (p.dir === 'rx') { addLine({ dir: 'rx', hex: p.hex, text: p.text || '', nBytes: (p.hex ? p.hex.replace(/\s+/g, '').length / 2 : 0) }); }
+    });
+    t().listen('link:tcpState', function (ev) {
+      var p = ev.payload || ev;
+      sysMsg('TCP 状态：' + p.state + (p.detail ? '（' + p.detail + '）' : ''));
+      if (p.state === 'closed' || p.state === 'error') {
+        if (S.tcpOpen) { S.tcpOpen = false; $('bTcpConnect').textContent = '连接'; $('bTcpConnect').classList.remove('danger'); setStatus(); }
+      }
+    });
+    t().invoke('system:version', {}).then(function (r) { $('ver').textContent = 'v' + r.version; }).catch(function () {});
+    var baudSel = $('serBaud');
+    [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600].forEach(function (b) {
+      var o = document.createElement('option'); o.value = b; o.textContent = b; baudSel.appendChild(o);
+    });
+    baudSel.value = '115200';
+    bindChips();
+    $('bSerRefresh').addEventListener('click', serRefresh);
+    $('bSerConnect').addEventListener('click', function () { S.serOpen ? serDisconnect() : serConnect(); });
+    $('bTcpConnect').addEventListener('click', function () { S.tcpOpen ? tcpDisconnect() : tcpConnect(); });
+    $('bSend').addEventListener('click', doSend);
+    $('bSaveCfg').addEventListener('click', saveCfg);
+    $('bTimer').addEventListener('click', function () {
+      S.timerOn = !S.timerOn;
+      this.textContent = '定时：' + (S.timerOn ? '开' : '关');
+      this.classList.toggle('sel', false);
+      if (S.timerOn) {
+        var tick = function () {
+          if (!S.timerOn) { return; }
+          doSend();
+          setTimeout(tick, 1000);
+        };
+        tick();
+      }
+    });
+    serRefresh();
+    loadCfg();
+    setStatus();
+    sysMsg('cj-link 就绪（等待连接）');
+    if (window.__LINK_PROBE__) { probe(); }
+  }
+  waitForBridge();
+})();
+</script>
+</body>
+</html>

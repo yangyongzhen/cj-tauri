@@ -24,7 +24,10 @@
 ## 1. 5 分钟跑起来
 
 前置：本机装有仓颉 SDK 1.2.0 + stdx（环境变量 `CANGJIE_HOME` / `CANGJIE_STDX` 就绪，
-判题还要靠它调 `cjc`），Linux 需 WebKitGTK 开发包。框架构建见仓库根 README。
+判题还要靠它调 `cjc`），Linux 需 WebKitGTK 开发包。SDK 从仓颉官网下载：
+<https://cangjie-lang.cn/download>（本机没装也不怕——启动时应用会自检并打印同样的
+下载引导，判题入口找不到 `cjc` 时也会给出安装步骤而不是一行含糊的报错）。
+框架构建见仓库根 README。
 
 ```bash
 cd examples/leetcode-gui

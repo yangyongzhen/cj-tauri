@@ -87,6 +87,12 @@ func onShellEvent(json: String, label: String): Unit {
 main(): Int64 {
     eprintln("[lc] main start")
 
+    // 环境自检：cjc 是判题的前置，启动时先给一句环境结论（缺失时打安装引导）
+    match (findCjc()) {
+        case Some(p) => eprintln("[lc] cjc found: ${p}（判题功能就绪）")
+        case None => eprintln("[lc] cjc not found —— 判题不可用。\n${CJC_GUIDE}")
+    }
+
     // 远程题包缓存并入（problems-remote.local.json，上次「加载更多」的结果）：
     // 在 PROBLEMS 被任何命令读到之前完成，缓存题与内置题同池
     loadPackCache()

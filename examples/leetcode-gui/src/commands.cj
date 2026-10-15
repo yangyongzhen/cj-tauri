@@ -38,6 +38,15 @@ let JUDGE_TIMEOUT_MS: Int64 = 10000
 /** 判题子目录序号（时间戳到秒不够区分连续两次判题，叠一个进程内自增号） */
 var judgeSeq: Int64 = 0
 
+/** 无 cjc 时给用户的安装引导（判题被拒的原因 + 官网下载入口 + 配置步骤） */
+let CJC_GUIDE = "本机没有找到仓颉编译器 cjc，判题功能需要它。\n" +
+    "安装引导：\n" +
+    "  1. 前往仓颉官网下载并安装 SDK：https://cangjie-lang.cn/download\n" +
+    "  2. 设置环境变量 CANGJIE_HOME 指向 SDK 根目录（或把 SDK 的 bin 目录加入 PATH）\n" +
+    "  3. 重启本应用，再点「运行」即可判题\n" +
+    "你的代码已自动保存在草稿里，装好环境回来就能继续。"
+
+
 /** 从内嵌 JSON 解析出的题目数组（启动时解析一次） */
 let PROBLEMS: ArrayList<JsonObject> = parseProblems()
 
@@ -291,8 +300,14 @@ public class RunCommand <: CommandHandler {
             if (exists(Path(cachedBin)) && copyFile(cachedBin, workDir + "/judge")) {
                 eprintln("[lc] compile cache hit: ${cacheDir}")
             } else {
-                // 编译
-                let comp = tryRun(cjcPath(), ["main.cj", "-o", "judge"], workDir)
+                // 编译：先定位 cjc，没有就给安装引导（含官网链接），不吐一行含糊的启动失败
+                let cjc = match (findCjc()) {
+                    case Some(p) => p
+                    case None =>
+                        eprintln("[lc] cjc not found: ${CJC_GUIDE}")
+                        throw CommandException(CJC_GUIDE)
+                }
+                let comp = tryRun(cjc, ["main.cj", "-o", "judge"], workDir)
                 if (comp[0] != 0) {
                     eprintln("[lc] compile failed id=${id}: ${comp[2]}")
                     var obj = JsonObject()
@@ -458,11 +473,63 @@ func copyFile(from: String, to: String): Bool {
         return false
     }
 }
-func cjcPath(): String {
-    match (getVariable("CANGJIE_HOME")) {
-        case Some(home) => return home + "/bin/cjc"
-        case None => return "cjc"
+/** cjc 可执行文件名（Windows 带 .exe 后缀） */
+@When[os == "Linux"]
+func cjcExeName(): String {
+    return "cjc"
+}
+
+@When[os == "Windows"]
+func cjcExeName(): String {
+    return "cjc.exe"
+}
+
+/** 在 PATH 各目录里扫 cjc（Linux 分隔符是冒号） */
+@When[os == "Linux"]
+func cjcFromPath(): Option<String> {
+    match (getVariable("PATH")) {
+        case Some(p) =>
+            for (dir in p.split(":")) {
+                let cand = dir + "/cjc"
+                if (exists(Path(cand))) {
+                    return Some(cand)
+                }
+            }
+            return None
+        case None => return None
     }
+}
+
+/** 在 PATH 各目录里扫 cjc.exe（Windows 分隔符是分号） */
+@When[os == "Windows"]
+func cjcFromPath(): Option<String> {
+    match (getVariable("PATH")) {
+        case Some(p) =>
+            for (dir in p.split(";")) {
+                let cand = dir + "\\cjc.exe"
+                if (exists(Path(cand))) {
+                    return Some(cand)
+                }
+            }
+            return None
+        case None => return None
+    }
+}
+
+/**
+ * 定位 cjc：CANGJIE_HOME/bin 优先（做存在性校验，不是盲拼路径），其次扫 PATH。
+ * 都找不到返回 None——调用方给 CJC_GUIDE 引导，而不是一行含糊的「启动失败」。
+ */
+func findCjc(): Option<String> {
+    match (getVariable("CANGJIE_HOME")) {
+        case Some(home) =>
+            let cand = home + "/bin/" + cjcExeName()
+            if (exists(Path(cand))) {
+                return Some(cand)
+            }
+        case None => ()
+    }
+    return cjcFromPath()
 }
 
 /**

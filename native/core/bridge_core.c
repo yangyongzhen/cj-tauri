@@ -78,6 +78,8 @@ void cj_bridge_destroy(cj_host *h) {
     free(h->win_title);
     free(h->win_icon);
     free(h->pending_menu_text);
+    free(h->pending_hotkeys);
+    free(h->pending_tray);
     for (i = 0; i < h->init_script_count; i++) {
         free(h->init_scripts[i]);
     }
@@ -191,6 +193,32 @@ void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files) {
     /* 两头都能用：未就绪时平台只记（本函数已写进 pending 字段，建 view 时读）；
        就绪后平台投 UI 线程重挂 drag dest */
     cj_plat_set_drag_drop(h, enabled ? 1 : 0, files ? 1 : 0);
+}
+
+/* ===== 全局快捷键（RFC-003 第 5 期首个落地项）===== */
+
+void cj_bridge_set_global_hotkeys(cj_host *h, const char *wire) {
+    if (!h) return;
+    fprintf(stderr, "[cj-bridge] set global hotkeys: %s\n",
+            (wire && wire[0]) ? wire : "(none)");
+    free(h->pending_hotkeys);
+    h->pending_hotkeys = cj_strdup(wire ? wire : "");
+    /* 两头都能用：未就绪时平台只记（建宿主线程后读 h->pending_hotkeys）；
+       就绪后整表替换（ungrab 旧表再 grab 新表）。平台不支持时在 cj_plat_* 里打一行如实说明。 */
+    cj_plat_set_global_hotkeys(h, h->pending_hotkeys ? h->pending_hotkeys : "");
+}
+
+/* ===== 托盘（RFC-002 §7.C）===== */
+
+void cj_bridge_set_tray(cj_host *h, const char *wire) {
+    if (!h) return;
+    fprintf(stderr, "[cj-bridge] set tray: %d bytes\n",
+            (int)(wire ? strlen(wire) : 0));
+    free(h->pending_tray);
+    h->pending_tray = cj_strdup(wire ? wire : "");
+    /* 两头都能用：未就绪时平台只记（宿主线程装配时读 h->pending_tray）；
+       就绪后投 UI 线程重建。平台没编托盘支持时在 cj_plat_* 里打一行如实说明。 */
+    cj_plat_set_tray(h, h->pending_tray ? h->pending_tray : "");
 }
 
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */
@@ -650,6 +678,41 @@ void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked) 
              "{\"kind\":\"menu\",\"id\":\"%s\",\"enabled\":%s,\"checked\":%s}",
              idbuf, enabled ? "true" : "false", checked ? "true" : "false");
     /* 带上宿主句柄：仓颉侧按句柄分发到对应窗口，不再依赖进程级静态槽 */
+    h->on_shell(h, payload);
+}
+
+/* 全局快捷键触发：平台在 X11/Win32 事件回调里调，id 是应用注册时给的标识。
+   载荷形状与菜单点击同族（{"kind":"hotkey","id":…}），同走 on_shell 通道。 */
+void cj_core_hotkey_pressed(cj_host *h, const char *id) {
+    char idbuf[256];
+    char payload[320];
+    if (!h) return;
+    if (!id || !id[0]) {
+        return; /* 没有 id 的触发无法路由，直接丢弃（平台侧不该产生） */
+    }
+    fprintf(stderr, "[cj-bridge] hotkey pressed: id=%s\n", id);
+    if (!h->on_shell) {
+        return; /* 未注册回调：上面那行日志已经落盘，够诊断了 */
+    }
+    cj_json_escape_into(idbuf, sizeof(idbuf), id);
+    snprintf(payload, sizeof(payload), "{\"kind\":\"hotkey\",\"id\":\"%s\"}", idbuf);
+    h->on_shell(h, payload);
+}
+
+/* 托盘菜单项被点：载荷形状与菜单/快捷键同族，同走 on_shell 通道（RFC-002 §5.5） */
+void cj_core_tray_clicked(cj_host *h, const char *id) {
+    char idbuf[256];
+    char payload[320];
+    if (!h) return;
+    if (!id || !id[0]) {
+        return; /* 没有 id 的点击无法路由（托盘图标本体点击不带 id，平台侧自行决定语义） */
+    }
+    fprintf(stderr, "[cj-bridge] tray clicked: id=%s\n", id);
+    if (!h->on_shell) {
+        return;
+    }
+    cj_json_escape_into(idbuf, sizeof(idbuf), id);
+    snprintf(payload, sizeof(payload), "{\"kind\":\"tray\",\"id\":\"%s\"}", idbuf);
     h->on_shell(h, payload);
 }
 

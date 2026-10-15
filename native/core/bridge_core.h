@@ -80,6 +80,7 @@ typedef void (*cj_on_shell_fn)(struct cj_host *host, const char *json);
 #define CJ_CAP_TRAY      2
 #define CJ_CAP_DRAG_DROP 4
 #define CJ_CAP_NOTIFICATION 8 /* 平台通知可用（Linux = freedesktop Notifications）*/
+#define CJ_CAP_HOTKEY    16 /* 全局快捷键可用（Linux = X11 grab；Wayland 不置位）*/
 
 /* ===== 回投队列节点（core 拥有；UTF-8 存储，宽字符转换由平台在 cj_plat_post_js 里做）===== */
 typedef struct js_node {
@@ -155,6 +156,21 @@ typedef struct cj_host {
     int pending_drop_enabled;
     int pending_drop_files;
 
+    /* --- 全局快捷键线路（cj_bridge_set_global_hotkeys 存入，空串 = 一个都没注册）。
+            格式一行一条：`<accel>:<id>`（accel 如 Ctrl+Alt+C，id 是应用给的标识）。
+            平台负责解析 accel 并 grab；触发时经 cj_core_hotkey_pressed 交回 core。
+            运行期再调 = 整表替换（先 ungrab 再按新表 grab） --- */
+    char *pending_hotkeys;
+
+    /* --- 托盘线路（cj_bridge_set_tray 存入，空串 = 移除托盘）。
+            格式（与 src/tray.cj 的 TrayModel.toWire() 逐字对应）：
+              第 1 行 `icon\t<路径>`（空路径 = 主题默认图标）
+              第 2 行 `tooltip\t<文本>`（可空）
+              其余行 = 菜单项，与菜单线路同格式（kind\tid\tlabel\tflags\taccel，无前导制表符 = 平铺一层）
+            平台建宿主线程时读它装配；运行期再调 = 整体重建。菜单项被点经
+            cj_core_tray_clicked 交回 core（{"kind":"tray","id":…}，与菜单点击同走 on_shell） --- */
+    char *pending_tray;
+
     /* --- 能力位（cj_plat_init 时由 cj_plat_host_capabilities 填，此后只读）--- */
     int capabilities;
 
@@ -214,6 +230,17 @@ void cj_plat_reload(cj_host *h);
 void cj_plat_set_menu(cj_host *h, const char *wire);
 void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
 void cj_plat_set_drag_drop(cj_host *h, int enabled, int files);
+
+/* 全局快捷键（RFC-003 第 5 期首个落地项）：wire 一行一条 `<accel>:<id>`（见 pending_hotkeys 注释）。
+   调用时机两头都要支持：未就绪时只记下（平台建宿主线程后读 h->pending_hotkeys），
+   已就绪时整表替换（先 ungrab 旧表再 grab 新表）。平台不支持（Wayland / Windows 桩）时
+   打一行 stderr 如实说明，不算错误。 */
+void cj_plat_set_global_hotkeys(cj_host *h, const char *wire);
+
+/* 托盘（RFC-002 §7.C）：wire 见 pending_tray 注释，空串 = 移除托盘。
+   未就绪时只记下（宿主线程装配时读 h->pending_tray）；已就绪时投 UI 线程重建。
+   平台不支持 / 依赖没编进来时打一行 stderr 如实说明（可选编译，RFC-002 §6.3）。 */
+void cj_plat_set_tray(cj_host *h, const char *wire);
 
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
@@ -284,6 +311,16 @@ void cj_core_menu_walk(const char *wire, cj_menu_row_fn fn, void *ctx);
 
 /* 平台把「菜单项被点了」交回 core：core 记日志 + 经 h->on_menu 回调仓颉侧（带宿主身份）。 */
 void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked);
+
+/* 全局快捷键触发（平台在 grab 的事件回调里调）：id 是应用注册时给的标识。
+   core 记日志 + 以 shell 报文 {"kind":"hotkey","id":"…"} 经 on_shell 回调仓颉侧（首参宿主句柄，
+   仓颉侧按句柄路由——快捷键事件与菜单点击同走 on_shell 通道，不新增回调类型）。 */
+void cj_core_hotkey_pressed(cj_host *h, const char *id);
+
+/* 托盘菜单项被点（平台在 appindicator 的 activate 回调里调）：id 是 TrayModel 里应用给的标识。
+   core 记日志 + 以 shell 报文 {"kind":"tray","id":"…"} 经 on_shell 回调仓颉侧（首参宿主句柄，
+   按句柄路由；前端事件名 tray:click 由仓颉侧 shellEventNameFor 映射——RFC-002 §5.5 既有约定）。 */
+void cj_core_tray_clicked(cj_host *h, const char *id);
 
 /* 拖放落地（平台在 drag-data-received 里调）：uri_list 是 text/uri-list 原文
    （\r\n 或 \n 分隔，可含 file:// URI 与百分比编码）。
@@ -364,6 +401,14 @@ CJ_BRIDGE_API void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int
 /* 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关）。
    两头都能用：未就绪时记 pending（建 view 时读），就绪后平台投 UI 线程重挂 drag dest。 */
 CJ_BRIDGE_API void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files);
+
+/* 全局快捷键：wire 一行一条 `<accel>:<id>`（空串 = 全部注销）。
+   两头都能用：未就绪时记 pending（宿主线程起来后读），就绪后整表替换（ungrab 旧表再 grab 新表）。 */
+CJ_BRIDGE_API void cj_bridge_set_global_hotkeys(cj_host *h, const char *wire);
+
+/* 托盘（RFC-002 §7.C）：wire 见 pending_tray 注释（icon/tooltip 两行 + 菜单项），空串 = 移除。
+   两头都能用：未就绪时记 pending（宿主线程装配时读），就绪后平台投 UI 线程重建。 */
+CJ_BRIDGE_API void cj_bridge_set_tray(cj_host *h, const char *wire);
 
 /* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
 CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);

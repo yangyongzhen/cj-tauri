@@ -207,14 +207,15 @@ public func scopeCwdPath(): String {
     return scopeCwdCache.value
 }
 
-@When[os == "Windows"]
+/**
+ * 清单模式与目标路径**统一**的反斜杠归一（两平台同一口径，d8014ad 的回归用例锁定）：
+ * Windows 的 $HOME 展开出反斜杠路径，不归一就拿它匹配不上正斜杠目标；
+ * Linux 侧同样归一——清单是应用作者写的（可能照 Windows 风格写 $CWD\notes），
+ * 模式与目标走同一个函数才不会「一边归一了一边没归」造成永远匹配不上。
+ * Linux 文件名里真含反斜杠属于 exotic 场景，模式与目标同函数归一后行为仍一致。
+ */
 func toScopeSlashes(s: String): String {
     return s.replace("\\", "/")
-}
-
-@When[os == "Linux"]
-func toScopeSlashes(s: String): String {
-    return s
 }
 
 /**

@@ -115,6 +115,22 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
 /**
+ * 全局快捷键（RFC-003 第 5 期）：wire 一行一条 `<accel>:<id>`。
+ * Linux 走 X11 grab（可选编译：桥没编 X11 支持时打一行 stderr 忽略）。
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Unit
+
+/**
+ * 托盘（RFC-002 §7.C）：wire 见 TrayModel.toWire()，空串 = 移除。
+ * Linux 走 libayatana-appindicator3（可选编译：桥没编托盘支持时打一行 stderr 忽略）。
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
+
+/**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
 @When[os == "Linux"]
@@ -242,6 +258,22 @@ public class WebKitHost <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_drag_drop(this.handle, en, fi)
+        }
+    }
+
+    public func setGlobalHotkeys(wire: String): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调——线路由桥记 pending，宿主线程起来后 grab
+        this.ensureHandle()
+        unsafe {
+            cj_bridge_set_global_hotkeys(this.handle, LibC.mallocCString(wire))
+        }
+    }
+
+    public func setTray(wire: String): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调——线路由桥记 pending，宿主线程装配时创建
+        this.ensureHandle()
+        unsafe {
+            cj_bridge_set_tray(this.handle, LibC.mallocCString(wire))
         }
     }
 

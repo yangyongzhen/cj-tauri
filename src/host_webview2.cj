@@ -116,6 +116,22 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
 /**
+ * 全局快捷键（RFC-003 第 5 期）：Windows 侧当前为桩（能力位如实不置位），同名同签名
+ * 保上层零平台分支——Linux 实机先行，Windows 实现随示例排期
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Unit
+
+/**
+ * 托盘（RFC-002 §7.C）：Windows 侧当前为桩（能力位如实不置位），同名同签名
+ * 保上层零平台分支——Linux 实机先行，Windows 实现（Shell_NotifyIconW）随示例排期
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
+
+/**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
 @When[os == "Windows"]
@@ -244,6 +260,24 @@ public class WebView2Host <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_drag_drop(this.handle, en, fi)
+        }
+    }
+
+    public func setGlobalHotkeys(wire: String): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调。Windows 侧桥当前是桩（能力位如实不置位），
+        // 仓颉侧 API 不写平台分支——实机轮补 RegisterHotKey 后上层零改动
+        this.ensureHandle()
+        unsafe {
+            cj_bridge_set_global_hotkeys(this.handle, LibC.mallocCString(wire))
+        }
+    }
+
+    public func setTray(wire: String): Unit {
+        // 与 setMenu 同形：允许在 start() 之前调。Windows 侧桥当前是桩（能力位如实不置位），
+        // 仓颉侧 API 不写平台分支——实机轮补 Shell_NotifyIconW 后上层零改动
+        this.ensureHandle()
+        unsafe {
+            cj_bridge_set_tray(this.handle, LibC.mallocCString(wire))
         }
     }
 

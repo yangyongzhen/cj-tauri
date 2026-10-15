@@ -18,6 +18,7 @@ public func shellEventNameFor(kind: String): Option<String> {
         case "menu" => return Some("menu:click")
         case "tray" => return Some("tray:click")
         case "drop" => return Some("dragdrop:files")
+        case "hotkey" => return Some("hotkey:press")
         case _ => return None
     }
 }

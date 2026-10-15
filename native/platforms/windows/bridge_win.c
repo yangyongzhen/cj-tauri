@@ -1670,8 +1670,24 @@ void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checke
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     /* 本平台的静态能力：菜单栏、拖放（OLE IDropTarget）、通知（PowerShell toast）已落地；
-       托盘按用户裁定暂缓，不置 CJ_CAP_TRAY */
+       托盘按用户裁定暂缓，不置 CJ_CAP_TRAY；全局快捷键本侧暂为桩（实机轮补 RegisterHotKey），不置 CJ_CAP_HOTKEY */
     return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
+}
+
+/* 全局快捷键（RFC-003 第 5 期）：Windows 侧桩——同名同签名保上层零平台分支，
+   实现随示例排期（RegisterHotKey 需要消息循环挂钩，届时照菜单/拖放的投递形态落）。 */
+void cj_plat_set_global_hotkeys(cj_host *h, const char *wire) {
+    (void)h;
+    (void)wire;
+    fprintf(stderr, "[cj-bridge] global hotkeys not implemented on windows yet - ignored\n");
+}
+
+/* 托盘（RFC-002 §7.C）：Windows 侧桩——同名同签名保上层零平台分支，
+   实现随示例排期（Shell_NotifyIconW + build_win.bat 加 -lshell32，见 RFC-002 §3 的登记）。 */
+void cj_plat_set_tray(cj_host *h, const char *wire) {
+    (void)h;
+    (void)wire;
+    fprintf(stderr, "[cj-bridge] tray not implemented on windows yet - ignored\n");
 }
 
 /* IDropTarget COM 对象（mingw C 模式，与文件里其余 COM 对象同风格）。

@@ -29,6 +29,9 @@ public const CJ_CAP_TRAY: Int32 = 2
 
 public const CJ_CAP_DRAG_DROP: Int32 = 4
 
+/** 全局快捷键（与 native/bridge_core.h 的 CJ_CAP_HOTKEY 逐位对齐；Linux = 编进了 X11 支持） */
+public const CJ_CAP_HOTKEY: Int32 = 16
+
 /**
  * 宿主能力位的**可读形态**（RFC-002 §5.3）：`CJ_CAP_*` 位域 → 具名布尔 + `toJson`。
  *
@@ -44,12 +47,14 @@ public class HostCapabilities {
     public let menu: Bool
     public let tray: Bool
     public let dragDrop: Bool
+    public let hotkey: Bool
 
-    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool) {
+    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool, hotkey: Bool) {
         this.platform = platform
         this.menu = menu
         this.tray = tray
         this.dragDrop = dragDrop
+        this.hotkey = hotkey
     }
 
     /** 位域 → 具名布尔（`platform` 由调用方给，见类注释） */
@@ -58,17 +63,19 @@ public class HostCapabilities {
             platform,
             (caps & CJ_CAP_MENU) != 0,
             (caps & CJ_CAP_TRAY) != 0,
-            (caps & CJ_CAP_DRAG_DROP) != 0
+            (caps & CJ_CAP_DRAG_DROP) != 0,
+            (caps & CJ_CAP_HOTKEY) != 0
         )
     }
 
-    /** `system:host` 的返回形状：`{"platform":"windows","menu":true,"tray":true,"dragDrop":true}` */
+    /** `system:host` 的返回形状：`{"platform":"windows","menu":true,"tray":true,"dragDrop":true,"hotkey":false}` */
     public func toJson(): JsonValue {
         var obj = JsonObject()
         obj.put("platform", JsonString(this.platform))
         obj.put("menu", JsonBool(this.menu))
         obj.put("tray", JsonBool(this.tray))
         obj.put("dragDrop", JsonBool(this.dragDrop))
+        obj.put("hotkey", JsonBool(this.hotkey))
         return obj
     }
 }
@@ -152,6 +159,25 @@ public interface WebViewHost {
      * 平台没有该能力（能力位不含 `CJ_CAP_DRAG_DROP`）时宿主只记日志，不报错。
      */
     func setDragDropPolicy(enabled: Bool, files: Bool): Unit
+
+    /**
+     * 注册**全局快捷键**（RFC-003 第 5 期）：wire 一行一条 `<accel>:<id>`（见 `HotkeyModel.toWire`）
+     *
+     * 全局 = 焦点不在本应用窗口时也生效（X11 grab / Win32 RegisterHotKey）。
+     * 允许在 `start()` 之前调（桥记 pending，宿主线程起来后注册）；运行期再调 = 整表替换。
+     * 触发事件以 `{"kind":"hotkey","id":"…"}` 走 shell 回调（按句柄路由）→ 前端 `hotkey:press`。
+     * 平台不支持时桥打一行 stderr 如实说明，调用不报错、事件不来。
+     */
+    func setGlobalHotkeys(wire: String): Unit
+
+    /**
+     * 设置**托盘**（RFC-002 §7.C）：wire 见 `TrayModel.toWire()`，空串 = 移除托盘
+     *
+     * 允许在 `start()` 之前调（桥记 pending，宿主线程装配时创建）；运行期再调 = 整体重建。
+     * 菜单项被点以 `{"kind":"tray","id":"…"}` 走 shell 回调（按句柄路由）→ 前端 `tray:click`。
+     * 平台不支持 / 依赖没编进来时桥打一行 stderr 如实说明，调用不报错、托盘不出现。
+     */
+    func setTray(wire: String): Unit
 
     /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入

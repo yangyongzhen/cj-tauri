@@ -205,6 +205,45 @@ public class TauriApp <: AppHost {
         return this
     }
 
+    /**
+     * 注册**默认窗口**的全局快捷键（RFC-003 第 5 期）
+     *
+     * 全局 = 焦点不在本应用时也生效（Linux = X11 grab，能力位 `hotkey` 如实上报）。
+     * 触发时页面收 `hotkey:press` 事件（载荷 `{"id":…}`，需在能力清单 `events` 声明）；
+     * 应用侧钩子挂 `onShellEvent`（信封 `kind == "hotkey"`）。运行期再调 = 整表替换。
+     */
+    public func setGlobalHotkeys(keys: HotkeyModel): TauriApp {
+        return this.setGlobalHotkeysTo(DEFAULT_WINDOW_LABEL, keys)
+    }
+
+    /** 指定窗口版本（多窗口）：语义同 `setGlobalHotkeys`，作用于 `label` 那个窗口 */
+    public func setGlobalHotkeysTo(label: String, keys: HotkeyModel): TauriApp {
+        match (this.hostOf(label)) {
+            case Some(host) =>
+                host.setGlobalHotkeys(keys.toWire())
+            case None =>
+                eprintln("[cj-tauri] setGlobalHotkeys: 未注册的窗口 label \"${label}\"（快捷键未设置）")
+        }
+        return this
+    }
+
+    /**
+     * 设置**托盘**（RFC-002 §7.C；托盘是应用级资源，走默认窗口的宿主）
+     *
+     * 图标 + 提示 + 右键菜单一次给定；重复调用 = 整体重建，`TrayModel("")` = 移除。
+     * 菜单项被点时页面收 `tray:click` 事件（载荷 `{"id":…}`，需在能力清单 `events` 声明）；
+     * 应用侧钩子挂 `onShellEvent`（信封 `kind == "tray"`）。平台不支持时桥如实打日志、托盘不出现。
+     */
+    public func setTray(tray: TrayModel): TauriApp {
+        match (this.hostOf(DEFAULT_WINDOW_LABEL)) {
+            case Some(host) =>
+                host.setTray(tray.toWire())
+            case None =>
+                eprintln("[cj-tauri] setTray: 默认窗口未注册（托盘未设置）")
+        }
+        return this
+    }
+
     /** 指定窗口版本（多窗口）：语义同 `setMenuItemState`，作用于 `label` 那个窗口 */
     public func setMenuItemStateTo(label: String, id: String, enabled: Bool, checked: Bool): TauriApp {
         this.applyMenuState(label, id, enabled, checked)

@@ -216,6 +216,24 @@ void cj_plat_set_drag_drop(cj_host *h, int enabled, int files) {
     g_drag_last_files = files;
 }
 
+/* ---- 全局快捷键：桩平台没有 X11，只记录调用（接线层自检用）---- */
+static int g_hotkey_calls;
+static char g_hotkey_last_wire[512];
+void cj_plat_set_global_hotkeys(cj_host *h, const char *wire) {
+    (void)h;
+    g_hotkey_calls++;
+    snprintf(g_hotkey_last_wire, sizeof(g_hotkey_last_wire), "%s", wire ? wire : "");
+}
+
+/* ---- 托盘：桩平台没有 appindicator，只记录调用（接线层自检用）---- */
+static int g_tray_calls;
+static char g_tray_last_wire[512];
+void cj_plat_set_tray(cj_host *h, const char *wire) {
+    (void)h;
+    g_tray_calls++;
+    snprintf(g_tray_last_wire, sizeof(g_tray_last_wire), "%s", wire ? wire : "");
+}
+
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     g_caps_calls++;
@@ -690,6 +708,78 @@ int main(void) {
     CHECK(g_shell_cb_calls == 3 && g_shell_cb_host == h2,
           "第二个宿主的 drop 带回它自己的句柄（句柄路由不串台）");
     cj_core_drop_files(NULL, "file:///tmp/x");
+    CHECK(1, "对 NULL 宿主安全");
+
+    /* --- 16c. 全局快捷键：接线层（wire 记 pending + 透传平台；触发报文走 shell 通道）--- */
+    case_begin("set_global_hotkeys 接线（pending + 平台透传）");
+    reset_counters();
+    g_hotkey_calls = 0;
+    g_hotkey_last_wire[0] = '\0';
+    cj_bridge_set_global_hotkeys(h, "Ctrl+Alt+C:show-panel\nCtrl+Shift+P:pause");
+    CHECK(g_hotkey_calls == 1 && strcmp(g_hotkey_last_wire,
+          "Ctrl+Alt+C:show-panel\nCtrl+Shift+P:pause") == 0,
+          "wire 透传到平台原语（解析与 grab 在平台层）");
+    CHECK(h->pending_hotkeys != NULL &&
+          strcmp(h->pending_hotkeys, "Ctrl+Alt+C:show-panel\nCtrl+Shift+P:pause") == 0,
+          "wire 同时记进 pending（grab 线程启动时读）");
+    cj_bridge_set_global_hotkeys(h, "");
+    CHECK(g_hotkey_calls == 2 && h->pending_hotkeys != NULL &&
+          strcmp(h->pending_hotkeys, "") == 0,
+          "空 wire = 全部注销（整表替换语义）");
+    cj_bridge_set_global_hotkeys(NULL, "Ctrl+Alt+C:x");
+    CHECK(1, "对 NULL 宿主安全");
+
+    case_begin("cj_core_hotkey_pressed 触发报文");
+    g_shell_cb_calls = 0;
+    cj_bridge_set_shell_callback(h, on_shell);
+    cj_core_hotkey_pressed(h, "show-panel");
+    CHECK(g_shell_cb_calls == 1 && g_shell_cb_host == h,
+          "触发回调一次、带回该宿主句柄");
+    CHECK(strstr(g_shell_cb_json, "\"kind\":\"hotkey\"") != NULL &&
+          strstr(g_shell_cb_json, "\"id\":\"show-panel\"") != NULL,
+          "载荷是 {kind,id} JSON（与菜单点击同族，走 on_shell 通道）");
+    cj_core_hotkey_pressed(h, "");
+    CHECK(g_shell_cb_calls == 1, "空 id 不回调（无法路由，直接丢弃）");
+    cj_bridge_set_shell_callback(h2, on_shell);
+    cj_core_hotkey_pressed(h2, "second");
+    CHECK(g_shell_cb_calls == 2 && g_shell_cb_host == h2,
+          "第二个宿主的触发带回它自己的句柄（句柄路由不串台）");
+    cj_core_hotkey_pressed(NULL, "x");
+    CHECK(1, "对 NULL 宿主安全");
+
+    /* --- 16d. 托盘：接线层（wire 记 pending + 透传平台；点击报文走 shell 通道）--- */
+    case_begin("set_tray 接线（pending + 平台透传）");
+    reset_counters();
+    g_tray_calls = 0;
+    g_tray_last_wire[0] = '\0';
+    cj_bridge_set_tray(h, "icon\t/tmp/tray.png\ntooltip\tcj-tauri\nn\ttoggle\t显示/隐藏\t1\t\nn\tquit\t退出\t1\t\n");
+    CHECK(g_tray_calls == 1 && strstr(g_tray_last_wire, "icon\t/tmp/tray.png") != NULL &&
+          strstr(g_tray_last_wire, "n\ttoggle") != NULL,
+          "wire 透传到平台原语（解析与 appindicator 在平台层）");
+    CHECK(h->pending_tray != NULL && strstr(h->pending_tray, "tooltip\tcj-tauri") != NULL,
+          "wire 同时记进 pending（宿主线程装配时读）");
+    cj_bridge_set_tray(h, "");
+    CHECK(g_tray_calls == 2 && h->pending_tray != NULL && strcmp(h->pending_tray, "") == 0,
+          "空 wire = 移除托盘（pending 同步清空）");
+    cj_bridge_set_tray(NULL, "icon\tx");
+    CHECK(1, "对 NULL 宿主安全");
+
+    case_begin("cj_core_tray_clicked 触发报文");
+    g_shell_cb_calls = 0;
+    cj_bridge_set_shell_callback(h, on_shell);
+    cj_core_tray_clicked(h, "toggle");
+    CHECK(g_shell_cb_calls == 1 && g_shell_cb_host == h,
+          "点击回调一次、带回该宿主句柄");
+    CHECK(strstr(g_shell_cb_json, "\"kind\":\"tray\"") != NULL &&
+          strstr(g_shell_cb_json, "\"id\":\"toggle\"") != NULL,
+          "载荷是 {kind,id} JSON（RFC-002 §5.5 的 tray 信封，走 on_shell 通道）");
+    cj_core_tray_clicked(h, "");
+    CHECK(g_shell_cb_calls == 1, "空 id 不回调（无法路由，直接丢弃）");
+    cj_bridge_set_shell_callback(h2, on_shell);
+    cj_core_tray_clicked(h2, "quit");
+    CHECK(g_shell_cb_calls == 2 && g_shell_cb_host == h2,
+          "第二个宿主的点击带回它自己的句柄（句柄路由不串台）");
+    cj_core_tray_clicked(NULL, "x");
     CHECK(1, "对 NULL 宿主安全");
 
     /* --- 17. 能力位：cj_plat_init 时问一次，此后只读 --- */

@@ -29,6 +29,8 @@ class FakeHost <: WebViewHost {
     public var menuWire: String = ""
     public var menuItemStateArgs: String = ""
     public var dragDropArgs: String = ""
+    public var hotkeyWire: String = ""
+    public var trayWire: String = ""
     // shell 事件回调（菜单点击等）：用例可以自己调它，模拟「桥把事件送进来了」
     public var shellHandler: (String) -> Unit = { _ => }
     // 销毁回调：用例可以自己调它，模拟「桥通知本窗销毁了」
@@ -84,6 +86,14 @@ class FakeHost <: WebViewHost {
 
     public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {
         this.dragDropArgs = "${enabled}|${files}"
+    }
+
+    public func setGlobalHotkeys(wire: String): Unit {
+        this.hotkeyWire = wire
+    }
+
+    public func setTray(wire: String): Unit {
+        this.trayWire = wire
     }
 
     public func hostCapabilities(): Int32 {

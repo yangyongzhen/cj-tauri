@@ -4,9 +4,10 @@
   "commands": [
     "system:version",
     "link:serialList",
-    "link:tcpConnect",
-    "link:tcpSend",
-    "link:tcpClose",
+    "link:netConnect",
+    "link:netSend",
+    "link:netClose",
+    "link:netStatus",
     "link:ping",
     "report",
     "quit"

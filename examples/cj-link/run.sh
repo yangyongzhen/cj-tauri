@@ -20,6 +20,7 @@ DEV_FILE="$LOG.dev"
 RX_FILE="$LOG.rx"
 PEER_LOG="$LOG.peer"
 TCP_PORT="${CJ_LINK_TCP_PORT:-15021}"
+UDP_PORT="${CJ_LINK_UDP_PORT:-15022}"
 
 CANGJIE_HOME="${CANGJIE_HOME:-/opt/cangjie/cangjie}"
 CANGJIE_STDX="${CANGJIE_STDX:-/root/.cangjie/stdx/cangjie-stdx-linux-x64-1.0.5.1/dynamic/stdx}"
@@ -55,10 +56,10 @@ if grep -qE 'warning' "$LOG.build"; then
     echo "[run] FAIL 构建有警告（AGENTS §3 零警告）"; grep -E 'warning' "$LOG.build" | head; exit 1
 fi
 
-echo "[run] 起对端（串口 pty echo + TCP echo）"
+echo "[run] 起对端（串口 pty echo + TCP echo + UDP echo）"
 : > "$DEV_FILE"
 : > "$RX_FILE"
-python3 "$HERE/cj-link-peer.py" "$DEV_FILE" "$RX_FILE" "$PEER_LOG" "$TCP_PORT" &
+python3 "$HERE/cj-link-peer.py" "$DEV_FILE" "$RX_FILE" "$PEER_LOG" "$TCP_PORT" "$UDP_PORT" &
 PEER_PID=$!
 
 DEV=""
@@ -88,6 +89,7 @@ CJ_LINK_PROBE=1 \
 CJ_LINK_PROBE_SERIAL_PATH="$DEV" \
 CJ_LINK_PROBE_TCP_HOST=127.0.0.1 \
 CJ_LINK_PROBE_TCP_PORT="$TCP_PORT" \
+CJ_LINK_PROBE_UDP_PORT="$UDP_PORT" \
 CJ_LINK_PROBE_QUIT=1 \
     ./target/release/bin/main > "$LOG" 2>&1 &
 APP_PID=$!
@@ -145,6 +147,10 @@ check "自检：close PASS"         'selfcheck] close: PASS'
 check "自检：tcpConnect PASS"    'selfcheck] tcpConnect: PASS'
 check "自检：tcpSend PASS"       'selfcheck] tcpSend: PASS'
 check "自检：tcpClose PASS"      'selfcheck] tcpClose: PASS'
+check "自检：udpConnect PASS"    'selfcheck] udpConnect: PASS'
+check "自检：udpSend PASS"       'selfcheck] udpSend: PASS'
+check "自检：udpClose PASS"      'selfcheck] udpClose: PASS'
+check "UDP 读回对端回包"          'cj-link-udp-ping'
 check "探针一轮跑完"             'probe] ALL DONE'
 check "收尾走应用级 quit"         'quit requested by frontend'
 check "宿主已销毁"               'host destroyed'
@@ -170,8 +176,9 @@ else
 fi
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "[run] PASS —— 两条链路都是活的：串口（面板→serial 插件→C 桥 termios→真实 pty）+"
-    echo "[run]        TCP（面板→link:tcp*→std.net→本机 echo），两端证据都在应用进程之外。"
+    echo "[run] PASS —— 三条链路都是活的：串口（面板→serial 插件→C 桥 termios→真实 pty）+"
+    echo "[run]        TCP 客户端（面板→link:net*→std.net→本机 echo）+ UDP 客户端（本机 echo），"
+    echo "[run]        两端证据都在应用进程之外。"
 else
     echo "[run] FAIL —— 看 $LOG / $PEER_LOG / $RX_FILE"
 fi

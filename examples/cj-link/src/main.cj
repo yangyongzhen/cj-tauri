@@ -1,7 +1,6 @@
 package cjLink
 
 import std.env.*
-import std.fs.*
 import cjTauri.*
 import cjTauri.plugins.serial.*
 import cjTauri.plugins.store.*
@@ -27,16 +26,16 @@ import stdx.encoding.json.*
  */
 let UI_PATH = "ui/index.html"
 
-/** 把前端页面读成 HTML 字符串交给 run()（读不到就把「在哪启动」讲清楚，别让人猜） */
+/**
+ * 把前端页面读成 HTML 字符串交给 run()
+ *
+ * 字节有两条路，玩法一行不改（与 examples/music / typing-poem 同款）：
+ *   · 仓库内构建：`src/packed_assets.cj` 的常量为空 ⇒ 按相对路径从 ui/ 读盘（改页面刷新即可看效果）；
+ *   · 单文件打包：打包脚本把常量换成 base64 ⇒ 页面在二进制里，产物只有一个 exe、没有随行 ui/。
+ * 读盘失败时 `textOrFile` 会把「在哪启动」讲清楚，别让人猜。
+ */
 func loadUi(): String {
-    var bytes: Array<Byte> = []
-    try {
-        bytes = File.readFrom(UI_PATH)
-    } catch (e: Exception) {
-        throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/cj-link 目录下启动：" +
-            "capabilities/ 与 ui/ 都按项目根相对路径读")
-    }
-    return String.fromUtf8(bytes)
+    return textOrFile(PACKED_UI_B64, UI_PATH, "前端页面")
 }
 
 /** 把前端每一行回投到 stderr（诊断一律走 stderr，AGENTS §4）——探针取证靠的就是这一条 */
@@ -121,6 +120,19 @@ main(): Int64 {
                 eprintln("[cj-link] 探针模式：serialPath=${serialPath} tcp=${tcpHost}:${tcpPort} quit=${quit}")
             case None => eprintln("[cj-link] 探针模式：主窗未登记，配置没注入")
         }
+    }
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[cj-link] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
     }
 
     let html = loadUi()

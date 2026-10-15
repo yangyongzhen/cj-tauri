@@ -150,13 +150,29 @@ if has_asset PACKED_THREE_B64; then
     THREE_B64="$(b64 "$THREE_FILE")"
 fi
 
-# vendor 库（markdown-notes 的 marked / highlight.js / 三份 hljs 主题）：只有存根声明了
-# PACKED_VENDOR_B64 的示例才打。5 个文件按**固定顺序**各自 base64、用 "," 拼起来——
-# 顺序与应用侧 packed_resources.cj 的 VENDOR_FILES 对齐，两边改一边都会错位。
+# vendor 库：只有存根声明了 PACKED_VENDOR_B64 的示例才打。清单默认是 markdown-notes 的
+# marked / highlight.js / 三份 hljs 主题；示例自带 ui/vendor/pack-files.txt 时按它逐行给的
+# 相对路径打（各示例的文件与数量不同，如 leetcode-gui 只有 CodeMirror 两份）。
+# 无论走哪条路，**顺序**都是契约：与应用侧 packed_resources.cj 的 VENDOR_FILES 逐字对齐，
+# 两边改一边就会错位。
 VENDOR_B64=""
 if has_asset PACKED_VENDOR_B64; then
-    VENDOR_FILES=(ui/vendor/marked.min.js ui/vendor/highlight.min.js \
-        ui/vendor/github-dark-dimmed.min.css ui/vendor/github-dark.min.css ui/vendor/atom-one-dark.min.css)
+    VENDOR_LIST_FILE="$WORK/app/ui/vendor/pack-files.txt"
+    if [ -f "$VENDOR_LIST_FILE" ]; then
+        VENDOR_FILES=()
+        VENDOR_N=0
+        while IFS= read -r vline; do
+            vline="${vline%$'\r'}"
+            if [ -n "$vline" ]; then
+                VENDOR_FILES+=("$vline")
+                VENDOR_N=$((VENDOR_N + 1))
+            fi
+        done < "$VENDOR_LIST_FILE"
+        if [ "$VENDOR_N" -lt 1 ]; then die "vendor 清单是空的：$VENDOR_LIST_FILE"; fi
+    else
+        VENDOR_FILES=(ui/vendor/marked.min.js ui/vendor/highlight.min.js \
+            ui/vendor/github-dark-dimmed.min.css ui/vendor/github-dark.min.css ui/vendor/atom-one-dark.min.css)
+    fi
     for vf in "${VENDOR_FILES[@]}"; do
         vf_file="$WORK/app/$vf"
         [ -f "$vf_file" ] || die "存根声明了 PACKED_VENDOR_B64，但缺 $vf_file"

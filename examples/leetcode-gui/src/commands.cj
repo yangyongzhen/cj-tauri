@@ -125,6 +125,14 @@ func problemById(id: Int64): Option<JsonObject> {
     return None
 }
 
+/** 参考答案：读题目的 solution 字段（题目不存在或题包未带解答都给空串） */
+func problemSolutionById(id: Int64): String {
+    match (problemById(id)) {
+        case Some(p) => return strField(p, "solution")
+        case None => return ""
+    }
+}
+
 /** 取题目的字符串字段；缺字段/类型不对给空串（题库是自有数据，允许这个宽松度） */
 func strField(p: JsonObject, key: String): String {
     match (p.get(key)) {
@@ -284,7 +292,10 @@ public class RunCommand <: CommandHandler {
         judgeSeq = judgeSeq + 1
         let workDir = JUDGE_DIR + "/" + id.toString() + "-" + nowMs().toString() + "-" + judgeSeq.toString()
         // 逐级建目录：Directory.create 不递归（std.fs 语义），先 target 再 target/leetcode；
-        // 已存在会抛异常，判题流程不在乎「目录本来就在」，统一吞掉
+        // 已存在会抛异常，判题流程不在乎「目录本来就在」，统一吞掉。
+        // 顶层 target 必须显式建：构建树里它本来就在（开发期看不出来），而单文件包是从
+        // 空目录启动的，漏掉这一级只会得到「父目录不存在」——判题在打包产物上必失败
+        try { Directory.create(Path("target")) } catch (e: Exception) { }
         try { Directory.create(Path(JUDGE_DIR)) } catch (e: Exception) { }
         try { Directory.create(Path(workDir)) } catch (e: Exception) {
             throw CommandException("建判题目录失败：${e}")
@@ -295,9 +306,10 @@ public class RunCommand <: CommandHandler {
         // 缓存只是「源码 → 产物」映射，哈希碰撞最坏跑一次旧二进制（判定不 PASS），
         // 下一次判题即按现源码重编修正，不破坏「同源码同结果」语义
         let cacheDir = JUDGE_DIR + "/cache/" + sourceHash(source)
-        let cachedBin = cacheDir + "/judge"
-        if (!exists(Path(workDir + "/judge"))) {
-            if (exists(Path(cachedBin)) && copyFile(cachedBin, workDir + "/judge")) {
+        let binName = judgeExeName()
+        let cachedBin = cacheDir + "/" + binName
+        if (!exists(Path(workDir + "/" + binName))) {
+            if (exists(Path(cachedBin)) && copyFile(cachedBin, workDir + "/" + binName)) {
                 eprintln("[lc] compile cache hit: ${cacheDir}")
             } else {
                 // 编译：先定位 cjc，没有就给安装引导（含官网链接），不吐一行含糊的启动失败
@@ -307,7 +319,7 @@ public class RunCommand <: CommandHandler {
                         eprintln("[lc] cjc not found: ${CJC_GUIDE}")
                         throw CommandException(CJC_GUIDE)
                 }
-                let comp = tryRun(cjc, ["main.cj", "-o", "judge"], workDir)
+                let comp = tryRun(cjc, ["main.cj", "-o", binName], workDir)
                 if (comp[0] != 0) {
                     eprintln("[lc] compile failed id=${id}: ${comp[2]}")
                     var obj = JsonObject()
@@ -320,7 +332,7 @@ public class RunCommand <: CommandHandler {
                 // Directory.create 不递归（std.fs 语义）：cache 的两级父目录都要先建
                 try { Directory.create(Path(JUDGE_DIR + "/cache")) } catch (e: Exception) { }
                 try { Directory.create(Path(cacheDir)) } catch (e: Exception) { }
-                if (!copyFile(workDir + "/judge", cachedBin)) {
+                if (!copyFile(workDir + "/" + binName, cachedBin)) {
                     eprintln("[lc] cache store failed: ${cacheDir}")
                 }
             }
@@ -484,6 +496,22 @@ func cjcExeName(): String {
     return "cjc.exe"
 }
 
+/**
+ * 判题产物文件名。Windows 必须带 .exe 后缀：cmd.exe 的命令解析只认
+ * 「名字 + PATHEXT」，对无后缀文件既不做裸名匹配、也不认 `.\judge` 这种带路径写法
+ * （实测两者都报「不是内部或外部命令」）——判题会静默全灭（stdout 空 → 页面只能报 0/0）。
+ * 编译 `-o`、缓存路径、运行调用三处必须同源，否则同样回归静默失败。
+ */
+@When[os == "Linux"]
+func judgeExeName(): String {
+    return "judge"
+}
+
+@When[os == "Windows"]
+func judgeExeName(): String {
+    return "judge.exe"
+}
+
 /** 在 PATH 各目录里扫 cjc（Linux 分隔符是冒号） */
 @When[os == "Linux"]
 func cjcFromPath(): Option<String> {
@@ -551,12 +579,13 @@ func tryRun(program: String, argv: Array<String>, cwd: String): (Int64, String, 
 /** judge 运行的 shell 与参数：输出重定向进工作目录的文件（平台差异只在这一处，@When 分平台） */
 @When[os == "Linux"]
 func judgeShellArgs(): (String, Array<String>) {
-    return ("sh", ["-c", "./judge > stdout.txt 2> stderr.txt"])
+    return ("sh", ["-c", "./" + judgeExeName() + " > stdout.txt 2> stderr.txt"])
 }
 
 @When[os == "Windows"]
 func judgeShellArgs(): (String, Array<String>) {
-    return ("cmd.exe", ["/c", "judge > stdout.txt 2> stderr.txt"])
+    // 产物带 .exe：cmd.exe 靠 PATHEXT 在 cwd 里解析出 judge.exe
+    return ("cmd.exe", ["/c", judgeExeName() + " > stdout.txt 2> stderr.txt"])
 }
 
 /**

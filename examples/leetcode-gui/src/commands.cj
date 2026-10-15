@@ -32,6 +32,9 @@ import std.time.*
 /** 判题临时目录根（工作目录 = 项目根，与 capabilities/ 同规则） */
 let JUDGE_DIR = "target/leetcode"
 
+/** 单次运行超时（毫秒）：死循环不能把 worker 线程钉死——到点杀进程如实报超时 */
+let JUDGE_TIMEOUT_MS: Int64 = 10000
+
 /** 判题子目录序号（时间戳到秒不够区分连续两次判题，叠一个进程内自增号） */
 var judgeSeq: Int64 = 0
 
@@ -279,19 +282,47 @@ public class RunCommand <: CommandHandler {
         }
         File.writeTo(Path(workDir + "/main.cj"), source.toArray())
 
-        // 编译
-        let comp = tryRun(cjcPath(), ["main.cj", "-o", "judge"], workDir)
-        if (comp[0] != 0) {
-            eprintln("[lc] compile failed id=${id}: ${comp[2]}")
-            var obj = JsonObject()
-            obj.put("ok", JsonBool(false))
-            obj.put("phase", JsonString("compile"))
-            obj.put("compileError", JsonString(comp[2] + comp[1]))
-            return obj
+        // 编译缓存：按源码哈希键控——同一份源码（反复提交/换题号同代码）直接跳过编译。
+        // 缓存只是「源码 → 产物」映射，哈希碰撞最坏跑一次旧二进制（判定不 PASS），
+        // 下一次判题即按现源码重编修正，不破坏「同源码同结果」语义
+        let cacheDir = JUDGE_DIR + "/cache/" + sourceHash(source)
+        let cachedBin = cacheDir + "/judge"
+        if (!exists(Path(workDir + "/judge"))) {
+            if (exists(Path(cachedBin)) && copyFile(cachedBin, workDir + "/judge")) {
+                eprintln("[lc] compile cache hit: ${cacheDir}")
+            } else {
+                // 编译
+                let comp = tryRun(cjcPath(), ["main.cj", "-o", "judge"], workDir)
+                if (comp[0] != 0) {
+                    eprintln("[lc] compile failed id=${id}: ${comp[2]}")
+                    var obj = JsonObject()
+                    obj.put("ok", JsonBool(false))
+                    obj.put("phase", JsonString("compile"))
+                    obj.put("compileError", JsonString(comp[2] + comp[1]))
+                    return obj
+                }
+                // 回存缓存（失败只影响下次提速，不影响本次结果）。
+                // Directory.create 不递归（std.fs 语义）：cache 的两级父目录都要先建
+                try { Directory.create(Path(JUDGE_DIR + "/cache")) } catch (e: Exception) { }
+                try { Directory.create(Path(cacheDir)) } catch (e: Exception) { }
+                if (!copyFile(workDir + "/judge", cachedBin)) {
+                    eprintln("[lc] cache store failed: ${cacheDir}")
+                }
+            }
         }
 
-        // 运行（编译已在同目录产出 ./judge）
-        let run = tryRun("./judge", [], workDir)
+        // 运行（编译已在同目录产出 ./judge），带超时：死循环到点即杀
+        let run = runJudgeWithTimeout(workDir, JUDGE_TIMEOUT_MS)
+        if (run[3]) {
+            eprintln("[lc] judge id=${id} TIMEOUT after ${JUDGE_TIMEOUT_MS}ms")
+            var obj = JsonObject()
+            obj.put("ok", JsonBool(false))
+            obj.put("phase", JsonString("timeout"))
+            obj.put("message", JsonString("运行超过 10 秒被强制终止——检查是否有死循环或输入未就绪"))
+            // 超时也记一次提交（allPassed=false，solved 只涨不降不受影响）
+            recordJudgeResult(id, false)
+            return obj
+        }
         eprintln("[lc] judge id=${id} exit=${run[0]} stdoutBytes=${run[1].size}")
         let verdict = parseVerdict(run[1], run[0])
         // 判完记录进度（attempts +1 / 全过置 solved）；统计失败不影响判题结果。
@@ -404,6 +435,29 @@ let EPOCH = DateTime.now()
 func nowMs(): Int64 {
     return (DateTime.now() - EPOCH).toMilliseconds()
 }
+
+/**
+ * 判题源码的滚动哈希（缓存键）：左移 7 + 右移 57 + 异或字节。
+ * 不用乘法基哈希（FNV 之类）：仓颉整数乘法溢出**抛 OverflowException**（实测），
+ * 不是 C 那样静默回绕；移位丢弃高位与异或都没有溢出语义，天然安全。
+ */
+func sourceHash(s: String): String {
+    var h: UInt64 = 0xcbf29ce484222325
+    for (b in s) {
+        h = (h << 7) ^ (h >> 57) ^ UInt64(b)
+    }
+    return h.toString()
+}
+
+/** 二进制拷贝（缓存命中把 judge 拷进运行目录）：std.fs 没有跨目录 copy，读写即可 */
+func copyFile(from: String, to: String): Bool {
+    try {
+        File.writeTo(Path(to), File.readFrom(from))
+        return true
+    } catch (e: Exception) {
+        return false
+    }
+}
 func cjcPath(): String {
     match (getVariable("CANGJIE_HOME")) {
         case Some(home) => return home + "/bin/cjc"
@@ -423,4 +477,56 @@ func tryRun(program: String, argv: Array<String>, cwd: String): (Int64, String, 
     } catch (e: Exception) {
         return (-1, "", "启动失败：${e}")
     }
+}
+
+// ---------------------------------------------------------------- 带超时的判题运行
+
+/** judge 运行的 shell 与参数：输出重定向进工作目录的文件（平台差异只在这一处，@When 分平台） */
+@When[os == "Linux"]
+func judgeShellArgs(): (String, Array<String>) {
+    return ("sh", ["-c", "./judge > stdout.txt 2> stderr.txt"])
+}
+
+@When[os == "Windows"]
+func judgeShellArgs(): (String, Array<String>) {
+    return ("cmd.exe", ["/c", "judge > stdout.txt 2> stderr.txt"])
+}
+
+/**
+ * 运行 judge 并带超时（毫秒），返回 (退出码, stdout, stderr, 是否超时)。
+ *
+ * 为什么不直接 executeWithOutput：它同步阻塞到进程自然退出，没有超时参数——用户代码里
+ * 一个 while(true) 就把 worker 线程永久钉死（判题永远回不来）。SubProcess 又不暴露
+ * stdout/stderr 流（实测编译报 'stdout' is not a member），所以经 shell 把输出重定向进
+ * 工作目录的文件：轮询 isAlive() 到期限还活着就 terminate，事后从文件读回输出。
+ */
+func runJudgeWithTimeout(workDir: String, timeoutMs: Int64): (Int64, String, String, Bool) {
+    let (shell, argv) = judgeShellArgs()
+    var p: SubProcess
+    try {
+        p = launch(shell, argv, workingDirectory: Path(workDir))
+    } catch (e: Exception) {
+        return (-1, "", "启动失败：${e}", false)
+    }
+    // 轮询 100ms 一步；到 deadline 还活着就杀
+    var waited: Int64 = 0
+    while (p.isAlive() && waited < timeoutMs) {
+        sleep(Duration.millisecond * 100)
+        waited = waited + 100
+    }
+    var timedOut = false
+    if (p.isAlive()) {
+        timedOut = true
+        p.terminate()
+        sleep(Duration.millisecond * 200)
+    }
+    let code = p.wait()
+    var out = ""
+    var err = ""
+    try { out = String.fromUtf8(File.readFrom(workDir + "/stdout.txt")) } catch (e: Exception) { }
+    try { err = String.fromUtf8(File.readFrom(workDir + "/stderr.txt")) } catch (e: Exception) { }
+    if (timedOut) {
+        return (code, out, err, true)
+    }
+    return (code, out, err, false)
 }

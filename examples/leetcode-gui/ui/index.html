@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>仓颉力扣 · cj-tauri</title>
+<style>/*__VENDOR_CSS__*/</style>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -47,6 +48,13 @@
     font-size: 11px; color: #89b4fa; padding: 10px 8px 4px;
     letter-spacing: .06em; opacity: .85;
   }
+  /* 筛选条：难度一行、状态一行；选中的 chip 高亮 */
+  .fbar { display: flex; gap: 4px; padding: 2px 8px 4px; flex-wrap: wrap; }
+  .fchip {
+    font-size: 11px; padding: 2px 9px; border-radius: 99px;
+    background: #313244; color: #a6adc8; cursor: pointer; user-select: none;
+  }
+  .fchip.on { background: #89b4fa; color: #1e1e2e; font-weight: 600; }
   .prob {
     padding: 9px 10px; border-radius: 8px; cursor: pointer;
     display: flex; align-items: center; gap: 8px; margin-bottom: 2px;
@@ -69,9 +77,30 @@
   #descTitle { font-size: 15px; color: #cdd6f4; margin-bottom: 6px; }
   #descTitle .badge { margin-left: 8px; vertical-align: 2px; }
   #descBody { font-size: 13px; line-height: 1.7; color: #bac2de; white-space: pre-wrap; }
-  #editor {
-    flex: 1 1 55%; min-height: 120px;
-    background: #11111b; color: #cdd6f4; border: none; outline: none; resize: none;
+  /* 编辑器容器：CodeMirror 实例挂在这里（主题 cjdark 的结构样式来自内联的 vendor CSS） */
+  #editorHost {
+    flex: 1 1 55%; min-height: 120px; display: flex; flex-direction: column;
+  }
+  #editorHost .CodeMirror { flex: 1; height: auto; }
+  .cm-s-cjdark.CodeMirror {
+    background: #11111b; color: #cdd6f4;
+    font-family: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+    font-size: 13.5px; line-height: 1.6;
+  }
+  .cm-s-cjdark .CodeMirror-gutters { background: #11111b; border-right: 1px solid #313244; }
+  .cm-s-cjdark .CodeMirror-linenumber { color: #585b70; }
+  .cm-s-cjdark .CodeMirror-cursor { border-left: 1px solid #cdd6f4; }
+  .cm-s-cjdark .CodeMirror-selected { background: #45475a; }
+  .cm-s-cjdark .cm-keyword { color: #cba6f7; }
+  .cm-s-cjdark .cm-type, .cm-s-cjdark .cm-variable-3 { color: #89b4fa; }
+  .cm-s-cjdark .cm-def { color: #89dceb; }
+  .cm-s-cjdark .cm-number { color: #fab387; }
+  .cm-s-cjdark .cm-string { color: #a6e3a1; }
+  .cm-s-cjdark .cm-comment { color: #6c7086; font-style: italic; }
+  .cm-s-cjdark .cm-atom { color: #f38ba8; }
+  /* vendor 缺失时的降级 textarea（与 CodeMirror 同区同字号） */
+  #editorFallback {
+    flex: 1; background: #11111b; color: #cdd6f4; border: none; outline: none; resize: none;
     font-family: "Cascadia Code", Consolas, "JetBrains Mono", monospace;
     font-size: 13.5px; line-height: 1.6; padding: 12px 16px;
   }
@@ -98,6 +127,7 @@
   .t-warn { color: #f9e2af; }
   .t-info { color: #89b4fa; }
 </style>
+<script>/*__VENDOR_CORE__*/</script>
 </head>
 <body>
   <header>
@@ -114,6 +144,17 @@
   <main>
     <nav id="sidebar">
       <h2>题库</h2>
+      <div class="fbar" id="diffBar">
+        <span class="fchip on" data-d="">全部</span>
+        <span class="fchip" data-d="简单">简单</span>
+        <span class="fchip" data-d="中等">中等</span>
+        <span class="fchip" data-d="困难">困难</span>
+      </div>
+      <div class="fbar" id="statusBar">
+        <span class="fchip on" data-s="">全部</span>
+        <span class="fchip" data-s="todo">未做</span>
+        <span class="fchip" data-s="solved">已过</span>
+      </div>
       <div id="probList"><div class="t-dim" style="padding:8px">加载中…</div></div>
       <div style="padding:8px 4px">
         <button id="btnMore" class="ghost" style="width:100%;background:#45475a;color:#cdd6f4;border:none;border-radius:8px;padding:7px 0;font-size:12.5px;cursor:pointer">⬇ 加载更多题包</button>
@@ -125,7 +166,7 @@
         <div id="descTitle">选择一道题开始</div>
         <div id="descBody" class="t-dim">左侧点击任意题目，阅读题意后在下方编辑器用仓颉实现算法，点击「运行」判题。</div>
       </div>
-      <textarea id="editor" spellcheck="false">// 请先选择题目</textarea>
+      <div id="editorHost"></div>
       <div id="terminalPane">
         <div id="termHeader">
           <span class="dot" id="termDot"></span>
@@ -148,6 +189,8 @@ var currentId = 0;
 var currentProblem = null;
 var dirty = false;
 var solvedSet = {};   // 题号 -> true（来自 leetcode:stats 的 solvedIds）
+var diffFilter = '';     // 难度筛选：''=全部 / 简单 / 中等 / 困难
+var statusFilter = '';   // 状态筛选：''=全部 / todo=未做 / solved=已过
 
 function $(id) { return document.getElementById(id); }
 
@@ -180,10 +223,24 @@ function status(text) { $('status').textContent = text; }
 function renderList() {
   var box = $('probList');
   box.textContent = '';
-  // 按 category 分组（保持题库给出的顺序）：组头 + 组内题目
+  // 先过筛选（难度 + 状态），再按 category 分组（保持题库给出的顺序）
+  var visible = problems.filter(function (p) {
+    if (diffFilter && p.difficulty !== diffFilter) { return false; }
+    if (statusFilter === 'solved' && !solvedSet[p.id]) { return false; }
+    if (statusFilter === 'todo' && solvedSet[p.id]) { return false; }
+    return true;
+  });
+  if (visible.length === 0) {
+    var empty = document.createElement('div');
+    empty.className = 't-dim';
+    empty.style.padding = '8px';
+    empty.textContent = '没有符合筛选的题目';
+    box.appendChild(empty);
+    return;
+  }
   var groups = [];
   var byName = {};
-  problems.forEach(function (p) {
+  visible.forEach(function (p) {
     var cat = p.category || '其他';
     if (!byName[cat]) { byName[cat] = []; groups.push(cat); }
     byName[cat].push(p);
@@ -218,7 +275,7 @@ function selectProblem(id) {
     $('descBody').textContent = p.description;
     // 草稿优先：没存过草稿才落模板
     return bridge.invoke('leetcode:loadDraft', { id: id }).then(function (d) {
-      $('editor').value = d.code || p.template;
+      edSet(d.code || p.template);
       dirty = false;
       status('题目 ' + p.id + ' · ' + p.title);
       termLine('t-dim', '── 已打开题目 ' + p.id + '. ' + p.title + '（' + p.tests.length + ' 个测试用例）');
@@ -242,11 +299,18 @@ function runCode() {
   status('判题中…（cjc 编译 + 运行）');
   termLine('t-info', '▶ 运行题目 ' + currentProblem.id + '. ' + currentProblem.title);
   var t0 = Date.now();
-  bridge.invoke('leetcode:run', { id: currentProblem.id, code: $('editor').value })
+  bridge.invoke('leetcode:run', { id: currentProblem.id, code: edGet() })
     .then(function (r) {
       running = false;
       var wall = Date.now() - t0;
       if (!r.ok) {
+        if (r.phase === 'timeout') {
+          // 运行超时（死循环等）：与编译失败分开呈现，别拿 undefined 当 cjc 输出
+          termDot('err');
+          termLine('t-err', '⏱ ' + (r.message || '运行超时'));
+          status('运行超时');
+          return;
+        }
         // 编译失败：把 cjc 的报错原样给到终端
         termDot('err');
         termLine('t-err', '✗ 编译失败（' + wall + 'ms）');
@@ -294,14 +358,14 @@ function runCode() {
 /* ---------- 草稿 ---------- */
 function saveDraft() {
   if (!currentProblem) { return; }
-  bridge.invoke('leetcode:saveDraft', { id: currentProblem.id, code: $('editor').value })
+  bridge.invoke('leetcode:saveDraft', { id: currentProblem.id, code: edGet() })
     .then(function () { status('已保存草稿 · 题目 ' + currentProblem.id); })
     .catch(function () { /* 草稿写盘失败不弹窗，终端有一行 stderr */ });
 }
 
 function resetCode() {
   if (!currentProblem) { return; }
-  $('editor').value = currentProblem.template;
+  edSet(currentProblem.template);
   saveDraft();
   termLine('t-warn', '⟲ 代码已重置为模板');
 }
@@ -321,27 +385,83 @@ function wireMenu() {
   });
 }
 
-/* ---------- 编辑器 ---------- */
+/* ---------- 编辑器：CodeMirror（vendor 缺失时降级 textarea） ---------- */
+var cm = null;          // CodeMirror 实例（vendor 内联成功时）
+var fallbackEd = null;  // 降级 textarea
+
+/* 读写抽象：判题/草稿/答案/重置都走这里，不关心底下是 CM 还是 textarea */
+function edGet() { return cm ? cm.getValue() : fallbackEd.value; }
+function edSet(v) { if (cm) { cm.setValue(v); } else { fallbackEd.value = v; } }
+
 function wireEditor() {
-  var ed = $('editor');
+  var host = $('editorHost');
   var saveTimer = null;
-  ed.addEventListener('input', function () {
+  function touchDirty() {
     dirty = true;
     // 停止输入 800ms 后自动存草稿（不抢先在每次按键时写盘）
     if (saveTimer) { clearTimeout(saveTimer); }
     saveTimer = setTimeout(saveDraft, 800);
-  });
-  // Tab 缩进：textarea 里插两个空格，别把焦点丢出去
-  ed.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Tab') {
-      ev.preventDefault();
-      var s = ed.selectionStart, e = ed.selectionEnd;
-      ed.value = ed.value.slice(0, s) + '  ' + ed.value.slice(e);
-      ed.selectionStart = ed.selectionEnd = s + 2;
-      dirty = true;
-    }
-  });
-  // 快捷键：Ctrl+R 运行（与菜单一致）
+  }
+
+  if (window.CodeMirror) {
+    // 自定义仓颉轻量 mode：clike 模式对仓颉关键字覆盖不全，自写可控（行号在 lineNumbers）
+    CodeMirror.defineMode('cangjie', function () {
+      var KEYWORDS = /^(func|let|var|if|else|while|for|in|return|match|case|break|continue|true|false|null|package|import|class|interface|extend|enum|prop|init|this|super|public|private|internal|protected|static|open|abstract|override|const|type|where|try|catch|finally|throw|main|Unit|Bool|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Float16|Float32|Float64|Array|ArrayList|HashMap|HashSet|Option|String|Rune|Range|StringBuilder|ByteBuffer)$/;
+      return {
+        startState: function () { return { inBlock: false }; },
+        token: function (stream, state) {
+          if (state.inBlock) {
+            // 块注释可能嵌套（仓颉特性），这里按「遇到第一个 */ 结束」近似处理
+            if (stream.match(/^.*?\*\//)) { state.inBlock = false; }
+            else { stream.skipToEnd(); }
+            return 'comment';
+          }
+          if (stream.match('/*')) { state.inBlock = true; return 'comment'; }
+          if (stream.match('//')) { stream.skipToEnd(); return 'comment'; }
+          if (stream.match(/"(?:[^"\\]|\\.)*"?/)) { return 'string'; }
+          if (stream.match(/\d+(\.\d+)?/)) { return 'number'; }
+          if (stream.match(/^[A-Za-z_][\w]*/)) {
+            var w = stream.current();
+            if (KEYWORDS.test(w)) { return 'keyword'; }
+            if (/^[A-Z]/.test(w)) { return 'type'; }
+            return 'variable';
+          }
+          stream.next();
+          return null;
+        }
+      };
+    });
+    cm = CodeMirror(host, {
+      value: '// 请先选择题目',
+      mode: 'cangjie',
+      theme: 'cjdark',
+      lineNumbers: true,
+      indentUnit: 4,
+      smartIndent: true,
+      tabSize: 4,
+      indentWithTabs: false
+    });
+    cm.on('change', touchDirty);
+  } else {
+    // 降级 textarea：vendor 缺失（如单文件打包漏带）时编辑功能不丢
+    fallbackEd = document.createElement('textarea');
+    fallbackEd.id = 'editorFallback';
+    fallbackEd.spellcheck = false;
+    fallbackEd.value = '// 请先选择题目';
+    host.appendChild(fallbackEd);
+    fallbackEd.addEventListener('input', touchDirty);
+    // Tab 缩进：textarea 里插 4 个空格，别把焦点丢出去（CM 由 indentUnit 接管）
+    fallbackEd.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Tab') {
+        ev.preventDefault();
+        var s = fallbackEd.selectionStart, e = fallbackEd.selectionEnd;
+        fallbackEd.value = fallbackEd.value.slice(0, s) + '    ' + fallbackEd.value.slice(e);
+        fallbackEd.selectionStart = fallbackEd.selectionEnd = s + 4;
+        dirty = true;
+      }
+    });
+  }
+  // 快捷键：Ctrl+R 运行（与菜单一致；CM 不拦截未绑定的组合键）
   document.addEventListener('keydown', function (ev) {
     if (ev.ctrlKey && !ev.shiftKey && ev.key === 'r') { ev.preventDefault(); runCode(); }
     if (ev.ctrlKey && ev.shiftKey && ev.key === 'R') { ev.preventDefault(); resetCode(); }
@@ -421,11 +541,29 @@ function showStats() {
 function loadSolution() {
   if (!currentProblem) { termLine('t-warn', '请先选择一道题'); return; }
   bridge.invoke('leetcode:solution', { id: currentProblem.id }).then(function (r) {
-    $('editor').value = r.code;
+    edSet(r.code);
     saveDraft();
     termLine('t-warn', '📖 已载入题 ' + currentProblem.id + ' 的参考答案——点「运行」可验证，建议先读懂再自己写一遍');
     status('已载入参考答案 · 题目 ' + currentProblem.id);
   }).catch(function (e) { termLine('t-err', e.message); });
+}
+
+/* 筛选条：同组互斥单选；点了就重渲染列表 */
+function wireFilters() {
+  function wireBar(barId, apply) {
+    var bar = $(barId);
+    bar.addEventListener('click', function (ev) {
+      var chip = ev.target.closest('.fchip');
+      if (!chip) { return; }
+      var chips = bar.querySelectorAll('.fchip');
+      for (var i = 0; i < chips.length; i++) { chips[i].classList.remove('on'); }
+      chip.classList.add('on');
+      apply(chip);
+      renderList();
+    });
+  }
+  wireBar('diffBar', function (chip) { diffFilter = chip.getAttribute('data-d'); });
+  wireBar('statusBar', function (chip) { statusFilter = chip.getAttribute('data-s'); });
 }
 
 /* ---------- 启动 ---------- */
@@ -439,6 +577,7 @@ waitForBridge(function () {
   $('btnMore').onclick = fetchMore;
   $('btnSolution').onclick = loadSolution;
   $('btnStats').onclick = showStats;
+  wireFilters();
   refreshStats(false);   // 启动即取一次进度：徽标 + 列表对勾
   bridge.invoke('leetcode:list', {}).then(function (r) {
     problems = r.problems || [];

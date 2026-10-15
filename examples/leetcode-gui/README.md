@@ -35,7 +35,8 @@ cjpm build
 
 Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，GUI 子系统不弹黑窗）。
 
-窗口起来后：左侧点任意题目 → 中间编辑器补全算法 → 点「运行」→ 下方终端看逐用例判定。
+窗口起来后：左侧点任意题目（顶部筛选条可按难度「简单/中等/困难」与状态「未做/已过」过滤）
+→ 中间编辑器补全算法（语法高亮 + 行号）→ 点「运行」→ 下方终端看逐用例判定。
 
 ## 2. 玩法：选题 → 写码 → 判题
 
@@ -128,9 +129,32 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
   嵌进去会把 `println` 的字符串劈断——实机踩过）；
 - **命令跑在 worker 线程**（框架的异步分发），编译再慢也不占宿主 UI 线程，窗口不冻。
 
-## 5. 三个值得单独讲的实现细节
+## 5. 四个值得单独讲的实现细节
 
-### 5.1 原生菜单走应用层 API
+### 5.1 判题超时保护与编译缓存
+
+判题运行不走 `executeWithOutput`（它同步阻塞到进程退出，没有超时参数）——用户代码里
+一个 `while(true)` 会把 worker 线程永久钉死。做法是 `launch` + shell 重定向输出到文件 +
+轮询 `isAlive()`，超过 10 秒（`JUDGE_TIMEOUT_MS`）就 `terminate()`，如实回报
+「运行超过 10 秒被强制终止」（前端单独呈现为 ⏱ 超时，不冒充编译失败）。
+`SubProcess` 不暴露 stdout/stderr 流（实测编译报 `'stdout' is not a member`），
+所以输出经 shell 重定向进工作目录的文件再读回——这是平台差异唯一进 `@When` 的地方
+（Linux `sh` / Windows `cmd.exe`）。
+
+编译结果按源码哈希缓存（`target/leetcode/cache/<哈希>/judge`）：反复提交同一份代码
+直接跳过编译（实机取证 `compile cache hit`），判题从 1~3 秒降到 100ms 量级。
+哈希用「左移 7 + 右移 57 + 异或字节」的滚动哈希——**不能用乘法基哈希（FNV 之类）**：
+仓颉整数乘法溢出抛 `OverflowException`（实测），不是 C 那样静默回绕。
+
+### 5.2 编辑器：CodeMirror 本地化 + 仓颉高亮
+
+编辑器是 CodeMirror 5（`ui/vendor/`，MIT，登记见 AGENTS §5），经占位符
+`/*__VENDOR_CSS__*/` / `/*__VENDOR_CORE__*/` 内联进页面——页面是 `run(html)` 的内联来源，
+`<script src>` 相对路径不成立（markdown-notes 同款做法）。仓颉高亮是**应用自写的轻量
+mode**（关键字/类型/字符串/注释，未用官方 clike——对仓颉关键字覆盖不全）；vendor 缺失时
+自动降级纯 textarea，编辑功能不丢。
+
+### 5.3 原生菜单走应用层 API
 
 菜单（运行 / 重置代码 / 帮助）在 `run()` 之前用 `app.setMenu(buildMenu())` 装配，
 点击经框架的 shell 事件分发**自动**投成前端 `menu:click` 事件，前端 `listen` 接住即可——
@@ -142,7 +166,7 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 已存在就吞掉异常；子目录名带毫秒时间戳 + 进程内自增号，连续两次判题互不覆盖。
 产物在 `target/` 下，天然不入库。
 
-### 5.3 前端是磁盘真文件
+### 5.4 前端是磁盘真文件
 
 页面走 `ui/index.html`（`File.readFrom` 读盘交给 `app.run(html)`），不是内联在仓颉
 三引号字符串里——JS 里的 `\n`、正则、字符串转义都**不受**三引号转义坑影响，可以正常写。

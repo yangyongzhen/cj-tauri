@@ -53,15 +53,35 @@ Windows 另需 mingw gcc 与 WebView2 Runtime（Win11 自带），Linux 需 `lib
 
 ### 方式二：直接下载单文件工具（免安装、免 SDK）
 
-仓库随版本分发静态链接的单文件 Windows 工具（点击下载）：
+仓库随版本分发静态链接的单文件 Windows 工具（点击下载，八份产物全部实测过导入表）：
+
+**调试与工具类**：
 
 | 工具 | 说明 |
 |---|---|
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe)（5.6MB） | Modbus TCP/RTU 调试工具，[中文说明](examples/modbus-poll/README.md) |
-| [movie.exe](examples/movie/dist-single/movie.exe)（9.5MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe)（5.48MB） | 串口/网络二合一调试助手：串口 + TCP 客户端/服务器 + UDP 共用收发日志，HEX/ASCII 双显、发送队列、CRC 计算、定时发送，[中文说明](examples/cj-link/README.md) |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe)（5.59MB） | Modbus TCP/RTU 调试工具：多面板并行监控、FC 01-04/05/06/15/16、报文监视、CSV 记录，[中文说明](examples/modbus-poll/README.md) |
+| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe)（4.69MB） | 串口实时波形示波器：400 Hz 样本流下页面自算速率/上穿/丢帧，[中文说明](examples/serial-waveform/README.md) |
 
-体积、依赖与冷启动都是**实测**的：四份产物 5.5–9.5 MB，PE 导入表里只有 Windows 系统 DLL
-（没有任何第三方运行时），双击不弹控制台。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)。
+**效率与学习类**：
+
+| 工具 | 说明 |
+|---|---|
+| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe)（4.78MB） | Markdown 笔记：文件树 / 编辑 / 实时预览三态切换，marked + Highlight.js 内联，[中文说明](examples/markdown-notes/README.md) |
+| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe)（9.79MB） | 仓颉力扣：题库 + 编辑器 + 判题终端，判题器就是 `cjc`，[中文说明](examples/leetcode-gui/README.md) |
+
+**示例应用类**：
+
+| 应用 | 说明 |
+|---|---|
+| [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
+| [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
+| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
+
+体积、依赖与冷启动都是**实测**的：八份产物 4.69–9.79 MB，PE 导入表里只有 Windows 系统 DLL
+（没有任何第三方运行时，非系统 DLL 一列全是 0），双击不弹控制台
+（`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，
+一条命令复核：`bash scripts/dist-report.sh`。
 
 ### 方式三：源码构建
 
@@ -119,10 +139,17 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 部分示例截图（全部为实机截图，完整集见各示例 README）：
 
-| movie 观影 | music 播放中 |
+| [markdown-notes](examples/markdown-notes)：文件树 / 编辑 / 实时预览 | [sqlite-browser](examples/sqlite-browser)：分页网格 + SQL 调试台 |
 |---|---|
-| ![movie 观影应用](docs/images/example-movie.png) | ![music 播放中](docs/images/example-music-playing.png) |
-| ![typing-poem 打字练习](docs/images/example-typing-poem-typing.png) | ![串口实时波形示波器（serial-waveform）](docs/images/example-serial-waveform.png) |
+| ![Markdown 笔记](docs/images/example-markdown-notes.png) | ![SQLite 数据库浏览器](docs/images/example-sqlite-browser.png) |
+| [leetcode-gui](examples/leetcode-gui)：题库 / 编辑器 / 判题终端 | [cj-link](examples/cj-link)：串口 + 网络三模式二合一调试助手 |
+| ![仓颉力扣](docs/images/example-leetcode-gui.png) | ![串口网络二合一调试助手](docs/images/example-cj-link.png) |
+| [serial-assistant](examples/serial-assistant)：参数面板 + TX/RX 分色收发日志 | [http-client](examples/http-client)：请求拼装 / 响应查看 / 集合管理 |
+| ![串口调试助手](docs/images/example-serial-assistant.png) | ![HTTP API 客户端](docs/images/example-http-client.png) |
+| [serial-waveform](examples/serial-waveform)：400 Hz 串口实时波形 | [typing-poem](examples/typing-poem)：古诗词打字练习（three.js 3D） |
+| ![串口实时波形示波器](docs/images/example-serial-waveform.png) | ![古诗词打字练习](docs/images/example-typing-poem-typing.png) |
+| [movie](examples/movie)：观影应用 | [music](examples/music)：音乐播放器（同步歌词） |
+| ![观影应用](docs/images/example-movie.png) | ![音乐播放器](docs/images/example-music-playing.png) |
 
 ## 架构
 

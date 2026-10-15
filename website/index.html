@@ -153,10 +153,10 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.4" cy="6.6" r=".9" fill="currentColor" stroke="none"/></svg>
           </div>
           <h3 class="card__title" data-en="WebView host">WebView 宿主</h3>
-          <p class="card__text" data-en="Opens the native window and injects the bridge script — no Chromium shipped. Linux uses WebKitGTK 4.1, Windows uses WebView2, HarmonyOS ArkWeb has a reserved architecture slot; host-level capabilities (menus, drag-and-drop, dialogs) are negotiated before the page loads.">
+          <p class="card__text" data-en="Opens the native window and injects the bridge script — no Chromium shipped. Linux uses WebKitGTK 4.1, Windows uses WebView2, HarmonyOS ArkWeb has a reserved architecture slot; host-level capabilities (menus, drag-and-drop, dialogs, tray, global hotkeys) are negotiated before the page loads.">
             开原生窗口、在 document-start 注入桥接脚本，不捆绑 Chromium。Linux 走 WebKitGTK 4.1、
-            Windows 走 WebView2、鸿蒙 ArkWeb 预留架构位；菜单、文件拖入、原生对话框这类宿主能力
-            一律赶在页面加载前定稿。
+            Windows 走 WebView2、鸿蒙 ArkWeb 预留架构位；菜单、文件拖入、原生对话框、托盘、
+            全局快捷键这类宿主能力一律赶在页面加载前定稿。
           </p>
           <p class="card__meta">host.cj · host_webkit.cj · host_webview2.cj</p>
         </article>
@@ -208,8 +208,8 @@
         </article>
         <article class="feat">
           <h3 class="feat__h"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg><span data-en="No Chromium bundled">零 Chromium 捆绑</span></h3>
-          <p class="feat__p" data-en="Four shipped artifacts measure 5.50 / 5.59 / 9.42 / 9.50 MB, and their PE import tables contain only Windows system DLLs — not a single third-party runtime (msvcp*, vcruntime*, libgcc*, libwinpthread*).">
-            四份产物实测 5.50 / 5.59 / 9.42 / 9.50 MB，PE 导入表里全是 Windows 系统 DLL——
+          <p class="feat__p" data-en="Eight shipped artifacts measure 4.69 – 9.79 MB, and their PE import tables contain only Windows system DLLs — not a single third-party runtime (msvcp*, vcruntime*, libgcc*, libwinpthread*).">
+            八份产物实测 4.69 – 9.79 MB，PE 导入表里全是 Windows 系统 DLL——
             第三方运行时（<code>msvcp*</code> / <code>vcruntime*</code> / <code>libgcc*</code> / <code>libwinpthread*</code>）一个都没有。
           </p>
         </article>
@@ -583,6 +583,16 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                 </a>
               </li>
               <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/cj-link" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/cj-link.png" width="1180" height="780" loading="lazy" alt="串口/网络二合一调试助手界面" data-en-alt="Serial and network combined debug assistant interface"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="cj-Link — serial + network in one log">cj-Link：串口 + 网络二合一</h3>
+                    <p class="slide__desc" data-en="One log for two links: serial plus three network modes (TCP client, TCP server broadcasting to up to 16 clients, connected UDP). HEX/ASCII dual view, send queue, CRC16/CCITT/LRC calculator on the Cangjie side, adjustable timed send, panel config persisted; the peer is one Python script playing pty echo + TCP/UDP echo.">一个窗口两条链路：串口 + 网络三模式（TCP 客户端、TCP 服务器最多广播给 16 个客户端、UDP connect 型）共用一块收发日志。HEX/ASCII 双显、发送队列、校验计算（CRC16/CCITT/LRC，算在仓颉侧）、定时发送周期可调、面板配置持久化；对端是一个 Python 脚本扮演的 pty echo + TCP/UDP echo。</p>
+                    <span class="slide__tag" data-en="examples/cj-link · 33 assertions, both sides reconciled">examples/cj-link · 33 条断言两侧对账</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
                 <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/serial-assistant" target="_blank" rel="noopener">
                   <div class="slide__shot"><img src="assets/screenshots/serial-assistant.png" width="1180" height="780" loading="lazy" alt="串口调试助手界面" data-en-alt="Serial debug assistant interface"></div>
                   <div class="slide__body">
@@ -612,11 +622,21 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                   </div>
                 </a>
               </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/clipboard-history" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/clipboard-history.png" width="720" height="560" loading="lazy" alt="剪贴板历史管理器：托盘 + 全局快捷键 + 历史列表" data-en-alt="Clipboard history manager: tray, global hotkey and history list"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="Clipboard history — tray + global hotkey">剪贴板历史：托盘 + 全局快捷键</h3>
+                    <p class="slide__desc" data-en="The first consumer of the tray and global-hotkey capabilities: Ctrl+Alt+V brings the panel back, the tray menu clears or quits, and every entry is written back to the system clipboard on click. History is captured with zero new commands — the page polls clipboard:read every 500 ms and de-duplicates. Linux verifies it on real hardware (X11 grab, libayatana-appindicator3 compiled in optionally), and the E2E adds an out-of-process xclip read-back.">托盘与全局快捷键两个能力位的首个消费者：Ctrl+Alt+V 唤回面板，托盘菜单清空或退出，点击条目写回系统剪贴板。历史捕获<strong>零新命令</strong>——页面每 500ms 轮询 clipboard:read 并去重。Linux 实机取证（X11 grab、libayatana-appindicator3 可选编译），E2E 另有进程外 xclip 回读对账 15/15。</p>
+                    <span class="slide__tag" data-en="examples/clipboard-history · tray + global hotkey">examples/clipboard-history · 托盘 + 全局快捷键</span>
+                  </div>
+                </a>
+              </li>
             </ul>
           </div>
         </div>
         <div class="carousel__foot">
-          <p class="carousel__hint" data-en="Swipe or scroll sideways — 14 examples, every shot taken on a real device">左右拖动或滚动查看——14 个示例，全部实机截图</p>
+          <p class="carousel__hint" data-en="Swipe or scroll sideways — 17 examples, every shot taken on a real device">左右拖动或滚动查看——17 个示例，全部实机截图</p>
         </div>
       </div>
 
@@ -754,11 +774,11 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
       <div class="plat reveal">
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="Windows (WebView2)">Windows（WebView2）</span></p>
-          <p class="plat__s" data-en="Verified on real hardware: window, IPC, capability checks, native menus (clicked through), file drag-and-drop, single-file packaging.">实机跑通：窗口、IPC、能力校验、原生菜单（点选取证）、文件拖入、单文件打包。</p>
+          <p class="plat__s" data-en="Verified on real hardware: window, IPC, capability checks, native menus (clicked through), file drag-and-drop, tray and global hotkeys (minimise-to-tray then hotkey to bring it back, 11/11 on its E2E entry), single-file packaging.">实机跑通：窗口、IPC、能力校验、原生菜单（点选取证）、文件拖入、托盘与全局快捷键（最小化到托盘 → 快捷键唤回，入口 11/11）、单文件打包。</p>
         </div>
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="Linux (WebKitGTK)">Linux（WebKitGTK）</span></p>
-          <p class="plat__s" data-en="Verified on real hardware, including clipboard readback and a real notification on the session bus; all eight E2E entries run here.">实机跑通，含外部回读剪贴板、会话总线上实收通知；8 条 E2E 入口都在这里跑。</p>
+          <p class="plat__s" data-en="Verified on real hardware, including clipboard readback, a real notification on the session bus, X11 global hotkeys and a tray icon through libayatana-appindicator3; all eight Linux E2E entries run here (Windows has one of its own).">实机跑通，含外部回读剪贴板、会话总线上实收通知、X11 全局快捷键与 libayatana-appindicator3 托盘图标；8 条 Linux E2E 入口都在这里跑（Windows 侧另有 1 条）。</p>
         </div>
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--c3)"></span><span data-en="HarmonyOS ArkWeb">鸿蒙 ArkWeb</span></p>
@@ -769,8 +789,8 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
           <p class="plat__s" data-en="Not implemented, and no unverified platform identifier is invented for it either.">没做过；也没有为它发明一个未验证的平台标识。</p>
         </div>
         <div class="plat__i">
-          <p class="plat__h"><span class="dot" style="color:var(--muted)"></span><span data-en="System tray">系统托盘</span></p>
-          <p class="plat__s" data-en="Deferred by decision: on Linux it pulls in libayatana-appindicator3, and the Windows side is not written — the capability reports tray=0.">用户裁定暂缓：Linux 侧要引 libayatana-appindicator3，Windows 侧也未做，能力位 <code>tray=0</code>。</p>
+          <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="System tray and global hotkeys">系统托盘与全局快捷键</span></p>
+          <p class="plat__s" data-en="Both platforms. Linux uses libayatana-appindicator3 compiled in optionally (no dependency means it still builds, and the bit honestly reports 0) plus X11 XGrabKey; Windows uses Shell_NotifyIconW and RegisterHotKey with no new dependency. Wired through the same shell channel on both sides, and minimize-to-tray is a host primitive rather than page logic.">两平台都跑通：Linux 走可选编译的 libayatana-appindicator3（没装依赖照样构建、能力位如实报 0）+ X11 XGrabKey；Windows 走 <code>Shell_NotifyIconW</code> 与 <code>RegisterHotKey</code>，不引入新依赖。两侧都经同一条 shell 通道回投，「最小化到托盘」是宿主基元而不是页面逻辑。</p>
         </div>
       </div>
     </div>
@@ -782,9 +802,9 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
       <div class="sec-head">
         <span class="kicker" data-en="Docs">文档</span>
         <h2 class="sec-title" data-en="Design decisions are written down, not implied">设计决策都写下来了</h2>
-        <p class="sec-lead" data-en="Every non-obvious choice — why the Linux host lives in a C pthread, why the tray is deferred, how path scopes normalise — has a paragraph and a decision number in the repository.">
-          每个不显然的选择——Linux 宿主为什么跑在 C pthread 上、托盘为什么暂缓、路径 scope 怎么规范化——
-          在仓库里都有一段说明和一个决策编号。
+        <p class="sec-lead" data-en="Every non-obvious choice — why the Linux host lives in a C pthread, how to make libayatana-appindicator3 optional so machines without it still build, how path scopes normalise — has a paragraph and a decision number in the repository.">
+          每个不显然的选择——Linux 宿主为什么跑在 C pthread 上、托盘依赖怎么做成可选编译（没装的机器照样构建）、
+          路径 scope 怎么规范化——在仓库里都有一段说明和一个决策编号。
         </p>
       </div>
       <div class="docs reveal">

@@ -11,6 +11,14 @@
 
 ### Added
 
+- **示例 `examples/cj-link`：串口/网络二合一调试助手（cj-Link）**：串口走官方 `serial` 插件
+  （参数面板 + 前端轮询收）、TCP 客户端走应用级 `link:tcpConnect/tcpSend/tcpClose`
+  （`std.net` 的 `TcpSocket`，5s 建连超时 + 读线程经 `link:tcpData` 事件推送收），
+  两条链路共用一块收发日志（HEX/ASCII 双显、方向分色、毫秒时间戳、按方向过滤、TX/RX 计数）；
+  面板配置经 `store` 插件持久化。对端由 `cj-link-peer.py` 一条进程扮演（串口 pty echo + TCP echo），
+  `run.sh` 自动套 Xvfb 跑探针自检（串口 open→write→read→close + TCP connect→send→recv→close 共 7 步）
+  与 26 条断言，两端证据都在应用进程之外。
+
 - **源码仓 `cjpm.toml` 的 stdx 路径改为环境变量引用（机器无关，issue #3）**：根与 `examples/*`
   共 24 个 `cjpm.toml` 的 `[target.*.bin-dependencies] path-option` 不再写死本机绝对路径，
   统一写成 `${CANGJIE_STDX}`，由 cjpm 按进程环境变量展开——clone 后无需手工改文件即可构建

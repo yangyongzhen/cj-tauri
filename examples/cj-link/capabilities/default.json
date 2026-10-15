@@ -1,0 +1,16 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "system:version",
+    "link:serialList",
+    "link:tcpConnect",
+    "link:tcpSend",
+    "link:tcpClose",
+    "link:ping",
+    "report",
+    "quit"
+  ],
+  "permissions": ["serial:default", "store:default"],
+  "events": ["link:tcpData", "link:tcpState"]
+}

@@ -12,7 +12,7 @@ import stdx.net.tls.*
 /**
  * 远程题包：加载更多
  *
- * 内置 19 题做离线兜底；「加载更多」从远程题包仓拉 JSON 题包，schema 校验后
+ * 内置 100 题做离线兜底；「加载更多」从远程题包仓拉 JSON 题包，schema 校验后
  * 合并进题库并写本地缓存（problems-remote.local.json，下次启动直接并入，二次离线可用）。
  * 题包格式与内置 problems 数组完全同构（见 docs/leetcode-packs/advanced-1.json），
  * 放在任何提供 raw 直链的公共 git 仓即可。
@@ -23,7 +23,7 @@ import stdx.net.tls.*
  *     页面拼不出任意外链与路径穿越；
  *   - https 显式 TlsClientConfig()（默认走系统证书库校验，不关校验）；
  *   - 响应体按上限读（256KB，题包远达不到），不把内存交给对端；
- *   - 远程题 id 必须 >= 100（与内置 19 题不冲突），重复 id 覆盖更新（题包升版的更新路径）。
+ *   - 远程题 id 必须 >= 200（与内置 1..100 不冲突），重复 id 覆盖更新（题包升版的更新路径）。
  */
 
 /** 题包基地址白名单：题包名拼到 <BASE>/<名字>.json。换托管仓只改这一行 */
@@ -214,8 +214,8 @@ func validateProblem(v: JsonValue): JsonObject {
             }
         case None => throw CommandException("题包 schema 错误：缺 id")
     }
-    if (id < 100) {
-        throw CommandException("题包 schema 错误：远程题 id 必须 >= 100（内置题占 1..19），得到 ${id}")
+    if (id < 200) {
+        throw CommandException("题包 schema 错误：远程题 id 必须 >= 200（内置题占 1..100），得到 ${id}")
     }
     for (key in ["title", "difficulty", "category", "funcName", "template", "description"]) {
         match (p.get(key)) {
@@ -234,6 +234,15 @@ func validateProblem(v: JsonValue): JsonObject {
                 case _ => throw CommandException("题包 schema 错误：题 ${id} 的 tests 不是数组")
             }
         case None => throw CommandException("题包 schema 错误：题 ${id} 缺 tests")
+    }
+    // solution 可选：带就必须是字符串（不带 = 该题没有参考答案，合法）
+    match (p.get("solution")) {
+        case Some(s) =>
+            match (s.kind()) {
+                case JsonKind.JsString => ()
+                case _ => throw CommandException("题包 schema 错误：题 ${id} 的 solution 不是字符串")
+            }
+        case None => ()
     }
     return p
 }

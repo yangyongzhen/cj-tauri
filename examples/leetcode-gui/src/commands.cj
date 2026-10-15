@@ -259,7 +259,14 @@ public class RunCommand <: CommandHandler {
      * 不存在注入进 harness 结构的可能。
      */
     private func judge(id: Int64, code: String, funcName: String, tests: JsonValue): JsonObject {
-        let source = code + "\n" + buildHarness(funcName, tests)
+        // 判题源码 = import + 用户代码 + harness。
+        // import 必须在文件头（仓颉 import 不在包顶就编译不过），模板/答案里用的
+        // ArrayList/HashMap 都在 std.collection——统一补上；用户自己写了 import 就不重复
+        var prefix = ""
+        if (!code.contains("import ")) {
+            prefix = "import std.collection.*\n"
+        }
+        let source = prefix + code + "\n" + buildHarness(funcName, tests)
 
         // 每次判题一个独立子目录：秒级时间戳 + 进程内自增号，连续两次也不会互覆
         judgeSeq = judgeSeq + 1
@@ -286,7 +293,23 @@ public class RunCommand <: CommandHandler {
         // 运行（编译已在同目录产出 ./judge）
         let run = tryRun("./judge", [], workDir)
         eprintln("[lc] judge id=${id} exit=${run[0]} stdoutBytes=${run[1].size}")
-        return parseVerdict(run[1], run[0])
+        let verdict = parseVerdict(run[1], run[0])
+        // 判完记录进度（attempts +1 / 全过置 solved）；统计失败不影响判题结果。
+        // Option 不能链 .get() 取值（enum 无该成员）：match 拆 passed/total
+        var allPassed = false
+        match (verdict.get("passed")) {
+            case Some(pv) =>
+                match (verdict.get("total")) {
+                    case Some(tv) =>
+                        let p = pv.asInt().getValue()
+                        let t = tv.asInt().getValue()
+                        allPassed = t > 0 && p == t
+                    case None => ()
+                }
+            case None => ()
+        }
+        recordJudgeResult(id, allPassed)
+        return verdict
     }
 
     /**

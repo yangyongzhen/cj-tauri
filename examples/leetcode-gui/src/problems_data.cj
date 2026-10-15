@@ -157,7 +157,7 @@ let LC_PROBLEMS_JSON: String = """
       "template": "func minStackFinal(ops: Array<Int64>): Int64 {\n    // 请在这里实现算法（提示：辅助栈存每一步的最小值；-1 pop、-2 getMin）\n    return 0\n}",
       "tests": [
         {"call": "minStackFinal([5, -2, 3, -2, 7, -2])", "expect": "3"},
-        {"call": "minStackFinal([2, 1, -2, -1, 4, -2])", "expect": "4"},
+        {"call": "minStackFinal([2, 1, -2, -1, 4, -2])", "expect": "2"},
         {"call": "minStackFinal([9, -2])", "expect": "9"}
       ]
     },

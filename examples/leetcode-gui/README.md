@@ -94,6 +94,17 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 数组，格式与内置题库完全一致），再在 `src/remote_packs.cj` 的 `AVAILABLE_PACKS` 里加一行
 包名——出题人提交一个 JSON 就是题库的一次更新。改完务必照 §6 的批量编译自检跑一遍新题。
 
+### 3.2 参考答案与做题进度
+
+- **参考答案**（头部「参考答案」按钮）：27 题（内置 19 + 题包 8）每题都有一份可直接编译
+  通过的仓颉实现，存在 `src/solutions.cj`（raw 字符串 `#"…"#` 存代码，零转义）。
+  点击载入当前题的答案（编辑器覆盖 + 立即存草稿），载入前想一想——答案适合「做不出来再看」。
+- **做题进度**（头部「统计」按钮 + 徽标 + 列表对勾）：每次判题（编译失败不计）后端记一条
+  `lc-stats.local.json`（`attempts` 提交次数 / `solved` 是否全过，`*.local.json` 不入库）；
+  `solved` 只涨不降。顶栏徽标实时显示「已解决 N/M」，全部通过的题在左栏标题后带绿色 ✓；
+  「统计」按钮在终端按分类画进度条（`█░`）。
+  全部用例通过时终端即时反馈「📊 进度：已解决 N/M（P%），继续加油」。
+
 每条题目数据带：`funcName`（要实现的函数名）、`template`（仓颉函数签名 + TODO 占位）、
 `tests`（用例数组：`call` 是完整调用表达式、`expect` 是期望结果的仓颉字面量）。
 想加题就照这个格式往数组里追加——加完务必跑一遍 §6 的批量编译自检，确认模板与用例能编译。
@@ -147,6 +158,8 @@ Windows 用 `cjpm build` 后运行 `target\release\bin\main.exe`（或双击，G
 | 题库加载 | `leetcode:list -> 19 题`、左侧按分类分组 |
 | 编辑器填充 | 选中题目后编辑器出现仓颉模板（`draft saved id=<N>` 随输入出现） |
 | 判题闭环 | 点运行后 `judge id=<N> exit=0`；空模板时终端逐用例 FAIL 且给出期望值 |
+| 进度统计 | 全过后 `stats recorded id=<N> attempts=<k> solved=true`、统计文件落盘、徽标与列表 ✓ 刷新 |
+| 参考答案 | 「参考答案」按钮载入当前题答案（27 题逐题过「答案 + harness」编译与运行验证） |
 | 三处联动 | 把 `capabilities/app.json` 里的 `leetcode:run` 删掉，运行应被拒（`command not allowed`） |
 
 题库数据的批量自检（每题「模板 + harness」逐题 cjc 编译，19/19 应全过）：
@@ -190,8 +203,11 @@ examples/leetcode-gui/
 ├── capabilities/app.json  # 能力清单：五道 leetcode: 命令 + menu:click 事件
 ├── src/
 │   ├── main.cj            # 装配：窗口 / 菜单 / 命令注册 / shell 钩子
-│   ├── commands.cj        # 五道命令 + 判题核心（cjc 编译运行 + RESULT 解析）
-│   └── problems_data.cj   # 题库 19 题（内嵌 JSON，三引号转义见文件头注释）
+│   ├── commands.cj        # 五道题库命令 + 判题核心（cjc 编译运行 + RESULT 解析）
+│   ├── problems_data.cj   # 内置题库 19 题（内嵌 JSON，三引号转义见文件头注释）
+│   ├── remote_packs.cj    # 远程题包：拉取 / 校验 / 合并 / 缓存（加载更多）
+│   ├── solutions.cj       # 参考答案 27 题（raw 字符串存代码，逐题验证过）
+│   └── progress.cj        # 做题进度统计（attempts/solved）+ stats/solution 命令
 └── ui/
     └── index.html         # 三栏布局 + 编辑器 + 判题终端（磁盘真文件，非内联）
 ```

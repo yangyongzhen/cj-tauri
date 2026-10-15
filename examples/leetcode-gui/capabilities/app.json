@@ -9,6 +9,8 @@
     "leetcode:loadDraft",
     "leetcode:packs",
     "leetcode:fetchMore",
+    "leetcode:solution",
+    "leetcode:stats",
     "system:version",
     "system:ping",
     "system:echo"

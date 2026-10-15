@@ -75,6 +75,8 @@ main(): Int64 {
         .register("leetcode:loadDraft", LoadDraftCommand())
         .register("leetcode:packs", ListPacksCommand())
         .register("leetcode:fetchMore", FetchMoreCommand())
+        .register("leetcode:solution", SolutionCommand())
+        .register("leetcode:stats", StatsCommand())
 
     // 预置类能力：菜单必须在 start()/run() 之前定稿
     app.setMenu(buildMenu())

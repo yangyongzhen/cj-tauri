@@ -53,14 +53,26 @@ func testHttpPluginDeclarations(): Unit {
     let p = HttpPlugin()
     @Expect(p.name(), "http")
     @Expect(p.scopeAware(), true)
-    // 权限集 default = get + post：集声明 != 放行，清单引用才生效
+    // 权限集 default = get + post + postStream：集声明 != 放行，清单引用才生效
     @Expect(p.permissions().contains("default"), true)
     let cmds = p.commands()
     @Expect(cmds.contains("get"), true)
     @Expect(cmds.contains("post"), true)
-    // 不推事件、无前端 shim：命令面保持最小
-    @Expect(p.events().size == 0, true)
+    @Expect(cmds.contains("postStream"), true)
+    // 推一个事件（流式 http:chunk，短名登记）、无前端 shim
+    @Expect(p.events().size == 1, true)
     @Expect(p.jsShim().size == 0, true)
+}
+
+@Test
+func testHttpHostOfRejectsWsSchemes(): Unit {
+    // http 插件的 host 提取转发核心 urlHostOf（ws/wss 是 ws 插件的合法目标），
+    // 但协议收紧到 http(s)：ws:// 不是可抓取目标，解析不出 host 按白名单未命中拒
+    let f = match (httpHostOf("ws://127.0.0.1:8765/ws")) {
+        case Some(_) => true
+        case None => false
+    }
+    @Expect(f, false)
 }
 
 @Test

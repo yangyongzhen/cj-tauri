@@ -20,15 +20,30 @@
   scope 规则本体直达插件，给「匹配语义不是文件路径」的插件用（http 把模式当主机名匹配，不走路径
   规范化）。
 - **`http:postStream`：SSE 流式（AI 对话客户端的管道）**：命令 worker 按块读响应体、每块经
-  `http:chunk` 事件回投（`emitLatest`，渲染层按「最新累计文本」画）；**UTF-8 多字节被块边界切开时
-  尾字节留到下一块拼齐再发**；结束发 `done=true` 末条，命令 resolve 总字节数。SSE 帧解析留在前端
+  `http:chunk` 事件回投（**每条都 `emit`，不能用 `emitLatest`**——后者按「同帧只保最新」会把中间
+  增量整块吞掉，实测流式只剩最后一截）；**UTF-8 多字节被块边界切开时尾字节留到下一块拼齐再发**；
+  结束发 `done=true` 末条，命令 resolve 总字节数。SSE 帧解析留在前端
   （宿主只回投字节），OpenAI 兼容 `data:` 行 / `[DONE]` 由应用自己拼。
-- **示例 `examples/ai-chat`：AI 对话客户端（第五款工具，框架新能力的首个消费者）**：
+- **`ws` 插件：长连接出网口（与 `http` 插件同一套白名单语义）**：`ws:connect` / `ws:send` /
+  `ws:close` 三条命令（权限集 `ws:default`）+ `ws:frame` / `ws:state` 两个事件；出网主机白名单写在
+  能力清单 `scopes.ws`（**没写 = 全拒**，与 `scopes.http` 同构）；握手用 stdx 自带的
+  `WebSocket.upgradeFromClient`——**不手写 RFC6455**（该函数的 scheme 必须原样是 `ws://` / `wss://`，
+  最初自己把 ws 转成 http 再传，反被库以 "the scheme must be ws or wss" 拒掉，实测踩过）。
+  主机提取与 http 插件共用核心共享层 `src/urlutil.cj` 的 `urlHostOf`（**一份实现**，禁止两个插件
+  各写一份）；对端断开经 `ws:state`（`closed`）如实回投。单测 `plugin_ws_test.cj` 3 条。
+- **示例 `examples/ai-chat` 升级为 cjh 的桌面客户端（第五款工具）**：
   多会话 + 多服务商（自定义 Base URL / API Key / 模型 / system 提示词，Key 存本机 store）、
   流式 Markdown 渲染（先转义再放行受控标记——模型输出是不可信内容，链接 href 只放行 http(s)）、
   托盘 + 全局快捷键 Ctrl+Alt+A + 最小化到托盘 + 日志落盘（`setLogToDefaultFile`），
-  **零新命令**——出网全走 http 插件、持久化全走 store 插件。页面自检 8/8（转义/SSE 解析/
-  链接安全/白名单内端点可达），Linux 实机（Xvfb）跑通并截图 `docs/images/example-ai-chat.png`。
+  **零新命令**。升级后接上 **cjh**（用户的另一个 AI agent 项目）：`src/cjh_host.cj` 只管生命周期——
+  发现二进制（`CJH_BIN` / PATH / 常见安装位，可配）→ HTTP 健康检查（**已在跑就复用，不重复起**）→
+  不在跑才按需 `spawn` `cjh web` → 退出收尾只收自己启的那个；**数据面零新命令**，聊天流式走 `ws`
+  插件、会话/技能/MCP/文件四面板全走 `http` 插件（`/api/sessions`、`/api/skills`、`/api/mcp`、
+  `/api/fs/list`）。Linux 实机（Xvfb）跑通并截图 `docs/images/example-ai-chat.png`：页面自检 **17/17**，
+  另加 `CJH-PANELS` 4/4 与 `CJH-CHAT` PASS（deltas=1 done=1 err=0）两条独立探针行；
+  修掉 `loadFiles` 的一处形状错——cjh 的 `/api/fs/list` 回 `{dirs, files}` **两个数组**，早期只读
+  `items`/`entries`/`files` 会把目录整个丢掉（文件区能列出文件、却一个目录都下不去）；
+  MCP 面板**先做只读**（cjh 的 settings 暂不支持写 `mcpServers`，面板里如实注明）。
   Windows 未实机验证（如实说明）。
 - **日志落盘：GUI 单文件产物终于有了「双击也能拿到凭证」的出口（RFC-003 第 5 期）**：
   `TauriApp.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(appName)` 在 `start()` 之前开日志，

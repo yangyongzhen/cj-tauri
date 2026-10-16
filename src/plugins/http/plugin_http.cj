@@ -402,102 +402,15 @@ public class HttpCommands <: CommandHandler {
 }
 
 /**
- * 从 URL 提取 host（小写返回）：`scheme://[user@]host[:port][/path]`。
- * 协议只认 http / https；解析不出 host 返回 None。按字节扫（URL 结构是 ASCII），
- * 不用 String 切片撞 UTF-8 边界。public 是为了单测可直接构造（跨包须 public）。
+ * 从 URL 提取 host（小写返回）：核心 urlHostOf 的 **协议收紧包装**——
+ * ws/wss 是 ws 插件的合法目标，但不是可抓取目标；http 插件只认 http/https。
+ * 解析与大小写口径统一在核心层（urlutil.cj），这里不再有第二份字节扫描。
+ * public 是为了单测可直接构造（跨包须 public）。
  */
 public func httpHostOf(rawUrl: String): Option<String> {
-    let b = rawUrl.toArray()
-    // 找 "://"（58 47 47）
-    var schemeEnd: Int64 = -1
-    var i: Int64 = 0
-    while (i + 2 < b.size) {
-        if (b[i] == 58u8 && b[i + 1] == 47u8 && b[i + 2] == 47u8) {
-            schemeEnd = i
-            break
-        }
-        i++
-    }
-    if (schemeEnd <= 0) {
+    let lower = rawUrl.toAsciiLower()
+    if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
         return None
     }
-    let scheme = asciiLowerOf(b[0..schemeEnd])
-    if (scheme != "http" && scheme != "https") {
-        return None
-    }
-    // host 段：到 '/' '?' '#' 为止
-    var start = schemeEnd + 3
-    var end = start
-    while (end < b.size) {
-        let c = b[end]
-        if (c == 47u8 || c == 63u8 || c == 35u8) {
-            break
-        }
-        end++
-    }
-    if (end == start) {
-        return None
-    }
-    // 去 userinfo（最后一个 '@' 之前的部分）
-    var at: Int64 = -1
-    var k = end - 1
-    while (k >= start) {
-        if (b[k] == 64u8) {
-            at = k
-            break
-        }
-        k--
-    }
-    if (at >= 0) {
-        start = at + 1
-    }
-    // 去端口（第一个 ':' 之后）——IPv6 字面量 [..] 截到 ']' 为止，方括号内不拆
-    if (b[start] == 91u8) {
-        var close: Int64 = -1
-        var m = start + 1
-        while (m < end) {
-            if (b[m] == 93u8) {
-                close = m
-                break
-            }
-            m++
-        }
-        if (close >= 0) {
-            end = close + 1
-        }
-    } else {
-        var colon: Int64 = -1
-        var m = start
-        while (m < end) {
-            if (b[m] == 58u8) {
-                colon = m
-                break
-            }
-            m++
-        }
-        if (colon >= 0) {
-            end = colon
-        }
-    }
-    if (end <= start) {
-        return None
-    }
-    let host = asciiLowerOf(b[start..end])
-    if (host.size == 0) {
-        return None
-    }
-    return Some(host)
-}
-
-/** ASCII 字节 → 小写字符串（非 ASCII 原样保留）；host 匹配统一走这里 */
-private func asciiLowerOf(bytes: Array<Byte>): String {
-    let out = Array<Byte>(bytes.size, repeat: 0)
-    for (i in 0..bytes.size) {
-        var c = bytes[i]
-        if (c >= 65u8 && c <= 90u8) {
-            c = c + 32u8
-        }
-        out[i] = c
-    }
-    return String.fromUtf8(out)
+    return urlHostOf(rawUrl)
 }

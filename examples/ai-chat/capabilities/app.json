@@ -5,6 +5,9 @@
     "http:get",
     "http:post",
     "http:postStream",
+    "ws:connect",
+    "ws:send",
+    "ws:close",
     "store:get",
     "store:set",
     "store:del",
@@ -16,8 +19,8 @@
     "system:version",
     "system:host"
   ],
-  "events": ["http:chunk"],
-  "permissions": ["http:default", "store:default", "log:default"],
+  "events": ["http:chunk", "ws:frame", "ws:state"],
+  "permissions": ["http:default", "store:default", "log:default", "ws:default"],
   "scopes": {
     "http": {
       "allow": [
@@ -25,8 +28,14 @@
         "api.openai.com",
         "open.bigmodel.cn",
         "dashscope.aliyuncs.com",
-        "*.openai.azure.com"
+        "api.moonshot.cn",
+        "*.openai.azure.com",
+        "127.0.0.1",
+        "localhost"
       ]
+    },
+    "ws": {
+      "allow": ["127.0.0.1", "localhost"]
     }
   }
 }

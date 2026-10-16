@@ -163,13 +163,50 @@
   .preset { padding:4px 10px; border-radius:14px; font-size:12px; border:1px solid var(--line);
             background:var(--panel2); color:var(--dim); cursor:pointer; }
   .preset:hover { color:var(--fg); border-color:var(--acc); }
+  /* ---- 侧栏 Tabs（会话/技能/MCP/文件）---- */
+  #sideTabs { display:flex; gap:4px; padding:0 10px 8px; }
+  .stab { flex:1 1 0; padding:5px 0; border-radius:6px; font-size:12px; background:transparent;
+          color:var(--dim); border:1px solid transparent; cursor:pointer; }
+  .stab:hover { color:var(--fg); }
+  .stab.active { background:var(--panel2); color:var(--fg); border-color:var(--line); }
+  .sidepanel { flex:1 1 auto; overflow-y:auto; padding:10px; }
+  .card { border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-bottom:6px;
+          font-size:12.5px; cursor:default; }
+  .card b { font-size:13px; }
+  .card .sub2 { color:var(--dim); font-size:11px; margin-top:3px; word-break:break-all; }
+  .badge-ok { display:inline-block; margin-left:6px; padding:0 6px; border-radius:4px;
+              font-size:10px; background:#2e7d4f; color:#fff; vertical-align:1px; }
+  .badge-off { display:inline-block; margin-left:6px; padding:0 6px; border-radius:4px;
+               font-size:10px; background:#5a5f6b; color:#d5d8de; vertical-align:1px; }
+  .file-row { padding:6px 9px; border-radius:6px; font-size:12.5px; cursor:pointer;
+              white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .file-row:hover { background:var(--panel2); }
+  .file-row.dir { color:var(--acc); font-weight:600; }
+  /* ---- 工具活动（cjh agent 的 tool_start/tool_result）---- */
+  .toolchip { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--dim);
+              background:var(--panel2); border:1px solid var(--line); border-radius:7px;
+              padding:4px 9px; margin:6px 0; max-width:100%; }
+  .toolchip .tname { color:var(--acc2); font-weight:600; }
+  .toolchip .tstate { margin-left:auto; }
+  .toolchip.done .tstate { color:#7ee2a8; }
+  .toolchip.err .tstate { color:#ff7b72; }
+  #cjhState.off { color:#ff9d66; }
 </style>
 </head>
 <body>
   <div id="side">
-    <div class="brand">AI 对话</div>
-    <div class="sub">cj-tauri · http 插件流式</div>
+    <div class="brand">cjh 客户端</div>
+    <div class="sub" id="cjhState">cjh：连接中…</div>
+    <div id="sideTabs">
+      <button class="stab active" data-tab="convs">会话</button>
+      <button class="stab" data-tab="skills">技能</button>
+      <button class="stab" data-tab="mcp">MCP</button>
+      <button class="stab" data-tab="files">文件</button>
+    </div>
     <div id="convList"></div>
+    <div id="panelSkills" class="sidepanel" style="display:none"></div>
+    <div id="panelMcp" class="sidepanel" style="display:none"></div>
+    <div id="panelFiles" class="sidepanel" style="display:none"></div>
     <div id="sideBtns">
       <button id="btnNew">新会话</button>
       <button id="btnCfg" class="ghost">设置</button>
@@ -323,6 +360,238 @@ function renderMd(src) {
   return text.replace(/\u0000B(\d+)\u0000/g, function (m, i) { return blocks[+i]; });
 }
 
+/* ============================================================
+ * cjh 后端对接：REST（会话/技能/MCP/文件）走 http:get，聊天流走 ws 插件。
+ * 端点由 main.cj document-start 注入（window.__CJH_API__ / __CJH_WS__）。
+ * ============================================================ */
+var CJH = { api: window.__CJH_API__ || '', ws: window.__CJH_WS__ || '', wsUp: false, up: false };
+
+function cjhGet(path) {
+  return window.__CJ_TAURI__.invoke('http:get', { url: CJH.api + path }).then(function (r) {
+    return JSON.parse(r.body);
+  });
+}
+
+/* ---- 侧栏 Tabs：会话 / 技能 / MCP / 文件 ---- */
+function switchTab(tab) {
+  var tabs = document.querySelectorAll('.stab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].className = 'stab' + (tabs[i].getAttribute('data-tab') === tab ? ' active' : '');
+  }
+  $('convList').style.display = tab === 'convs' ? '' : 'none';
+  $('panelSkills').style.display = tab === 'skills' ? '' : 'none';
+  $('panelMcp').style.display = tab === 'mcp' ? '' : 'none';
+  $('panelFiles').style.display = tab === 'files' ? '' : 'none';
+  if (tab === 'skills') { loadSkills(); }
+  if (tab === 'mcp') { loadMcp(); }
+  if (tab === 'files') { loadFiles(''); }
+}
+
+/* ---- 技能列表：/api/skills → {skills:[{name,description,tools,enabled}]} ---- */
+function loadSkills() {
+  var el = $('panelSkills');
+  el.innerHTML = '<div class="hint">加载中…</div>';
+  return cjhGet('/api/skills').then(function (r) {
+    el.innerHTML = '';
+    var list = r.skills || [];
+    if (list.length === 0) {
+      el.innerHTML = '<div class="hint">cjh 没有发现技能（skills 目录为空）</div>';
+      return;
+    }
+    list.forEach(function (s) {
+      var d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<b>' + escHtml(s.name) + '</b>' +
+        '<span class="' + (s.enabled ? 'badge-ok' : 'badge-off') + '">' + (s.enabled ? '启用' : '停用') + '</span>' +
+        '<div class="sub2">' + escHtml(s.description || '（无描述）') +
+        ' · 工具 ' + (s.tools || 0) + ' 个</div>';
+      el.appendChild(d);
+    });
+  }).catch(function (e) { el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>'; });
+}
+
+/* ---- MCP 配置：/api/mcp（只读——cjh /api/settings 暂不支持写 mcpServers，如实提示）---- */
+function loadMcp() {
+  var el = $('panelMcp');
+  el.innerHTML = '<div class="hint">加载中…</div>';
+  return cjhGet('/api/mcp').then(function (r) {
+    el.innerHTML = '';
+    var list = r.servers || [];
+    list.forEach(function (s) {
+      var d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<b>' + escHtml(s.name) + '</b>' +
+        '<span class="' + (s.connected ? 'badge-ok' : 'badge-off') + '">' + (s.connected ? '已连' : '未连') + '</span>' +
+        '<div class="sub2">' + escHtml(s.transport || 'stdio') + ' · ' +
+        escHtml(s.command || s.url || '') + '</div>';
+      el.appendChild(d);
+    });
+    var note = document.createElement('div');
+    note.className = 'hint';
+    note.textContent = 'MCP 配置只读（cjh /api/settings 暂不支持写 mcpServers）——增删请在 cjh 的 settings.json 里改，改完重启 cjh。';
+    el.appendChild(note);
+  }).catch(function (e) { el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>'; });
+}
+
+/* ---- 文件区（cjh 工具区）：/api/fs/list?path=… 目录浏览（点目录进入；写操作仍由 agent 在对话里做）---- */
+var cjhCwd = '';
+function loadFiles(path) {
+  var el = $('panelFiles');
+  el.innerHTML = '<div class="hint">加载中…</div>';
+  var q = path ? ('?path=' + encodeURIComponent(path)) : '';
+  return cjhGet('/api/fs/list' + q).then(function (r) {
+    el.innerHTML = '';
+    // cjh 回 {path, dirs:[{name,path}], files:[{name,path}]}——目录与文件是**两个独立数组**，
+    // 且目录项不带 is_dir 标记。早期只读 items/entries/files 时目录被整个丢掉：文件区能列出
+    // 文件却一个目录都下不去（实测）。判据取「它出自哪个数组」，别猜字段名。
+    var norm = function (x, forceDir) {
+      var isDir = forceDir || (typeof x === 'object' && x !== null && !!(x.is_dir || x.isdir || x.type === 'dir'));
+      return { name: (typeof x === 'string') ? x : ((x && x.name) || ''), dir: !!isDir };
+    };
+    var items = (r.dirs || []).map(function (d) { return norm(d, true); })
+      .concat((r.files || []).map(function (f) { return norm(f, false); }));
+    if (items.length === 0) { items = (r.items || r.entries || []).map(function (x) { return norm(x, false); }); }
+    if (cjhCwd) {
+      var up = document.createElement('div');
+      up.className = 'file-row';
+      up.textContent = '← 上一级';
+      up.onclick = function () {
+        var parts = cjhCwd.replace(/\/+$/, '').split('/');
+        parts.pop();
+        loadFiles(parts.join('/') || '');
+      };
+      el.appendChild(up);
+    }
+    items.forEach(function (f) {
+      var name = f.name;
+      var isDir = f.dir;
+      var d = document.createElement('div');
+      d.className = 'file-row' + (isDir ? ' dir' : '');
+      d.textContent = (isDir ? '▸ ' : '') + name;
+      if (isDir) {
+        d.onclick = function () {
+          var base = path || cjhCwd || '';
+          loadFiles(base ? (base.replace(/\/+$/, '') + '/' + name) : name);
+        };
+      }
+      el.appendChild(d);
+    });
+    cjhCwd = path || (r.path || cjhCwd);
+  }).catch(function (e) {
+    el.innerHTML = '<div class="hint">文件区不可用：' + escHtml(String(e && e.message)) +
+      '（cjh /api/fs/list 只在配置了工作区时可用）</div>';
+  });
+}
+
+/* ---- cjh WS：连接 + 帧分发（delta/tool_start/tool_result/done/error/history_messages）---- */
+var curStreamingBody = null;
+var curStreamingText = '';
+var toolChips = {};
+var cjhTurnPending = false;
+
+function cjhConnectWs() {
+  if (!CJH.ws) { cjhStateUi(false, 'cjh：端点未注入（未配置 CJ_AICHAT_CJH？）'); return; }
+  window.__CJ_TAURI__.invoke('ws:connect', { url: CJH.ws }).then(function () {
+    CJH.wsUp = true;
+    cjhStateUi(true, 'cjh：已连接');
+    refreshCjhSessions();
+  }).catch(function (e) {
+    cjhStateUi(false, 'cjh：未连接（' + String(e && e.message).slice(0, 60) + '）');
+  });
+}
+function cjhStateUi(up, text) {
+  CJH.up = up;
+  var el = $('cjhState');
+  el.textContent = text;
+  el.className = up ? 'sub' : 'sub off';
+}
+function cjhWsSend(obj) {
+  return window.__CJ_TAURI__.invoke('ws:send', { text: JSON.stringify(obj) });
+}
+
+/* ---- cjh 会话历史：/api/sessions → {sessions:[{id,title,created_at}]}，本地列表之上独立分组 ---- */
+var cjhSessionList = [];
+function refreshCjhSessions() {
+  cjhGet('/api/sessions').then(function (r) {
+    cjhSessionList = r.sessions || [];
+    renderConvs();
+  }).catch(function (e) { /* 拉不到不致命：本地会话照常用 */ });
+}
+function resumeCjhSession(id) {
+  if (streaming) { return; }
+  newConv();
+  // 记住 cjh 会话 id：后续 chat 帧都带它（cjh 侧在该会话里续聊）；历史回放经 history_messages 帧
+  var c = cur();
+  if (c) { c.cjhId = id; }
+  cjhTurnPending = false;
+  cjhWsSend({ type: 'resume_session', session_id: id }).then(function () {
+  }).catch(function (e) {
+    appendNote('resume 失败：' + String(e && e.message));
+  });
+}
+
+/* ---- cjh 帧 → 聊天界面（与 http 流式同一套气泡/收尾口径）---- */
+function handleCjhFrame(m) {
+  var type = m.type || '';
+  if (type === 'delta') {
+    if (!curStreamingBody) { curStreamingBody = appendMsgEl('assistant', '', true); streaming = true; setStreamingUi(true); }
+    curStreamingText += m.text || '';
+    setBody(curStreamingBody, curStreamingText, true);
+  } else if (type === 'tool_start') {
+    if (!curStreamingBody) { curStreamingBody = appendMsgEl('assistant', '', true); streaming = true; setStreamingUi(true); }
+    var chip = document.createElement('div');
+    chip.className = 'toolchip';
+    chip.innerHTML = '<span class="tname">⚙ ' + escHtml(m.name || 'tool') + '</span><span class="tstate">运行中…</span>';
+    curStreamingBody.appendChild(chip);
+    toolChips[m.name] = chip;
+  } else if (type === 'tool_result') {
+    var chip2 = toolChips[m.name];
+    if (chip2) {
+      chip2.classList.add(m.is_error ? 'err' : 'done');
+      chip2.querySelector('.tstate').textContent = m.is_error ? '失败' : '完成';
+      chip2.title = (m.result || '').slice(0, 400);
+      delete toolChips[m.name];
+    }
+  } else if (type === 'done') {
+    finishCjhTurn('');
+  } else if (type === 'error') {
+    finishCjhTurn('**[cjh 错误]** ' + (m.message || 'unknown'));
+  } else if (type === 'history_messages') {
+    // 帧里带 session_id：新建会话上第一轮对话后 cjh 会开新会话，从这里把 id 接住
+    if (m.session_id) { var cc = cur(); if (cc && !cc.cjhId) { cc.cjhId = m.session_id; } }
+    replayCjhHistory(m.messages || []);
+  }
+}
+function finishCjhTurn(errText) {
+  var c = cur();
+  var full = curStreamingText || (errText ? '' : '（空回复）');
+  if (errText) { full = (full ? full + '\n\n' : '') + errText; }
+  if (c && full) {
+    c.messages.push({ role: 'assistant', content: full });
+  }
+  if (curStreamingBody) {
+    setBody(curStreamingBody, full, false);
+    bindCopyButtons(curStreamingBody);
+  }
+  curStreamingBody = null; curStreamingText = '';
+  toolChips = {};
+  cjhTurnPending = false;
+  streaming = false; setStreamingUi(false);
+  saveState();
+}
+function replayCjhHistory(messages) {
+  var c = cur();
+  if (!c) { return; }
+  c.messages = [];
+  msgsEl.innerHTML = '';
+  messages.forEach(function (m) {
+    var role = (m.role === 'user') ? 'user' : 'assistant';
+    c.messages.push({ role: role, content: m.content || '' });
+    appendMsgEl(role, m.content || '');
+  });
+  saveState();
+}
+
 /* ---- 主题：auto（跟随系统）/ light / dark 三态轮换，存档持久化 ----
  * auto 用 matchMedia 监听系统变化实时切；亮色只是 body.light 覆写变量，
  * 代码块两态都保持暗底（github-dark 一份主题） */
@@ -414,6 +683,27 @@ function renderConvs() {
   var ap = activeProvider();
   $('modelBadge').textContent = ap ? ((ap.name || '自定义') + ' · ' + (ap.model || '未配置')) : '未配置服务商';
   renderProvMenu();
+  // cjh 会话历史（独立分组，置顶）：连接上才显示；点击即 resume
+  if (CJH.wsUp && cjhSessionList.length > 0) {
+    var head = document.createElement('div');
+    head.className = 'sub';
+    head.style.cssText = 'padding:4px 6px 2px;font-size:11px';
+    head.textContent = 'cjh 会话历史';
+    el.appendChild(head);
+    cjhSessionList.forEach(function (s) {
+      var d = document.createElement('div');
+      d.className = 'conv';
+      d.textContent = '⟳ ' + (s.title || s.id);
+      d.title = '恢复 cjh 会话 ' + (s.id || '');
+      d.onclick = function () { if (!streaming) { resumeCjhSession(s.id); } };
+      el.appendChild(d);
+    });
+    var head2 = document.createElement('div');
+    head2.className = 'sub';
+    head2.style.cssText = 'padding:4px 6px 2px;font-size:11px';
+    head2.textContent = '本地会话';
+    el.appendChild(head2);
+  }
   convs.forEach(function (c) {
     var d = document.createElement('div');
     d.className = 'conv' + (c.id === curId ? ' active' : '');
@@ -543,12 +833,15 @@ function buildMessages(userText) {
   return ms;
 }
 
-/* send(text?)：text 缺省取输入框；skipPush（重新生成）时用户消息已在历史里，不再入库 */
+/* send(text?)：text 缺省取输入框；skipPush（重新生成）时用户消息已在历史里，不再入库。
+ * cjh 模式（CJH.up）：走 WS 发 chat（agent 带工具执行），帧流经 handleCjhFrame 回画；
+ * 直连模式：走 http:postStream（SSE，纯对话）。两条管道共用同一套气泡/收尾。 */
 function send(text, skipPush) {
   var input = $('input');
   if (text === undefined) { text = input.value.trim(); }
   if (!text || streaming) { return; }
-  if (!cfg.key) { openCfg(); return; }
+  // cjh 模式不需要本地 Key（Key 在 cjh 侧）；直连模式没 Key 先开设置
+  if (!CJH.up && !cfg.key) { openCfg(); return; }
   var c = cur();
   if (!c) { newConv(); c = cur(); }
   if (c.messages.length === 0) { c.title = text.slice(0, 18); renderConvs(); }
@@ -557,13 +850,26 @@ function send(text, skipPush) {
   }
   appendMsgEl('user', text);
   input.value = '';
-  var body = appendMsgEl('assistant', '');
-  var acc = '';
   streaming = true; abortFlag = false;
   setStreamingUi(true);
-  // 诊断：每一步都留痕（AGENTS §4「看不见的失败最贵」——没反应时日志必须能说清断在哪）
   var trace = function (m) { try { window.__CJ_TAURI__.log.write('[aichat] ' + m); } catch (e) {} };
+
+  if (CJH.up) {
+    // ---- cjh 管道：WS chat；流式气泡在第一个 delta/tool_start 帧到达时才创建 ----
+    curStreamingBody = null; curStreamingText = ''; toolChips = {}; cjhTurnPending = true;
+    trace('send: cjh ws chat, session=' + (c.cjhId || '(new)'));
+    cjhWsSend({ type: 'chat', message: text, session_id: c.cjhId || '' }).catch(function (e) {
+      appendNote('cjh 发送失败：' + String(e && e.message));
+      streaming = false; setStreamingUi(false); cjhTurnPending = false;
+    });
+    return;
+  }
+  // ---- 直连管道（原 http:postStream）----
+  var body = appendMsgEl('assistant', '');
+  var acc = '';
   var nChunk = 0;
+  // 诊断：每一步都留痕（AGENTS §4「看不见的失败最贵」——没反应时日志必须能说清断在哪）
+  trace('send: invoke postStream, listen on http:chunk');
 
   // 事件监听先于 invoke 挂上（命令发出后块可能立刻到达）
   var off = window.__CJ_TAURI__.listen('http:chunk', function (p) {
@@ -842,14 +1148,68 @@ function selfcheck() {
   // 只有 scope/白名单拒绝才算链路断（那说明命令没走到网络层）。
   // （实测：deepseek 对无鉴权请求回 400 的 JSON，invoke 正常 resolve——
   //   最初把「resolve 了」判 FAIL 是断言写反了，恰好证明白名单放行 + 网络可达。）
-  var p = window.__CJ_TAURI__.invoke('http:post', { url: cfg.base, body: '{}' }).then(function (s) {
-    ok('http-reach-server', !!s && s.status >= 400);
+  // 端到端链路探针：**不探当前服务商**（用户切到本机不可达的端点时 invoke 要挂到 60s
+  // 超时，后面整条探针链都被拖死——实测 SELFCHECK 一行都不出就是这么来的）。
+  // cjh 在跑就打本机 /api/health（快且必达）；否则才退回当前服务商端点。
+  var probeUrl = CJH.api ? (CJH.api + '/api/health') : cfg.base;
+  var p = window.__CJ_TAURI__.invoke('http:post', { url: probeUrl, body: '{}' }).then(function (s) {
+    // 本机 health 端点只认 GET：POST 回 404/405 也算「链路通」（走到了 HTTP 层）
+    ok('http-reach-server', !!s && s.status >= 200);
     return r;
   }).catch(function (e) {
     ok('http-reach-server', String(e && e.message).indexOf('scope') === -1);
     return r;
   });
   p.then(function () {
+    // cjh 端到端探针：WS 发一条 chat，数回帧（delta/done/error 任一到来 = 管道通）。
+    // 单独打 CJH-CHAT 行（不进 SELFCHECK 计数）——它依赖 cjh 侧配置，断言口径独立。
+    setTimeout(function () {
+      if (!window.__CJ_TAURI__ || !CJH.api) { return; }
+      var cj = { deltas: 0, doneF: 0, errs: 0 };
+      var off3 = window.__CJ_TAURI__.listen('ws:frame', function (m) {
+        if (m.type === 'delta') { cj.deltas++; }
+        else if (m.type === 'done') { cj.doneF++; }
+        else if (m.type === 'error') { cj.errs++; }
+      });
+      var cjhLog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-CHAT ' + line }).catch(function () {}); };
+      var goChat = function () {
+        cjhWsSend({ type: 'chat', message: 'reply with exactly: OK' }).then(function () {
+          setTimeout(function () {
+            off3();
+            var pass = (cj.deltas + cj.doneF + cj.errs) > 0;
+            cjhLog('deltas=' + cj.deltas + ' done=' + cj.doneF + ' err=' + cj.errs);
+            cjhLog(pass ? 'PASS' : 'FAIL');
+          }, 20000);
+        }).catch(function (e) {
+          off3();
+          cjhLog('sendfail ' + String(e && e.message).slice(0, 80));
+        });
+      };
+      if (CJH.wsUp) { goChat(); }
+      else { setTimeout(function () { if (CJH.wsUp) { goChat(); } else { cjhLog('ws-down'); } }, 3000); }
+    }, 1500);
+    // 侧栏三个数据面板（技能 / MCP / 文件）必须真从 cjh 取到并渲染——只验其中一个会漏掉
+    // 「目录与文件是两个数组」这类形状错（实测：文件区 rows>0 却一个目录都没有，只数行数发现不了）。
+    // 与 CJH-CHAT 同理独立成行，不占 SELFCHECK 计数。
+    setTimeout(function () {
+      if (!CJH.api) { return; }
+      var plog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-PANELS ' + line }).catch(function () {}); };
+      Promise.all([loadSkills(), loadMcp(), loadFiles('')]).then(function () {
+        var cards = $('panelSkills').querySelectorAll('.card').length;
+        var mcpN = $('panelMcp').querySelectorAll('.card').length;
+        var rows = $('panelFiles').querySelectorAll('.file-row').length;
+        var dirs = $('panelFiles').querySelectorAll('.file-row.dir').length;
+        var pairs = [
+          ['panel-skills', cards > 0, 'cards=' + cards],
+          ['panel-mcp', mcpN > 0, 'cards=' + mcpN],
+          ['panel-files', rows > 0, 'rows=' + rows + ' dirs=' + dirs],
+          ['panel-files-dirs', dirs > 0, 'dirs=' + dirs]
+        ];
+        var okN = 0;
+        pairs.forEach(function (p) { if (p[1]) { okN++; } plog((p[1] ? 'PASS ' : 'FAIL ') + p[0] + ' ' + p[2]); });
+        plog(okN + '/' + pairs.length);
+      }).catch(function (e) { plog('FAIL ' + String(e && e.message).slice(0, 120)); });
+    }, 3500);
     // 有 Key 时再补一条**真流式**探针：postStream 实发一条小消息，数 chunk 到达数
     // （链路真正的端到端验证——上面那条只证明非流式 POST 可达）
     var done4 = function (extra) {
@@ -862,6 +1222,11 @@ function selfcheck() {
       document.title = 'SELFCHECK ' + pass + '/' + asserts.length;
     };
     if (!cfg.key) { done4([]); return; }
+    // 兜底：postStream 探针的端点可能不可达（readTimeout 60s）——15s 没回就先出报告，
+    // 别让整条 SELFCHECK 等一个挂死的请求（实测：OpenAI 不可达时整条链静默）
+    var doneGuard = false;
+    var doneOnce = function (extra) { if (!doneGuard) { doneGuard = true; done4(extra); } };
+    setTimeout(function () { doneOnce([]); }, 15000);
     var chunks = 0;
     var off2 = window.__CJ_TAURI__.listen('http:chunk', function (p) { if (!p.done) { chunks++; } });
     window.__CJ_TAURI__.invoke('http:postStream', {
@@ -872,12 +1237,12 @@ function selfcheck() {
       off2();
       ok('postStream-chunks', chunks > 0);
       r.push('INFO postStream received=' + (stat && stat.received) + ' chunks=' + chunks);
-      done4([]);
+      doneOnce([]);
     }).catch(function (e) {
       off2();
       ok('postStream-chunks', false);
       r.push('FAIL postStream: ' + (e && e.message));
-      done4([]);
+      doneOnce([]);
     });
   });
 }
@@ -904,8 +1269,28 @@ waitForBridge().then(function () {
   };
   $('btnCfgCancel').onclick = closeCfg;
   $('btnCfgSave').onclick = saveProv;
+  // cjh：侧栏 Tabs、ws 帧监听（先于连接挂上，帧不会漏）
+  var tabs = document.querySelectorAll('.stab');
+  for (var ti = 0; ti < tabs.length; ti++) {
+    tabs[ti].onclick = function () { switchTab(this.getAttribute('data-tab')); };
+  }
+  window.__CJ_TAURI__.listen('ws:frame', function (m) { handleCjhFrame(m); });
+  window.__CJ_TAURI__.listen('ws:state', function (s) {
+    if (s.state === 'connected') { cjhStateUi(true, 'cjh：已连接'); refreshCjhSessions(); }
+    else if (s.state === 'closed') { CJH.wsUp = false; cjhStateUi(false, 'cjh：连接断开'); }
+  });
+  if (CJH.api) { cjhConnectWs(); } else { cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）'); }
   $('btnSend').onclick = send;
   $('btnStop').onclick = stopStream;
+  // cjh 模式的停止：abort 帧走 WS（agent 侧中断本轮工具循环）
+  $('btnStop').onclick = function () {
+    if (CJH.up && cjhTurnPending) {
+      cjhWsSend({ type: 'abort' }).catch(function () {});
+      finishCjhTurn('');
+      return;
+    }
+    stopStream();
+  };
   $('input').addEventListener('keydown', function (ev) {
     if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
   });

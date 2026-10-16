@@ -390,6 +390,20 @@
   空回复不再无声）。页内自检 **66 PASS / 0 FAIL**（本轮新增 `mode-chat-hides-cjh` / `mode-chat-badge` /
   `mode-chat-tab-collapse` / `mode-frame-passthrough` / `mode-agent-shows-cjh` / `cjh-key-not-logged`），
   `scripts/check-static.sh` 全绿。
+- **`examples/ai-chat` 的审批请求补上「能答的入口」**（对齐 cjh 的审批通道，cjh 侧 `7bcc097` 已落地）：
+  `approval_request` 此前只 `appendNote` 一行说明——用户看得见「有工具在等批准」，却**没有任何入口能答**，
+  只能干等 cjh 超时（默认 5 分钟）。现在渲染一张待批准卡片（工具名 / 入参 / 命中规则 + 与
+  `expires_in_ms` 同步的倒计时），「批准 / 拒绝」经同一条 WS 回
+  `{"type":"approval_response","request_id":…,"approved":bool}`；卡片落定后按钮禁用、倒计时停，
+  **结论同时写进会话正文**（卡片是 DOM，刷新即失——只留 DOM 的话重开就看不到这轮批过什么）。
+  cjh 侧超时 / 断连一律按「拒绝」收场并让回合继续，页面照它的口径写「秒后按「拒绝」收场」，
+  不假装能替 cjh 续期；已决卡片不重发回执（`request_id` 不匹配即返回）。页内自检新增
+  `approval-card` / `approval-buttons` / `approval-response-frame` / `approval-settled` /
+  `approval-recorded`。
+- **`examples/ai-chat` 流式截断标记落进正文**：宿主单次接收有上限（`http` 插件 `CJ_HTTP_MAX_BYTES`
+  = 8 MiB），撞上限时流被掐断、`stat.truncated = true`。此前只在页面上 `appendNote` 一行提示——
+  **没进存档**，刷新后那条回复看起来就是完整的一整段（痕迹只活在 DOM 里，AGENTS §4 那类最贵的失败形状）。
+  现在由 `truncNote()` 把标记连**已收字节数**一起拼进正文再落盘。断言 `truncated-note`。
 ### Changed
 
 - **`examples/ai-chat` 撤回「窗口随屏幕 + 页面等比缩放」两件（用户实测反馈：等比放大后不如原样）**：

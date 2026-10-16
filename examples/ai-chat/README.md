@@ -24,7 +24,10 @@ API Key / 模型 / system 提示词）、浅色与深色主题、紧凑模式、
 
 **Agent 模式独有**：cjh 的会话 / 技能 / MCP / 文件四个面板（MCP 面板可改配置，改完需重启 cjh）、
 工作区切换（「浏览…」走**原生目录框**，也能手输绝对路径）、工具调用的
-running / done / error 状态、审批请求、中止与结构化收尾（`ack` / `cancelled` / `error{code,retryable}`
+running / done / error 状态、**危险操作审批**（cjh 要跑危险工具时弹一张待批准卡片：工具名 / 入参 /
+命中规则 + 与 `expires_in_ms` 同步的倒计时，「批准 / 拒绝」经同一条 WS 回 `approval_response`——
+cjh 阻塞在这条回执上，超时 / 断连一律按「拒绝」收场、回合继续，页面照它的口径说不假装能续期）、
+中止与结构化收尾（`ack` / `cancelled` / `error{code,retryable}`
 各有各的落点，不混成一句"出错了"）、**模型透传**（帧里带当前选中的 `model` / `base_url` / `api_key`，
 按 cjh 的会话级契约**只对本回合生效**、不落盘、不粘住）。
 
@@ -79,10 +82,10 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 ## 自检
 
 设 `CJ_AICHAT_PROBE=1` 启动即注入页内自检，断言经 `report` 回投到 stderr（明细行序不保证，
-按**计数**对账：聚合行的 `passed` = PASS 明细条数、`failed` = 0）。当前 **61/61 断言、FAIL 0**，
-另有 `CJH-PANELS` 与 `CJH-CHAT` 两条独立探针行：它们要**接上一台已配好技能 / MCP、且真跑过一轮对话的
-cjh** 才满——本轮用空配置的隔离 cjh 取证，所以是 `CJH-PANELS 2/4`、`CJH-CHAT` 无 delta（如实说明，
-不当成通过）。
+按**计数**对账：聚合行的 `passed` = PASS 明细条数、`failed` = 0）。当前 **67/67 断言、FAIL 0**
+（Linux，隔离开副本 + 已配好技能 / MCP 的 cjh），另有 `CJH-PANELS` 与 `CJH-CHAT` 两条独立探针行：
+本轮实机是 `CJH-PANELS 4/4`、`CJH-CHAT deltas=1 done=1 err=0`——**接上空配置的 cjh 时这两条会掉**
+（那时如实报 2/4、无 delta，不当成通过）。
 
 ## 已知限制
 

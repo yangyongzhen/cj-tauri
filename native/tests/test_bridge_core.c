@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* ===== 断言与用例 ===== */
 
@@ -37,6 +39,47 @@ static const char *g_case = "?";
 static void case_begin(const char *name) {
     g_case = name;
     fprintf(stderr, "  - %s\n", name);
+}
+
+/* ===== 日志落盘用例的辅助（RFC-003 第 5 期） =====
+   开启日志后 fd 2 就被日志文件接管了，此时 CHECK 的失败行会**写进日志文件**、外面根本看不见。
+   所以接管期间改用 LOG_CHECK：结果先攒在内存里，等 stderr 还原之后再一次性打出来。 */
+static char g_log_fail_buf[4096];
+
+static void cj_test_log_check(int cond, int line, const char *what) {
+    if (cond) {
+        g_pass++;
+        return;
+    }
+    g_fail++;
+    if (strlen(g_log_fail_buf) + 240 < sizeof(g_log_fail_buf)) {
+        char row[200];
+        snprintf(row, sizeof(row), "  [FAIL] %s:%d [log file] %s\n", __FILE__, line, what);
+        strcat(g_log_fail_buf, row);
+    }
+}
+
+#define LOG_CHECK(cond, what) cj_test_log_check((cond) ? 1 : 0, __LINE__, what)
+
+static int cj_test_file_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fclose(f);
+    return 1;
+}
+
+/* 读全文（截断到 cap-1）；返回读到的字节数，-1 = 打不开 */
+static long cj_test_read_all(const char *path, char *buf, long cap) {
+    FILE *f = fopen(path, "rb");
+    long n;
+    if (!f) {
+        if (cap > 0) buf[0] = '\0';
+        return -1;
+    }
+    n = (long)fread(buf, 1, (size_t)(cap - 1), f);
+    buf[n > 0 ? n : 0] = '\0';
+    fclose(f);
+    return n;
 }
 
 /* ===== 桩平台：只记录调用，不做真实副作用 ===== */
@@ -963,6 +1006,92 @@ int main(void) {
             CHECK(g_note_calls == 0, "未声明能力位不触达平台");
             cj_bridge_destroy(hc);
         }
+    }
+
+    /* --- 日志落盘（RFC-003 第 5 期）：接管 stderr、按大小轮转、失败如实回 0 --- */
+    case_begin("log file：接管 stderr / 按大小轮转 / 失败如实回 0");
+    {
+        char dir[256];
+        char path[300];
+        char archive1[320];
+        char archive2[320];
+        char archive3[320];
+        char blocker[320];
+        char unwritable[340];
+        char long_path[1200];
+        char buf[65536];
+        FILE *bf;
+        int saved_fd;
+        int i;
+
+        snprintf(dir, sizeof(dir), "/tmp/cj-bridge-logtest-%ld", (long)getpid());
+        mkdir(dir, 0700);
+        /* 路径故意多两级不存在的目录：默认日志目录（~/.local/state/cj-tauri）常常还不存在，
+           走到 ③ 顺带证明「父目录按需建出来」 */
+        snprintf(path, sizeof(path), "%s/nested/deep/app.log", dir);
+        snprintf(archive1, sizeof(archive1), "%s.1", path);
+        snprintf(archive2, sizeof(archive2), "%s.2", path);
+        snprintf(archive3, sizeof(archive3), "%s.3", path);
+
+        /* ① 未开启（对照组）：回读空串、不创建文件，c j_logf 仍写 stderr */
+        CHECK(strcmp(cj_bridge_log_file(), "") == 0, "未开启时回读空串");
+        cj_logf("[bridge-core] probe before enable\n");
+        CHECK(cj_test_file_exists(path) == 0, "未开启时不创建日志文件");
+
+        /* ② 参数与失败路径都回 0（stderr 完好，原因打在 stderr 上） */
+        CHECK(cj_bridge_set_log_file(NULL, 0, 0) == 0, "NULL 路径被拒");
+        CHECK(cj_bridge_set_log_file("", 0, 0) == 0, "空路径被拒");
+        memset(long_path, 'a', sizeof(long_path) - 1);
+        long_path[sizeof(long_path) - 1] = '\0';
+        CHECK(cj_bridge_set_log_file(long_path, 0, 0) == 0, "超长路径被拒");
+        /* 「不可写」不能拿一个不存在的目录测：父目录缺失会被如实建出来（默认目录要的就是这行为），
+           所以拿一个**普通文件**当路径的中间段——父级不是目录，建也建不了、开也开不了 */
+        snprintf(blocker, sizeof(blocker), "%s/blocker", dir);
+        bf = fopen(blocker, "wb");
+        if (bf) fclose(bf);
+        snprintf(unwritable, sizeof(unwritable), "%s/app.log", blocker);
+        CHECK(cj_bridge_set_log_file(unwritable, 0, 0) == 0, "不可写路径被拒（父级是普通文件）");
+        CHECK(cj_test_file_exists(path) == 0, "被拒的开启不产生文件");
+        CHECK(strcmp(cj_bridge_log_file(), "") == 0, "被拒之后仍未激活");
+
+        /* ③ 留底原 stderr fd（必须在接管之前取），然后开启：max 1KB、保留 2 份 */
+        saved_fd = dup(2);
+        LOG_CHECK(saved_fd >= 0, "留底原 stderr fd 成功");
+        LOG_CHECK(cj_bridge_set_log_file(path, 1, 2) == 1, "开启成功回 1（父目录缺失也按需建出来）");
+        LOG_CHECK(strcmp(cj_bridge_log_file(), path) == 0, "回读路径与传入一致");
+        LOG_CHECK(cj_bridge_set_log_file(path, 1, 2) == 0, "重复开启被拒（换了目标只能重启）");
+
+        /* ④ 开启后的诊断确实落在文件里 */
+        cj_logf("[bridge-core] after enable marker=alpha\n");
+        CHECK(1, "接管期间断言走 LOG_CHECK（失败行不会丢进日志文件）");
+        LOG_CHECK(cj_test_read_all(path, buf, sizeof(buf)) > 0, "日志文件有内容");
+        LOG_CHECK(strstr(buf, "[cj-bridge] log file: ") != NULL, "首行记录了日志路径与预算");
+        LOG_CHECK(strstr(buf, "marker=alpha") != NULL, "开启后的 cj_logf 落到文件");
+        LOG_CHECK(strstr(buf, "[2") != NULL, "落盘行带时间戳前缀（[YYYY-…)");
+        LOG_CHECK(strstr(buf, "probe before enable") == NULL, "开启之前的输出不会被追认进文件");
+
+        /* ⑤ 前端/插件通道：写一行 + NULL 拒绝 */
+        LOG_CHECK(cj_bridge_log_write(NULL) == -1, "log_write(NULL) 被拒");
+        LOG_CHECK(cj_bridge_log_write("[frontend] marker=beta") == 0, "log_write 回 0");
+        LOG_CHECK(cj_test_read_all(path, buf, sizeof(buf)) > 0 && strstr(buf, "marker=beta") != NULL,
+                  "log_write 的行也落在同一份文件");
+
+        /* ⑥ 轮转：1KB 预算下连写，档案要出现、keep 上限要守住 */
+        for (i = 0; i < 60; i++) cj_logf("[bridge-core] filler line %02d padding ................\n", i);
+        LOG_CHECK(cj_test_file_exists(archive1) != 0, "超预算后出现 log.1");
+        LOG_CHECK(cj_test_read_all(archive1, buf, sizeof(buf)) > 0, "log.1 有内容");
+        LOG_CHECK(cj_test_file_exists(archive2) != 0, "继续写出现 log.2");
+        LOG_CHECK(cj_test_file_exists(archive3) == 0, "keep=2 时不出现 log.3（上限守住）");
+        LOG_CHECK(cj_test_read_all(path, buf, sizeof(buf)) > 0 &&
+                  strstr(buf, "log rotated") != NULL, "轮转后当前文件仍继续写（有 rotated 行）");
+
+        /* ⑦ 还原 stderr：后续断言与收尾输出照常可见（顺带证明接管可逆） */
+        fflush(stderr);
+        dup2(saved_fd, 2);
+        close(saved_fd);
+        fprintf(stderr, "  - [bridge-core] stderr 已还原（日志用例期间的失败行如下，无输出即全过）\n");
+        if (g_log_fail_buf[0]) fprintf(stderr, "%s", g_log_fail_buf);
+        CHECK(cj_test_read_all(path, buf, sizeof(buf)) > 0, "还原后仍能读日志文件");
     }
 
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,

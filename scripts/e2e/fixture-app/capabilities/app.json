@@ -3,6 +3,7 @@
   "windows": ["main"],
   "commands": ["probe:echo", "system:version", "system:ping", "system:host",
                "clipboard:write", "clipboard:read",
-               "notification:notify", "serial:list"],
+               "notification:notify", "serial:list",
+               "log:write", "log:path"],
   "events": []
 }

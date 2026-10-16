@@ -519,4 +519,36 @@ CJ_BRIDGE_API int cj_bridge_notification_notify(cj_host *h, const char *title, c
 int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
                                 char *err, int err_len);
 
+/* =========================================================================
+ *  日志落盘（RFC-003 第 5 期）：把 stderr 接管到文件，给「没有控制台」的产物留凭证
+ *
+ *  为什么在 fd 层接管：单文件产物是 Windows GUI 子系统，双击时 stderr 无处可去；
+ *  而诊断输出分布在 core、平台实现与仓颉侧上百处。解 `freopen` 一次，**所有** stderr
+ *  写者自动落进同一个 FILE*（顺序天然一致），两端调用点一处都不用改。stdout 一律不碰
+ *  （`CJ_TAURI_MANIFEST` 的插件清单走 stdout）。
+ * ========================================================================= */
+
+/* 开启日志落盘：path 非空且可写时返回 1，否则返回 0 并在**还在的** stderr 上说明原因。
+   max_kb ≤ 0 表示不轮转（交给外部 logrotate）；keep = 保留几份档案（log.1 … log.keep），
+   ≤0 表示轮转时直接丢弃旧内容。**只能在第一条日志之前调**——已开启后重复调用返回 0
+   （stderr 已经被接管，换不了目标；想换就重启应用换参数）。 */
+CJ_BRIDGE_API int cj_bridge_set_log_file(const char *path, int max_kb, int keep);
+
+/* 回读生效中的日志路径；未开启返回空串。供 system:host 如实上报。 */
+CJ_BRIDGE_API const char *cj_bridge_log_file(void);
+
+/* 追加一行调用方提供的日志（同样走轮转；用于 log 插件把前端报错并进同一份文件）。
+   返回 0 = 已写入（或未开启但已落 stderr），-1 = 参数非法。 */
+CJ_BRIDGE_API int cj_bridge_log_write(const char *line);
+
+/* core 内的诊断输出统一走它：**未开启落盘时逐字节等同 `fprintf(stderr, …)`**
+   （现有 E2E needle 与 `[cj-bridge]` 前缀断言因此一条都不受影响）；开启后才加
+   `[YYYY-MM-DD HH:MM:SS] ` 前缀并按大小轮转。 */
+void cj_core_logf(const char *fmt, ...)
+#if defined(__GNUC__)
+    __attribute__((format(printf, 1, 2)))
+#endif
+    ;
+#define cj_logf(...) cj_core_logf(__VA_ARGS__)
+
 #endif /* CJ_BRIDGE_CORE_H */

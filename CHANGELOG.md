@@ -11,6 +11,18 @@
 
 ### Added
 
+- **日志落盘：GUI 单文件产物终于有了「双击也能拿到凭证」的出口（RFC-003 第 5 期）**：
+  `TauriApp.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(appName)` 在 `start()` 之前开日志，
+  仓颉侧 `eprintln`、C 桥与平台实现的诊断全落进**同一份文件**——接管发生在 **fd 级**，两侧上百处调用点
+  一处都没改；另有 `CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 三个环境变量兜底，
+  已经分发出去的 exe 改不了代码，报障时带一个变量重启就能取证。超预算轮转 `.1` … `.keep`
+  （**先拷贝再截断**，不 rename 打开中的文件，两平台同一套代码）；`system:host` 增 `logFile` 字段回读
+  生效路径（空串＝未开）；**不新设能力位**（恒为真的位没有信息量），也不做按级别过滤（接管对所有
+  stderr 写者一视同仁）。配套 `log` 插件（`log:write` / `log:path` + `log:default` 权限集）让页面
+  `window.onerror` 也并进同一份文件。桩自检 214 项 + 框架单测 267 项全绿；Linux 实机 E2E 两轮 8 条断言
+  （`dist/e2e-evidence/linux-logfile.json`、`linux-logfile-rotate.json`）。Windows 侧本轮只保证共享层与
+  桩自检通过——**没有实机就写没有**。
+
 - **新增《仓颉版串口调试助手开发记》**（`docs/仓颉版串口调试助手-开发记.md`）：这个示例的来路、
   串口与网络两条链路各自怎么落（枚举/参数面板/轮询收 vs 一个命令三种模式）、探针自检 11 步与
   「对端进程说的才算数」的取证方式，以及 Windows 实机上那处**串口读超时失效**的完整定位过程

@@ -154,6 +154,65 @@ libayatana-appindicator3 三方库，暂缓；Windows 侧本轮也未做，`tray
 ### 第 5 期起：Global Shortcut / Window State / Single Instance / Logging / HTTP 白名单
 
 按需求拉取排序；每项开工前在本文件补「实现要点 + 判据」两行，别只留名字。
+（Global Shortcut 已随剪贴板历史示例交付，见 `docs/需求追踪.md` PLG-010。）
+
+#### Logging（2026-10-15 开工）
+
+**为什么先做**：已经分发的单文件产物是 Windows 的 **GUI 子系统**——双击时没有控制台，stderr 无处可去，
+用户报障时拿不到任何凭证；而框架现在的诊断输出**全走 stderr**（C 侧 173 处 `fprintf(stderr, …)`、
+仓颉侧另有上百处）。补一个文件落地点，等于把「日志里没有错误行 ≠ 成功」这条纪律变成可交付的凭证；
+对托盘/常驻类应用（用户开着不动好几天）尤其如此。
+
+**实现要点**：
+
+- **接管的层级是 fd，不是调用点**：`freopen(path, "a", stderr)`——此后**所有** stderr 写者（C 桥 core、
+  平台实现、仓颉侧 `eprintln`）自动落进同一个 FILE*，顺序天然一致。这样两端上百处调用点**一处都不用改**，
+  Windows 平台文件也不必动（本项在 Linux 机器上做，改不动的文件就不该动）。
+  **stdout 一律不碰**：`CJ_TAURI_MANIFEST` 的插件清单走 stdout，`cj-tauri info` 靠它。
+- **core 侧只给「加时间戳 + 轮转检查点」改名**：`bridge_core.h` 提供 `cj_logf(fmt, …)`，把 **core 内**的
+  `fprintf(stderr, …)` 被调方机械改名（参数列表不变）。未开文件时逐字节照旧（现有 E2E needle、
+  `[cj-bridge]` 前缀断言全不受影响）；开了文件才在行首加 `[YYYY-MM-DD HH:MM:SS] `。
+  平台文件不动：它们照样落盘，只是没有时间戳——**这是有意的取舍**，不为一行时间戳去改本机编不了的文件。
+- **轮转要跨平台可做，所以不 rename 打开中的文件**：Windows 上 rename 一个还开着的文件会失败，
+  `freopen` 又没法「先关再开」地保住标准流。做法是**先流式拷贝再截断**：`fflush` → 把当前文件拷进
+  `log.1`（上限就是 `maxKB`，几百 KB 的拷贝可忽略）→ `log.1 → log.2` 这些**已关闭**的文件平移
+  （`keep` 决定保留份数）→ `freopen(path, "w", stderr)` 重开 → 写一行「已轮转」。
+  这样没有平台分支、不需要空设备名，桩自检也能直接测。
+- **轮转在写路径上判**（`fstat` 看真实大小），不是定时 tick：常驻应用不产生命令时也会轮转。
+- **开关显式、失败要说**：`cj_bridge_set_log_file(path, max_kb, keep)` 返回 1/0；打不开就把
+  `log file open failed: <path> (<errno>)` 打在**还在的** stderr 上并退回纯 stderr——不留
+  「我说我开了」的假状态（与「发后即忘返回 0 ≠ 发送成功」同一形状的坑）。
+  `cj_bridge_log_file()` 回读生效路径，供上报。
+- **前端走同一条出口**：`cj_bridge_log_write(const char* line)` 追加一行（同样轮转），`log` 插件用它；
+  页面 `window.onerror` 由此可并进同一份文件——单文件产物里「页面报错」原本也是看不见的。
+- **不新设能力位，改上报路径**：落盘在两平台都无条件可用（纯 libc），一个恒为真的位没有信息量；
+  真正要能回答的是「日志在哪」。`system:host` 增字段 `logFile`（空串＝未开）。
+- **不做按级别分流的开关**：接管发生在 **fd 级**、对所有 stderr 写者一视同仁，要按级别过滤就得先给
+  上百处调用点分类（core 43 处、平台侧另算、仓颉侧还有上百处），收益与改动量不成比例；本期的口径是
+  「要静音就整份不开（不设 `CJ_TAURI_LOG` / 不调 `setLogFile`），要取证就整份开」。级别表达留给
+  应用在自己那层做（业务日志自己带前缀，落盘后照样能 grep）。
+- **框架侧**：`TauriApp.setLogFile(path, maxKB, keep)` 在 `start()` 之前调，空路径＝关；默认目录按
+  `@When` 落平台惯例（Linux `$XDG_STATE_HOME` 或 `~/.local/state/cj-tauri/`，
+  Windows `%LOCALAPPDATA%\cj-tauri\logs\`）；另有 `CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` /
+  `CJ_TAURI_LOG_KEEP` 环境变量兜底——**免编译给已分发的 exe 开日志**，报障时一条命令就能拿到凭证。
+- `log` 插件（`src/plugins/log/`）：`log:write` / `log:path` + 权限集 `log:default` + JS shim。
+- 红线不变：零第三方依赖；轮转与开关全在 core，平台侧一行不改。
+
+**判据**：
+
+- **桩自检**（不依赖 SDK / 图形栈）：开文件后文件里含当轮日志；`max_kb` 调小后**确实出现 `log.1`**、
+  `log.1 → log.2` 平移且 `keep` 上限被遵守（多轮后只有 `keep` 份）；`cj_bridge_log_file()` 回读与传入一致；
+  打开失败（路径不可写）时返回 0 且 stderr 上一行 `log file open failed`；**关闭后文件不再增长**（对照组）。
+- **框架单测**：纯决策函数（`logPathOrDefault` / `logEnvOr` / `logBudgetFromEnv` / `defaultLogPath`）、
+  环境变量路径优先于平台惯例目录、`system:host` 带出 `logFile`。**真的开 fd 那一段单测碰不了**
+  （子包调不了 `foreign func`，AGENTS §4 会在链接期报未定义符号），所以那条线由桩自检与实机两处承担。
+- **实机（Linux/Xvfb）**：`scripts/e2e/test-linux-logfile.sh` 驱动 `scripts/e2e/fixture-app/` 探针，
+  两轮各出一份证据（`linux-logfile.json` / `linux-logfile-rotate.json`）——轮一预算 4 MB 验落盘 / 并流 / 增长
+  （接管行、C 桥调用行、探针页 `log:write` 行同在一份文件；行数两采样递增；多级父目录是按需建出来的）；
+  轮二预算 1 KB keep 2 验轮转（`.1`/`.2` 出现、`.3` 不出现、轮转标记行之后仍有新行、填充行随档案平移）。
+  **GUI 无控制台的等价场景**用比 `/dev/null` 更强的对照：应用起来前的启动段（壳那层继承来的 stderr）里
+  **不该**有前端诊断行，而日志文件里必须有——一句话同时钉住「接管生效」与「没接管时它本来在哪」。
+- Windows：本轮只保证 core 共享代码与桩自检通过；**没有实机就写没有**，不拿「同名实现」冒充跑通。
 
 ## 4. 架构红线（每期都适用）
 

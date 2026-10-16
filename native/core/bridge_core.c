@@ -6,7 +6,42 @@
  *   生命周期标志、以及**全部 cj_bridge_* 导出**（单一来源，两平台导出一致由此保证）。
  * 任何平台能力都经 cj_plat_*，本文件不 include 任何平台头。
  */
+/* 日志落盘要用 ftruncate / fileno 这些 POSIX 名，而桩自检是按 `-std=c99` 编译的，
+   该标准档位下它们默认被隐藏（表象是 implicit declaration 警告）。特性宏必须写在
+   任何 include 之前，否则不生效。 */
+#define _POSIX_C_SOURCE 200809L
+
 #include "bridge_core.h"
+
+/* 日志落盘要用到的 CRT 原语（RFC-003 第 5 期）。这是**编译器运行库**的名字差异，
+   不是平台实现差异——core 依旧不碰 pthread / windows.h / gtk 这些宿主头。 */
+#include <stdarg.h>
+#include <errno.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#include <direct.h>
+#define cj_log_open _open
+#define cj_log_dup2 _dup2
+#define cj_log_close _close
+#define cj_log_fileno _fileno
+#define cj_log_mkdir(path) _mkdir(path)
+#define cj_log_truncate(fd) _chsize((fd), 0)
+#define CJ_LOG_OFLAGS (_O_WRONLY | _O_CREAT | _O_APPEND)
+#define CJ_LOG_OMODE (_S_IREAD | _S_IWRITE)
+#else
+#include <unistd.h>
+#define cj_log_open open
+#define cj_log_dup2 dup2
+#define cj_log_close close
+#define cj_log_fileno fileno
+#define cj_log_mkdir(path) mkdir((path), 0755)
+#define cj_log_truncate(fd) ftruncate((fd), 0)
+#define CJ_LOG_OFLAGS (O_WRONLY | O_CREAT | O_APPEND)
+#define CJ_LOG_OMODE 0644
+#endif
 
 /* ===== 内部小工具 ===== */
 
@@ -39,7 +74,7 @@ static void cj_js_queue_free(cj_host *h) {
 cj_host *cj_bridge_create(void) {
     cj_host *h = (cj_host *)calloc(1, sizeof(cj_host));
     if (!h) {
-        fprintf(stderr, "[cj-bridge] create host failed: out of memory\n");
+        cj_logf("[cj-bridge] create host failed: out of memory\n");
         return NULL;
     }
     /* 默认与两平台原先的静态初值一致 */
@@ -55,10 +90,10 @@ cj_host *cj_bridge_create(void) {
         if (h->dlg_lock) cj_plat_sync_destroy(h->dlg_lock);
         if (h->clip_lock) cj_plat_sync_destroy(h->clip_lock);
         free(h);
-        fprintf(stderr, "[cj-bridge] create host failed: sync init failed\n");
+        cj_logf("[cj-bridge] create host failed: sync init failed\n");
         return NULL;
     }
-    fprintf(stderr, "[cj-bridge] host created: %p\n", (void *)h);
+    cj_logf("[cj-bridge] host created: %p\n", (void *)h);
     return h;
 }
 
@@ -68,7 +103,7 @@ void cj_bridge_destroy(cj_host *h) {
     /* 平台资源先走：COM 环境引用 / 模块句柄等（幂等）。返回 0＝宿主线程还在收尾，
        它可能仍在用 h（GTK/WebView2 回调的 user_data 就是它）——这时连句柄一起留着不释放。 */
     if (!cj_plat_fini(h)) {
-        fprintf(stderr, "[cj-bridge] destroy: host thread still running, handle kept\n");
+        cj_logf("[cj-bridge] destroy: host thread still running, handle kept\n");
         return;
     }
     if (h->js_lock) cj_plat_sync_destroy(h->js_lock);
@@ -87,7 +122,7 @@ void cj_bridge_destroy(cj_host *h) {
     free(h->init_scripts);
     free(h->pending_html);
     free(h->pending_url);
-    fprintf(stderr, "[cj-bridge] host destroyed: %p\n", (void *)h);
+    cj_logf("[cj-bridge] host destroyed: %p\n", (void *)h);
     free(h);
 }
 
@@ -98,7 +133,7 @@ void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d) {
     cj_plat_init(h); /* 平台一次性初始化（Windows 在这里装 COM vtbl 并打 init 日志） */
     /* 能力位：平台给静态事实（有没有菜单 / 托盘 / 拖放），core 只缓存——仓颉侧 system:host 如实上报 */
     h->capabilities = cj_plat_host_capabilities(h);
-    fprintf(stderr, "[cj-bridge] host capabilities: 0x%x (menu=%d tray=%d dragDrop=%d notify=%d hotkey=%d)\n",
+    cj_logf("[cj-bridge] host capabilities: 0x%x (menu=%d tray=%d dragDrop=%d notify=%d hotkey=%d)\n",
             (unsigned)h->capabilities,
             (h->capabilities & CJ_CAP_MENU) ? 1 : 0,
             (h->capabilities & CJ_CAP_TRAY) ? 1 : 0,
@@ -111,7 +146,7 @@ void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d) {
 
 void cj_bridge_set_window(cj_host *h, const char *title, int width, int height) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set window: title=%s size=%dx%d\n",
+    cj_logf("[cj-bridge] set window: title=%s size=%dx%d\n",
             title ? title : "(default)", width, height);
     free(h->win_title);
     h->win_title = NULL;
@@ -124,7 +159,7 @@ void cj_bridge_set_window(cj_host *h, const char *title, int width, int height) 
 
 void cj_bridge_set_icon(cj_host *h, const char *path) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set icon: path=%s\n", (path && path[0]) ? path : "(default)");
+    cj_logf("[cj-bridge] set icon: path=%s\n", (path && path[0]) ? path : "(default)");
     free(h->win_icon);
     h->win_icon = NULL;
     if (path && path[0]) {
@@ -135,7 +170,7 @@ void cj_bridge_set_icon(cj_host *h, const char *path) {
 void cj_bridge_set_devtools(cj_host *h, int enabled) {
     if (!h) return;
     h->devtools = enabled ? 1 : 0;
-    fprintf(stderr, "[cj-bridge] devtools %s\n", h->devtools ? "enabled" : "disabled");
+    cj_logf("[cj-bridge] devtools %s\n", h->devtools ? "enabled" : "disabled");
 }
 
 void cj_bridge_add_init_script(cj_host *h, const char *js) {
@@ -146,7 +181,7 @@ void cj_bridge_add_init_script(cj_host *h, const char *js) {
         int cap = h->init_script_cap ? h->init_script_cap * 2 : 4;
         char **grown = (char **)realloc(h->init_scripts, (size_t)cap * sizeof(char *));
         if (!grown) {
-            fprintf(stderr, "[cj-bridge] add init script failed: out of memory\n");
+            cj_logf("[cj-bridge] add init script failed: out of memory\n");
             return;
         }
         h->init_scripts = grown;
@@ -154,11 +189,11 @@ void cj_bridge_add_init_script(cj_host *h, const char *js) {
     }
     h->init_scripts[h->init_script_count] = cj_strdup(js);
     if (!h->init_scripts[h->init_script_count]) {
-        fprintf(stderr, "[cj-bridge] add init script failed: out of memory\n");
+        cj_logf("[cj-bridge] add init script failed: out of memory\n");
         return;
     }
     h->init_script_count++;
-    fprintf(stderr, "[cj-bridge] init script queued: %d bytes (total %d)\n",
+    cj_logf("[cj-bridge] init script queued: %d bytes (total %d)\n",
             (int)strlen(js), h->init_script_count);
 }
 
@@ -171,7 +206,7 @@ void cj_bridge_set_menu(cj_host *h, const char *wire) {
     for (p = wire; *p; p++) {
         if (*p == '\n') rows++;
     }
-    fprintf(stderr, "[cj-bridge] set menu: %d bytes, %d row(s)\n", (int)strlen(wire), rows);
+    cj_logf("[cj-bridge] set menu: %d bytes, %d row(s)\n", (int)strlen(wire), rows);
     free(h->pending_menu_text);
     h->pending_menu_text = cj_strdup(wire);
     /* 两头都要能用：未就绪时平台只记下（建窗时读 h->pending_menu_text），就绪后平台投到 UI 线程重建 */
@@ -180,7 +215,7 @@ void cj_bridge_set_menu(cj_host *h, const char *wire) {
 
 void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
     if (!h || !id || !id[0]) return;
-    fprintf(stderr, "[cj-bridge] set menu item: id=%s enabled=%d checked=%d\n",
+    cj_logf("[cj-bridge] set menu item: id=%s enabled=%d checked=%d\n",
             id, enabled ? 1 : 0, checked ? 1 : 0);
     cj_plat_menu_item_state(h, id, enabled ? 1 : 0, checked ? 1 : 0);
 }
@@ -189,7 +224,7 @@ void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int 
 
 void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set drag drop: enabled=%d files=%d\n",
+    cj_logf("[cj-bridge] set drag drop: enabled=%d files=%d\n",
             enabled ? 1 : 0, files ? 1 : 0);
     h->pending_drop_enabled = enabled ? 1 : 0;
     h->pending_drop_files = files ? 1 : 0;
@@ -202,7 +237,7 @@ void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files) {
 
 void cj_bridge_set_global_hotkeys(cj_host *h, const char *wire) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set global hotkeys: %s\n",
+    cj_logf("[cj-bridge] set global hotkeys: %s\n",
             (wire && wire[0]) ? wire : "(none)");
     free(h->pending_hotkeys);
     h->pending_hotkeys = cj_strdup(wire ? wire : "");
@@ -215,7 +250,7 @@ void cj_bridge_set_global_hotkeys(cj_host *h, const char *wire) {
 
 void cj_bridge_set_tray(cj_host *h, const char *wire) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set tray: %d bytes\n",
+    cj_logf("[cj-bridge] set tray: %d bytes\n",
             (int)(wire ? strlen(wire) : 0));
     free(h->pending_tray);
     h->pending_tray = cj_strdup(wire ? wire : "");
@@ -228,7 +263,7 @@ void cj_bridge_set_tray(cj_host *h, const char *wire) {
 
 void cj_bridge_set_window_visible(cj_host *h, int visible) {
     if (!h) return;
-    fprintf(stderr, "[cj-bridge] set window visible: %d\n", visible ? 1 : 0);
+    cj_logf("[cj-bridge] set window visible: %d\n", visible ? 1 : 0);
     h->win_visible = visible ? 1 : 0;
     /* 两头都能用：**未就绪时到此为止**——平台建窗时读 h->win_visible 定稿（建窗那一刻就定下来，
        比「先显示再藏起来」少一次闪烁）；就绪后平台投 UI 线程执行。 */
@@ -240,7 +275,7 @@ void cj_bridge_set_window_visible(cj_host *h, int visible) {
 void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled) {
     if (!h) return;
     h->minimize_to_tray = enabled ? 1 : 0;
-    fprintf(stderr, "[cj-bridge] set minimize to tray: %d\n", h->minimize_to_tray);
+    cj_logf("[cj-bridge] set minimize to tray: %d\n", h->minimize_to_tray);
     /* 这里只记 + 转给平台，**不**在此刻查能力位：能力位（cj_plat_init）与「应用有没有真的 setTray」
        的先后顺序不稳定，提前拒绝会误伤。策略在**真要最小化那一刻**由平台复核托盘是否装上了。 */
     cj_plat_set_minimize_to_tray(h, h->minimize_to_tray);
@@ -360,16 +395,16 @@ int cj_core_clipboard_tick(cj_host *h, int is_write, char *text) {
     if (is_write) {
         ok = (cj_plat_clipboard_write_text(h, text ? text : "", NULL, 0) == 0);
         if (ok) {
-            fprintf(stderr, "[cj-bridge] clipboard write: %d bytes\n",
+            cj_logf("[cj-bridge] clipboard write: %d bytes\n",
                     text ? (int)strlen(text) : 0);
         } else {
-            fprintf(stderr, "[cj-bridge] clipboard write failed\n");
+            cj_logf("[cj-bridge] clipboard write failed\n");
         }
         free(text);
     } else {
         readback = cj_plat_clipboard_read_text(h, NULL, 0);
         ok = 1; /* 读失败按「空结果」处理：NULL 是合法回值（剪贴板为空/非文本）*/
-        fprintf(stderr, "[cj-bridge] clipboard read: %s\n",
+        cj_logf("[cj-bridge] clipboard read: %s\n",
                 readback ? "got text" : "empty");
     }
 
@@ -488,7 +523,7 @@ int cj_bridge_clipboard_write_text(cj_host *h, const char *text) {
     }
     len = strlen(text);
     if (len >= (8u << 20)) {
-        fprintf(stderr, "[cj-bridge] clipboard write rejected: %zu bytes exceeds 8 MiB limit\n", len);
+        cj_logf("[cj-bridge] clipboard write rejected: %zu bytes exceeds 8 MiB limit\n", len);
         return -1;
     }
     copy = (char *)malloc(len + 1);
@@ -531,7 +566,7 @@ static void note_idle(void *d) {
     note_call *c = (note_call *)d;
     if (c) {
         int ok = cj_plat_notification_notify(c->h, c->title, c->body, NULL, 0) == 0;
-        fprintf(stderr, "[cj-bridge] notification: title=%d bytes -> %s\n",
+        cj_logf("[cj-bridge] notification: title=%d bytes -> %s\n",
                 c->title ? (int)strlen(c->title) : 0, ok ? "sent" : "failed");
         free(c->title);
         free(c->body);
@@ -550,7 +585,7 @@ int cj_bridge_notification_notify(cj_host *h, const char *title, const char *bod
     t_len = strlen(title);
     b_len = body ? strlen(body) : 0;
     if (t_len > 256 || b_len > (8u << 10)) {
-        fprintf(stderr, "[cj-bridge] notification rejected: title=%zu (<=256) body=%zu (<=8192)\n",
+        cj_logf("[cj-bridge] notification rejected: title=%zu (<=256) body=%zu (<=8192)\n",
                 t_len, b_len);
         return -1;
     }
@@ -560,7 +595,7 @@ int cj_bridge_notification_notify(cj_host *h, const char *title, const char *bod
     /* 平台没声明通知能力（如 Windows 桩阶段）就当场拒绝，别走「发后即忘」：
        那条路径投递成功就返回 0，UI 线程实际的失败没人带回命令层——桩会被读成成功。 */
     if (!(h->capabilities & CJ_CAP_NOTIFICATION)) {
-        fprintf(stderr, "[cj-bridge] notification rejected: platform does not declare CJ_CAP_NOTIFICATION\n");
+        cj_logf("[cj-bridge] notification rejected: platform does not declare CJ_CAP_NOTIFICATION\n");
         return -4;
     }
     t_copy = (char *)malloc(t_len + 1);
@@ -580,7 +615,7 @@ int cj_bridge_notification_notify(cj_host *h, const char *title, const char *bod
     }
     if (cj_plat_is_ui_thread(h)) {
         int ok = cj_plat_notification_notify(h, t_copy, b_copy, NULL, 0) == 0;
-        fprintf(stderr, "[cj-bridge] notification: title=%d bytes -> %s\n",
+        cj_logf("[cj-bridge] notification: title=%d bytes -> %s\n",
                 (int)t_len, ok ? "sent" : "failed");
         free(t_copy);
         free(b_copy);
@@ -693,7 +728,7 @@ void cj_core_menu_clicked(cj_host *h, const char *id, int enabled, int checked) 
     if (!id || !id[0]) {
         return; /* 没有 id 就没有「被点的项」（分隔线与子菜单不会走到这里）*/
     }
-    fprintf(stderr, "[cj-bridge] menu clicked: id=%s enabled=%d checked=%d\n",
+    cj_logf("[cj-bridge] menu clicked: id=%s enabled=%d checked=%d\n",
             id, enabled ? 1 : 0, checked ? 1 : 0);
     if (!h->on_shell) {
         return; /* 未注册回调：上面那行日志已经落盘，够诊断了 */
@@ -715,7 +750,7 @@ void cj_core_hotkey_pressed(cj_host *h, const char *id) {
     if (!id || !id[0]) {
         return; /* 没有 id 的触发无法路由，直接丢弃（平台侧不该产生） */
     }
-    fprintf(stderr, "[cj-bridge] hotkey pressed: id=%s\n", id);
+    cj_logf("[cj-bridge] hotkey pressed: id=%s\n", id);
     if (!h->on_shell) {
         return; /* 未注册回调：上面那行日志已经落盘，够诊断了 */
     }
@@ -732,7 +767,7 @@ void cj_core_tray_clicked(cj_host *h, const char *id) {
     if (!id || !id[0]) {
         return; /* 没有 id 的点击无法路由（托盘图标本体点击不带 id，平台侧自行决定语义） */
     }
-    fprintf(stderr, "[cj-bridge] tray clicked: id=%s\n", id);
+    cj_logf("[cj-bridge] tray clicked: id=%s\n", id);
     if (!h->on_shell) {
         return;
     }
@@ -812,7 +847,7 @@ void cj_core_drop_files(cj_host *h, const char *uri_list) {
         n = drop_uri_to_path(uri, paths[count], DROP_MAX_PATH_SZ);
         if (n < 0) {
             dropped++;
-            fprintf(stderr, "[cj-bridge] drop: path too long, dropped: %.60s...\n", uri);
+            cj_logf("[cj-bridge] drop: path too long, dropped: %.60s...\n", uri);
             continue;
         }
         count++;
@@ -826,7 +861,7 @@ void cj_core_drop_files(cj_host *h, const char *uri_list) {
         }
     }
 
-    fprintf(stderr, "[cj-bridge] drop: paths=%d first=%.80s%s\n",
+    cj_logf("[cj-bridge] drop: paths=%d first=%.80s%s\n",
             count, count > 0 ? paths[0] : "",
             dropped > 0 ? " (some dropped)" : "");
     if (!h->on_shell || count == 0) {
@@ -965,10 +1000,10 @@ static void cj_dlg_req_free(dlg_req *r) {
 
 static void cj_dlg_log_closed(const dlg_req *r) {
     if (r->kind == 0 || r->kind == 1) { /* 文件类才有路径 */
-        fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d path=%s\n",
+        cj_logf("[cj-bridge] dialog closed: kind=%d ok=%d path=%s\n",
                 r->kind, r->ok, r->path ? r->path : "(none)");
     } else {
-        fprintf(stderr, "[cj-bridge] dialog closed: kind=%d ok=%d\n", r->kind, r->ok);
+        cj_logf("[cj-bridge] dialog closed: kind=%d ok=%d\n", r->kind, r->ok);
     }
 }
 
@@ -998,14 +1033,14 @@ int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
 
     if (!h) return 0;
     if (!h->ready) { /* 没有窗口就没有父窗口，模态对话框无处安放 */
-        fprintf(stderr, "[cj-bridge] dialog ignored: host not ready\n");
+        cj_logf("[cj-bridge] dialog ignored: host not ready\n");
         return 0;
     }
 
     cj_plat_sync_lock(h->dlg_lock);
     if (h->dlg_busy) {
         cj_plat_sync_unlock(h->dlg_lock);
-        fprintf(stderr, "[cj-bridge] dialog rejected: another dialog is open\n");
+        cj_logf("[cj-bridge] dialog rejected: another dialog is open\n");
         return 0;
     }
     h->dlg_busy = 1;
@@ -1016,7 +1051,7 @@ int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
        直接弹。这里**不能**走「投递 + 阻塞等待」——等待的事件得由 UI 线程处理，而 UI 线程正卡在这次调用里，
        等于自己把自己锁死。 */
     if (cj_plat_is_ui_thread(h)) {
-        fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s (caller on ui thread)\n",
+        cj_logf("[cj-bridge] dialog: kind=%d title=%s (caller on ui thread)\n",
                 kind, title ? title : "");
         r = cj_dlg_req_new(kind, title, message, filter);
         if (!r) {
@@ -1045,7 +1080,7 @@ int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
         cj_plat_sync_unlock(h->dlg_lock);
         return 0;
     }
-    fprintf(stderr, "[cj-bridge] dialog: kind=%d title=%s\n", kind, r->title);
+    cj_logf("[cj-bridge] dialog: kind=%d title=%s\n", kind, r->title);
     cj_plat_sync_lock(h->dlg_lock);
     h->dlg_cur = r;
     cj_plat_sync_unlock(h->dlg_lock);
@@ -1193,11 +1228,11 @@ long long cj_bridge_serial_open(const char *path, int baud, int data_bits, int p
     if (h <= 0) {
         cj_serial_err_set(err[0] ? err : "serial: 平台打开失败");
         /* 失败也留一行：串口问题多半要拿 stderr 对账（AGENTS §1 的取证口径）*/
-        fprintf(stderr, "[cj-bridge] serial open failed: path=%s baud=%d code=%lld (%s)\n",
+        cj_logf("[cj-bridge] serial open failed: path=%s baud=%d code=%lld (%s)\n",
                 path, baud, h, g_serial_err);
         return h < 0 ? h : -3;
     }
-    fprintf(stderr, "[cj-bridge] serial open: handle=%lld path=%s baud=%d data=%d parity=%d stop=%d\n",
+    cj_logf("[cj-bridge] serial open: handle=%lld path=%s baud=%d data=%d parity=%d stop=%d\n",
             h, path, baud, data_bits, parity, stop_bits);
     return h;
 }
@@ -1216,7 +1251,7 @@ int cj_bridge_serial_read(long long h, unsigned char *buf, int len, int timeout_
     n = cj_plat_serial_read(h, buf, len, timeout_ms, err, (int)sizeof(err));
     if (n < 0) {
         cj_serial_err_set(err[0] ? err : "serial: 读失败");
-        fprintf(stderr, "[cj-bridge] serial read failed: handle=%lld (%s)\n", h, g_serial_err);
+        cj_logf("[cj-bridge] serial read failed: handle=%lld (%s)\n", h, g_serial_err);
     }
     return n;
 }
@@ -1235,7 +1270,7 @@ int cj_bridge_serial_write(long long h, const unsigned char *buf, int len, int t
     n = cj_plat_serial_write(h, buf, len, timeout_ms, err, (int)sizeof(err));
     if (n < 0) {
         cj_serial_err_set(err[0] ? err : "serial: 写失败");
-        fprintf(stderr, "[cj-bridge] serial write failed: handle=%lld (%s)\n", h, g_serial_err);
+        cj_logf("[cj-bridge] serial write failed: handle=%lld (%s)\n", h, g_serial_err);
     }
     return n;
 }
@@ -1255,7 +1290,7 @@ int cj_bridge_serial_close(long long h) {
         cj_serial_err_set(err[0] ? err : "serial: 关句柄失败");
         return rc < 0 ? rc : -4;
     }
-    fprintf(stderr, "[cj-bridge] serial close: handle=%lld\n", h);
+    cj_logf("[cj-bridge] serial close: handle=%lld\n", h);
     return 0;
 }
 
@@ -1270,4 +1305,212 @@ int cj_bridge_serial_list(char *out, int out_len) {
     }
     out[0] = '\0';
     return cj_plat_serial_list(out, out_len); /* 负码原样交回（-4 = 本平台未实现） */
+}
+
+/* =========================================================================
+ *  日志落盘（RFC-003 第 5 期）
+ *
+ *  为什么在 fd 层接管：单文件产物是 Windows GUI 子系统，双击时 stderr 无处可去，而
+ *  诊断输出分布在 core、平台实现与仓颉侧上百处。把 fd 2 指向日志文件，**所有** stderr
+ *  写者自动落进同一个 FILE*（顺序天然一致），两端调用点一处都不用改；stdout 不碰。
+ *  为什么用 `dup2` 而不是 `freopen`：`freopen` 失败会**把 stderr 关掉**，那就连失败原因
+ *  都没地方写了；`dup2` 只在 open 成功后才动 fd 2，失败路径 stderr 完好。
+ *  为什么轮转不 rename 打开中的文件：Windows 上 rename 一个还开着的文件会失败。
+ *  做法是「先拷贝再截断」——把当前内容拷进 `log.1`，已关闭的档案 `.1 → .2` 平移
+ *  （`keep` 决定份数），最后 `_chsize` / `ftruncate` 把当前文件清零。这样无平台分支、
+ *  无空设备名，桩自检也能直接测。
+ * ========================================================================= */
+
+#define CJ_LOG_PATH_MAX 1024
+#define CJ_LOG_LINE_SLACK 256 /* 每行预留，免得刚好压线时写到 max 之上 */
+
+static char g_log_path[CJ_LOG_PATH_MAX];
+static int g_log_active = 0;
+static long g_log_max = 0; /* 字节；0 = 不轮转（交给外部 logrotate） */
+static long g_log_keep = 0;
+static volatile int g_log_rotating = 0;
+
+/* 轮转互斥：只用编译器内建原子，core 不引平台同步设施（命令 worker 线程也会走到这里）。
+   抢不到就当「这一行不轮转」，不阻塞调用方。 */
+static int cj_log_lock(void) {
+    return __sync_lock_test_and_set(&g_log_rotating, 1) == 0;
+}
+static void cj_log_unlock(void) {
+    __sync_lock_release(&g_log_rotating);
+}
+
+/* 时间戳：localtime 的静态缓冲可能被别的线程踩，取回来立刻拷进本地副本。 */
+static void cj_log_prefix(void) {
+    time_t now = time(NULL);
+    struct tm tmv;
+    const struct tm *p = localtime(&now);
+    char buf[40];
+    size_t n;
+
+    if (!p) return;
+    tmv = *p;
+    n = strftime(buf, sizeof(buf), "[%Y-%m-%d %H:%M:%S] ", &tmv);
+    if (n > 0) fwrite(buf, 1, n, stderr);
+}
+
+/* 真实大小以文件为准（不自己记数：平台与仓颉侧也在往同一个文件写）。 */
+static long cj_log_size(void) {
+    struct stat st;
+
+    if (!g_log_path[0]) return 0;
+    fflush(stderr);
+    if (stat(g_log_path, &st) != 0) return 0;
+    return (long)st.st_size;
+}
+
+/* 当前文件整份拷进 `<path>.<n>`（Windows 上不能 rename 打开中的文件，只能拷贝）。 */
+static void cj_log_copy_archive(long n) {
+    FILE *in;
+    FILE *out;
+    char dst[CJ_LOG_PATH_MAX + 24];
+    char buf[8192];
+    size_t got;
+    long written = 0;
+
+    snprintf(dst, sizeof(dst), "%s.%ld", g_log_path, n);
+    in = fopen(g_log_path, "rb");
+    if (!in) return;
+    out = fopen(dst, "wb");
+    if (!out) {
+        fclose(in);
+        return;
+    }
+    while ((got = fread(buf, 1, sizeof(buf), in)) > 0) {
+        if (g_log_max > 0) {
+            /* 档案不超过预算，免得轮转频繁时档案总占用翻倍 */
+            if (written + (long)got > g_log_max) got = (size_t)(g_log_max - written);
+            if ((long)got <= 0) break;
+        }
+        if (fwrite(buf, 1, got, out) != got) break;
+        written += (long)got;
+    }
+    fclose(out);
+    fclose(in);
+}
+
+/* 已关闭的档案平移：`.keep-1 → .keep` … `.1 → .2`（最老那份先删，Windows 上 rename
+   到已存在的文件会失败）。keep ≤ 0 时不动档案，轮转只截断。 */
+static void cj_log_shift(void) {
+    long i;
+    char from[CJ_LOG_PATH_MAX + 24];
+    char to[CJ_LOG_PATH_MAX + 24];
+
+    if (g_log_keep <= 0) return;
+    snprintf(to, sizeof(to), "%s.%ld", g_log_path, g_log_keep);
+    remove(to);
+    for (i = g_log_keep - 1; i >= 1; i--) {
+        snprintf(from, sizeof(from), "%s.%ld", g_log_path, i);
+        snprintf(to, sizeof(to), "%s.%ld", g_log_path, i + 1);
+        rename(from, to); /* 不存在就静默跳过 */
+    }
+}
+
+static int cj_log_rotate(void) {
+    if (!g_log_active) return 0;
+    if (!cj_log_lock()) return 0; /* 别人正在轮转：这一行让给下一轮 */
+    if (g_log_keep > 0) {
+        cj_log_shift();
+        cj_log_copy_archive(1);
+    }
+    fflush(stderr);
+    if (cj_log_truncate(cj_log_fileno(stderr)) != 0) {
+        /* 截断失败（有的文件系统不给改长度）：如实说一句，别假装轮转过 */
+        fprintf(stderr, "[cj-bridge] log rotate failed: truncate errno=%d\n", errno);
+    }
+    fprintf(stderr, "[cj-bridge] log rotated: keep=%ld archive=%s.1\n", g_log_keep, g_log_path);
+    cj_log_unlock();
+    return 1;
+}
+
+void cj_core_logf(const char *fmt, ...) {
+    va_list ap;
+
+    if (g_log_active) {
+        if (g_log_max > 0 && cj_log_size() + CJ_LOG_LINE_SLACK >= g_log_max) cj_log_rotate();
+        cj_log_prefix();
+    }
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    if (g_log_active) fflush(stderr); /* 每行即时落盘：进程被强杀也不丢 */
+}
+
+/* 父目录不在就逐个建出来：默认目录（`~/.local/state/cj-tauri/` 这类）常常还不存在。
+   建目录失败不在这里报——紧接着的 open 会带 errno 如实说，少一条重复的日志。 */
+static void cj_log_ensure_dirs(const char *path) {
+    char buf[CJ_LOG_PATH_MAX];
+    size_t i;
+    size_t n = strlen(path);
+
+    if (n == 0 || n >= sizeof(buf)) return;
+    memcpy(buf, path, n + 1);
+    for (i = 1; i < n; i++) {
+        char sep;
+        if (buf[i] != '/' && buf[i] != '\\') continue;
+        sep = buf[i];
+        buf[i] = '\0';
+        /* 跳过盘符（`C:`）与别名的根：它们建不了也不需要建 */
+        if (!(i == 2 && buf[1] == ':')) cj_log_mkdir(buf);
+        buf[i] = sep;
+    }
+}
+
+CJ_BRIDGE_API int cj_bridge_set_log_file(const char *path, int max_kb, int keep) {
+    int fd;
+
+    if (g_log_active) {
+        fprintf(stderr, "[cj-bridge] log file already active: %s (restart to change)\n", g_log_path);
+        return 0;
+    }
+    if (!path || !path[0]) {
+        fprintf(stderr, "[cj-bridge] log file refused: empty path\n");
+        return 0;
+    }
+    if (strlen(path) >= CJ_LOG_PATH_MAX) {
+        fprintf(stderr, "[cj-bridge] log file refused: path too long\n");
+        return 0;
+    }
+    /* 先 open 成功再动 fd 2：失败时 stderr 完好，失败原因才有人看得见 */
+    fd = cj_log_open(path, CJ_LOG_OFLAGS, CJ_LOG_OMODE);
+    if (fd < 0 && errno == ENOENT) {
+        /* 只有「父目录根本不存在」才顺手建出来（默认目录 `~/.local/state/cj-tauri` 常常还不存在）。
+           别的 errno（没权限、路径中间穿了普通文件、名字太长）一律原样失败——
+           照着一个开不了的路径去建目录，等于把一次手滑变成磁盘上的垃圾。 */
+        cj_log_ensure_dirs(path);
+        fd = cj_log_open(path, CJ_LOG_OFLAGS, CJ_LOG_OMODE);
+    }
+    if (fd < 0) {
+        fprintf(stderr, "[cj-bridge] log file open failed: %s (errno=%d)\n", path, errno);
+        return 0;
+    }
+    if (fd != 2) {
+        if (cj_log_dup2(fd, 2) < 0) {
+            fprintf(stderr, "[cj-bridge] log file open failed: %s (dup2 errno=%d)\n", path, errno);
+            cj_log_close(fd);
+            return 0;
+        }
+        cj_log_close(fd);
+    }
+    snprintf(g_log_path, sizeof(g_log_path), "%s", path);
+    g_log_max = max_kb > 0 ? (long)max_kb * 1024L : 0;
+    g_log_keep = keep > 0 ? (long)keep : 0;
+    g_log_active = 1;
+    /* 第一行就落在新文件里：开了、开在哪、预算多少，都能自查 */
+    cj_logf("[cj-bridge] log file: %s (max=%ldKB keep=%ld)\n", g_log_path, g_log_max / 1024, g_log_keep);
+    return 1;
+}
+
+CJ_BRIDGE_API const char *cj_bridge_log_file(void) {
+    return g_log_active ? g_log_path : "";
+}
+
+CJ_BRIDGE_API int cj_bridge_log_write(const char *line) {
+    if (!line) return -1;
+    cj_logf("%s\n", line);
+    return 0;
 }

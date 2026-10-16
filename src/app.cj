@@ -245,6 +245,44 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 开启日志落盘（RFC-003 第 5 期）
+     *
+     * 单文件产物是 Windows 的 GUI 子系统、双击时没有控制台，stderr 无处可去——开了它，C 桥与
+     * 仓颉侧**两侧**的诊断都落到这一个文件（`system:host` 的 `logFile` 回读生效路径）。
+     * **越早调越好**（宿主的装配期日志比 `run()` 还早）：最晚在 `run()` / `runUrl()` 之前。
+     * 超预算按份轮转（`log.1` … `log.keep`）；不调用 = 不落盘，行为与之前完全一致。
+     * `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可覆盖这里的预算——报障时让用户改环境变量，
+     * 不必动代码。被拒（路径打不开 / 已激活）时桥打一行 stderr 并**保持不落盘**，这里不假装成功。
+     */
+    public func setLogFile(path: String): TauriApp {
+        return this.setLogFile(path, CJ_LOG_DEFAULT_MAX_KB, CJ_LOG_DEFAULT_KEEP)
+    }
+
+    /** 显式给预算的版本（仓颉没有默认参数值，所以拆成两个重载） */
+    public func setLogFile(path: String, maxKB: Int64, keep: Int64): TauriApp {
+        let kb = logBudgetFromEnv("CJ_TAURI_LOG_MAX_KB", maxKB)
+        let kp = logBudgetFromEnv("CJ_TAURI_LOG_KEEP", keep)
+        let _ = enableLogFile(path, kb, kp) // 成败都由桥出声：成功落文件、被拒落 stderr
+        return this
+    }
+
+    /**
+     * 落到平台惯例目录的日志文件（`appName` 作文件名）
+     *
+     * Linux `$XDG_STATE_HOME/cj-tauri/<app>.log`（缺省 `~/.local/state/…`）、
+     * Windows `%LOCALAPPDATA%\cj-tauri\logs\<app>.log`；`CJ_TAURI_LOG` 给了路径时优先用它——
+     * 报障的人只需带一个环境变量启动，不必知道平台目录在哪（也不受应用是否设过名字影响）。
+     */
+    public func setLogToDefaultFile(appName: String): TauriApp {
+        return this.setLogToDefaultFile(appName, CJ_LOG_DEFAULT_MAX_KB, CJ_LOG_DEFAULT_KEEP)
+    }
+
+    /** 显式给预算的版本（同上，重载而非默认参数） */
+    public func setLogToDefaultFile(appName: String, maxKB: Int64, keep: Int64): TauriApp {
+        return this.setLogFile(logPathOrDefault(logEnvOr("CJ_TAURI_LOG", ""), appName), maxKB, keep)
+    }
+
+    /**
      * 显示 / 隐藏**默认窗口**（对标 Tauri 2 的 `window.show()` / `window.hide()`）
      *
      * 典型用途是「最小化到托盘」的还原路径：托盘菜单项或全局快捷键触发时 `setWindowVisible(true)`。
@@ -562,6 +600,16 @@ public class TauriApp <: AppHost {
             throw CommandException("app already started")
         }
         this.started = true
+
+        // 环境变量兜底（RFC-003 第 5 期）：应用没显式开日志时，`CJ_TAURI_LOG` 仍能把它开起来——
+        // 已经分发出去的 exe 改不了代码，报障时靠这一个变量拿凭证。放在装配的最早处，
+        // 让宿主与插件的启动期日志都赶得上；不设这个变量 = 一行不动，行为与之前完全一致。
+        if (currentLogFilePath().size == 0) {
+            let envPath = logEnvOr("CJ_TAURI_LOG", "")
+            if (envPath.size > 0) {
+                let _ = this.setLogFile(envPath)
+            }
+        }
 
         // 注入内置系统命令
         this.hub.register("system:version", SystemCommands())

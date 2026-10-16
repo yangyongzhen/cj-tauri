@@ -30,9 +30,10 @@ waitForBridge(function () {
   var t = window.__CJ_TAURI__;
   var lines = [];
   var done = 0;
-  var TOTAL = 7;
-  // 一轮往返 = 7 条命令（version / ping / 未授权 devtools / host 能力位 /
-  // clipboard 写读回环 / notification 桩如实拒绝 / serial 枚举）；全部回齐后整体回投。
+  var TOTAL = 9;
+  // 一轮往返 = 9 条命令（version / ping / 未授权 devtools / host 能力位 /
+  // clipboard 写读回环 / notification 桩如实拒绝 / serial 枚举 /
+  // log:path 回读 / log:write 前端诊断落盘）；全部回齐后整体回投。
   function finish() {
     done++;
     if (done < TOTAL) { render(lines); return; }
@@ -92,6 +93,29 @@ waitForBridge(function () {
     lines.push('serial:list ports=' + n);
     finish();
   }).catch(function (e) { lines.push('serial FAIL: ' + e.message); finish(); });
+
+  // 日志落盘（RFC-003 第 5 期）：本工程不显式开日志，路径由 CJ_TAURI_LOG 兜底给。
+  // 回读到的路径随标记行一起写回日志：这样 log:path 的返回值也成了**落盘的凭证**，
+  // 不依赖页面最后那条聚合行（聚合行要等九条探针全落定，其中一条在无通知守护的
+  // Xvfb 下可能挂住——那是探针工程自己的事，不该拖住日志这条链路的取证）。
+  // 之后用小预算（CJ_TAURI_LOG_MAX_KB=1）压轮转：连写 25 行 ~100 字节的填充，够翻两轮档案。
+  var pad = 'pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp';
+  function fillerBurst(n, acc) {
+    if (n <= 0) { return Promise.resolve(acc); }
+    return t.invoke('log:write', { line: '[frontend] e2e filler ' + n + ' ' + pad }).then(function (ok) {
+      return fillerBurst(n - 1, acc + (ok ? 1 : 0));
+    });
+  }
+  t.invoke('log:path').then(function (p) {
+    lines.push('log:path=' + (p ? p : '(off)'));
+    return t.invoke('log:write', { line: '[frontend] e2e probe marker=gamma path=' + (p ? p : '(off)') });
+  }).then(function (ok) {
+    var marker = ok ? 'OK' : 'OFF';
+    return fillerBurst(25, 0).then(function (written) {
+      lines.push('log:write=' + marker + ' filler=' + written);
+      finish();
+    });
+  }).catch(function (e) { lines.push('log FAIL: ' + e.message); finish(); });
 });
 </script>
 </body>

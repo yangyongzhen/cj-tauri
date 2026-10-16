@@ -53,8 +53,15 @@ public class SystemCommands <: CommandHandler {
      * 「这个应用准不准」，两者都要过才叫真能用——放行了但平台没有，事件永远不会出现。
      * 取**调用方那个窗口**的位域（多窗口下可能不同，如 Linux 托盘取决于桥怎么编的）。
      * 与 `system:*` 的其它命令一样，需在清单里声明 `system:host` 才可调用（三处联动）。
+     *
+     * 另带 `logFile`（RFC-003 第 5 期）：日志落盘是**进程级**的，不是某一台宿主的能力，
+     * 所以它没有对应的布尔位——空串＝没开（stderr 照旧），非空＝诊断都落在那个文件里，
+     * 远程报障先问这一个字段，比让用户去翻平台目录快。
      */
     private func hostCapabilities(ipc: IpcContext): JsonValue {
-        return HostCapabilities.fromBits(currentPlatform(), ipc.hostCapabilities()).toJson()
+        let obj = HostCapabilities.fromBits(currentPlatform(), ipc.hostCapabilities())
+            .toJson().asObject()
+        obj.put("logFile", JsonString(currentLogFilePath()))
+        return obj
     }
 }

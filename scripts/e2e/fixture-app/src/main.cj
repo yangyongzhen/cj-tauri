@@ -2,6 +2,7 @@ package e2efixture
 
 import cjTauri.*
 import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.log.*
 import cjTauri.plugins.notification.*
 import cjTauri.plugins.serial.*
 import std.fs.*
@@ -47,6 +48,10 @@ main(): Int64 {
         .plugin(ClipboardPlugin())
         .plugin(NotificationPlugin())
         .plugin(SerialPlugin())
+        // 日志插件（RFC-003 第 5 期）：前端诊断经命令落进宿主日志。本工程**不显式开日志**，
+        // 就为验证环境变量兜底那条路——E2E 用 `CJ_TAURI_LOG` 指定临时路径 + 小预算，
+        // 这样「已分发 exe 改不了代码也能取证」这件事是被实机证过的，不是纸面承诺。
+        .plugin(LogPlugin())
         // 拖放策略在 start 前定稿（RFC-002 §5）：Linux 实机已取证挂载/落地全链；
         // Windows 走 OLE IDropTarget 真实现——挂载日志与能力位随 E2E 对账。
         .setDragDrop(DragDropPolicy(true, true))

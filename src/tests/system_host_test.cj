@@ -37,6 +37,8 @@ func testSystemHostReportsNamedBooleansForInjectedBits(): Unit {
     @Expect(data.get("dragDrop").getOrThrow().asBool().getValue(), false)
     // platform 由仓颉侧条件编译给（windows / linux），不该是空串
     @Expect(data.get("platform").getOrThrow().asString().getValue().size > 0, true)
+    // logFile（RFC-003 第 5 期）：进程级字段，用例环境没开日志 → 空串（字段在、值才空）
+    @Expect(data.get("logFile").getOrThrow().asString().getValue(), "")
     // 取的是**发起命令那个窗口**的能力位
     @Expect(asked[0], DEFAULT_WINDOW_LABEL)
 }

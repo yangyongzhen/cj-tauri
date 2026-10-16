@@ -20,10 +20,20 @@ dist/
 **/dist-single/notes/
 **/dist-single/*.WebView2/
 
+# Linux 目录式便携包（scripts/pack-linux.sh 产物：main + lib/ + ui/ + capabilities/ + 可选 bin/cjh）
+**/dist-linux/
+
+# ai-chat 自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
+# 连同 SHA256SUMS 一起换）。上面第 13 行的 *.zip 会连它一起吃掉，这里按目录放行。
+!examples/ai-chat/vendor/cjh/*.zip
+!examples/ai-chat/vendor/cjh/*.tar.gz
+
 # 本地环境
 cjpm.lock
 __pycache__/
 *.stdx.bak
+# AtomCode 的本地会话产物（skills/ 已在仓库里单独分发，这份目录不入库）
+.atomcode/
 
 # 本机运行数据（示例落盘的成绩等，不进仓）
 *.local.json

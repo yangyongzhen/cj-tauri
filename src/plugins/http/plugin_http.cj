@@ -22,7 +22,7 @@ public let CJ_HTTP_MAX_HEADER_VALUE: Int64 = 4096
 /**
  * 官方插件 http：**页面可控的出网口**（RFC-003 HTTP 白名单收口）
  *
- * 命令：http:get（{url}）/ http:post（{url, body, headers?}），返回
+ * 命令：http:get（{url}）/ http:post（{url, body, headers?}）/ http:delete（{url, body}），返回
  * { status, contentType, body, truncated }；失败抛 CommandException（业务错误）。
  * 权限：**不自动放行**——"permissions": ["http:default"] 或在 commands 里明文写。
  *
@@ -60,6 +60,7 @@ public class HttpPlugin <: Plugin {
         // 键写**短名**：前缀由框架补（写全名会得到 http:http:get，且所有命令都成未注册）
         m.add("get", HttpCommands())
         m.add("post", HttpCommands())
+        m.add("delete", HttpCommands())
         m.add("postStream", HttpCommands())
         return m
     }
@@ -70,6 +71,7 @@ public class HttpPlugin <: Plugin {
         let all = ArrayList<String>()
         all.add("get")
         all.add("post")
+        all.add("delete")
         all.add("postStream")
         m.add("default", all)
         return m
@@ -89,7 +91,7 @@ public class HttpPlugin <: Plugin {
     }
 }
 
-/** http 命令处理器：get 收 {url}，post 收 {url, body, headers?} */
+/** http 命令处理器：get 收 {url}，post / delete 收 {url, body, headers?}（delete 的体同样是 JSON 文本） */
 public class HttpCommands <: CommandHandler {
     public init() {}
 
@@ -97,6 +99,7 @@ public class HttpCommands <: CommandHandler {
         match (cmd) {
             case "http:get" => return this.fetch("GET", args, ipc)
             case "http:post" => return this.fetch("POST", args, ipc)
+            case "http:delete" => return this.fetch("DELETE", args, ipc)
             case "http:postStream" => return this.fetchStream(args, ipc)
             case _ => throw CommandException("unknown http command: ${cmd}")
         }
@@ -260,6 +263,10 @@ public class HttpCommands <: CommandHandler {
         var builder = HttpRequestBuilder().url(url)
         if (method == "GET") {
             builder = builder.get()
+        } else if (method == "DELETE") {
+            // DELETE 也带 JSON 体：cjh 的工作区删除靠 body 传 path（其 rest_api 的 DELETE 分支
+            // 读的就是请求体），所以这里不能走「无体 DELETE」那条路
+            builder = builder.delete().body(this.requireString(args, "body"))
         } else {
             let body = this.requireString(args, "body")
             builder = builder.post().body(body)

@@ -11,6 +11,34 @@
 
 ### Added
 
+- **`examples/ai-chat` 一轮 UI 大改造（用户实测清单 11 项，全部落地）**：浅色主题下的「黑块」、
+  看不见的工作区、停不下来的生成一并收口。改动与判据：
+  - **Markdown 渲染修好**：代码块样式原先**写死暗色**（`#0c0e14`），浅色主题下就是一块黑——改走主题
+    变量；块级解析补齐表格 / 有序无序列表 / 引用 / 分隔线 / 多级标题，行内码 / 加粗 / 链接白名单
+    （`^https?://`）沿用「先转义再放行受控标记」的口径（模型输出是不可信内容）；
+  - **代码高亮按真实类名重写**（原 `.k` / `.s` / `.c` / `.n` 是死规则，hljs 从不产这些类），语法配色
+    全走变量；**紧凑模式与主题三态可共存**（合成后一次落盘）；
+  - **接上 cjh 工作区 API**（`GET/POST/DELETE /api/workspaces` + `POST /api/workspaces/switch`）：
+    `http` 插件为此新增 **`http:delete`**（带 body 的 DELETE），能力清单同步放行——不放行时点删除
+    只会得到 `command not allowed`；cjh 侧工作区不可用时前端如实提示；
+  - **安全加固**：`spawn` `cjh web` 显式 `--bind 127.0.0.1`——cjh 默认 `--bind 0.0.0.0` 且不带 token，
+    不改等于把本机 agent 后端摊给整个局域网；
+  - **停止生成**只置中断标记并把已到文本落地（cjh **没有** WS 中断消息，除断连之外没有真叫停服务端
+    那一轮的办法，页面上就这么写，不假装能停）；工具调用 chip（running / done / error / stopped）与
+    时间戳外挂在 body 之外，不被流式 `innerHTML` 冲掉；
+  - **文件面板**：面包屑（点任意一级回跳）+ 点击预览（走自家 `fs:readText`——cjh 没有 `/api/fs/read`），
+    预览读的是 `scopes.fs` 允许范围内的路径，越界由插件拒（实机断言 `pv-scope-deny`）；
+  - **会话搜索 + 行内重命名**：搜索命中标题**与正文**（只搜标题会漏掉「标题还叫新会话」的会话）；
+    改名 Enter 提交 / Esc 取消 / 失焦提交；**cjh 会话历史那组不给改名删**——`/api/sessions` 至今只读，
+    与其摆个点不动的按钮，不如把口径写进分组 tooltip；
+  - **侧栏收起（顶栏 ☰ / Ctrl+B，随存档持久化）、输入框按内容长到 200px 封顶、Ctrl+K 搜会话、
+    Ctrl+Shift+N 新会话**；
+  - 页面自检 **17/17 → 25/25**（新增 8 条：`conv-search` / `conv-rename` / `side-toggle` / `side-restore` /
+    `input-grow` / `theme-auto-class` / `theme-os-wired` / `theme-compact-coexist`——断言完均恢复现场并落盘，
+    免得探针把假数据写进 store），另有文件预览 5/5、`CJH-PANELS` 4/4、`CJH-CHAT` PASS；
+    框架与应用 `cjpm build` 零警告、单测 277/277、静态门禁全 ok。应用链接期曾缺
+    `-lcjTauri.plugins.fs`（插件包不进应用的 `-l` 列表，报一串 `undefined reference to
+    _CGP18cjTauri.plugins.fs…`，看着像源码错、实为链接参数），本轮显式补进应用 `cjpm.toml`。
 - **http 插件：页面可控的出网口终于有了白名单（RFC-003 HTTP 白名单收口）**：
   `http:get` / `http:post` / `http:postStream`（权限集 `http:default`），出网主机白名单写在
   能力清单 `scopes.http`（`"allow": ["api.deepseek.com", "*.openai.azure.com"]`——判定复用共享层

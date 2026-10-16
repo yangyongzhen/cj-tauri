@@ -1,6 +1,9 @@
 package aiChat
 
 import std.env.*
+// cjTauri.plugins.fs 与 std.fs 短名相同（都叫 fs）：本应用的链接命令行会**漏掉插件那个库**，
+// 实测与 import 顺序无关（详见 cjpm.toml 的 link-option 注释）——靠清单显式补 -lcjTauri.plugins.fs。
+import cjTauri.plugins.fs.*
 import std.fs.*
 import std.collection.*
 import cjTauri.*
@@ -134,6 +137,9 @@ main(): Int64 {
         .plugin(StorePlugin())
         .plugin(ClipboardPlugin())   // 复制按钮的后端：clipboard:write（消息/代码块一键复制）
         .plugin(WsPlugin())          // cjh 后端通道：ws:frame 事件回投聊天流（cjh web /ws）
+        // 文件预览：cjh **没有** /api/fs/read，所以内容读自家 fs 插件（fs:readText）。
+        // 该插件 scopeAware——能读的范围由 capabilities 的 scopes.fs 决定，不是全放行。
+        .plugin(FsPlugin())
         // 日志落盘：GUI 产物双击没控制台，报障时一个文件看全（C 桥 + 仓颉 + 页面 log:write）
         .setLogToDefaultFile("ai-chat")
 

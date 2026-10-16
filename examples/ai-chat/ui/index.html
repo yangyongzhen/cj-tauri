@@ -17,11 +17,19 @@
     --bg:#0f1117; --panel:#161a23; --panel2:#1c2130; --line:#262c3b;
     --fg:#e8eaf0; --dim:#8b93a7; --acc:#6c8cff; --acc2:#8a6cff;
     --user:#243055; --radius:12px;
+    /* Markdown 元素配色：**两套主题都要给全**。只写深色一套的后果是浅色主题下
+     * 行内码变黑块、加粗变白字（白底上看不见）——实测就是这个形状被用户点出来的。 */
+    --code-bg:#0c0e14; --code-bg2:#12151d; --code-fg:#d6dbe6; --code-line:#262c3b;
+    --syn-kw:#c792ea; --syn-str:#f4a259; --syn-cmt:#7a8478; --syn-num:#5fd7c5;
+    --em:#ffffff; --quote:#9aa3b8; --scroll:#2c3345; --ok:#7ee2a8;
   }
   body.light {
     --bg:#f6f7fb; --panel:#ffffff; --panel2:#eef0f6; --line:#dfe3ec;
     --fg:#1c2130; --dim:#6b7280; --acc:#4f6ef7; --acc2:#7c5cff;
     --user:#e3e9ff;
+    --code-bg:#f1f3f9; --code-bg2:#e7eaf2; --code-fg:#242a38; --code-line:#e1e5ef;
+    --syn-kw:#8b3fd0; --syn-str:#b45309; --syn-cmt:#6b7280; --syn-num:#0f766e;
+    --em:#0b0f1a; --quote:#5b6473; --scroll:#c9cfdd; --ok:#1a8f4c;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   html { color-scheme: dark; }
@@ -29,9 +37,18 @@
   body { display:flex; height:100vh; overflow:hidden; background:var(--bg); color:var(--fg);
          font:14px/1.65 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
          transition:background .15s,color .15s; }
+  /* 紧凑模式：长会话一屏多看几条，间距/内边距整体收紧一档（顶栏开关，存 store） */
+  body.compact { font-size:13px; }
+  body.compact .msg { margin-bottom:9px; }
+  body.compact .msg .body { padding:8px 12px; }
+  body.compact .msg .body p { margin:3px 0; }
+  body.compact .msg .body pre { padding:8px 10px; margin:6px 0; }
+  body.compact .msg .body h1, body.compact .msg .body h2 { margin:10px 0 4px; }
+  body.compact .msg .body ul, body.compact .msg .body ol { margin:4px 0 4px 20px; }
+  body.compact .msg .body th, body.compact .msg .body td { padding:4px 8px; }
   ::-webkit-scrollbar { width:8px; }
-  ::-webkit-scrollbar-thumb { background:#2c3345; border-radius:4px; }
-  ::-webkit-scrollbar-thumb:hover { background:#3a4258; }
+  ::-webkit-scrollbar-thumb { background:var(--scroll); border-radius:4px; }
+  ::-webkit-scrollbar-thumb:hover { background:var(--dim); }
   /* ---- 左栏 ---- */
   #side { width:248px; background:var(--panel); display:flex; flex-direction:column;
           border-right:1px solid var(--line); flex:0 0 auto; }
@@ -39,31 +56,74 @@
                  background:linear-gradient(90deg,var(--acc),var(--acc2));
                  -webkit-background-clip:text; background-clip:text; color:transparent; }
   #side .sub { padding:0 16px 12px; font-size:11px; color:var(--dim); border-bottom:1px solid var(--line); }
+  /* 收起侧栏：整屏给消息区（顶栏 ☰ / Ctrl+B 切换，状态随存档持久化） */
+  #side.hide { display:none; }
   #convList { flex:1 1 auto; overflow-y:auto; padding:10px; }
   .conv { padding:9px 12px; border-radius:9px; cursor:pointer; margin-bottom:3px; font-size:13px;
           color:var(--dim); transition:background .12s,color .12s;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .conv:hover { background:var(--panel2); color:var(--fg); }
-  .conv.active { background:linear-gradient(90deg,#2a3560,#2a2c50); color:#fff; font-weight:500; }
+  .conv.active { background:linear-gradient(135deg,var(--acc),var(--acc2)); color:#fff; font-weight:500; }
   .conv .del { float:right; opacity:0; padding:0 4px; transition:opacity .12s; }
   .conv:hover .del { opacity:.65; }
   .conv .del:hover { opacity:1; color:#ff7b72; }
+  /* 会话搜索 + 行内改名：只在「会话」Tab 显示（可见性归 switchTab）。
+     改名**不用 window.prompt**——WebKitGTK 默认不实现 prompt，点了会静默没反应（查过，页里别处也没用）。 */
+  #convSearchWrap { padding:2px 10px 6px; }
+  #convSearch { width:100%; box-sizing:border-box; background:var(--panel2); border:1px solid var(--line);
+                color:var(--fg); border-radius:8px; padding:6px 9px; font:inherit; font-size:12px; }
+  #convSearch:focus { outline:none; border-color:var(--acc); }
+  .conv .ren { width:100%; box-sizing:border-box; background:var(--bg); color:var(--fg);
+               border:1px solid var(--acc); border-radius:5px; padding:2px 6px; font:inherit; font-size:13px; }
+  .conv .ren:focus { outline:none; }
+  .conv .edit { float:right; opacity:0; padding:0 4px; transition:opacity .12s; }
+  .conv:hover .edit { opacity:.65; }
+  .conv .edit:hover { opacity:1; color:var(--acc); }
   #sideBtns { padding:12px; border-top:1px solid var(--line); display:flex; gap:8px; }
   /* ---- 顶栏 ---- */
   #topbar { display:flex; align-items:center; gap:10px; padding:10px 18px;
             border-bottom:1px solid var(--line); background:var(--panel); flex:0 0 auto; }
   #convTitle { flex:1 1 auto; min-width:0; font-size:13px; font-weight:600;
                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #modelBadge { flex:0 0 auto; font-size:11px; color:var(--dim); border:1px solid var(--line);
+  #modelBadge, #wsBadge { flex:0 0 auto; font-size:11px; color:var(--dim); border:1px solid var(--line);
                 border-radius:10px; padding:2px 10px; max-width:220px; white-space:nowrap;
                 overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
-  #modelBadge:hover { color:var(--fg); border-color:var(--acc); }
+  #modelBadge:hover, #wsBadge:hover { color:var(--fg); border-color:var(--acc); }
+  #wsBadge { max-width:180px; }
   /* 服务商切换下拉：挂在顶栏右上角（徽章正下方） */
   #provMenu { position:absolute; top:44px; right:16px; background:var(--panel);
               border:1px solid var(--line); border-radius:10px; padding:6px; min-width:240px;
               max-height:320px; overflow-y:auto; display:none; z-index:50;
               box-shadow:0 12px 40px rgba(0,0,0,.4); }
   #provMenu.show { display:block; }
+  /* 工作区下拉：与 provMenu 同款，但更宽（要放绝对路径）+ 每行带「移除」✕ */
+  #wsMenu { position:absolute; top:44px; right:16px; background:var(--panel);
+            border:1px solid var(--line); border-radius:10px; padding:6px; min-width:360px;
+            max-width:min(560px, 86vw); max-height:360px; overflow-y:auto; display:none; z-index:50;
+            box-shadow:0 12px 40px rgba(0,0,0,.4); }
+  #wsMenu.show { display:block; }
+  #wsMenu .ws-head { padding:6px 10px; font-size:11px; color:var(--dim); }
+  .ws-row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:7px;
+            cursor:pointer; font-size:13px; }
+  .ws-row:hover { background:var(--panel2); }
+  .ws-row.active { background:var(--panel2); }
+  .ws-row .ws-name { flex:0 0 auto; font-weight:500; }
+  .ws-row .pm-model { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+                      white-space:nowrap; text-align:right; }
+  .ws-del { flex:0 0 auto; opacity:.35; padding:0 4px; }
+  .ws-del:hover { opacity:1; color:#ff7b72; }
+  .ws-add { display:flex; gap:6px; padding:8px 6px 2px; border-top:1px solid var(--line); margin-top:6px; }
+  .ws-add input { flex:1 1 auto; min-width:0; background:var(--panel2); border:1px solid var(--line);
+                  color:var(--fg); border-radius:7px; padding:6px 9px; font:inherit; font-size:12px; }
+  .ws-add input:focus { outline:none; border-color:var(--acc); }
+  .ws-add button { padding:6px 12px; font-size:12px; border-radius:7px; }
+  /* 轻量提示条：错误/结果别只进 console（页面没 catch 时用户什么都看不到） */
+  #toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+           background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:9px 16px; font-size:13px; max-width:70vw; opacity:0; pointer-events:none;
+           transition:opacity .18s, transform .18s; z-index:99; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.err { border-color:#ff7b72; color:#ff9d95; }
   .pm-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:7px;
              cursor:pointer; font-size:13px; }
   .pm-item:hover { background:var(--panel2); }
@@ -90,40 +150,74 @@
   .msg.assistant .body .cursor { display:inline-block; width:8px; height:15px;
         background:var(--acc); vertical-align:-2px; animation:blink .8s step-end infinite; }
   @keyframes blink { 50% { opacity:0; } }
-  .msg .body p { margin:6px 0; }
-  .msg .body pre { background:#0c0e14; padding:12px 14px; border-radius:8px; overflow-x:auto;
-                   margin:10px 0; border:1px solid var(--line); position:relative; }
+  .msg .body p { margin:6px 0; white-space:pre-wrap; }
+  /* 标题/列表/引用/分隔线/表格：renderMd 产出的块级元素，配色一律走变量 */
+  .msg .body h1, .msg .body h2, .msg .body h3, .msg .body h4,
+  .msg .body h5, .msg .body h6 { margin:14px 0 6px; line-height:1.35; font-weight:600; }
+  .msg .body h1 { font-size:19px; } .msg .body h2 { font-size:17px; }
+  .msg .body h3 { font-size:15.5px; } .msg .body h4 { font-size:14.5px; }
+  .msg .body h5, .msg .body h6 { font-size:14px; color:var(--dim); }
+  .msg .body ul, .msg .body ol { margin:8px 0 8px 24px; }
+  .msg .body li { margin:3px 0; }
+  .msg .body blockquote { margin:10px 0; padding:8px 14px; border-left:3px solid var(--acc);
+                          background:var(--panel2); border-radius:0 8px 8px 0; color:var(--quote); }
+  .msg .body blockquote p { margin:2px 0; }
+  .msg .body hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
+  /* 表格常出现在「列目录 / 对比」这类回答里：横向可滚，别把消息撑破 */
+  .tbl { overflow-x:auto; margin:10px 0 12px; border-radius:8px; }
+  .msg .body table { border-collapse:collapse; width:100%; font-size:13px; }
+  .msg .body th, .msg .body td { border:1px solid var(--line); padding:6px 10px;
+                                 text-align:left; vertical-align:top; }
+  .msg .body th { background:var(--panel2); font-weight:600; white-space:nowrap; }
+  .msg .body tbody tr:nth-child(even) td { background:var(--code-bg); }
+  .msg .body pre { background:var(--code-bg); padding:12px 14px; border-radius:8px; overflow-x:auto;
+                   margin:10px 0; border:1px solid var(--code-line); position:relative; }
   .code-copy { position:absolute; top:6px; right:8px; padding:2px 8px; border-radius:5px;
-               font-size:11px; background:#262c3b; color:var(--dim); border:1px solid var(--line);
+               font-size:11px; background:var(--code-bg2); color:var(--dim); border:1px solid var(--code-line);
                cursor:pointer; opacity:0; transition:opacity .12s; }
   pre:hover .code-copy { opacity:1; }
   .code-copy:hover { color:var(--fg); }
-  .code-copy.copied { color:#7ee2a8; opacity:1; }
+  .code-copy.copied { color:var(--ok); opacity:1; }
   .msg-copy { padding:2px 8px; border-radius:5px; font-size:11px; background:transparent;
               color:var(--dim); border:1px solid var(--line); cursor:pointer;
               opacity:0; transition:opacity .12s; }
   .msg:hover .msg-copy { opacity:1; }
   .msg-copy:hover { color:var(--fg); }
-  .msg-copy.copied { color:#7ee2a8; opacity:1; }
-  .msg .body pre code { color:#d6dbe6; }
-  /* 语法高亮四色：关键字紫 / 字符串橙 / 注释绿灰 / 数字青 */
-  .msg .body pre .k { color:#c792ea; }
-  .msg .body pre .s { color:#f4a259; }
-  .msg .body pre .c { color:#7a8478; font-style:italic; }
-  .msg .body pre .n { color:#5fd7c5; }
+  .msg-copy.copied { color:var(--ok); opacity:1; }
+  /* 代码块配色由本页变量决定，**不靠 vendor 主题**：vendor 的 github-dark 只
+   * 提供类名与结构，它自带的 `.hljs{background:#0d1117}` 与 `pre code.hljs{padding:1em}`
+   * 必须抹掉——前者让浅色主题下 code 元素照旧画深底（用户点名的「黑色块儿」就是它），
+   * 后者与本页 pre 的 padding 叠加成一圈双层留白。
+   * 类名以 hljs 实际吐的 `hljs-*` 为准（写成 `.k` / `.s` 是死规则，曾静默不生效）。 */
+  .msg .body pre code.hljs { background:transparent; color:var(--code-fg); padding:0; }
+  .msg .body pre .hljs-comment, .msg .body pre .hljs-quote { color:var(--syn-cmt); font-style:italic; }
+  .msg .body pre .hljs-keyword, .msg .body pre .hljs-selector-tag,
+  .msg .body pre .hljs-literal, .msg .body pre .hljs-doctag,
+  .msg .body pre .hljs-meta { color:var(--syn-kw); }
+  .msg .body pre .hljs-string, .msg .body pre .hljs-regexp, .msg .body pre .hljs-addition,
+  .msg .body pre .hljs-attr, .msg .body pre .hljs-attribute,
+  .msg .body pre .hljs-template-tag { color:var(--syn-str); }
+  .msg .body pre .hljs-number, .msg .body pre .hljs-built_in, .msg .body pre .hljs-type,
+  .msg .body pre .hljs-symbol, .msg .body pre .hljs-bullet { color:var(--syn-num); }
+  .msg .body pre .hljs-title, .msg .body pre .hljs-section, .msg .body pre .hljs-name,
+  .msg .body pre .hljs-selector-id, .msg .body pre .hljs-selector-class { color:var(--acc); }
+  .msg .body pre .hljs-emphasis { font-style:italic; }
+  .msg .body pre .hljs-strong { font-weight:600; }
   .msg .body code { font-family:"Cascadia Code",Consolas,Menlo,monospace; font-size:12.5px; }
-  .msg .body p code, .msg .body li code { background:#0c0e14; padding:1px 6px; border-radius:4px;
-                                          border:1px solid var(--line); }
+  .msg .body p code, .msg .body li code, .msg .body td code { background:var(--code-bg);
+                                          color:var(--code-fg); padding:1px 6px; border-radius:4px;
+                                          border:1px solid var(--code-line); }
   .msg .body a { color:var(--acc); text-decoration:none; }
   .msg .body a:hover { text-decoration:underline; }
-  .msg .body strong { color:#fff; }
+  .msg .body strong { color:var(--em); }
   #typing { color:var(--dim); font-size:12px; padding:4px 26px 8px; display:none; }
   /* ---- 输入区 ---- */
   #inputBar { border-top:1px solid var(--line); padding:14px 18px; display:flex; gap:10px;
               align-items:flex-end; flex:0 0 auto; background:var(--panel); }
   #input { flex:1 1 auto; min-width:0; background:var(--panel2); border:1px solid var(--line);
            color:var(--fg); border-radius:10px; padding:11px 14px; font:inherit; resize:none;
-           height:66px; transition:border-color .15s; }
+           height:66px; min-height:66px; max-height:200px; overflow-y:auto;
+           transition:border-color .15s; }
   #input:focus { outline:none; border-color:var(--acc);
                  box-shadow:0 0 0 3px rgba(108,140,255,.15); }
   button { background:linear-gradient(135deg,var(--acc),var(--acc2)); color:#fff; border:0;
@@ -182,14 +276,54 @@
               white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .file-row:hover { background:var(--panel2); }
   .file-row.dir { color:var(--acc); font-weight:600; }
-  /* ---- 工具活动（cjh agent 的 tool_start/tool_result）---- */
-  .toolchip { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--dim);
+  /* ---- 文件区面包屑：路径一深就迷失「现在在哪一层」（用户反馈），每段可点直接跳 ---- */
+  .crumb { display:flex; flex-wrap:wrap; align-items:center; gap:2px; padding:3px 6px 5px;
+           margin-bottom:4px; font-size:11px; color:var(--dim);
+           border-bottom:1px solid var(--line); }
+  .crumb .cseg { cursor:pointer; padding:1px 4px; border-radius:4px; max-width:130px;
+                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .crumb .cseg:hover { background:var(--panel2); color:var(--acc); }
+  .crumb .csep { opacity:.5; }
+  /* ---- 文件预览遮罩（独立于 #mask：设置面板开着时也能预览，互不干扰）---- */
+  #pv { position:fixed; inset:0; background:rgba(5,7,12,.6); backdrop-filter:blur(3px);
+        display:none; align-items:center; justify-content:center; z-index:20; }
+  #pv.show { display:flex; }
+  #pvPanel { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+             width:min(880px, 92vw); max-height:86vh; display:flex; flex-direction:column;
+             box-shadow:0 20px 60px rgba(0,0,0,.5); overflow:hidden; }
+  .pv-head { display:flex; align-items:center; gap:8px; padding:12px 16px;
+             border-bottom:1px solid var(--line); }
+  #pvName { font-weight:600; font-size:13px; white-space:nowrap; }
+  #pvPath { flex:1 1 auto; min-width:0; font-size:11px; color:var(--dim);
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #pvBody { margin:0; padding:14px 16px; overflow:auto; font-size:12px; line-height:1.6;
+            font-family:ui-monospace,Menlo,Consolas,monospace; white-space:pre-wrap;
+            word-break:break-word; }
+  /* ---- 工具活动（cjh agent 的 tool_start/tool_result）----
+   * 外层是竖排卡片：上面一行 name + 状态，下面可折叠的完整结果——结果挂在同一条
+   * chip 里，点 chip 展开，所以那一行横排要独立成 .trow。 */
+  .toolchip { display:flex; flex-direction:column; font-size:11.5px; color:var(--dim);
               background:var(--panel2); border:1px solid var(--line); border-radius:7px;
               padding:4px 9px; margin:6px 0; max-width:100%; }
+  .toolchip .trow { display:flex; align-items:center; gap:6px; }
   .toolchip .tname { color:var(--acc2); font-weight:600; }
   .toolchip .tstate { margin-left:auto; }
   .toolchip.done .tstate { color:#7ee2a8; }
   .toolchip.err .tstate { color:#ff7b72; }
+  .toolchip.stopped .tstate { color:#ff9d66; }
+  .toolchip.has-result { cursor:pointer; }
+  .toolchip.has-result:hover { border-color:var(--acc); }
+  .toolchip .targs { color:var(--dim); font-family:ui-monospace,Menlo,Consolas,monospace;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:46%; }
+  .toolchip .tresult { display:none; margin:5px 0 1px; padding:6px 8px; background:var(--code-bg);
+                       color:var(--code-fg); border-radius:6px;
+                       font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
+                       white-space:pre-wrap; word-break:break-word; max-height:240px; overflow:auto; }
+  .toolchip.open .tresult { display:block; }
+  /* 工具区挂在消息上（不在 .body 里——见 appendMsgEl 的注释） */
+  .msg .tools { margin-top:6px; }
+  /* 消息时间戳：老存档里的消息没有 ts，就不显示（不硬造一个假时间） */
+  .msg .msg-time { margin-left:8px; font-size:10.5px; color:var(--dim); opacity:.8; }
   #cjhState.off { color:#ff9d66; }
 </style>
 </head>
@@ -203,6 +337,7 @@
       <button class="stab" data-tab="mcp">MCP</button>
       <button class="stab" data-tab="files">文件</button>
     </div>
+    <div id="convSearchWrap"><input id="convSearch" type="text" placeholder="搜索会话（标题 / 正文）"></div>
     <div id="convList"></div>
     <div id="panelSkills" class="sidepanel" style="display:none"></div>
     <div id="panelMcp" class="sidepanel" style="display:none"></div>
@@ -214,17 +349,33 @@
   </div>
   <div id="main">
     <div id="topbar">
+      <button id="btnSide" class="ghost tb-btn" title="收起 / 展开侧栏（Ctrl+B）">☰</button>
       <div id="convTitle"></div>
+      <span id="wsBadge" title="点击切换 cjh 工作区（agent 的操作根目录）">工作区: …</span>
       <span id="modelBadge" title="点击切换服务商 / 模型"></span>
       <button id="btnTheme" class="ghost tb-btn" title="切换主题：跟随系统 / 亮 / 暗">主题: 系统</button>
+      <button id="btnCompact" class="ghost tb-btn" title="紧凑模式：收紧消息间距，一屏多看几条">紧凑: 关</button>
     </div>
     <div id="provMenu"></div>
+    <div id="wsMenu"></div>
+    <div id="toast"></div>
     <div id="msgs"></div>
     <div id="typing">正在输入…</div>
     <div id="inputBar">
       <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
       <button id="btnSend">发送</button>
       <button id="btnStop" class="ghost" style="display:none">停止</button>
+    </div>
+  </div>
+  <div id="pv">
+    <div id="pvPanel">
+      <div class="pv-head">
+        <span id="pvName">文件</span>
+        <span id="pvPath"></span>
+        <button id="pvCopy" class="ghost">复制</button>
+        <button id="pvClose" class="ghost">关闭</button>
+      </div>
+      <pre id="pvBody"></pre>
     </div>
   </div>
   <div id="mask">
@@ -321,6 +472,10 @@ function escHtml(s) {
  * 「内联」仍是前提（run(html) 无真实来源，相对 src 取不到文件），但内联的是
  * **成熟的库**，不是自己维护的 tokenizer。
  */
+/* Markdown 渲染：块级（标题 / 分隔线 / 引用 / 列表 / 表格 / 段落）+ 行内（码 / 粗 / 斜 / 链接）。
+ * 顺序固定：先摘代码块交 hljs，再整体 escHtml——此后只认受控标记，页面可控内容进不来原始 HTML。
+ * 旧实现只有行内替换 + 双换行切段，于是表格被逐行吐成带竖线的普通文字（cjh 的「列目录 / 对比」
+ * 回答里表格很常见，看起来就「不像个界面」）；表格外层包 .tbl 横向可滚，别把消息撑破。 */
 function renderMd(src) {
   var blocks = [];
   // 先摘代码块（hljs 高亮后占位，避免里面的标记被二次加工）
@@ -342,22 +497,98 @@ function renderMd(src) {
     return '\u0000B' + idx + '\u0000';
   });
   text = escHtml(text);
-  text = text.replace(/`([^`\n]+)`/g, function (m, c) { return '<code>' + c + '</code>'; });
-  text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/(^|\n)#{1,4}\s+([^\n]+)/g, '$1<strong>$2</strong>');
-  // 链接：href 白名单 http/https，其余只留文字
-  text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, label, href) {
-    if (/^https?:\/\//.test(href)) {
-      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+
+  function inline(s) {
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    // 链接：href 白名单 http/https，其余只留文字
+    return s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m2, label, href) {
+      if (/^https?:\/\//.test(href)) {
+        return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+      }
+      return label;
+    });
+  }
+  // 表格行 → 单元格数组（首尾的竖线是边框装饰，去掉；行内码里的竖线会误切，属已知取舍）
+  function cells(row) {
+    var t = row.trim();
+    if (t.charAt(0) === '|') { t = t.slice(1); }
+    if (t.charAt(t.length - 1) === '|') { t = t.slice(0, -1); }
+    return t.split('|').map(function (x) { return x.trim(); });
+  }
+  var LITEM = /^\s*([-*+]|\d+\.)\s+(.*)$/;    // 列表项：可缩进 + 无序符 或 「数字.」
+  var HEAD = /^(#{1,6})\s+(.*)$/;
+
+  var lines = text.split('\n');
+  var out = [];
+  var para = [];
+  function flush() {
+    // 段内单换行保留（.msg .body p 有 white-space:pre-wrap 兜着）
+    if (para.length) { out.push('<p>' + inline(para.join('\n')) + '</p>'); para = []; }
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var ln = lines[i], t = ln.trim();
+    if (t === '') { flush(); continue; }
+    if (/^\u0000B\d+\u0000$/.test(t)) { flush(); out.push(t); continue; }   // 代码块独占一块
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { flush(); out.push('<hr>'); continue; }
+    var hm = HEAD.exec(t);
+    if (hm) {
+      flush();
+      var lv = hm[1].length;
+      out.push('<h' + lv + '>' + inline(hm[2]) + '</h' + lv + '>');
+      continue;
     }
-    return label;
-  });
-  // 按双换行切段；段内单换行保留（white-space:pre-wrap 兜着）
-  text = text.split(/\n{2,}/).map(function (p) {
-    if (/^\u0000B\d+\u0000$/.test(p.trim())) { return p; }
-    return '<p>' + p + '</p>';
-  }).join('');
-  return text.replace(/\u0000B(\d+)\u0000/g, function (m, i) { return blocks[+i]; });
+    if (/^(&gt;|>)\s?/.test(t)) {                       // 引用：连续行归一块
+      flush();
+      var q = [];
+      while (i < lines.length && /^(&gt;|>)\s?/.test(lines[i].trim())) {
+        q.push(lines[i].trim().replace(/^(&gt;|>)\s?/, ''));
+        i++;
+      }
+      i--;
+      out.push('<blockquote>' + inline(q.join('\n')) + '</blockquote>');
+      continue;
+    }
+    var hd = i + 1 < lines.length ? lines[i + 1].trim() : '';
+    if (t.indexOf('|') >= 0 && hd.indexOf('|') >= 0 && /^[\s:|-]+$/.test(hd) && hd.indexOf('-') >= 0) {
+      flush();
+      var head = cells(ln);
+      i += 2;                                           // 跳过表头与分隔行
+      var rows = [];
+      while (i < lines.length && lines[i].trim().indexOf('|') >= 0) { rows.push(cells(lines[i])); i++; }
+      i--;
+      var tb = '<div class="tbl"><table><thead><tr>';
+      head.forEach(function (c) { tb += '<th>' + inline(c) + '</th>'; });
+      tb += '</tr></thead><tbody>';
+      rows.forEach(function (r) {
+        tb += '<tr>';
+        // 按表头列数补齐：数据行少一格就留空，多出来的丢弃（避免表格错位）
+        for (var c2 = 0; c2 < head.length; c2++) { tb += '<td>' + inline(r[c2] || '') + '</td>'; }
+        tb += '</tr>';
+      });
+      out.push(tb + '</tbody></table></div>');
+      continue;
+    }
+    var lm = LITEM.exec(ln);
+    if (lm) {                                           // 列表：同类型连续行归一组
+      flush();
+      var ordered = /\d/.test(lm[1]);
+      var items = [];
+      for (; i < lines.length; i++) {
+        var m3 = LITEM.exec(lines[i]);
+        if (!m3 || /\d/.test(m3[1]) !== ordered) { break; }
+        items.push('<li>' + inline(m3[2]) + '</li>');
+      }
+      i--;
+      out.push('<' + (ordered ? 'ol' : 'ul') + '>' + items.join('') +
+               '</' + (ordered ? 'ol' : 'ul') + '>');
+      continue;
+    }
+    para.push(ln);
+  }
+  flush();
+  return out.join('').replace(/\u0000B(\d+)\u0000/g, function (m, idx) { return blocks[+idx]; });
 }
 
 /* ============================================================
@@ -379,6 +610,7 @@ function switchTab(tab) {
     tabs[i].className = 'stab' + (tabs[i].getAttribute('data-tab') === tab ? ' active' : '');
   }
   $('convList').style.display = tab === 'convs' ? '' : 'none';
+  $('convSearchWrap').style.display = tab === 'convs' ? '' : 'none';
   $('panelSkills').style.display = tab === 'skills' ? '' : 'none';
   $('panelMcp').style.display = tab === 'mcp' ? '' : 'none';
   $('panelFiles').style.display = tab === 'files' ? '' : 'none';
@@ -435,18 +667,199 @@ function loadMcp() {
 
 /* ---- 文件区（cjh 工具区）：/api/fs/list?path=… 目录浏览（点目录进入；写操作仍由 agent 在对话里做）---- */
 var cjhCwd = '';
+/* ---- 工作区：cjh 的 agent 操作根目录（文件面板的根就是它）----
+ * 列表/新增/切换/删除全走 REST，零新命令。切换后 cjh 会 chdir 并重置 bash 会话，
+ * 文件面板必须重取根（loadFiles('') 拿的就是新根）。注意 cjh 的 DELETE /api/workspaces
+ * 读的是 JSON **请求体**里的 path，所以走 http:delete（本轮给 http 插件补的通道）——
+ * 用无体 DELETE 的话 cjh 根本不知道要删哪个。 */
+var wsList = [];
+var toastTimer = null;
+
+function toast(msg, isErr) {
+  var t = $('toast');
+  t.textContent = msg;
+  t.className = 'show' + (isErr ? ' err' : '');
+  if (toastTimer) { clearTimeout(toastTimer); }
+  toastTimer = setTimeout(function () { t.className = ''; }, isErr ? 5200 : 2600);
+}
+
+function cjhSend(method, path, body) {
+  var args = { url: CJH.api + path };
+  if (body !== undefined) {
+    args.body = JSON.stringify(body);
+    args.headers = { 'Content-Type': 'application/json' };
+  }
+  return window.__CJ_TAURI__.invoke(method, args).then(function (r) {
+    return (r && r.body) ? JSON.parse(r.body) : {};
+  });
+}
+function wsBase(p) { var s = String(p || '').replace(/\/+$/, ''); return s.split('/').pop() || s; }
+function updateWsBadge() {
+  $('wsBadge').textContent = '工作区: ' + (cjhCwd ? wsBase(cjhCwd) : '…');
+  $('wsBadge').title = cjhCwd ? ('当前工作区：' + cjhCwd + '（点击切换）') : '正在读取工作区…';
+}
+function loadWorkspaces() {
+  if (!CJH.api) { return Promise.resolve(); }
+  return cjhSend('http:get', '/api/workspaces').then(function (r) {
+    wsList = (r && r.workspaces) || [];
+    renderWsMenu();
+    updateWsBadge();
+  }).catch(function (e) {
+    // 拉不到也要让徽章可用：原因写进菜单与提示条，别静默成「点了没反应」
+    $('wsMenu').innerHTML = '<div class="pm-item">工作区不可用：' + escHtml(String(e && e.message)) + '</div>';
+    $('wsBadge').textContent = '工作区: 不可用';
+    toast('读取工作区失败：' + String(e && e.message), true);
+  });
+}
+function renderWsMenu() {
+  var m = $('wsMenu');
+  m.innerHTML = '';
+  var head = document.createElement('div');
+  head.className = 'ws-head';
+  head.textContent = 'cjh 工作区（agent 的操作根目录）';
+  m.appendChild(head);
+  if (wsList.length === 0) {
+    var none = document.createElement('div');
+    none.className = 'pm-item';
+    none.textContent = '还没有登记的工作区，在下面输入绝对路径添加';
+    m.appendChild(none);
+  }
+  wsList.forEach(function (w) {
+    var here = (w.path === cjhCwd);
+    var d = document.createElement('div');
+    d.className = 'ws-row' + (here ? ' active' : '');
+    var nm = document.createElement('span');
+    nm.className = 'ws-name';
+    nm.textContent = (here ? '✓ ' : '') + (w.name || wsBase(w.path));
+    var pt = document.createElement('span');
+    pt.className = 'pm-model';
+    pt.textContent = w.path;
+    var del = document.createElement('span');
+    del.className = 'ws-del';
+    del.textContent = '✕';
+    del.title = '从 cjh 的工作区列表移除（不动磁盘上的目录）';
+    del.onclick = function (ev) { ev.stopPropagation(); delWorkspace(w.path); };
+    d.appendChild(nm); d.appendChild(pt); d.appendChild(del);
+    d.onclick = function () { switchWorkspace(w.path); };
+    m.appendChild(d);
+  });
+  // 新增：内联输入框（WebKit / WebView2 里 window.prompt 不可靠，一律不用它）
+  var row = document.createElement('div');
+  row.className = 'ws-add';
+  var inp = document.createElement('input');
+  inp.id = 'wsNewPath';
+  inp.placeholder = '绝对路径，如 /root/test/cj/cj-tauri';
+  inp.onclick = function (ev) { ev.stopPropagation(); };
+  inp.onkeydown = function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addWorkspace(inp.value); } };
+  var add = document.createElement('button');
+  add.className = 'ghost';
+  add.textContent = '添加';
+  add.onclick = function (ev) { ev.stopPropagation(); addWorkspace(inp.value); };
+  row.appendChild(inp); row.appendChild(add);
+  m.appendChild(row);
+}
+function hideWsMenu() { $('wsMenu').classList.remove('show'); }
+function toggleWsMenu(ev) {
+  ev.stopPropagation();
+  hideProvMenu();
+  $('wsMenu').classList.toggle('show');
+}
+function switchWorkspace(path) {
+  hideWsMenu();
+  cjhSend('http:post', '/api/workspaces/switch', { path: path }).then(function () {
+    toast('已切到工作区：' + wsBase(path));
+    // 先重取文件面板（顺带把 cjhCwd 刷成新根），再刷徽章/菜单的激活态
+    return loadFiles('').then(loadWorkspaces);
+  }).catch(function (e) {
+    toast('切换工作区失败：' + String(e && e.message), true);
+  });
+}
+function addWorkspace(path) {
+  var p = String(path || '').trim();
+  if (!p) { toast('请填一个绝对路径', true); return; }
+  cjhSend('http:post', '/api/workspaces', { path: p }).then(function () {
+    var box = $('wsNewPath');
+    if (box) { box.value = ''; }
+    toast('已添加工作区：' + wsBase(p));
+    return loadWorkspaces();
+  }).catch(function (e) {
+    toast('添加工作区失败：' + String(e && e.message), true);
+  });
+}
+function delWorkspace(path) {
+  cjhSend('http:delete', '/api/workspaces', { path: path }).then(function () {
+    toast('已从列表移除：' + wsBase(path));
+    return loadWorkspaces();
+  }).catch(function (e) {
+    toast('移除工作区失败：' + String(e && e.message), true);
+  });
+}
+
+/* ---- 文件区：面包屑 + 点击预览 ----
+ * 预览走自家 fs 插件（cjh **没有** /api/fs/read），而 fs 插件是 scopeAware 的：
+ * 能读的范围由 capabilities 的 scopes.fs 决定（当前放行 $HOME 下、拒凭据文件），
+ * 越界会被拒并如实显示——这层不是装饰：页面被注入脚本时也读不到白名单外的文件。 */
+function buildCrumb(here) {
+  var bar = document.createElement('div');
+  bar.className = 'crumb';
+  var s = String(here || '');
+  if (!s) { bar.textContent = '（未配置工作区）'; return bar; }
+  var parts = s.replace(/\/+$/, '').split('/');
+  parts.forEach(function (seg, i) {
+    if (i > 0) {
+      var sep = document.createElement('span');
+      sep.className = 'csep';
+      sep.textContent = '/';
+      bar.appendChild(sep);
+    }
+    var a = document.createElement('span');
+    a.className = 'cseg';
+    a.textContent = (i === 0 && seg === '') ? '根' : seg;
+    var p = parts.slice(0, i + 1).join('/');
+    a.title = p || '/';
+    a.onclick = function () { loadFiles(p || '/'); };
+    bar.appendChild(a);
+  });
+  return bar;
+}
+var pvRaw = '';
+function previewFile(fullPath, name) {
+  $('pv').className = 'show';
+  $('pvName').textContent = name || fullPath;
+  $('pvPath').textContent = fullPath;
+  $('pvPath').title = fullPath;
+  $('pvBody').textContent = '加载中…';
+  pvRaw = '';
+  window.__CJ_TAURI__.invoke('fs:readText', { path: fullPath }).then(function (r) {
+    // fs:readText 回 JsonString（整个文件的文本）；顺带兼容对象形状
+    var text = (typeof r === 'string') ? r
+      : ((r && typeof r.text === 'string') ? r.text : JSON.stringify(r, null, 2));
+    pvRaw = text;
+    $('pvBody').textContent = text;
+  }).catch(function (e) {
+    $('pvBody').textContent = '读取失败：' + String(e && e.message) +
+      '\n\n预览受能力清单 scopes.fs 约束（当前放行 $HOME 下，拒 .ssh / .aws 一类凭据文件）；' +
+      '要看白名单外的路径，改 capabilities/app.json 的 scopes.fs 后重启应用。';
+  });
+}
+function closePreview() { $('pv').className = ''; pvRaw = ''; }
+
 function loadFiles(path) {
   var el = $('panelFiles');
   el.innerHTML = '<div class="hint">加载中…</div>';
   var q = path ? ('?path=' + encodeURIComponent(path)) : '';
   return cjhGet('/api/fs/list' + q).then(function (r) {
     el.innerHTML = '';
+    // 面包屑：优先用 cjh 回的真实路径（r.path），挂在列表最上方，每段可点跳层
+    el.appendChild(buildCrumb((r && r.path) || path || cjhCwd || ''));
     // cjh 回 {path, dirs:[{name,path}], files:[{name,path}]}——目录与文件是**两个独立数组**，
     // 且目录项不带 is_dir 标记。早期只读 items/entries/files 时目录被整个丢掉：文件区能列出
     // 文件却一个目录都下不去（实测）。判据取「它出自哪个数组」，别猜字段名。
     var norm = function (x, forceDir) {
       var isDir = forceDir || (typeof x === 'object' && x !== null && !!(x.is_dir || x.isdir || x.type === 'dir'));
-      return { name: (typeof x === 'string') ? x : ((x && x.name) || ''), dir: !!isDir };
+      // 条目自带绝对路径就留着（cjh 会给）：预览按它读，省去自己拼路径出错
+      return { name: (typeof x === 'string') ? x : ((x && x.name) || ''), dir: !!isDir,
+               path: (typeof x === 'object' && x !== null) ? (x.path || '') : '' };
     };
     var items = (r.dirs || []).map(function (d) { return norm(d, true); })
       .concat((r.files || []).map(function (f) { return norm(f, false); }));
@@ -473,10 +886,18 @@ function loadFiles(path) {
           var base = path || cjhCwd || '';
           loadFiles(base ? (base.replace(/\/+$/, '') + '/' + name) : name);
         };
+      } else {
+        d.title = '点击预览内容';
+        d.onclick = function () {
+          var base = path || cjhCwd || '';
+          previewFile(f.path || (base ? (base.replace(/\/+$/, '') + '/' + name) : name), name);
+        };
       }
       el.appendChild(d);
     });
-    cjhCwd = path || (r.path || cjhCwd);
+    // 优先 cjh 回的真实路径（可能是软链解析后的规范路径），拿不到才回落到请求的那个
+    cjhCwd = (r && r.path) || path || cjhCwd;
+    updateWsBadge();
   }).catch(function (e) {
     el.innerHTML = '<div class="hint">文件区不可用：' + escHtml(String(e && e.message)) +
       '（cjh /api/fs/list 只在配置了工作区时可用）</div>';
@@ -486,7 +907,8 @@ function loadFiles(path) {
 /* ---- cjh WS：连接 + 帧分发（delta/tool_start/tool_result/done/error/history_messages）---- */
 var curStreamingBody = null;
 var curStreamingText = '';
-var toolChips = {};
+var curToolsEl = null;   // 当前流式消息的工具容器（挂在消息上，不在 .body 里）
+var curTools = [];       // 本轮工具活动 {name,args,status,result}，收尾时随消息落盘
 var cjhTurnPending = false;
 
 function cjhConnectWs() {
@@ -534,24 +956,26 @@ function resumeCjhSession(id) {
 function handleCjhFrame(m) {
   var type = m.type || '';
   if (type === 'delta') {
-    if (!curStreamingBody) { curStreamingBody = appendMsgEl('assistant', '', true); streaming = true; setStreamingUi(true); }
+    ensureStreamMsg();
     curStreamingText += m.text || '';
     setBody(curStreamingBody, curStreamingText, true);
   } else if (type === 'tool_start') {
-    if (!curStreamingBody) { curStreamingBody = appendMsgEl('assistant', '', true); streaming = true; setStreamingUi(true); }
-    var chip = document.createElement('div');
-    chip.className = 'toolchip';
-    chip.innerHTML = '<span class="tname">⚙ ' + escHtml(m.name || 'tool') + '</span><span class="tstate">运行中…</span>';
-    curStreamingBody.appendChild(chip);
-    toolChips[m.name] = chip;
+    ensureStreamMsg();
+    // chip 按**名字**配对（同名并发会串台，不过 cjh 的 agent 循环基本是串行调工具，
+    // 真并发时表现成状态错位而非崩溃——如实记在这里，不假装有 id）
+    curTools.push({ name: m.name || 'tool', args: argsBrief(m.args), status: 'running', result: '' });
+    renderTools(curToolsEl, curTools);
   } else if (type === 'tool_result') {
-    var chip2 = toolChips[m.name];
-    if (chip2) {
-      chip2.classList.add(m.is_error ? 'err' : 'done');
-      chip2.querySelector('.tstate').textContent = m.is_error ? '失败' : '完成';
-      chip2.title = (m.result || '').slice(0, 400);
-      delete toolChips[m.name];
+    // 字段名是 **content**（不是 result）：早期读 m.result 一直拿到 undefined，
+    // 于是 chip 只有 title 有东西、展开区永远空着（实测形状：点了没反应）
+    var res = (typeof m.content === 'string') ? m.content : ((typeof m.result === 'string') ? m.result : '');
+    var hit = null;
+    for (var ti = curTools.length - 1; ti >= 0; ti--) {
+      if (curTools[ti].name === (m.name || 'tool') && curTools[ti].status === 'running') { hit = curTools[ti]; break; }
     }
+    if (hit) { hit.status = m.is_error ? 'error' : 'done'; hit.result = res; }
+    else { curTools.push({ name: m.name || 'tool', args: '', status: m.is_error ? 'error' : 'done', result: res }); }
+    renderTools(curToolsEl, curTools);
   } else if (type === 'done') {
     finishCjhTurn('');
   } else if (type === 'error') {
@@ -562,19 +986,26 @@ function handleCjhFrame(m) {
     replayCjhHistory(m.messages || []);
   }
 }
-function finishCjhTurn(errText) {
+function finishCjhTurn(errText, stopped) {
   var c = cur();
-  var full = curStreamingText || (errText ? '' : '（空回复）');
+  var full = curStreamingText;
   if (errText) { full = (full ? full + '\n\n' : '') + errText; }
+  if (stopped) { full = (full ? full + '\n\n' : '') + '（已停止生成）'; }
+  if (!full) { full = '（空回复）'; }
+  // 还停在「运行中…」的工具按中断收口：不假装它跑完了
+  curTools.forEach(function (t) { if (t.status === 'running') { t.status = 'stopped'; } });
+  if (curToolsEl && curTools.length) { renderTools(curToolsEl, curTools); }
   if (c && full) {
-    c.messages.push({ role: 'assistant', content: full });
+    // tools 跟着消息落盘：刷新后重绘仍看得见这轮调了什么（DOM 里的 chip 会丢）
+    c.messages.push({ role: 'assistant', content: full, ts: Date.now(),
+      tools: curTools.length ? curTools.slice() : null });
   }
   if (curStreamingBody) {
     setBody(curStreamingBody, full, false);
     bindCopyButtons(curStreamingBody);
   }
   curStreamingBody = null; curStreamingText = '';
-  toolChips = {};
+  curTools = []; curToolsEl = null;
   cjhTurnPending = false;
   streaming = false; setStreamingUi(false);
   saveState();
@@ -586,31 +1017,43 @@ function replayCjhHistory(messages) {
   msgsEl.innerHTML = '';
   messages.forEach(function (m) {
     var role = (m.role === 'user') ? 'user' : 'assistant';
-    c.messages.push({ role: role, content: m.content || '' });
-    appendMsgEl(role, m.content || '');
+    // 回放要走 appendMsgEl 的完整参数：漏了 ts 就没时间戳，漏了 tools 就丢工具 chip
+    c.messages.push({ role: role, content: m.content || '', ts: m.ts || Date.now() });
+    appendMsgEl(role, m.content || '', false, m.ts || Date.now(), null);
   });
   saveState();
 }
 
 /* ---- 主题：auto（跟随系统）/ light / dark 三态轮换，存档持久化 ----
  * auto 用 matchMedia 监听系统变化实时切；亮色只是 body.light 覆写变量，
- * 代码块两态都保持暗底（github-dark 一份主题） */
+ * 代码块配色也走变量（两套主题各一份），因此 vendor 的 github-dark 只当类名来源。 */
 var themeMode = 'auto';
+var compact = false;      // 紧凑模式（顶栏开关，随存档持久化）
 var sysDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
 function applyTheme() {
   var light = themeMode === 'light' || (themeMode === 'auto' && sysDark && !sysDark.matches);
-  document.body.className = light ? 'light' : '';
+  // body.className 只在这一处写：主题与紧凑模式**合成**后落盘，避免互相刷掉
+  var cls = light ? 'light' : '';
+  if (compact) { cls = cls ? cls + ' compact' : 'compact'; }
+  document.body.className = cls;
   var label = themeMode === 'auto' ? '主题: 系统' : (themeMode === 'light' ? '主题: 亮' : '主题: 暗');
   $('btnTheme').textContent = label;
+  $('btnCompact').textContent = compact ? '紧凑: 开' : '紧凑: 关';
 }
 function cycleTheme() {
   themeMode = themeMode === 'auto' ? 'light' : (themeMode === 'light' ? 'dark' : 'auto');
   applyTheme();
   saveState();
 }
+// 探针计数：系统主题变化事件被接住的次数（只读，不参与逻辑）。自检要证明「变化真会走到
+// applyTheme」——合成事件合不出系统翻面，但走的就是这条回调；不计数就只能断类名，等于没验接线。
+var sysThemeHits = 0;
 if (sysDark && sysDark.addEventListener) {
-  sysDark.addEventListener('change', function () { if (themeMode === 'auto') { applyTheme(); } });
+  sysDark.addEventListener('change', function () {
+    sysThemeHits++;
+    if (themeMode === 'auto') { applyTheme(); }
+  });
 }
 
 /* ---- 服务商管理（AQBot 式）：主流预设 + 自定义，多服务商并存、一键切换 ----
@@ -639,13 +1082,16 @@ var sysPrompt = '';        // system 提示词（全局，不属于某个服务�
 var convs = [];            // [{id,title,messages:[{role,content}]}]
 var curId = null;
 var streaming = false;
-var abortFlag = false;
+/* send() 注册的「本端收手」钩子。**命令层没有取消通道**（http 插件的 postStream 一路跑到
+ * EOF，ws 侧也只有 abort 帧），所以「停止生成」在本端能做的只有：摘监听、把已到文本落成
+ * 消息、置回非流式；晚到的 resolve/reject 靠「钩子已清空」这条判据丢弃，不会再覆盖一遍。 */
+var stopHook = null;
 
 var $ = function (id) { return document.getElementById(id); };
 var msgsEl = $('msgs');
 
 function saveState() {
-  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode }) })
+  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode, compact: compact, side: sideHidden ? 1 : 0 }) })
     .catch(function () {});
 }
 function loadState() {
@@ -666,14 +1112,42 @@ function loadState() {
       if (Array.isArray(s.convs)) { convs = s.convs; }
       curId = s.curId || (convs[0] && convs[0].id) || null;
       if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'auto') { themeMode = s.theme; }
+      if (typeof s.compact === 'boolean') { compact = s.compact; }
+      sideHidden = !!s.side;
       // 存档里的主题要在读完后**重新应用**：启动时那次 applyTheme() 跑在 loadState
       // 之前（拿的是默认 auto）——不重调的话存档主题永远不生效（实测：写 light 仍是暗色）。
       applyTheme();
+      applySide();
     } catch (e) { /* 存档坏了就当没有：不因脏数据起不来 */ }
   });
 }
 
-/* ---- 会话列表 ---- */
+/* ---- 会话列表：搜索 + 行内改名 + cjh 会话历史（只读）---- */
+var convQuery = '';
+var renamingId = null;   // 正在行内改名的本地会话 id（null = 没有）
+// 搜索命中口径：标题**或正文**——只搜标题会漏掉「聊了半天、标题还叫新会话」的会话（本地会话
+// 才有正文；cjh 会话只有标题与 id，不假装能搜它的内容）。
+function convHits(c) {
+  if (!convQuery) { return true; }
+  var q = convQuery.toLowerCase();
+  if (String(c.title || '').toLowerCase().indexOf(q) !== -1) { return true; }
+  for (var i = 0; i < c.messages.length; i++) {
+    if (String(c.messages[i].content || '').toLowerCase().indexOf(q) !== -1) { return true; }
+  }
+  return false;
+}
+function startRename(id) { renamingId = id; renderConvs(); }
+function commitRename(id, val) {
+  var name = String(val == null ? '' : val).trim();
+  for (var i = 0; i < convs.length; i++) {
+    if (convs[i].id === id) {
+      if (name) { convs[i].title = name; }   // 空名字当取消：别把标题清成空
+      break;
+    }
+  }
+  renamingId = null;
+  renderConvs(); saveState();
+}
 function renderConvs() {
   var el = $('convList');
   el.innerHTML = '';
@@ -683,14 +1157,23 @@ function renderConvs() {
   var ap = activeProvider();
   $('modelBadge').textContent = ap ? ((ap.name || '自定义') + ' · ' + (ap.model || '未配置')) : '未配置服务商';
   renderProvMenu();
-  // cjh 会话历史（独立分组，置顶）：连接上才显示；点击即 resume
+  var q = convQuery.toLowerCase();
+  var hits = 0;
+  // cjh 会话历史（独立分组，置顶）：连接上才显示；点击即 resume。
+  // 这一组**不给改名 / 删除按钮**：cjh 的 /api/sessions 至今只读（没有重命名、删除接口），
+  // 与其摆一个点不动的入口，不如把口径写在分组标题的 tooltip 里。
+  var cjhHits = cjhSessionList.filter(function (s) {
+    return !q || String(s.title || '').toLowerCase().indexOf(q) !== -1 ||
+           String(s.id || '').toLowerCase().indexOf(q) !== -1;
+  });
   if (CJH.wsUp && cjhSessionList.length > 0) {
     var head = document.createElement('div');
     head.className = 'sub';
     head.style.cssText = 'padding:4px 6px 2px;font-size:11px';
-    head.textContent = 'cjh 会话历史';
+    head.textContent = 'cjh 会话历史' + (q ? '（' + cjhHits.length + ' 命中）' : '');
+    head.title = 'cjh 侧只读：/api/sessions 没有重命名 / 删除接口';
     el.appendChild(head);
-    cjhSessionList.forEach(function (s) {
+    cjhHits.forEach(function (s) {
       var d = document.createElement('div');
       d.className = 'conv';
       d.textContent = '⟳ ' + (s.title || s.id);
@@ -698,24 +1181,56 @@ function renderConvs() {
       d.onclick = function () { if (!streaming) { resumeCjhSession(s.id); } };
       el.appendChild(d);
     });
+    hits += cjhHits.length;
     var head2 = document.createElement('div');
     head2.className = 'sub';
     head2.style.cssText = 'padding:4px 6px 2px;font-size:11px';
-    head2.textContent = '本地会话';
+    head2.textContent = '本地会话' + (q ? '（' + convs.filter(convHits).length + ' 命中）' : '');
     el.appendChild(head2);
   }
-  convs.forEach(function (c) {
+  convs.filter(convHits).forEach(function (c) {
     var d = document.createElement('div');
     d.className = 'conv' + (c.id === curId ? ' active' : '');
+    if (renamingId === c.id) {
+      var inp = document.createElement('input');
+      inp.className = 'ren';
+      inp.value = c.title || '';
+      inp.onclick = function (ev) { ev.stopPropagation(); };
+      inp.onkeydown = function (ev) {
+        if (ev.key === 'Enter') { commitRename(c.id, inp.value); }
+        else if (ev.key === 'Escape') { renamingId = null; renderConvs(); }
+      };
+      // 失焦即提交（点别处 = 改完了）；空名字在 commitRename 里被当取消
+      inp.onblur = function () { if (renamingId === c.id) { commitRename(c.id, inp.value); } };
+      d.appendChild(inp);
+      el.appendChild(d);
+      setTimeout(function () { inp.focus(); inp.select(); }, 0);
+      return;
+    }
     d.textContent = c.title || '新会话';
+    d.title = '双击可改名';
     var del = document.createElement('span');
     del.className = 'del';
     del.textContent = '×';
     del.onclick = function (ev) { ev.stopPropagation(); deleteConv(c.id); };
     d.appendChild(del);
-    d.onclick = function () { if (!streaming) { curId = c.id; renderConvs(); renderMsgs(); } };
+    var ed = document.createElement('span');
+    ed.className = 'edit';
+    ed.textContent = '✎';
+    ed.title = '重命名';
+    ed.onclick = function (ev) { ev.stopPropagation(); startRename(c.id); };
+    d.appendChild(ed);
+    d.onclick = function () { if (!streaming && renamingId !== c.id) { curId = c.id; renderConvs(); renderMsgs(); } };
+    d.ondblclick = function () { if (!streaming) { startRename(c.id); } };
     el.appendChild(d);
+    hits++;
   });
+  if (q && hits === 0) {
+    var none = document.createElement('div');
+    none.className = 'hint';
+    none.textContent = '没有匹配「' + convQuery + '」的会话（搜的是本地会话标题与正文）';
+    el.appendChild(none);
+  }
 }
 function newConv() {
   var c = { id: 'c' + Date.now(), title: '新会话', messages: [] };
@@ -752,10 +1267,76 @@ function renderMsgs() {
     msgsEl.appendChild(w);
     return;
   }
-  c.messages.forEach(function (m) { appendMsgEl(m.role, m.content); });
+  c.messages.forEach(function (m) { appendMsgEl(m.role, m.content, false, m.ts, m.tools); });
   msgsEl.scrollTop = msgsEl.scrollHeight;
 }
-function appendMsgEl(role, content, streamingNow) {
+/* ---- 时间戳与工具活动渲染 ----
+ * 时间戳 hh:mm；没存过 ts 的老消息不显示（不硬造）。
+ * 工具 chip 默认只显示一行（name + 参数摘要 + 状态），完整结果折叠着——agent 的
+ * tool_result 动辄几 KB，全展开会把对话冲散，点 chip 才展开。 */
+function fmtTime(ms) {
+  if (!ms) { return ''; }
+  var d = new Date(ms);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+function toolStateText(s) {
+  if (s === 'done') { return '完成'; }
+  if (s === 'error') { return '失败'; }
+  if (s === 'stopped') { return '已中断'; }
+  return '运行中…';
+}
+function renderTools(box, tools) {
+  if (!box) { return; }
+  box.innerHTML = '';
+  (tools || []).forEach(function (t) {
+    var chip = document.createElement('div');
+    chip.className = 'toolchip' + (t.status === 'done' ? ' done' : '') +
+      (t.status === 'error' ? ' err' : '') + (t.status === 'stopped' ? ' stopped' : '') +
+      (t.result ? ' has-result' : '');
+    var row = document.createElement('div');
+    row.className = 'trow';
+    var nm = document.createElement('span');
+    nm.className = 'tname';
+    nm.textContent = '⚙ ' + (t.name || 'tool');
+    row.appendChild(nm);
+    if (t.args) {
+      var ag = document.createElement('span');
+      ag.className = 'targs';
+      ag.textContent = t.args;
+      ag.title = t.args;
+      row.appendChild(ag);
+    }
+    var st = document.createElement('span');
+    st.className = 'tstate';
+    st.textContent = toolStateText(t.status);
+    row.appendChild(st);
+    chip.appendChild(row);
+    if (t.result) {
+      var pre = document.createElement('pre');
+      pre.className = 'tresult';
+      pre.textContent = t.result;
+      chip.appendChild(pre);
+      chip.title = '点击展开 / 收起结果';
+      chip.onclick = function () { chip.classList.toggle('open'); };
+    }
+    box.appendChild(chip);
+  });
+}
+/* 工具参数摘要：cjh 的 tool_start 带 args 对象，`bash {"command":"ls -la"}` 这样能看清调了什么 */
+function argsBrief(a) {
+  if (!a) { return ''; }
+  var s = (typeof a === 'string') ? a : JSON.stringify(a);
+  return s.length > 120 ? (s.slice(0, 120) + '…') : s;
+}
+/* 流式期间第一次需要消息气泡时创建（delta 与 tool_start 都可能先到） */
+function ensureStreamMsg() {
+  if (curStreamingBody) { return; }
+  curStreamingBody = appendMsgEl('assistant', '', true, Date.now(), null);
+  curToolsEl = curStreamingBody._toolsEl;
+  streaming = true; setStreamingUi(true);
+}
+
+function appendMsgEl(role, content, streamingNow, ts, tools) {
   var d = document.createElement('div');
   d.className = 'msg ' + role;
   var who = document.createElement('div');
@@ -789,10 +1370,26 @@ function appendMsgEl(role, content, streamingNow) {
     };
     who.appendChild(del);
   }
+  // 时间戳：只有真存过 ts 的消息才显示（老存档不硬造一个假时间）
+  var tstr = fmtTime(ts);
+  if (tstr) {
+    var tm = document.createElement('span');
+    tm.className = 'msg-time';
+    tm.textContent = tstr;
+    who.appendChild(tm);
+  }
   var body = document.createElement('div');
   body.className = 'body';
   setBody(body, content, streamingNow && role === 'assistant');
   d.appendChild(who); d.appendChild(body);
+  // 工具活动挂在**消息**上而不是 body 里：setBody 每帧重写 body.innerHTML，
+  // 吊在 body 里的 chip 会在收尾那一刻整块消失（实测形状：流式期间看得见「运行中…」，
+  // 回复一落地全没了）。body._toolsEl 供流式期间回填（见 handleCjhFrame）。
+  var toolsEl = document.createElement('div');
+  toolsEl.className = 'tools';
+  if (tools && tools.length) { renderTools(toolsEl, tools); }
+  d.appendChild(toolsEl);
+  body._toolsEl = toolsEl;
   msgsEl.appendChild(d);
   bindCopyButtons(d);
   msgsEl.scrollTop = msgsEl.scrollHeight;
@@ -846,17 +1443,18 @@ function send(text, skipPush) {
   if (!c) { newConv(); c = cur(); }
   if (c.messages.length === 0) { c.title = text.slice(0, 18); renderConvs(); }
   if (!skipPush) {
-    c.messages.push({ role: 'user', content: text });
+    c.messages.push({ role: 'user', content: text, ts: Date.now() });
   }
-  appendMsgEl('user', text);
+  appendMsgEl('user', text, false, Date.now(), null);
   input.value = '';
-  streaming = true; abortFlag = false;
+  autoGrowInput();          // 发完缩回默认高度，别留一块空高
+  streaming = true;
   setStreamingUi(true);
   var trace = function (m) { try { window.__CJ_TAURI__.log.write('[aichat] ' + m); } catch (e) {} };
 
   if (CJH.up) {
     // ---- cjh 管道：WS chat；流式气泡在第一个 delta/tool_start 帧到达时才创建 ----
-    curStreamingBody = null; curStreamingText = ''; toolChips = {}; cjhTurnPending = true;
+    curStreamingBody = null; curStreamingText = ''; curTools = []; curToolsEl = null; cjhTurnPending = true;
     trace('send: cjh ws chat, session=' + (c.cjhId || '(new)'));
     cjhWsSend({ type: 'chat', message: text, session_id: c.cjhId || '' }).catch(function (e) {
       appendNote('cjh 发送失败：' + String(e && e.message));
@@ -865,7 +1463,8 @@ function send(text, skipPush) {
     return;
   }
   // ---- 直连管道（原 http:postStream）----
-  var body = appendMsgEl('assistant', '');
+  // 占位气泡也要带 ts：它是**创建一次就不再重绘**的元素，漏了 ts 这条回复落地后就永远没时间戳
+  var body = appendMsgEl('assistant', '', false, Date.now(), null);
   var acc = '';
   var nChunk = 0;
   // 诊断：每一步都留痕（AGENTS §4「看不见的失败最贵」——没反应时日志必须能说清断在哪）
@@ -882,6 +1481,20 @@ function send(text, skipPush) {
   });
   trace('send: invoke postStream, listen on http:chunk');
 
+  // 「停止」的收手钩子：摘监听 + 把已到文本落成一条带标注的消息。
+  // 服务端可能仍在生成（没有取消通道），所以措辞是「本端已断开接收」而不是「已取消」。
+  var stopHere = function () {
+    stopHook = null;
+    var part = sseToText(acc);
+    var text = part + (part ? '\n\n' : '') + '（已停止：本端已断开接收，服务端可能仍在生成）';
+    off();
+    c.messages.push({ role: 'assistant', content: text, ts: Date.now() });
+    setBody(body, text, false);
+    streaming = false; setStreamingUi(false);
+    saveState();
+  };
+  stopHook = stopHere;
+
   var payload = JSON.stringify({ model: cfg.model, messages: buildMessages(text), stream: true });
   window.__CJ_TAURI__.invoke('http:postStream', {
     url: cfg.base,
@@ -889,6 +1502,8 @@ function send(text, skipPush) {
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key }
   }).then(function (stat) {
     off();
+    if (stopHook !== stopHere) { return; }   // 已「停止」收口过：晚到的结果不再覆盖一遍
+    stopHook = null;
     // SSE 帧 → 纯文本（宿主只回投字节，帧解析在前端：data: 行取 JSON，拼 delta，[DONE] 收）
     var full = sseToText(acc);
     // **错误必须可见**：一条 data: 行都没有 ≠ 空回复——多半是 Base URL 不对（打到非
@@ -902,23 +1517,19 @@ function send(text, skipPush) {
       if (acc && acc.indexOf('<') === 0) { hint += ' 服务端返回的是 HTML 页面而非 SSE 流。'; }
       full = '**[错误]** ' + hint;
     }
-    c.messages.push({ role: 'assistant', content: full });
+    c.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     setBody(body, full, false);
     if (stat && stat.truncated) { appendNote('（回复过长被截断）'); }
     streaming = false; setStreamingUi(false);
     saveState();
   }).catch(function (e) {
     off();
-    if (abortFlag) {
-      // 主动停止：留已收到的部分，不算错误
-      if (acc) { c.messages.push({ role: 'assistant', content: sseToText(acc) + '\n\n（已停止）' }); }
-      setBody(body, sseToText(acc) + (acc ? '\n\n（已停止）' : '（已停止）'), false);
-    } else {
-      var msg = '请求失败：' + (e && e.message ? e.message : String(e));
-      c.messages.push({ role: 'assistant', content: msg });
-      setBody(body, msg, false);
-      appendNote('若提示 scope/白名单，请到 设置 里确认 Base URL 在白名单内');
-    }
+    if (stopHook !== stopHere) { return; }   // 已「停止」收口过：晚到的失败不再覆盖
+    stopHook = null;
+    var msg = '请求失败：' + (e && e.message ? e.message : String(e));
+    c.messages.push({ role: 'assistant', content: msg, ts: Date.now() });
+    setBody(body, msg, false);
+    appendNote('若提示 scope/白名单，请到 设置 里确认 Base URL 在白名单内');
     streaming = false; setStreamingUi(false);
     saveState();
   });
@@ -957,9 +1568,16 @@ function appendNote(text) {
   msgsEl.appendChild(n);
 }
 
+/* 停止生成：两条管道都**没有**服务端取消通道，本端能做的只有收手 + 如实标注。
+ * cjh 侧能发一个 abort 帧（agent 侧中断本轮工具循环）；直连 SSE 侧只能断开接收，
+ * 服务端可能仍在生成——这话写进消息里，不假装成真取消。 */
 function stopStream() {
-  // 没有服务端取消通道（difficult 分期）：置标志，收尾时保留已到文本
-  abortFlag = true;
+  if (cjhTurnPending) {
+    if (CJH.up) { cjhWsSend({ type: 'abort' }).catch(function () {}); }
+    finishCjhTurn('', true);
+    return;
+  }
+  if (stopHook) { stopHook(); }
 }
 
 function setStreamingUi(on) {
@@ -1001,6 +1619,7 @@ function renderProvMenu() {
 function hideProvMenu() { $('provMenu').classList.remove('show'); }
 function toggleProvMenu(ev) {
   ev.stopPropagation();
+  hideWsMenu();
   $('provMenu').classList.toggle('show');
 }
 
@@ -1131,6 +1750,45 @@ function selfcheck() {
   themeMode = 'dark'; applyTheme();
   ok('theme-dark', document.body.className === '' && $('btnTheme').textContent.indexOf('暗') !== -1);
   themeMode = 'auto'; applyTheme();
+  // 会话搜索 + 行内改名：搜索要按**正文**也命中（只搜标题会漏掉「聊了半天、标题还叫新会话」那种），
+  // 改名要落进 convs 且去掉首尾空白。**断言完恢复现场并落盘**——不然后面整轮都用假会话，
+  // 探针还会把假数据写进 store（实测教训同 prov-* 那组）。
+  var _cs = convs, _ci = curId, _cq = convQuery, _cr = renamingId;
+  convs = [{ id: 'x1', title: '买咖啡', messages: [] },
+           { id: 'x2', title: '新会话', messages: [{ role: 'user', content: '谈谈 zeta 协议' }] }];
+  curId = 'x1';
+  convQuery = 'zeta'; renderConvs();
+  var _rows = $('convList').querySelectorAll('.conv');
+  ok('conv-search', _rows.length === 1 && _rows[0].textContent.indexOf('新会话') === 0);
+  commitRename('x2', '  zeta 讨论  ');
+  ok('conv-rename', convs[1].title === 'zeta 讨论' && convs[0].title === '买咖啡');
+  convs = _cs; curId = _ci; convQuery = _cq; renamingId = _cr;
+  renderConvs(); saveState();
+  // 侧栏收起 + 输入框自适应：切换后类名/文案一致，且长文本真让 textarea 长高（> 默认 66px）。
+  // 收起态**断言完还原**：别把用户存的展开态刷成收起。
+  var _sh = sideHidden;
+  toggleSide();
+  ok('side-toggle', $('side').className === 'hide' && $('btnSide').textContent.indexOf('展开') !== -1);
+  sideHidden = _sh; applySide();
+  ok('side-restore', $('side').className === (_sh ? 'hide' : ''));
+  $('input').value = 'l1\nl2\nl3\nl4\nl5\nl6';
+  autoGrowInput();
+  ok('input-grow', parseInt($('input').style.height, 10) > 66);
+  $('input').value = ''; autoGrowInput(); saveState();
+  // 主题跟随系统 + 与紧凑模式共存（#9）：auto 下类名必须与系统一致；合成一次 change 事件证明
+  // 事件真被接住（system flip 合不出来，但走同一条回调）；compact 与 light 必须能同时挂上。
+  var _tm = themeMode, _ck = compact;
+  themeMode = 'auto'; applyTheme();
+  var expectLight = !!(sysDark && !sysDark.matches);
+  ok('theme-auto-class', $('btnTheme').textContent.indexOf('系统') !== -1 &&
+     (document.body.className.indexOf('light') !== -1) === expectLight);
+  var _hits = sysThemeHits;
+  if (sysDark) { try { sysDark.dispatchEvent(new Event('change')); } catch (e) {} }
+  ok('theme-os-wired', !sysDark || sysThemeHits === _hits + 1);
+  compact = true; themeMode = 'light'; applyTheme();
+  ok('theme-compact-coexist', document.body.className.indexOf('light') !== -1 &&
+     document.body.className.indexOf('compact') !== -1);
+  themeMode = _tm; compact = _ck; applyTheme(); saveState();
   ok('md-escape', renderMd('<img src=x onerror=alert(1)>').indexOf('<img') === -1);
   // 代码块里的 HTML 必须被转义（hljs 也会包 span，但尖括号本体必须是实体——XSS 防线）
   ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;') !== -1);
@@ -1210,6 +1868,49 @@ function selfcheck() {
         plog(okN + '/' + pairs.length);
       }).catch(function (e) { plog('FAIL ' + String(e && e.message).slice(0, 120)); });
     }, 3500);
+    // 文件预览（#7）：走自家 fs 插件真读内容——只数「列表有几行」证明不了它。口径：真读一个面板
+    // 列出的文件 → 弹层真渲染 → 关得上 → 面包屑可点 → **越界路径被拒**（安全那半条也要有凭证，
+    // 否则「scopes.fs 收口」只是页面文案）。与 CJH-* 同理独立成行，不占 SELFCHECK 计数。
+    setTimeout(function () {
+      if (!CJH.api) { return; }
+      var plog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] PREVIEW ' + line }).catch(function () {}); };
+      var inv = function (cmd, args) { return window.__CJ_TAURI__.invoke(cmd, args); };
+      var names = [];
+      // 面板行只有名字没有路径（路径在 onclick 闭包里）——按 loadFiles 的同一口径自己拼绝对路径
+      var base = function () { return (cjhCwd || '').replace(/\/+$/, ''); };
+      loadFiles('').then(function () {
+        var rows = $('panelFiles').querySelectorAll('.file-row');
+        for (var i = 0; i < rows.length && names.length < 3; i++) {
+          var t = rows[i].textContent || '';
+          if (t.indexOf('←') === 0 || rows[i].className.indexOf('dir') !== -1) { continue; }
+          names.push(t);
+        }
+        if (names.length === 0) { plog('FAIL pv-read 文件区没有可预览的文件'); return; }
+        // 前 3 个里挑第一个读得出来的：题包/二进制/被拒文件让单个失败不算收口失败
+        var tryAt = function (k) {
+          if (k >= names.length) { plog('FAIL pv-read 前 ' + names.length + ' 个文件都读不出来'); return; }
+          var p = base() + '/' + names[k];
+          inv('fs:readText', { path: p }).then(function (txt) {
+            var text = (typeof txt === 'string') ? txt : ((txt && txt.text) || '');
+            plog((text.length > 0 ? 'PASS' : 'FAIL') + ' pv-read ' + names[k] + ' bytes=' + text.length);
+            previewFile(p, names[k]);
+            plog(($('pv').className === 'show' && $('pvName').textContent.indexOf(names[k]) !== -1 ? 'PASS' : 'FAIL') +
+                 ' pv-render name=' + $('pvName').textContent.slice(0, 24));
+            closePreview();
+            plog(($('pv').className === '' ? 'PASS' : 'FAIL') + ' pv-close');
+            var cn = buildCrumb(base() + '/a/b').querySelectorAll('.cseg').length;
+            plog((cn >= 3 ? 'PASS' : 'FAIL') + ' pv-crumb segs=' + cn);
+            return inv('fs:readText', { path: '/etc/shadow' }).then(function () {
+              plog('FAIL pv-scope-deny 越界路径居然读到了');
+            }).catch(function (e) {
+              var m = String(e && e.message);
+              plog((m.indexOf('scope') !== -1 ? 'PASS' : 'FAIL') + ' pv-scope-deny ' + m.slice(0, 60));
+            });
+          }).catch(function () { return tryAt(k + 1); });
+        };
+        tryAt(0);
+      }).catch(function (e) { plog('FAIL pv-load ' + String(e && e.message).slice(0, 80)); });
+    }, 6000);
     // 有 Key 时再补一条**真流式**探针：postStream 实发一条小消息，数 chunk 到达数
     // （链路真正的端到端验证——上面那条只证明非流式 POST 可达）
     var done4 = function (extra) {
@@ -1247,16 +1948,64 @@ function selfcheck() {
   });
 }
 
+/* ---- 侧栏收起 / 输入框自适应 ----
+ * 侧栏收起：把整屏让给消息区（窄窗口下侧栏吃掉半个屏）；状态随存档持久化。
+ * 输入框自适应：写到第四行还挤在 66px 里滚很难受——按 scrollHeight 长到 200px 封顶
+ * （封顶交给 CSS 的 max-height，这里只管「该多高」）。 */
+var sideHidden = false;
+function applySide() {
+  $('side').className = sideHidden ? 'hide' : '';
+  $('btnSide').textContent = sideHidden ? '☰ 展开' : '☰';
+  $('btnSide').title = (sideHidden ? '展开' : '收起') + '侧栏（Ctrl+B）';
+}
+function toggleSide() { sideHidden = !sideHidden; applySide(); saveState(); }
+function autoGrowInput() {
+  var t = $('input');
+  t.style.height = 'auto';                        // 先归零再量：不清掉旧内联高，scrollHeight 不会变小
+  t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+}
+
 /* ---- 启动 ---- */
 waitForBridge().then(function () {
   $('btnNew').onclick = function () { if (!streaming) { newConv(); } };
   $('btnCfg').onclick = openCfg;
   $('btnTheme').onclick = cycleTheme;
+  $('btnCompact').onclick = function () { compact = !compact; applyTheme(); saveState(); };
+  // 会话搜索：输入即筛（本地会话按标题与正文，cjh 会话按标题与 id）；Esc 清空
+  $('convSearch').oninput = function () { convQuery = this.value; renderConvs(); };
+  $('convSearch').onkeydown = function (ev) {
+    if (ev.key === 'Escape') { this.value = ''; convQuery = ''; renderConvs(); }
+  };
+  $('btnSide').onclick = toggleSide;
+  $('input').addEventListener('input', autoGrowInput);
+  // 快捷键（只在带修饰键时接管，不抢普通输入）：Ctrl/Cmd+K 搜会话（顺带切到会话 Tab）、
+  // Ctrl/Cmd+B 收侧栏、Ctrl/Cmd+Shift+N 新会话。"key" 在小写化后比较，兼容大写输入态。
+  document.addEventListener('keydown', function (ev) {
+    if (!(ev.ctrlKey || ev.metaKey)) { return; }
+    var k = (ev.key || '').toLowerCase();
+    if (k === 'k') {
+      ev.preventDefault(); switchTab('convs'); $('convSearch').focus(); $('convSearch').select();
+    } else if (k === 'b') {
+      ev.preventDefault(); toggleSide();
+    } else if (k === 'n' && ev.shiftKey) {
+      ev.preventDefault(); if (!streaming) { newConv(); }
+    }
+  });
   // 顶栏徽章 → 服务商切换下拉；点别处收起
   $('modelBadge').onclick = toggleProvMenu;
+  $('wsBadge').onclick = toggleWsMenu;
+  // 文件预览：关闭 / 复制 / 点遮罩空白处 / Esc 都能退（四条路都留，别让用户困在弹层里）
+  $('pvClose').onclick = closePreview;
+  $('pvCopy').onclick = function () { copyText(pvRaw, this); };
+  $('pv').onclick = function (ev) { if (ev.target === $('pv')) { closePreview(); } };
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && $('pv').classList.contains('show')) { closePreview(); }
+  });
   document.addEventListener('click', function (ev) {
     var m = $('provMenu');
     if (m.classList.contains('show') && !m.contains(ev.target)) { hideProvMenu(); }
+    var w = $('wsMenu');
+    if (w.classList.contains('show') && !w.contains(ev.target)) { hideWsMenu(); }
   });
   applyTheme();   // 桥就绪、存档读入后再定主题（auto 需 matchMedia）
   $('btnProvAdd').onclick = function () { openProvForm(-1); };
@@ -1279,18 +2028,10 @@ waitForBridge().then(function () {
     if (s.state === 'connected') { cjhStateUi(true, 'cjh：已连接'); refreshCjhSessions(); }
     else if (s.state === 'closed') { CJH.wsUp = false; cjhStateUi(false, 'cjh：连接断开'); }
   });
-  if (CJH.api) { cjhConnectWs(); } else { cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）'); }
+  if (CJH.api) { cjhConnectWs(); loadWorkspaces(); } else { cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）'); }
   $('btnSend').onclick = send;
+  // 停止统一走 stopStream：它自己按管道分流（cjh 发 abort 帧 / 直连走收手钩子）
   $('btnStop').onclick = stopStream;
-  // cjh 模式的停止：abort 帧走 WS（agent 侧中断本轮工具循环）
-  $('btnStop').onclick = function () {
-    if (CJH.up && cjhTurnPending) {
-      cjhWsSend({ type: 'abort' }).catch(function () {});
-      finishCjhTurn('');
-      return;
-    }
-    stopStream();
-  };
   $('input').addEventListener('keydown', function (ev) {
     if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
   });

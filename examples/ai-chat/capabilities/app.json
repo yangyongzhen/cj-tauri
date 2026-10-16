@@ -4,6 +4,7 @@
   "commands": [
     "http:get",
     "http:post",
+    "http:delete",
     "http:postStream",
     "ws:connect",
     "ws:send",
@@ -15,6 +16,7 @@
     "log:write",
     "log:path",
     "clipboard:write",
+    "fs:readText",
     "quit",
     "system:version",
     "system:host"
@@ -36,6 +38,10 @@
     },
     "ws": {
       "allow": ["127.0.0.1", "localhost"]
+    },
+    "fs": {
+      "allow": ["$HOME/**"],
+      "deny": ["**/.ssh/**", "**/.aws/**", "**/.git-credentials", "**/id_rsa*", "**/*.pem"]
     }
   }
 }

@@ -135,9 +135,9 @@ cli\cj-tauri.bat create myapp && cd myapp
 | 框架内置 `store` 插件 | 持久化键值（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它 |
 | 框架内置 `clipboard` / `notification` 插件 | 系统剪贴板读写 / 系统通知（RFC-003 第 3 期）：Linux 实机取证（外部回读剪贴板、会话总线上实收通知），Windows 侧同名桩且能力位如实上报 |
 | 框架内置 `log` 插件 + 日志落盘（RFC-003 第 5 期） | `app.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(app)` 把仓颉侧与 C 桥的诊断落进同一份文件（**fd 级接管**，超预算轮转 `.1`…`.keep`）；`CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可为**已分发的 exe** 就地开日志，`system:host` 的 `logFile` 回读生效路径，页面 `log:write` / `log:path` 同走一个出口 |
-| 框架内置 `http` 插件（SEC-006 白名单收口） | 页面可控的出网口：`http:get` / `http:post` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat`（AI 对话客户端）是首个消费者 |
+| 框架内置 `http` 插件（SEC-006 白名单收口） | 页面可控的出网口：`http:get` / `http:post` / `http:delete` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat`（AI 对话客户端）是首个消费者 |
 | 框架内置 `ws` 插件（长连接出网口） | `ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` 事件，主机白名单写在能力清单 `scopes.ws`（**没写 = 全拒**，与 `http` 插件同构、共用核心层 `urlHostOf`）；握手用 stdx 自带 `WebSocket.upgradeFromClient`，不手写协议 |
-| 示例 `examples/ai-chat` | **cjh 的桌面客户端**：聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；另有 AI 对话客户端本体的多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令** |
+| 示例 `examples/ai-chat` | **cjh 的桌面客户端**：聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；另有 AI 对话客户端本体的多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；UI 侧含会话搜索 / 行内改名 / 侧栏收起 / 输入框自适应 / 文件预览与面包屑 / 工作区切换、停止生成与工具调用 chip（页面自检 25/25） |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
 

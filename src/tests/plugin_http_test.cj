@@ -53,11 +53,14 @@ func testHttpPluginDeclarations(): Unit {
     let p = HttpPlugin()
     @Expect(p.name(), "http")
     @Expect(p.scopeAware(), true)
-    // 权限集 default = get + post + postStream：集声明 != 放行，清单引用才生效
+    // 权限集 default = get + post + delete + postStream：集声明 != 放行，清单引用才生效
     @Expect(p.permissions().contains("default"), true)
     let cmds = p.commands()
     @Expect(cmds.contains("get"), true)
     @Expect(cmds.contains("post"), true)
+    // delete 是给「带 JSON 体的 DELETE」用的（cjh 的工作区删除靠体传 path）：
+    // 少了它前端只能退化成无体 DELETE，对端拿不到要删哪个
+    @Expect(cmds.contains("delete"), true)
     @Expect(cmds.contains("postStream"), true)
     // 推一个事件（流式 http:chunk，短名登记）、无前端 shim
     @Expect(p.events().size == 1, true)

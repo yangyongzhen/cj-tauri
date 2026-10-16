@@ -137,6 +137,15 @@ typedef struct cj_host {
     char *win_icon;  /* NULL = 系统默认图标 */
     int devtools;    /* 开发者工具开关 */
 
+    /* 自适应开窗（cj_bridge_set_window_auto 存入）：win_auto_pct > 0 时，平台在**建窗那一刻**
+       （自家宿主线程，够得着显示器 API）按屏幕工作区百分比算最终尺寸，再用 min/max 夹取；
+       算不出来（无显示器信息）就退回 win_w/win_h 并打一行 stderr，绝不猜。 */
+    int win_auto_pct;
+    int win_auto_min_w;
+    int win_auto_min_h;
+    int win_auto_max_w;
+    int win_auto_max_h;
+
     /* 窗口初始可见性（cj_bridge_set_window_visible 存入）：1 = 显示（默认，老应用行为不变）、
        0 = 窗口建好即隐藏。**只解决「建窗那一刻该不该显示」**——运行期改可见性由平台直接投
        UI 线程执行，不需要它。 */
@@ -349,6 +358,12 @@ void cj_core_tray_clicked(cj_host *h, const char *id);
    仓颉侧按句柄路由）。paths 上限 32 个、单个路径上限 4096 字节（超限丢弃并记日志）。 */
 void cj_core_drop_files(cj_host *h, const char *uri_list);
 
+/* 把「工作区尺寸 + 自适应策略」解析成最终窗口尺寸：返回 1 = 用自适应（写进 out_w/out_h），
+   0 = 没开自适应或工作区不可用（out_* 不动，调用方用 h->win_w/win_h）。
+   夹取顺序：先按百分比算，再夹到 [min, max]（0 = 不限），最后兜到 320x240 的下限。
+   数学放 core 里是为了两平台同一份——平台只负责报工作区，不各写一遍。 */
+int cj_core_window_size(cj_host *h, int work_w, int work_h, int *out_w, int *out_h);
+
 /* =========================================================================
  *  仓颉 → C 桥：导出（全部实现在 bridge_core.c，两平台同一份）
  * ========================================================================= */
@@ -365,6 +380,11 @@ CJ_BRIDGE_API void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_
 
 /* 窗口配置（标题 / 尺寸）：必须在 cj_bridge_start 之前调用 */
 CJ_BRIDGE_API void cj_bridge_set_window(cj_host *h, const char *title, int width, int height);
+
+/* 自适应开窗（须在 cj_bridge_start 之前调用）：pct = 屏幕工作区的百分比（1..100；0 = 关闭）。
+   平台在**建窗那一刻**（自家宿主线程，够得着显示器 API）读工作区算最终尺寸，再用 min/max 夹取
+   （0 = 该维不限）；算不出来就退回 cj_bridge_set_window 的尺寸 + 一行 stderr。不调用它行为不变。 */
+CJ_BRIDGE_API void cj_bridge_set_window_auto(cj_host *h, int pct, int min_w, int min_h, int max_w, int max_h);
 
 /* 窗口图标（png / ico 路径）：必须在 cj_bridge_start 之前调用；空路径 = 系统默认图标 */
 CJ_BRIDGE_API void cj_bridge_set_icon(cj_host *h, const char *path);

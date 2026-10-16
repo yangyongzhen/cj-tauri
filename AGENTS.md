@@ -51,6 +51,10 @@
   `Shell_NotifyIconW` 已落地**，菜单用 `CreatePopupMenu`、点击回投 `{"kind":"tray","id":…}`），
   **全局快捷键两平台齐了**（Linux X11 grab / Windows `RegisterHotKey`，同一套 accel 词法：
   注册失败如实在 stderr 说明、不致命），
+  **开窗尺寸随屏幕自适应同样是宿主基元**（`WindowConfig.autoSize = Some(WindowAutoSize(pct, min, max))`，
+  不占能力位——没有平台只有一半）：百分比换算与上下限夹取只在 core 一份（`cj_core_window_size`），
+  平台在建窗线程读到工作区后定稿，读不到如实退回 `win_w` / `win_h` 并打一行 stderr；
+  页面侧的等比缩放（`zoom` + 视口单位补偿）由应用自定，框架不插手（坑见 §4）。
   **窗口可见性 + 最小化到托盘是宿主基元**（`setWindowVisible` / `setMinimizeToTray`，不占能力位——
   没有平台只有一半）：隐藏态页面照常跑，还原入口由应用给（托盘菜单 / 全局快捷键），
   最小化那一刻平台复核托盘是否**真的**装上了，没装就如实降级为普通最小化 + 一行 stderr。
@@ -517,6 +521,13 @@
   **并且把窗口挪进屏内**（窗口有一角在屏外时，那片坐标拍到的也是屏外内容），抓完 `HWND_NOTOPMOST` 还原；
   `GetWindowRect` 给的尺寸可能比屏幕还大，别默认它在屏内。判据：拍完先自己看一眼图里是不是目标窗口
   （标题栏 + 自己的 UI），别看命令退出码。
+- **CSS `zoom` 缩放整页时视口单位不跟着缩**（2026-10-16 实测，`examples/ai-chat` 的整页等比缩放）：
+  `zoom: 1.3` 之后 `100vh` 仍是**未缩放**视口的高度，乘 1.3 就超过视口——`body{height:100vh}` 的页面短一截 /
+  溢出。修法是按 `1/--z` 反向补偿（`calc(100vh / var(--z, 1))`，页面里所有 `vw` / `vh` 同口径）。两个附带条件：
+  ① **先探测再补偿**——`zoom` 不被支持时若还写 `--z≠1`，补偿式反过来把页面压到 1/z 高；探测要真的量一个
+  100px 探针（只看 `d.style.zoom === '1.5'` 认了属性不算数，得有实际布局效果），不认就保持 `--z = 1`
+  （代价是「不缩放」而不是「布局塌一截」）；② **档位依据取 `screen.availWidth`，不要取 `innerWidth`**
+  ——后者会被 zoom 改，拿它算缩放比会形成反馈环（越缩越小 / 越放越大）。
 - **WebKitGTK 的 `<select>` 会用原生 combo 的浅色样式盖掉页面配色**（2026-10-09 实测：`serial-assistant`
   深色页里四个下拉框白底浅字几乎不可读，页面 CSS 的 `background`/`color` 都不生效）。深色页面一律给
   `select` 加 `-webkit-appearance:none; appearance:none` 自绘（箭头用 `background-image` 的两段

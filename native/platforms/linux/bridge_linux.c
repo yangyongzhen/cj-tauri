@@ -564,6 +564,24 @@ static void on_destroy(GtkWidget *w, gpointer ud) {
 
 static const char *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 
+/* 屏幕工作区（去掉面板 / 任务栏之后的可摆放区域）：0 = 拿不到。
+   只在宿主线程（GTK 主循环所在的那条线）上调用——GTK 调用不得跨线程，见 AGENTS §4。 */
+static int screen_workarea(GdkRectangle *out) {
+    GdkDisplay *dpy = gdk_display_get_default();
+    GdkMonitor *mon;
+    if (!dpy) return 0;
+    mon = gdk_display_get_primary_monitor(dpy);
+    if (!mon) {
+        /* 有的环境没有 primary（老 Xvfb / 多显示器边角）：取第 0 个兜底，没有就认输 */
+        if (gdk_display_get_n_monitors(dpy) < 1) return 0;
+        mon = gdk_display_get_monitor(dpy, 0);
+        if (!mon) return 0;
+    }
+    gdk_monitor_get_workarea(mon, out);
+    if (out->width <= 0 || out->height <= 0) return 0;
+    return 1;
+}
+
 static void *gtk_thread_main(void *arg) {
     cj_host *h = (cj_host *)arg;
     plat_host *p = h ? (plat_host *)h->plat : NULL;
@@ -578,7 +596,25 @@ static void *gtk_thread_main(void *arg) {
 
     p->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(p->window), h->win_title ? h->win_title : "cj-tauri");
-    gtk_window_set_default_size(GTK_WINDOW(p->window), h->win_w, h->win_h);
+    /* 自适应开窗：在定尺寸之前把「百分比 + 上下限」解析成最终值。拿不到工作区就退回 win_w/win_h
+       并如实打一行——不猜，也不静默（与窗口可见性 / 拖放策略同一条「建窗时定稿」的路）。 */
+    int win_w;
+    int win_h;
+    win_w = h->win_w;
+    win_h = h->win_h;
+    if (h->win_auto_pct > 0) {
+        GdkRectangle wa;
+        if (screen_workarea(&wa) && cj_core_window_size(h, wa.width, wa.height, &win_w, &win_h)) {
+            fprintf(stderr, "[cj-bridge] window auto: %dx%d (workarea %dx%d @%d%%)\n",
+                    win_w, win_h, wa.width, wa.height, h->win_auto_pct);
+        } else {
+            win_w = h->win_w;
+            win_h = h->win_h;
+            fprintf(stderr, "[cj-bridge] window auto: workarea unavailable, fallback %dx%d\n",
+                    win_w, win_h);
+        }
+    }
+    gtk_window_set_default_size(GTK_WINDOW(p->window), win_w, win_h);
     /* 窗口图标：失败只意味着用系统默认图标，不阻断启动（GTK 的 err 要自己释放） */
     if (h->win_icon) {
         GError *icon_err = NULL;

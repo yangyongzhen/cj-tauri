@@ -342,6 +342,16 @@
 
 ### Added
 
+- **Linux 目录式便携包 `scripts/pack-linux.sh`（cjh 预编译产物随仓 vendor）**：一条命令产出
+  `examples/ai-chat/dist-linux/ai-chat-linux-x64/`（`run.sh` + `bin/main` + 41 个共享库 + `bin/cjh`，
+  39 MB；归档 tar.gz 12 MB），照 `pack-win.sh` 的风格收依赖。cjh 的来源是**仓内 vendored 的预编译包**
+  `examples/ai-chat/vendor/cjh/`（linux `tar.gz` + windows self-contained `zip` + `SHA256SUMS`）——
+  启动时**不做联网下载**，更新就是手动替换包；解出来的 `bin/cjh` 逐字节等于官方 `cjh-linux-x64`
+  （sha256 `56ebf47c…`），来源与校验值同时记进包内 `bin/cjh.src.txt`。`.gitignore` 放行 vendor 下的
+  zip/tar.gz、忽略 `**/dist-linux/`。
+- **`examples/ai-chat/README.md`**：这个示例此前**没有 README**（其余示例都有）。补上「两条管道」的
+  说明、Agent 模式怎么接 cjh（发现 → 探活复用 → 按需 spawn → 只收自己拉起的）、两处 scope 的口径、
+  自检对账方式与四条已知限制。
 - **托盘能力位（PLG-009）**：`TrayModel`（`src/tray.cj`，图标 + 提示 + 平铺一层菜单，复用 `MenuItem` 与菜单 wire 格式）→ `TauriApp.setTray()` → `WebViewHost.setTray()` → C 桥 `cj_bridge_set_tray`（core 记 pending，两头都能用：装配前调由宿主线程装配时创建，运行期调整表重建）。Linux 走 **libayatana-appindicator3**（可选编译 `CJ_HAVE_TRAY`，`build_linux.sh` 用 pkg-config 探测；点击经 `cj_core_tray_clicked` 以 `{"kind":"tray","id":…}` 走 shell 通道，前端事件 `tray:click`）；Windows 桩如实报未实现。托盘菜单行走 `cj_core_menu_walk` 同一遍解析，Submenu 整条出局并打 stderr。
 - **全局快捷键能力位（PLG-010）**：`HotkeyModel`（`src/hotkey.cj`）→ `TauriApp.setGlobalHotkeys()` → C 桥 `cj_bridge_set_global_hotkeys`。Linux 走 **X11 XGrabKey**（可选编译 `CJ_HAVE_X11`；独立 grab 线程独占 X 连接、按键经管道送 GTK 线程，NumLock/CapsLock 四组合都 grab；Wayland 如实报不支持），点击以 `{"kind":"hotkey","id":…}` 走 shell 通道（前端事件 `hotkey:press`）；Windows 桩。能力位 `CJ_CAP_HOTKEY`/`CJ_CAP_TRAY` 按编译期开关如实上报（`system:host`），桩自检 182 项（含托盘接线 8 项）。
 - **新示例 `examples/clipboard-history`**（剪贴板历史管理器）：托盘 + 全局快捷键的首个消费者——**历史捕获零新命令**（前端 500ms 轮询 `clipboard:read` 去重入史，store 持久化上限 200 条），点击条目 `clipboard:write` 回写。Linux 实机 E2E **15/15**（`dist/e2e-evidence/linux-clipboard-history.json`）：托盘真建（tray applied）、grab 注册、轮询捕获、回写后 `xclip -o` **外部回读**对账。已实测的坑入档：剪贴板 core 层单槽防并发（read/write 撞车返回 code=-3），前端探针带退避重试。

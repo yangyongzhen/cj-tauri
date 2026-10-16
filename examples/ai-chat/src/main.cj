@@ -8,6 +8,7 @@ import cjTauri.plugins.http.*
 import cjTauri.plugins.log.*
 import cjTauri.plugins.store.*
 import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.ws.*
 import stdx.encoding.json.*
 
 /**
@@ -132,6 +133,7 @@ main(): Int64 {
         .plugin(LogPlugin())
         .plugin(StorePlugin())
         .plugin(ClipboardPlugin())   // 复制按钮的后端：clipboard:write（消息/代码块一键复制）
+        .plugin(WsPlugin())          // cjh 后端通道：ws:frame 事件回投聊天流（cjh web /ws）
         // 日志落盘：GUI 产物双击没控制台，报障时一个文件看全（C 桥 + 仓颉 + 页面 log:write）
         .setLogToDefaultFile("ai-chat")
 
@@ -158,6 +160,21 @@ main(): Int64 {
 
     app.register("quit", QuitCommand(app))
 
+    // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
+    // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。
+    let cjhUp = ensureCjhWeb()
+    if (cjhUp) {
+        // 托管成功：把 ws 端点告诉页面（document-start，早于页面脚本，见 AGENTS §2）
+        let js = "window.__CJH_WS__ = 'ws://127.0.0.1:" + cjhPort().toString() + "/ws';" +
+            "window.__CJH_API__ = 'http://127.0.0.1:" + cjhPort().toString() + "';\n"
+        match (app.hostOf("main")) {
+            case Some(host) =>
+                host.addInitScript(js)
+                eprintln("[cj-ai-chat] cjh 端点已注入页面")
+            case None => eprintln("[cj-ai-chat] 主窗未登记，cjh 端点没注入")
+        }
+    }
+
     // 探针模式（CJ_AICHAT_PROBE=1）：注入自检开关，页面跑完一轮经 log:write 回投 stderr
     if (envOr("CJ_AICHAT_PROBE", "") == "1") {
         let js = "window.__CJ_TAURI_SELF_CHECK__ = true;\n"
@@ -174,5 +191,7 @@ main(): Int64 {
     // 本页面零外部资源（无图片/无 vendor），内联无副作用。
     let html = loadUi()
     app.run(html)
+    // run 返回 = 窗口已收尾：只终止**自己拉起的** cjh（复用的不动）
+    shutdownCjh()
     return 0
 }

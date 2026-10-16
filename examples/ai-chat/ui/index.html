@@ -11,8 +11,10 @@
 </style>
 <style>
   /* ---- 主题：默认跟随系统（body.light 切换变量）----
-   * 暗色是根变量本体；亮色只覆写颜色族。代码块两主题都保持暗底（github-dark 主题
-   * 内联只有一份，聊天 UI 里暗底代码块在亮色页面下也是主流形态） */
+   * 暗色是根变量本体；亮色只覆写颜色族。**代码块跟着主题走**——早前的口径是「两态都保持暗底」，
+   * 那正是用户点出的「浅色下黑块」的来源，现已改成两套色都在变量里给全。
+   * vendor 的 github-dark 只当 hljs 的**类名来源**：它那条 `.hljs{background:#0d1117}` 由下面
+   * `.msg .body pre code.hljs` 的 `background:transparent` 顶掉，浅色下才不会从内层再糊一块黑。 */
   :root {
     --bg:#0f1117; --panel:#161a23; --panel2:#1c2130; --line:#262c3b;
     --fg:#e8eaf0; --dim:#8b93a7; --acc:#6c8cff; --acc2:#8a6cff;
@@ -1789,6 +1791,38 @@ function selfcheck() {
   ok('theme-compact-coexist', document.body.className.indexOf('light') !== -1 &&
      document.body.className.indexOf('compact') !== -1);
   themeMode = _tm; compact = _ck; applyTheme(); saveState();
+  // 浅色下代码块不许再是黑块（用户最初报的就是这个形状）：**读引擎算出来的颜色**——只看 CSS 变量
+  // 不够，vendor 的 `.hljs{background:#0d1117}` 若没被顶掉，内层 code 会另糊一块黑。挂到 DOM 上量
+  // （游离节点算不出计算样式），量完摘掉；**两态都断**，免得「一直是透明」也蒙混过关。
+  var _probe = document.createElement('div');
+  _probe.className = 'msg';
+  _probe.style.cssText = 'position:absolute;left:-9999px;top:0';
+  var _pb = document.createElement('div');
+  _pb.className = 'body';
+  _pb.innerHTML = renderMd('```\nvar x = 1\n```');
+  _probe.appendChild(_pb);
+  msgsEl.appendChild(_probe);
+  var _raw = '';
+  var lum = function (el) {
+    var raw = String(window.getComputedStyle(el).backgroundColor || '');
+    _raw += '[' + raw + ']';
+    var m = raw.match(/\d+/g);
+    // **rgba(…,0) 是透明（跟随父层），不是黑**——漏判 alpha 会把「没设底色」读成「黑块」，
+    // 这条最早就是这么红了一轮（INFO 里 light=0 dark=0 两态同值，一眼该看出量的不是颜色）
+    if (!m || m.length < 3 || (m.length === 4 && +m[3] === 0)) { return 255; }
+    return 0.2126 * (+m[0]) + 0.7152 * (+m[1]) + 0.0722 * (+m[2]);
+  };
+  var _preEl = _pb.querySelector('pre'), _codeEl = _pb.querySelector('code');
+  themeMode = 'light'; applyTheme();
+  var lightLum = Math.round(Math.min(lum(_preEl), lum(_codeEl)));
+  themeMode = 'dark'; applyTheme();
+  var darkLum = Math.round(Math.min(lum(_preEl), lum(_codeEl)));
+  _probe.parentNode.removeChild(_probe);
+  themeMode = _tm; applyTheme();
+  r.push('INFO code bg lum light=' + lightLum + ' dark=' + darkLum + ' raw=' + _raw +
+         ' preClass=' + _preEl.className + ' codeClass=' + _codeEl.className);
+  ok('code-bg-light', lightLum > 150);
+  ok('code-bg-dark', darkLum < 90);
   ok('md-escape', renderMd('<img src=x onerror=alert(1)>').indexOf('<img') === -1);
   // 代码块里的 HTML 必须被转义（hljs 也会包 span，但尖括号本体必须是实体——XSS 防线）
   ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;') !== -1);

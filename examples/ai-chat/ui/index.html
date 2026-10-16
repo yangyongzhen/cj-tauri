@@ -53,6 +53,12 @@
   .msg .body p { margin:6px 0; }
   .msg .body pre { background:#0c0e14; padding:12px 14px; border-radius:8px; overflow-x:auto;
                    margin:10px 0; border:1px solid var(--line); }
+  .msg .body pre code { color:#d6dbe6; }
+  /* 语法高亮四色：关键字紫 / 字符串橙 / 注释绿灰 / 数字青 */
+  .msg .body pre .k { color:#c792ea; }
+  .msg .body pre .s { color:#f4a259; }
+  .msg .body pre .c { color:#7a8478; font-style:italic; }
+  .msg .body pre .n { color:#5fd7c5; }
   .msg .body code { font-family:"Cascadia Code",Consolas,Menlo,monospace; font-size:12.5px; }
   .msg .body p code, .msg .body li code { background:#0c0e14; padding:1px 6px; border-radius:4px;
                                           border:1px solid var(--line); }
@@ -150,11 +156,67 @@ function waitForBridge() {
 function escHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+/* ---- 代码块语法高亮：单遍 tokenizer（注释/字符串/数字/关键字）----
+ * 为什么不引 highlight.js：那要 vendor 一百多 KB 且本页面走内联（run(html)），零外部资源
+ * 是前提；模型输出的代码块用「注释绿、字符串橙、数字青、关键字紫」四色分清就足够可读。
+ * 单遍扫描、状态机互斥（字符串/注释里的关键字不当关键字），先转义后加 span 时
+ * 只对**词法片段**包 span，不产生未转义的尖括号。
+ */
+var HL_KEYWORDS = {};
+'var let const function return if else for while class new this import package from as true false null undefined async await try catch finally throw switch case break continue typeof instanceof in of default do void static public private protected interface struct enum impl fn def elif end then nil None self int float str bool String Int Bool'
+  .split(' ').forEach(function (k) { HL_KEYWORDS[k] = 1; });
+
+function highlightCode(code) {
+  var out = '';
+  var i = 0, n = code.length;
+  while (i < n) {
+    var c = code[i];
+    // 注释：// 或 # 开头到行尾；/* */ 块注释
+    if ((c === '/' && code[i + 1] === '/') || (c === '#' && code[i - 1] !== '$')) {
+      var e1 = code.indexOf('\n', i); if (e1 < 0) { e1 = n; }
+      out += '<span class="c">' + escHtml(code.slice(i, e1)) + '</span>';
+      i = e1; continue;
+    }
+    if (c === '/' && code[i + 1] === '*') {
+      var e2 = code.indexOf('*/', i + 2); e2 = e2 < 0 ? n : e2 + 2;
+      out += '<span class="c">' + escHtml(code.slice(i, e2)) + '</span>';
+      i = e2; continue;
+    }
+    // 字符串：'..' ".." `..`（容忍 \" 转义）
+    if (c === '"' || c === "'" || c === '`') {
+      var j = i + 1;
+      while (j < n && code[j] !== c) { if (code[j] === '\\') { j++; } j++; }
+      j = Math.min(j + 1, n);
+      out += '<span class="s">' + escHtml(code.slice(i, j)) + '</span>';
+      i = j; continue;
+    }
+    // 数字
+    if (/[0-9]/.test(c) && !/[A-Za-z0-9_$]/.test(code[i - 1] || '')) {
+      var k = i;
+      while (k < n && /[0-9a-fA-FxX._]/.test(code[k])) { k++; }
+      out += '<span class="n">' + escHtml(code.slice(i, k)) + '</span>';
+      i = k; continue;
+    }
+    // 标识符/关键字
+    if (/[A-Za-z_$]/.test(c)) {
+      var m = i;
+      while (m < n && /[A-Za-z0-9_$]/.test(code[m])) { m++; }
+      var word = code.slice(i, m);
+      out += HL_KEYWORDS[word] ? '<span class="k">' + word + '</span>' : escHtml(word);
+      i = m; continue;
+    }
+    out += escHtml(c);
+    i++;
+  }
+  return out;
+}
+
 function renderMd(src) {
   var blocks = [];
-  // 先摘代码块（转义后占位，避免里面的标记被二次加工）
+  // 先摘代码块（tokenizer 高亮后占位，避免里面的标记被二次加工）
   var text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function (m, lang, code) {
-    blocks.push('<pre><code>' + escHtml(code.replace(/\n$/, '')) + '</code></pre>');
+    blocks.push('<pre><code>' + highlightCode(code.replace(/\n$/, '')) + '</code></pre>');
     return '\u0000B' + (blocks.length - 1) + '\u0000';
   });
   text = escHtml(text);
@@ -314,7 +376,9 @@ function send() {
     if (p.done) { return; }            // 收尾用命令 resolve 对账，避免事件与 resolve 竞争
     nChunk++;
     acc += p.delta || '';
-    setBody(body, acc, true);
+    // **画解析后的文本，不画原始字节流**：acc 是 SSE 原文（data: {...} 行），
+    // 直接渲染会把原始报文闪现在气泡里（实测踩过）；sseToText 全量重解，几十 KB 无感
+    setBody(body, sseToText(acc), true);
   });
   trace('send: invoke postStream, listen on http:chunk');
 
@@ -427,6 +491,10 @@ function selfcheck() {
   ok('md-escape', renderMd('<img src=x onerror=alert(1)>').indexOf('<img') === -1);
   ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;b&gt;') !== -1);
   ok('md-bold', renderMd('**hi**').indexOf('<strong>hi</strong>') !== -1);
+  ok('hl-keyword', renderMd('```\nvar x = 1\n```').indexOf('<span class="k">var</span>') !== -1);
+  ok('hl-string', renderMd('```\nx = "hi"\n```').indexOf('<span class="s">') !== -1);
+  // 流式期间画的是解析后文本：原始 SSE 帧（data: {...}）不许出现在气泡里（实测踩过）
+  ok('stream-no-raw', sseToText('data: {"choices":[{"delta":{"content":"hello world"}}]}\n\ndata: [DONE]\n').indexOf('data:') === -1);
   ok('sse-delta', sseToText('data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n') === 'A');
   ok('sse-half', sseToText('data: {"choices":[{"delta":{"cont') === '');
   ok('link-safe', renderMd('[x](javascript:alert(1))').indexOf('javascript') === -1);

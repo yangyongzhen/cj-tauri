@@ -140,13 +140,15 @@
   #main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column;
           background:var(--bg); position:relative; }
   body:not(.light) #main { background:radial-gradient(1200px 500px at 70% -10%, #1a2033 0%, var(--bg) 60%); }
-  #msgs { flex:1 1 auto; overflow-y:auto; padding:24px 3.5vw; }
-  /* 消息列宽度跟随窗口，但封顶 min(1080px, 94%)（一行约 90 汉字，再宽回行容易串行）。
-     必须配 margin-inline:auto **居中**：只限宽不居中时余量会全堆在右边——1920 宽窗里可用宽
-     1538px（扣掉 248px 侧栏与两侧 3.5vw 边距）只占 1080px，右边空出 458px，看着像「页面没
-     跟着铺开」（2026-10-16 用户实机反馈；同参抓图改前右侧 216px / 改后左右各 ~109px 已留证）。
-     窄窗下 max-width 退成 94%，两侧各留 3%，不贴边。 */
-  .msg { margin-bottom:18px; margin-inline:auto; max-width:min(1080px, 94%); }
+  #msgs { flex:1 1 auto; overflow-y:auto; padding:24px 18px; }
+  /* 消息列**铺满可用宽 + 左贴边**：水平内边距取 18px，与顶栏（`#topbar`）和输入区（`#inputBar`）
+     同值，三处左边缘对齐，正文不再跟侧边栏之间留一道空隙。这条口径换过四轮：
+     ① `max-width:min(1080px, 94%)` 左对齐 → 余量全堆右边，看着像「没铺开」；
+     ② 同样上限 + `margin-inline:auto` 居中 → 余量摊两边；③ 撤掉上限但仍留 `3.5vw` 内边距 →
+     1920 宽窗下正文离侧栏 76px（顶栏/输入区只有 18px），看着像「聊天区居中、跟侧栏留了空隙」；
+     ④ 定稿＝铺满 + 18px 内边距（用户 2026-10-16 两轮实机反馈后的裁定）。
+     要恢复阅读行长上限（一行超 ~90 汉字回行易串行）就给 `.msg` 加回 max-width。 */
+  .msg { margin-bottom:18px; }
   .msg .who { font-size:11px; letter-spacing:.08em; color:var(--dim); margin-bottom:5px;
               text-transform:uppercase; }
   .msg.assistant .who { color:var(--acc); }
@@ -1355,6 +1357,34 @@ function renderConvs() {
   // 早前两组各按自己的来源列，同一个会话会出现两次（用户实况），点 ⟳ 还会再开一份本地会话、越积越多。
   var mirrored = {};
   convs.forEach(function (c) { if (c.cjhId) { mirrored[c.cjhId] = true; } });
+  // 同一 cjh 会话在本地只**渲染一条**镜像。存档里同一个 cjh 会话可能有多条镜像——2026-10-16 之前
+  // 每点一次 ⟳ 就新开一条本地会话（当时的 resume 还没有复用逻辑），左栏于是排出一串同名「新会话」，
+  // 切到聊天模式时 ⟳ 组又整体隐去、只剩这些重复镜像，看着就像「会话一直在增加」（用户实况）。
+  // 保留口径：当前会话优先（否则停在被折叠的那条上，左栏连选中行都没有），其次留消息最多的那条。
+  var mirrorKeep = {};
+  convs.forEach(function (c) {
+    if (!c.cjhId) { return; }
+    var k = mirrorKeep[c.cjhId];
+    if (!k || c.id === curId || (k.id !== curId && (c.messages || []).length > (k.messages || []).length)) {
+      mirrorKeep[c.cjhId] = c;
+    }
+  });
+  var mirroredOut = 0;   // 被折叠掉的行数（只数真会渲染的那部分）
+  var mirrorRendered = function (c) {
+    if (!c.cjhId) { return true; }
+    if (mirrorKeep[c.cjhId] === c) { return true; }
+    mirroredOut++;
+    return false;
+  };
+  // 聊天模式**不列 cjh 镜像**（2026-10-16 用户裁定）：镜像属于 Agent 的面，与「cjh 四面在聊天模式
+  // 整体隐去」同一口径。不挡的话，切到聊天模式后左栏还挂着十来条只跟 cjh 有关的镜像，
+  // 看着就像「会话一直在增加」（本轮用户实况的观感来源）。
+  var mirrorHiddenByMode = 0;
+  var modeRendered = function (c) {
+    if (appMode === 'agent' || !c.cjhId) { return true; }
+    mirrorHiddenByMode++;
+    return false;
+  };
   var cjhHits = cjhSessionList.filter(function (s) {
     if (s && s.id && mirrored[s.id]) { return false; }
     return !q || String(s.title || '').toLowerCase().indexOf(q) !== -1 ||
@@ -1383,7 +1413,7 @@ function renderConvs() {
     head2.textContent = '本地会话' + (q ? '（' + convs.filter(convHits).length + ' 命中）' : '');
     el.appendChild(head2);
   }
-  convs.filter(convHits).forEach(function (c) {
+  convs.filter(convHits).filter(modeRendered).filter(mirrorRendered).forEach(function (c) {
     var d = document.createElement('div');
     d.className = 'conv' + (c.id === curId ? ' active' : '');
     if (renamingId === c.id) {
@@ -1424,6 +1454,26 @@ function renderConvs() {
     el.appendChild(d);
     hits++;
   });
+  // 折叠了几条要说出来：不说的话用户只看到「少了」，会以为会话被删了（存档一条没动）
+  if (mirroredOut > 0) {
+    var hfold = document.createElement('div');
+    hfold.className = 'hint';
+    hfold.textContent = '已合并 ' + mirroredOut + ' 条重复的 cjh 会话镜像';
+    hfold.title = '同一个 cjh 会话在本地有多条镜像时只列一条（存档里的记录一条没删；要清可以在会话上点 ×）';
+    el.appendChild(hfold);
+  }
+  // 聊天模式隐藏的镜像行要说出来：不说的话用户会以为这些会话没了（存档一条没动，切回 Agent 就在）。
+  // 当前会话若是镜像，它的正文照常显示（模式只换管道，见 applyMode 的口径）——这点也得写明白，
+  // 否则「列表里没有、正文却是它」看着像 bug。
+  if (mirrorHiddenByMode > 0) {
+    var hmode = document.createElement('div');
+    hmode.className = 'hint';
+    var _curM = cur();
+    hmode.textContent = 'cjh 会话镜像 ' + mirrorHiddenByMode + ' 条只在 Agent 模式列出' +
+      ((_curM && _curM.cjhId) ? '（当前这条也是镜像，正文照常显示）' : '');
+    hmode.title = '镜像只是 cjh 会话的桌面端副本：切到 Agent 模式即可看到并继续（存档未改动）';
+    el.appendChild(hmode);
+  }
   if (q && hits === 0) {
     var none = document.createElement('div');
     none.className = 'hint';
@@ -2139,7 +2189,8 @@ function selfcheck() {
   // 左栏两种来源去重：同一个 cjh 会话既在本地（走过 agent 的镜像）又出现在 ⟳ 全量列表里。
   // 原来两条都列，点 ⟳ 还会再开一份本地会话（用户实况：越积越多）。现在 ⟳ 组按 cjhId 过滤、
   // 本地那条打 ⟳ 标记，界面上一眼能看出「这条是 cjh 会话的桌面端镜像」。
-  var _cv5 = convs, _cid5 = curId, _csl5 = cjhSessionList, _up5 = CJH.wsUp;
+  var _cv5 = convs, _cid5 = curId, _csl5 = cjhSessionList, _up5 = CJH.wsUp, _mo5 = appMode;
+  appMode = 'agent';   // 镜像只在 Agent 模式列（见 renderConvs 的 modeRendered）：不指定模式，这条在聊天模式下必假红
   convs = [{ id: 'c-probe', title: '镜像会话', messages: [], cjhId: 'sid-dup' }];
   curId = 'c-probe';
   cjhSessionList = [{ id: 'sid-dup', title: '重复的那个' }, { id: 'sid-other', title: '没镜像的那个' }];
@@ -2150,14 +2201,60 @@ function selfcheck() {
   var _cjoin = _ctext.join('|');
   ok('conv-cjh-dedupe', _cjoin.indexOf('重复的那个') === -1 && _cjoin.indexOf('没镜像的那个') !== -1);
   ok('conv-cjh-marker', _cjoin.indexOf('⟳ 镜像会话') !== -1);
-  convs = _cv5; curId = _cid5; cjhSessionList = _csl5; CJH.wsUp = _up5;
+  convs = _cv5; curId = _cid5; cjhSessionList = _csl5; CJH.wsUp = _up5; appMode = _mo5;
   renderConvs();
-  // 内容区宽度跟随窗口：不许再写死 820px（最大化后中间一大片空白，实测被点名）
+  // 模式来回切换**不许新建会话**（用户 2026-10-16 实况：「从 agent 切到聊天模式，左侧栏的会话
+  // 竟然会一直增加」）。能往 convs 里加记录的只有 newConv()，而 applyMode / toggleMode 都不调它——
+  // 这条把它钉死，免得以后哪次「顺手在切模式时补一条」又把用户的左栏堆起来。
+  // invoke 临时换成空实现：只数会话数，不真连 / 真断 cjh，也不让 saveState 落盘。
+  var _invT = window.__CJ_TAURI__.invoke;
+  window.__CJ_TAURI__.invoke = function () { return Promise.resolve({}); };
+  var _moT = appMode, _nT = convs.length, _ciT = curId;
+  toggleMode(); toggleMode(); toggleMode(); toggleMode();
+  ok('mode-switch-no-new-conv', convs.length === _nT && curId === _ciT && appMode === _moT);
+  // 同一个 cjh 会话在本地只许有一条镜像：第二次 resume 必须**复用**已有那条。
+  // 早前每点一次 ⟳ 就 newConv() 一条，同一会话在左栏排成好几行（存档实测：一个会话 4 条镜像）。
+  var _cvR = convs, _cidR = curId;
+  convs = [{ id: 'c-r1', title: '镜像', messages: [], cjhId: 'sid-r' }];
+  curId = 'c-r1';
+  resumeCjhSession('sid-r');
+  ok('cjh-mirror-reuse', convs.length === 1 && curId === 'c-r1' && convs[0].cjhId === 'sid-r');
+  window.__CJ_TAURI__.invoke = _invT;
+  // 存档里已经堆出来的重复镜像：**渲染层折叠**成一条（存档一条不删，× 仍可清），并把折叠条数说出来。
+  var _cv6 = convs, _cid6 = curId;
+  appMode = 'agent';         // 折叠只在 Agent 模式看得见（聊天模式整组隐去）
+  convs = [{ id: 'c-m1', title: '镜像甲', messages: [], cjhId: 'sid-fold' },
+           { id: 'c-m2', title: '镜像乙', messages: [{ role: 'user', content: 'a' },
+                                                     { role: 'assistant', content: 'b' }], cjhId: 'sid-fold' },
+           { id: 'c-new', title: '纯直连', messages: [] }];
+  curId = 'c-m1';            // 当前会话停在「甲」：折叠要优先保住它，否则左栏连选中行都没有
+  renderConvs();
+  var _frows = $('convList').querySelectorAll('.conv'), _ftxt = [];
+  for (var _fi = 0; _fi < _frows.length; _fi++) { _ftxt.push(_frows[_fi].textContent); }
+  var _fjoin = _ftxt.join('|');
+  ok('cjh-mirror-fold', _frows.length === 2 && _fjoin.indexOf('镜像甲') !== -1 &&
+     _fjoin.indexOf('镜像乙') === -1 && _fjoin.indexOf('纯直连') !== -1);
+  ok('cjh-mirror-fold-hint', $('convList').textContent.indexOf('已合并 1 条') !== -1);
+  // 聊天模式**不列 cjh 镜像**（用户裁定：镜像只在 Agent 模式出现，与「cjh 的面在聊天模式整体隐去」
+  // 同一口径）；Agent 模式照旧列，且镜像仍带 ⟳ 标记。两种模式各断一遍，免得过滤器写成单向。
+  appMode = 'chat'; renderConvs();
+  var _htxt = $('convList').textContent;
+  var _hideOk = _htxt.indexOf('镜像甲') === -1 && _htxt.indexOf('纯直连') !== -1 &&
+                _htxt.indexOf('只在 Agent 模式列出') !== -1;
+  appMode = 'agent'; renderConvs();
+  ok('conv-chat-hides-mirrors', _hideOk && $('convList').textContent.indexOf('镜像甲') !== -1);
+  appMode = _moT;
+  convs = _cvR; curId = _cidR;            // 三条探针都改过临时 convs，一起还原
+  renderConvs();
+  // 内容区宽度跟随窗口：不许写死像素上限（早前写死 820px，最大化后中间一大片空白，实测被点名）。
+  // 这条**按意图判、不绑某一种实现**：铺满（`max-width:none`，2026-10-16 用户实机看过后的裁定）
+  // 与比例 / 自适应上限（`min(1080px, 94%)` 那一版）都放行，只拒「固定像素上限」。
+  // 别再退回 `mw.indexOf('min(') !== -1` 这种写法——撤掉上限时它会假红（本轮红的就是这一条）。
   var probe = document.createElement('div');
   probe.className = 'msg';
   msgsEl.appendChild(probe);
-  var mw = getComputedStyle(probe).maxWidth;
-  ok('layout-fluid', mw.indexOf('820') === -1 && mw.indexOf('min(') !== -1);
+  var _mw = getComputedStyle(probe).maxWidth || '';
+  ok('layout-fluid', _mw === 'none' || _mw.indexOf('min(') !== -1 || _mw.indexOf('%') !== -1);
   msgsEl.removeChild(probe);
   // 主题三态：applyTheme 后 body 类名与按钮文案必须一致（亮/暗/跟随系统）
   themeMode = 'light'; applyTheme();

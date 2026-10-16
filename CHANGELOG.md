@@ -364,17 +364,17 @@
   1920x1080，隔离副本）：`window auto: 1024x640 (workarea 1280x800 @80%)`、`window auto: 1536x864
   (workarea 1920x1080 @80%)`，与屏幕比例两次一致。桩自检 **224 项**（新增换算数学 10 项：夹取、极小工作区
   兜底 320x240、策略未登记返回 0、工作区不可用返回 0、NULL 宿主安全）。
-- **`examples/ai-chat` 整页等比缩放（自适应的另一半：字号与控件一起跟着屏幕走）**：页面按 `screen.availWidth`
-  定一档 `--z`（`availWidth / 1280`，夹到 `[0.85, 1.3]`），`html { zoom: var(--z) }` 缩放布局本身，
-  `body` 的宽高用 `calc(100vh / var(--z))` **反向补偿**——`100vh` 是未缩放视口的高度，不补偿缩放后就溢出；
-  页面里其余视口单位（`86vw` / `70vw` / `92vw` / `86vh`）同口径补偿。判据是**先探测再补偿**：探测里真的量一个
-  100px 探针，`zoom` 不被支持时 `--z` 保持 1（代价是「不缩放」，而不是「布局塌一截」）。实机（1920x1080）：
-  `INFO ui-scale zoomOk=true availW=1920 z=1.3`、100px 探针量出 130px、`cssZoom=1.3`，页内自检 **70 PASS /
-  0 FAIL**；截图 `/tmp/cj-tauri-shots/scale-1920-root.png`（窗口 1536x864、字号放大、输入区仍贴窗口底部
-  = 视口补偿生效）。
 
 ### Changed
 
+- **`examples/ai-chat` 撤回「窗口随屏幕 + 页面等比缩放」两件（用户实测反馈：等比放大后不如原样）**：
+  页面按 `screen.availWidth` 定档的 `--z`、`html { zoom: var(--z) }` 与全部视口单位补偿（`100vh` / `86vw` /
+  `70vw` / `92vw` / `86vh`）一并撤掉，`WindowConfig` 回到固定 `1080x760`（不再设 `autoSize`）。框架侧的
+  宿主基元 `WindowConfig.autoSize` / `cj_bridge_set_window_auto` **保留**（默认 `None`、装配零成本，
+  桩自检 224 项照跑），要用它的应用自行打开。取证：`set window: title=AI 对话 size=1080x760`
+  （用户实例 22:17:25 与 Xvfb 副本 22:19:34 两次）、页内自检 **56/56 断言、FAIL 0**（明细 65 条 PASS，
+  其中 9 条 CJH-* 不并入计数）、截图 `/tmp/cj-tauri-shots/after-unscale-1280-root.png`（1280x800 窗口、
+  字号回原口径、输入区仍贴底部）。
 - **`examples/ai-chat` 设置面板（`#cfg`）重排——用户实测反馈「又窄又不好看」**：
   - **宽度不再写死**：`540px` → `min(920px, 94vw)`（与文件预览面板同口径），窗口变小自动收窄；面板拆成
     头 / 体两段，标题与动作条固定、只滚中间——服务商多起来不再把标题顶出视野；

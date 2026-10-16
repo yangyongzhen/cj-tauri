@@ -155,18 +155,21 @@ public class HttpCommands <: CommandHandler {
                 }
                 total += n
                 n = resp.body.read(chunk)
-                // 发走所有完整 UTF-8 序列，尾巴（不完整的那几字节）留在 pending
+                // 发走所有完整 UTF-8 序列，尾巴（不完整的那几字节）留在 pending。
+                // 必须 emit（每条都到）而不是 emitLatest：后者按事件名「同帧只保最新」，
+                // 会把中间 delta 连同数据块一起覆盖掉——实测 chunks 数时好时坏、
+                // 前端拼文本缺字；对话流的语义是每一块都到达，不合并。
                 let delta = this.takeCompleteUtf8(pending)
                 if (delta.size > 0) {
-                    ipc.emitLatest("http:chunk", this.chunkPayload(status, ctype, delta, total, false, false))
+                    ipc.emit("http:chunk", this.chunkPayload(status, ctype, delta, total, false, false))
                 }
             }
             // 收尾：流被掐断时 pending 里可能还有不完整序列——按原样解出来（丢字节比丢整段诚实）
             if (pending.size > 0) {
                 let tail = String.fromUtf8(pending.toArray())
-                ipc.emitLatest("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
+                ipc.emit("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
             } else {
-                ipc.emitLatest("http:chunk", this.chunkPayload(status, ctype, "", total, true, truncated))
+                ipc.emit("http:chunk", this.chunkPayload(status, ctype, "", total, true, truncated))
             }
             resp.close()
         } finally {

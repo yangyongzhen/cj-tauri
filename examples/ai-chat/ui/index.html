@@ -303,6 +303,15 @@
               font-size:10px; background:#2e7d4f; color:#fff; vertical-align:1px; }
   .badge-off { display:inline-block; margin-left:6px; padding:0 6px; border-radius:4px;
                font-size:10px; background:#5a5f6b; color:#d5d8de; vertical-align:1px; }
+  /* ---- MCP 配置编辑（cjh /api/settings 可写 mcpServers 之后）---- */
+  .mcp-bar { display:flex; align-items:center; gap:8px; margin:8px 0 2px; }
+  .mcp-tip { color:var(--dim); font-size:11px; line-height:1.35; }
+  .mcp-editor { margin-top:6px; }
+  .mcp-editor textarea { width:100%; min-height:190px; box-sizing:border-box; resize:vertical;
+    background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11.5px; line-height:1.45; }
+  .mcp-editor textarea:focus { outline:none; border-color:var(--acc); }
+  .mcp-warn { margin-top:6px; color:#e8b04b; font-size:11.5px; line-height:1.4; }
   .file-row { padding:6px 9px; border-radius:6px; font-size:12.5px; cursor:pointer;
               white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .file-row:hover { background:var(--panel2); }
@@ -708,7 +717,21 @@ function loadSkills() {
   }).catch(function (e) { el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>'; });
 }
 
-/* ---- MCP 配置：/api/mcp（只读——cjh /api/settings 暂不支持写 mcpServers，如实提示）---- */
+/* ---- MCP 配置：读 /api/mcp，写 /api/settings 的 mcpServers（cjh#2 对照表第 12 项）
+ *
+ * cjh 侧契约（`src/web/rest_api.cj` handlePostSettings）：POST /api/settings 收
+ * {"mcpServers":[{"name","transport":"stdio|sse","command","args":[],"env":{},"url"}]}，
+ * **整体校验、失败即整批拒绝**（一个字段都不落盘），成功回 {ok:true,note:"…需重启 cjh…"}。
+ * 所以「改配置」是真生效的一条路，但**运行中的连接不热加载**：cjh 只在启动时
+ * loadMcpServers（entries.cj），改完必须重启 cjh 才建连接——那句提示直接抄 cjh 的响应。
+ *
+ * 两处刻意不做：
+ *   ① 不做「单个服务器启停 / 重启」——cjh 没有这个接口（#2 表第 12 项原话「仍缺 MCP 增删 /
+ *      启停 / 重启接口」）；要停就把那条从数组里删掉，不假装有个开关。
+ *   ② 不把 GET 回来的 env 原样回写：GET 侧 mcpServersToJsonArray(…, true) 把 env 值一律掩成
+ *      `***`，而 POST 侧是 replaceMcpServers **整体替换**（没有 apiKey 那种 "***" 跳过语义），
+ *      回写等于把真实密钥抹成三个星号。mcpEditGuard() 因此把带掩码的文本直接拒发。
+ */
 function loadMcp() {
   var el = $('panelMcp');
   el.innerHTML = '<div class="hint">加载中…</div>';
@@ -724,11 +747,110 @@ function loadMcp() {
         escHtml(s.command || s.url || '') + '</div>';
       el.appendChild(d);
     });
-    var note = document.createElement('div');
-    note.className = 'hint';
-    note.textContent = 'MCP 配置只读（cjh /api/settings 暂不支持写 mcpServers）——增删请在 cjh 的 settings.json 里改，改完重启 cjh。';
-    el.appendChild(note);
-  }).catch(function (e) { el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>'; });
+    if (list.length === 0) {
+      var none = document.createElement('div');
+      none.className = 'hint';
+      none.textContent = 'cjh 侧还没有配 MCP 服务器——点「编辑配置」加一条。';
+      el.appendChild(none);
+    }
+    var bar = document.createElement('div');
+    bar.className = 'mcp-bar';
+    var btn = document.createElement('button');
+    btn.className = 'ghost';
+    btn.id = 'mcpEditBtn';
+    btn.textContent = '编辑配置';
+    btn.onclick = function () { toggleMcpEdit(); };
+    var tip = document.createElement('span');
+    tip.className = 'mcp-tip';
+    tip.textContent = '写回 cjh 的 settings.json；新增 / 改动的服务器需重启 cjh 才建立连接';
+    bar.appendChild(btn); bar.appendChild(tip);
+    el.appendChild(bar);
+    return true;
+  }).catch(function (e) {
+    el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>';
+  });
+}
+
+/* 纯函数：'' = 可以发；非空 = 拒发原因（自检直接调它，不依赖 cjh 在线） */
+function mcpEditGuard(text) {
+  var t = String(text == null ? '' : text).trim();
+  if (!t) { return '配置为空——没有服务器就写一个 []'; }
+  var arr = null;
+  try { arr = JSON.parse(t); } catch (e) { return 'JSON 解析失败：' + String(e && e.message).slice(0, 120); }
+  if (!Array.isArray(arr)) { return '顶层必须是数组，如 [{"name":"fs","command":"npx"}]'; }
+  for (var i = 0; i < arr.length; i++) {
+    var s = arr[i];
+    if (!s || typeof s !== 'object' || Array.isArray(s)) { return '第 ' + (i + 1) + ' 项不是对象'; }
+    if (!s.name) { return '第 ' + (i + 1) + ' 项缺 name'; }
+    var env = s.env || {};
+    for (var k in env) {
+      if (!Object.prototype.hasOwnProperty.call(env, k)) { continue; }
+      if (String(env[k]) === '***') {
+        return '第 ' + (i + 1) + ' 项（' + s.name + '）的 env.' + k + ' 是 cjh 回出来的脱敏掩码 ***：' +
+               'cjh 侧是整体替换，直接保存会把真实密钥抹成三个星号。请填真实值，或这一项改在 cjh 的 settings.json 里改。';
+      }
+    }
+  }
+  return '';
+}
+
+/* 打开 / 收起编辑器：预填取 GET /api/settings 的 mcpServers（带 args 与 env，env 是掩码） */
+function toggleMcpEdit() {
+  var el = $('panelMcp');
+  var box = $('mcpEditor');
+  if (box) { box.parentNode.removeChild(box); return; }
+  cjhGet('/api/settings').then(function (s) {
+    var arr = (s && s.mcpServers) || [];
+    var masked = JSON.stringify(arr).indexOf('"***"') !== -1;
+    box = document.createElement('div');
+    box.className = 'mcp-editor';
+    box.id = 'mcpEditor';
+    var ta = document.createElement('textarea');
+    ta.id = 'mcpText';
+    ta.spellcheck = false;
+    ta.value = JSON.stringify(arr, null, 2);
+    ta.onclick = function (ev) { ev.stopPropagation(); };
+    var row = document.createElement('div');
+    row.className = 'mcp-bar';
+    var save = document.createElement('button');
+    save.className = 'ghost';
+    save.id = 'mcpSaveBtn';
+    save.textContent = '保存到 cjh';
+    save.onclick = function (ev) { ev.stopPropagation(); saveMcpConfig(); };
+    var cancel = document.createElement('button');
+    cancel.className = 'ghost';
+    cancel.id = 'mcpCancelBtn';
+    cancel.textContent = '取消';
+    cancel.onclick = function (ev) { ev.stopPropagation(); toggleMcpEdit(); };
+    row.appendChild(save); row.appendChild(cancel);
+    box.appendChild(ta); box.appendChild(row);
+    if (masked) {
+      var warn = document.createElement('div');
+      warn.className = 'mcp-warn';
+      warn.textContent = '注意：env 里有 cjh 的脱敏掩码 *** ——直接保存会抹掉真实密钥，' +
+        '保存前请把它改成真实值（或这一项先不动，改在 cjh 的 settings.json 里改）。';
+      box.appendChild(warn);
+    }
+    el.appendChild(box);
+  }).catch(function (e) { toast('读取 cjh 配置失败：' + String(e && e.message), true); });
+}
+
+function saveMcpConfig() {
+  var ta = $('mcpText');
+  var text = ta ? ta.value : '';
+  var why = mcpEditGuard(text);
+  if (why) { toast(why, true); cjhTrace('mcp-save rejected: ' + why.slice(0, 100)); return; }
+  var arr = JSON.parse(text);
+  cjhSend('http:post', '/api/settings', { mcpServers: arr }).then(function (r) {
+    var note = (r && r.note) || '需重启 cjh 后建立连接';
+    toast('MCP 配置已写进 cjh 的 settings.json（' + arr.length + ' 条）；' + note);
+    cjhTrace('mcp-saved servers=' + arr.length + ' note=' + note);
+    return loadMcp();
+  }).catch(function (e) {
+    // cjh 的整批拒绝带可读原因（parseMcpServersJson 的 perr），原样透出来
+    toast('cjh 拒绝保存：' + String(e && e.message), true);
+    cjhTrace('mcp-save failed: ' + String(e && e.message).slice(0, 160));
+  });
 }
 
 /* ---- 文件区（cjh 工具区）：/api/fs/list?path=… 目录浏览（点目录进入；写操作仍由 agent 在对话里做）---- */
@@ -824,7 +946,14 @@ function renderWsMenu() {
   add.className = 'ghost';
   add.textContent = '添加';
   add.onclick = function (ev) { ev.stopPropagation(); addWorkspace(inp.value); };
-  row.appendChild(inp); row.appendChild(add);
+  // 浏览：原生目录选择框（dialog 插件）——知道路径的人可以继续手输，不知道的不该被逼着记路径
+  var browse = document.createElement('button');
+  browse.className = 'ghost';
+  browse.id = 'wsBrowseBtn';
+  browse.textContent = '浏览…';
+  browse.title = '弹出系统目录选择框，选中即切换到该工作区';
+  browse.onclick = function (ev) { ev.stopPropagation(); browseWorkspace(inp); };
+  row.appendChild(inp); row.appendChild(add); row.appendChild(browse);
   m.appendChild(row);
 }
 function hideWsMenu() { $('wsMenu').classList.remove('show'); }
@@ -853,6 +982,23 @@ function addWorkspace(path) {
     return loadWorkspaces();
   }).catch(function (e) {
     toast('添加工作区失败：' + String(e && e.message), true);
+  });
+}
+/* 原生目录选择框（dialog 插件的 dialog:pickFolder）：选中即切工作区——
+ * 手输绝对路径留给「本来就知道路径」的人，不知道的人不该被逼着去记路径。
+ * 缺 dialog 插件 / 清单没放行时如实说清缺哪一环，不做成「点了没反应」。 */
+function browseWorkspace(inp) {
+  var d = window.__CJ_TAURI__ && window.__CJ_TAURI__.dialog;
+  if (!d || typeof d.pickFolder !== 'function') {
+    toast('目录选择框不可用：缺 dialog 插件（或能力清单没放行 dialog:pickFolder）', true);
+    return;
+  }
+  d.pickFolder({ title: '选择工作区目录' }).then(function (p) {
+    if (!p) { return; }              // 取消：与系统对话框一致，什么都不做也不提示
+    if (inp) { inp.value = p; }
+    switchWorkspace(p);
+  }).catch(function (e) {
+    toast('目录选择框失败：' + String(e && e.message), true);
   });
 }
 function delWorkspace(path) {
@@ -2114,6 +2260,20 @@ function selfcheck() {
   ok('prov-render', $('provList').querySelectorAll('.prov').length === 2 &&
      $('provList').querySelector('.prov.active .badge') !== null);
   providers = _sp; activeIdx = _si; renderProvList();
+  // MCP 配置编辑（cjh#2 表第 12 项：/api/settings 现在可写 mcpServers）——守卫是纯函数，直接验：
+  // 带 `***` 的 env 必须拒（cjh 是整体替换，回写会把真实密钥抹成三个星号），
+  // 干净配置必须放行，坏 JSON / 非数组必须给出原因（不能默认放过）
+  ok('mcp-edit-guard-mask', mcpEditGuard('[{"name":"a","command":"x","env":{"K":"***"}}]').indexOf('脱敏掩码') !== -1);
+  ok('mcp-edit-guard-ok', mcpEditGuard('[{"name":"a","command":"x","args":["-y","p"],"env":{"K":"real"}}]') === '');
+  ok('mcp-edit-guard-badjson', mcpEditGuard('{oops') !== '' && mcpEditGuard('{"name":"a"}') !== '');
+  // 工作区「浏览…」入口：真弹原生框会把自检挡住（阻塞式模态），所以只验入口在 + 守卫可调用，
+  // 真弹框那一跳留着实机取证（脚本对原生框发确认）。
+  var _wl = wsList;
+  wsList = [];
+  renderWsMenu();
+  ok('ws-browse-entry', $('wsBrowseBtn') !== null && typeof browseWorkspace === 'function');
+  wsList = _wl;
+  renderWsMenu();
   // ---- 设置页（用户反馈「打开还得下拉找保存」后改成**内联页**，不再是居中弹层）：
   // 宽度铺满主区、动作条与错误行移出滚动体成常驻底栏。断言完统一 closeCfg + 还原（含 saveState：
   // 中间那次成功保存会把假服务商写进存档，必须再写回真现场，同 conv-* 那组的教训）。

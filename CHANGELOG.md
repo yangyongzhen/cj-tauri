@@ -435,8 +435,73 @@
     属性（`not all` 禁用 / `all` 启用），不重渲、不读盘。
   - **修链接失败**：SQLite 插件并入框架静态库后，示例 `cjpm.toml` 的 Linux `link-option` 必须带
     `-lsqlite3`（与 sqlite-browser 同款），否则 `undefined reference to sqlite3_column_bytes`。
+- **`examples/ai-chat` 的模型选择真的生效了：新增「聊天（直连）/ Agent（cjh）」模式开关（默认聊天）**：
+  此前管道由「cjh 连没连上」决定（`if (CJH.up)`），而本机默认就把 cjh 跑着，于是聊天模式里换服务商 /
+  换模型都**静默失效**——用户实测报的形状就是「选了别的模型，回复仍来自 cjh 侧模型」。改动与判据：
+  - **管道按模式分流**：聊天模式一律走直连（顶栏选的服务商与模型、Key 也直连），Agent 模式才连 cjh、
+    模型与工具全由 cjh 决定；Agent 模式未连上 cjh 时**当场如实拒绝**，不悄悄退回直连；
+  - **cjh 的面在聊天模式整体隐去**（工作区徽章 / 技能 / MCP / 文件 + 侧栏连接行），侧栏品牌随模式改口
+    （`cjh 客户端` ↔ `AI 对话`），停在 cjh 面板上切模式自动收回会话页——否则界面停在「什么都不显示」；
+    聊天模式也不拉 cjh 会话历史、不建 cjh 连接（连接只在 Agent 模式建立，切回即断开入口）；
+  - **Agent 模式给 cjh 的 `chat` 帧前向兼容带上选中的 `model` / `baseUrl`**：cjh 现忽略未知字段，
+    会话级 model 落地后桌面端一行不用改即生效（`apiKey` 暂不带——是否接受由 cjh 侧裁）；
+  - **徽章按模式说各自的事实**：Agent 模式显示 **cjh 侧 `GET /api/settings` 的真实模型**（取不到就写
+    「未取到」），点它不再弹「改了也不生效」的服务商菜单；设置面板横幅改按**模式**出现（原先按连接态）；
+  - 页面自检新增 6 条 `mode-*`（显隐 / 品牌改口 / 面板收敛 / 帧透传 / 存档落盘 / 徽章口径），断言完恢复
+    现场并**拦下探针期的 `store:set`**（此刻内存里是探针服务商，真写就把假数据存进用户存档）；
+    实机一轮 **49 PASS / 2 FAIL**，对照「同一存档 + 改动前页面（HEAD 版）」的基线 **41 PASS / 4 FAIL**：
+    条数差（+8）与明细差（+6 条 `mode-*`，另 2 条 `hl-*` 是基线副本缺 `ui/vendor` 所致）逐条对得上，
+    余下 `theme-light` / `theme-dark` **两侧同样红**＝与本次改动无关（旧断言拿 `className` 全等比较、
+    写死 `'light'` / `''`，而用户开着「紧凑模式」时合成类名是 `light compact` / `compact`，必然假红）；
+    成因确认后已顺手改成按紧凑态拼期望类名，亮暗两个模式各断一遍。
+- **`examples/ai-chat` 设置由「居中弹层」改成「内联设置页 + 常驻底栏」**（用户反馈：打开设置还得先往下拉，
+  保存按钮在最下方，很不方便）。改动与判据：
+  - 设置块整体搬进主区当一个页面——`#mask` 由 `position:fixed` 遮罩改为铺满 `#main` 的 `absolute` 面板，
+    id 一个没改（`#mask` / `#cfg` / `#cfgClose` / `#btnCfgSave`…），既有接线与页内自检照旧；
+  - **动作条与错误行移出滚动体**（`.cfg-acts` 进 `.cfg-foot`）：上一版的 `position:sticky` 吸底在
+    `#provForm` 内部、受父盒约束，表单没滚进视野时**根本够不着**——这才是「保存在最下方」的真实成因，
+    现在底栏不参与滚动，任何滚动位置都看得见；
+  - **打开即定位当前服务商的表单**（`scrollIntoView`）；服务商为空时开一张空表单而不是把表单藏起来
+    （动作条常驻却看不见表单更费解）；保存后给回执 toast；错误行跟着底栏常驻；
+  - 侧栏动作（点会话 / 新会话 / 恢复 cjh 会话）先让位回对话——它不再是弹层，不会自己关；
+    设置页开着时切模式，cjh 的诚实横幅**跟着刷新**（原来只在打开那一刻设一次，停在旧口径＝反过来误导）；
+  - 页内自检撤掉弹层时代的三条（`cfg-width-fluid` / `cfg-acts-in-view` / `cfg-close-paths`），
+    换成 `cfg-fills-main`（铺满主区且定位是 absolute）/ `cfg-acts-outside-scroll`（动作条与错误行都不在
+    滚动体内）/ `cfg-acts-pinned`（滚到顶与滚到底，保存按钮位置差 ≤1px 且落在视口内）/ `cfg-exit-paths` /
+    `cfg-banner-live`（切模式横幅跟着翻），实机 **58 PASS / 0 FAIL**（总数 = 去重数 = 58，每条恰好一次）。
+- **`examples/ai-chat` 切到「聊天」模式时真的断开 cjh 的 WS**（此前只清空会话列表、把面板藏起来，
+  连接照旧活着）：切模式那一刻若正有一轮 agent 在执行，`delta` / 工具帧会继续往当前气泡里写，
+  而顶栏已经写着「聊天」——界面口径与后台状态不一致，事后也说不清那条回复是谁给的。
+  断开前先给这轮收尾（已收到的部分保留，不留永远转圈的气泡），且**只收尾 cjh 轮次**
+  （`streaming && cjhTurnPending`）——HTTP 直连流不归这儿管，误收会把一条正在流式输出的直连回复
+  当场掐断（实现时正是这么踩到的）。页内自检 `mode-chat-drops-ws` 三条子判据分别盯：确实下发
+  `ws:close` 且 `wsUp` 归零 / HTTP 直连流不被掐断 / cjh 轮次被收尾。
 
 ### Fixed
+
+- **修：`examples/ai-chat` 左栏同一个 cjh 会话出现两次，点一次「⟳ cjh 会话历史」就多一份本地会话**
+  （用户实况）：两个来源各列各的——本地会话里走过 agent 的那条带 `cjhId`，`⟳` 组又是 `/api/sessions`
+  的全量，同一个会话于是排成两行；而 `resumeCjhSession()` 无条件 `newConv()`，每点一次 ⟳ 就多一条本地
+  记录（多出来的还是空壳，越点越多）。两处收口：① `renderConvs()` 的 `⟳` 组按 `cjhId` 过滤掉已被本地
+  镜像的会话（分组标题也只在真有未镜像会话时才出现，免得挂着空标题），本地那条打 `⟳` 标记、tooltip
+  写明是 cjh 会话镜像；② `resumeCjhSession()` 命中已有 `cjhId` 时**接着那条聊**、不再新建。
+  回放口径不受影响——`history_messages` 帧走 `replayCjhHistory`，那里是**清空重建**、不是追加。
+  页内自检新增 `conv-cjh-dedupe`（重复项不列、未镜像项照列）与 `conv-cjh-marker`（本地镜像带 `⟳`）。
+- **修：`examples/ai-chat` 发送按钮把 `send` 直接当回调绑，MouseEvent 被当「用户正文」写进存档
+  （一条非字符串正文就能让整页脚本停摆）**：`$('btnSend').onclick = send` 会把 `MouseEvent` 传进去，
+  而 `send(text)` 只看 `text` 真不真，于是事件对象进了会话历史、被序列化成 `{"isTrusted":true}`
+  （实测：当时那个会话 10 条里 5 条长这样）。真实后果不是「多发了一条」而是**下次加载就崩**——
+  渲染历史时 `renderMd(src)` 对非字符串调 `src.replace`，抛
+  `TypeError: src.replace is not a function`，页内整段脚本随之停摆：聊天区停在半渲染状态，
+  **页内自检一条都跑不出来**（日志里只有一行 `unhandled rejection`，表象极易被读成「应用没起来」）。
+  三处收口：① 按钮改绑 `function () { send(); }`；② `send()` 只认字符串，非字符串（`undefined`、
+  被误传的事件）一律回落到输入框内容；③ `renderMd` 入口对非字符串按空串处理——存档是外部文件，
+  旧版本写下的脏数据也要能打开。另加一条**一次性清洗**：`loadState()` 剔掉非字符串正文的消息并落一行
+  `loadState: dropped N message(s) with non-string content`（本机存档由此从 10 条清回 5 条，
+  该行日志第一次没出来是因为清洗处误调了 `send()` 里的局部 `trace`——`ReferenceError` 被本函数末尾
+  那个「存档坏了就当没有」的 `catch` 吞掉，连后面的 curId / 主题 / 模式应用都一并跳过，已改为直写日志通道）。
+  页面自检 **52 → 53 条全绿**（新增 `renderMd-nonstring-guard`：对 `undefined` / `null` / 事件对象调
+  `renderMd` 不得抛；崩溃未修时那一轮是 0 条——脚本在渲染期就停了）。
 
 - **修：`examples/ai-chat` 的 Enter 提交不挡输入法合成态（装了输入法就会「选词即发送 / 选词即改名」）**：
   聊天输入框、会话行内改名框、工作区路径框三处都是「按 Enter 提交」，而中文输入法**选词 / 确认候选

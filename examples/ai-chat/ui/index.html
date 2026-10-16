@@ -98,6 +98,9 @@
               max-height:320px; overflow-y:auto; display:none; z-index:50;
               box-shadow:0 12px 40px rgba(0,0,0,.4); }
   #provMenu.show { display:block; }
+  /* 模式开关：Agent 态给强调色。**不能只靠按钮文字**——两模式的顶栏差异只有几块徽章，
+     看错模式的代价是「以为在聊天、其实发给了 agent」（实测最容易发生在刚切完的那几秒）。 */
+  #btnMode.on { color:var(--acc); border-color:var(--acc); }
   /* 工作区下拉：与 provMenu 同款，但更宽（要放绝对路径）+ 每行带「移除」✕ */
   #wsMenu { position:absolute; top:44px; right:16px; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; padding:6px; min-width:360px;
@@ -135,7 +138,7 @@
   .tb-btn { padding:6px 12px; border-radius:8px; font-size:12.5px; }
   /* ---- 主栏 ---- */
   #main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column;
-          background:var(--bg); }
+          background:var(--bg); position:relative; }
   body:not(.light) #main { background:radial-gradient(1200px 500px at 70% -10%, #1a2033 0%, var(--bg) 60%); }
   #msgs { flex:1 1 auto; overflow-y:auto; padding:24px 3.5vw; }
   /* 宽度跟随窗口：min(1080px, 94%)——最大化不再留大片空白，窄窗下留边距不贴边 */
@@ -230,20 +233,19 @@
   button:disabled { opacity:.4; cursor:default; filter:none; }
   button.ghost { background:transparent; border:1px solid var(--line); color:var(--dim); }
   button.ghost:hover { color:var(--fg); border-color:var(--dim); }
-  /* ---- 设置弹层 ---- */
-  #mask { position:fixed; inset:0; background:rgba(5,7,12,.6); backdrop-filter:blur(3px);
-          display:none; align-items:center; justify-content:center; }
+  /* ---- 设置页（内联占主区，不再是居中弹层）----
+   * 早前是弹层，`.cfg-acts` 靠 sticky 吸底——但它在 #provForm 内部，sticky 受父盒约束，
+   * 表单没滚进视野时「保存」根本够不着（用户实机反馈：还得下拉，保存按钮在最下方很不方便）。
+   * 现在整块搬进主区当一个页面，动作条**移出滚动体**成常驻底栏：任何滚动位置都看得见，
+   * 不依赖 sticky 的技巧。id 一个没改（#mask/#cfg/#cfgClose…），既有接线与页内自检照旧。 */
+  #mask { position:absolute; inset:0; z-index:20; background:var(--bg);
+          display:none; flex-direction:column; }
   #mask.show { display:flex; }
-  /* 宽度跟着视口走：原来写死 540px，在 1080 宽的窗口里两侧空一大片、字段挤成一列（用户反馈）。
-     改成 min(920px, 94vw)——与文件预览面板同口径，窗口变小自动收窄，不再有硬编码宽度。
-     头/体分段：标题与底部动作钉住，长服务商列表只滚中间，不会被顶出视野。 */
-  #cfg { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-         width:min(920px, 94vw); max-height:88vh; display:flex; flex-direction:column;
-         box-shadow:0 20px 60px rgba(0,0,0,.5); overflow:hidden; }
+  #cfg { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
   .cfg-head { display:flex; align-items:center; justify-content:space-between; gap:10px;
               padding:16px 22px 12px; border-bottom:1px solid var(--line); }
   .cfg-head h2 { font-size:16px; }
-  .cfg-body { padding:16px 22px 20px; overflow-y:auto; }
+  .cfg-body { padding:16px 22px 20px; overflow-y:auto; flex:1 1 auto; min-height:0; }
   .row { margin-bottom:12px; }
   .row label { display:block; font-size:12px; color:var(--dim); margin-bottom:5px; }
   .row input, .row textarea { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--fg);
@@ -259,11 +261,11 @@
   /* 顶部横幅：连上 cjh 时如实说明「本面板这次不参与」——比改完没反应再去猜强 */
   .banner { border:1px solid var(--acc); border-radius:9px; padding:9px 12px; margin:0 0 12px;
             font-size:12px; line-height:1.6; background:rgba(108,140,255,.08); color:var(--fg); }
-  /* 动作条吸在面板底部：表单比一屏长时「保存/取消」不再滚出视野（截图里实测被压到折叠线以下）。
-     bottom 取负的 .cfg-body 底内边距，且自身补一层同高 padding——滚到底与吸住两种状态位置一致，不跳。 */
-  .cfg-acts { display:flex; align-items:center; gap:10px; margin-top:14px;
-              border-top:1px solid var(--line); padding:12px 0 20px;
-              position:sticky; bottom:-20px; background:var(--panel); }
+  /* 底栏与滚动体分离：动作条常驻页面底部、不参与滚动（上一版 sticky 在 #provForm 内部，
+     表单没进视野时够不着）。错误行也搬到这儿——它原来也在表单里，表单隐藏时错误无处显示。 */
+  .cfg-foot { border-top:1px solid var(--line); padding:0 22px 16px; background:var(--panel); }
+  .cfg-foot #cfgErr { margin:12px 0 0; }
+  .cfg-acts { display:flex; align-items:center; gap:10px; padding:14px 0 4px; }
   .cfg-acts .spacer { flex:1 1 auto; }
   /* ---- 服务商管理 ---- */
   .prov { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px;
@@ -308,8 +310,9 @@
   .crumb .cseg:hover { background:var(--panel2); color:var(--acc); }
   .crumb .csep { opacity:.5; }
   /* ---- 文件预览遮罩（独立于 #mask：设置面板开着时也能预览，互不干扰）---- */
-  #pv { position:fixed; inset:0; background:rgba(5,7,12,.6); backdrop-filter:blur(3px);
-        display:none; align-items:center; justify-content:center; z-index:20; }
+  /* z-index 要高过内联设置页（#mask 是 20）：从设置页里点开文件预览仍得盖在上面 */
+  #pv { position:fixed; inset:0; background:rgba(5,7,12,.6); backdrop-filter:blur(3px); z-index:30;
+        display:none; align-items:center; justify-content:center; }
   #pv.show { display:flex; }
   #pvPanel { background:var(--panel); border:1px solid var(--line); border-radius:14px;
              width:min(880px, 92vw); max-height:86vh; display:flex; flex-direction:column;
@@ -352,7 +355,7 @@
 </head>
 <body>
   <div id="side">
-    <div class="brand">cjh 客户端</div>
+    <div class="brand" id="brandName">cjh 客户端</div>
     <div class="sub" id="cjhState">cjh：连接中…</div>
     <div id="sideTabs">
       <button class="stab active" data-tab="convs">会话</button>
@@ -376,6 +379,7 @@
       <div id="convTitle"></div>
       <span id="wsBadge" title="点击切换 cjh 工作区（agent 的操作根目录）">工作区: …</span>
       <span id="modelBadge" title="点击切换服务商 / 模型"></span>
+      <button id="btnMode" class="ghost tb-btn" title="切换模式：聊天（直连）/ Agent（cjh）">模式: 聊天</button>
       <button id="btnTheme" class="ghost tb-btn" title="切换主题：跟随系统 / 亮 / 暗">主题: 系统</button>
       <button id="btnCompact" class="ghost tb-btn" title="紧凑模式：收紧消息间距，一屏多看几条">紧凑: 关</button>
     </div>
@@ -389,6 +393,56 @@
       <button id="btnSend">发送</button>
       <button id="btnStop" class="ghost" style="display:none">停止</button>
     </div>
+    <!-- 设置页：铺满主区（#main 是 position:relative 的定位父级），不再是居中弹层。
+         头/体/底三段——头与底不滚，只有中间的服务商列表滚，所以「保存」在任何滚动位置都看得见。 -->
+    <div id="mask">
+      <div id="cfg">
+        <div class="cfg-head">
+          <h2>设置服务商</h2>
+          <button id="cfgClose" class="ghost tb-btn" title="返回对话（Esc 也行）">← 返回对话</button>
+        </div>
+        <!-- 连上 cjh 时的诚实横幅：这些字段这次对话根本不参与，写在最上面比让人改完等反应强。
+             钉在滚动体之外——放进 .cfg-body 的话，一滚到表单就看不见它了。 -->
+        <div class="banner" id="cfgMode" style="display:none;margin:12px 22px 0">
+          当前是 <b>Agent 模式</b>：对话由 cjh 侧执行，Key 与模型来自 cjh 自己的配置——
+          下面这些字段<b>只在「聊天」模式（直连）下生效</b>，Agent 模式下改了不会影响这一轮对话。
+        </div>
+        <div class="cfg-body">
+          <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
+            出网受能力清单白名单约束——预置服务商已在白名单内，其他端点会被 scope 拒绝。</div>
+          <div id="provList"></div>
+          <div class="presets" id="presetRow"></div>
+          <div style="display:flex;gap:8px;margin:10px 0">
+            <button id="btnProvAdd" class="ghost" style="flex:0 0 auto">+ 添加自定义服务商</button>
+          </div>
+          <div id="provForm" style="display:none">
+            <div class="row2">
+              <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
+              <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
+            </div>
+            <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
+              <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
+            <div class="row"><label>API Key（只存本机存档，不外传）</label><input id="fKey" type="password"></div>
+            <div class="row"><label>system 提示词（可选，全局，仅直连模式随请求发出）</label>
+              <textarea id="fSys" rows="3" placeholder="例如：回答尽量简洁，代码用 Markdown 代码块"></textarea></div>
+          </div>
+          <div class="hint">
+            <b>生效时机</b>：保存后<b>下一次发送</b>就用新配置，<b>不需要重启</b>；改动同时写入本机存档，下次开应用照旧。
+            （MCP 面板仍是只读——cjh 的 <code>/api/settings</code> 暂不支持写 mcpServers。）
+          </div>
+        </div>
+        <!-- 底栏：动作条与错误行都在这儿（原在 #provForm 内部，表单一隐藏就跟着没了） -->
+        <div class="cfg-foot">
+          <div class="hint err" id="cfgErr" style="display:none"></div>
+          <div class="cfg-acts">
+            <button id="btnProvDel" class="ghost">删除此服务商</button>
+            <span class="spacer"></span>
+            <button id="btnCfgCancel" class="ghost">取消</button>
+            <button id="btnCfgSave">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div id="pv">
     <div id="pvPanel">
@@ -399,50 +453,6 @@
         <button id="pvClose" class="ghost">关闭</button>
       </div>
       <pre id="pvBody"></pre>
-    </div>
-  </div>
-  <div id="mask">
-    <div id="cfg">
-      <div class="cfg-head">
-        <h2>设置·服务商</h2>
-        <button id="cfgClose" class="ghost tb-btn" title="关闭">✕</button>
-      </div>
-      <div class="cfg-body">
-        <!-- 连上 cjh 时的诚实横幅：这些字段这次对话根本不参与，写在最上面比让人改完等反应强 -->
-        <div class="banner" id="cfgMode" style="display:none">
-          当前已连上 cjh：对话由 cjh 侧执行，Key 与模型来自 cjh 自己的配置——
-          下面这些字段<b>只在「未连上 cjh」的直连模式下生效</b>，cjh 模式下改了不会影响这一轮对话。
-        </div>
-        <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
-          出网受能力清单白名单约束——预置服务商已在白名单内，其他端点会被 scope 拒绝。</div>
-        <div id="provList"></div>
-        <div class="presets" id="presetRow"></div>
-        <div style="display:flex;gap:8px;margin:10px 0">
-          <button id="btnProvAdd" class="ghost" style="flex:0 0 auto">+ 添加自定义服务商</button>
-        </div>
-        <div id="provForm" style="display:none">
-          <div class="row2">
-            <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
-            <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
-          </div>
-          <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
-            <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
-          <div class="row"><label>API Key（只存本机存档，不外传）</label><input id="fKey" type="password"></div>
-          <div class="row"><label>system 提示词（可选，全局，仅直连模式随请求发出）</label>
-            <textarea id="fSys" rows="3" placeholder="例如：回答尽量简洁，代码用 Markdown 代码块"></textarea></div>
-          <div class="hint err" id="cfgErr" style="display:none"></div>
-          <div class="cfg-acts">
-            <button id="btnProvDel" class="ghost">删除此服务商</button>
-            <span class="spacer"></span>
-            <button id="btnCfgCancel" class="ghost">取消</button>
-            <button id="btnCfgSave">保存</button>
-          </div>
-        </div>
-        <div class="hint">
-          <b>生效时机</b>：保存后<b>下一次发送</b>就用新配置，<b>不需要重启</b>；改动同时写入本机存档，下次开应用照旧。
-          （MCP 面板仍是只读——cjh 的 <code>/api/settings</code> 暂不支持写 mcpServers。）
-        </div>
-      </div>
     </div>
   </div>
 <script>
@@ -519,6 +529,9 @@ function escHtml(s) {
  * 旧实现只有行内替换 + 双换行切段，于是表格被逐行吐成带竖线的普通文字（cjh 的「列目录 / 对比」
  * 回答里表格很常见，看起来就「不像个界面」）；表格外层包 .tbl 横向可滚，别把消息撑破。 */
 function renderMd(src) {
+  // 渲染入口只吃字符串：存档是外部文件（旧版本写的、手工改过的、或被误传事件的那批正文），
+  // 一个非字符串就能把 renderMd 抛穿、整页脚本停摆（实测那次页内自检一条都没跑出来）。
+  if (typeof src !== 'string') { src = ''; }
   var blocks = [];
   // 先摘代码块（hljs 高亮后占位，避免里面的标记被二次加工）
   var text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function (m, lang, code) {
@@ -645,8 +658,13 @@ function cjhGet(path) {
   });
 }
 
-/* ---- 侧栏 Tabs：会话 / 技能 / MCP / 文件 ---- */
+/* ---- 侧栏 Tabs：会话 / 技能 / MCP / 文件 ----
+ * curSideTab 记住当前面板：切模式时若正停在 cjh 的面板上（技能/MCP/文件）得能收回会话页，
+ * 否则那三块一隐，页面就停在「什么都不显示」的状态。 */
+var curSideTab = 'convs';
 function switchTab(tab) {
+  if (appMode !== 'agent' && tab !== 'convs') { tab = 'convs'; }   // 聊天模式只有「会话」这一块
+  curSideTab = tab;
   var tabs = document.querySelectorAll('.stab');
   for (var i = 0; i < tabs.length; i++) {
     tabs[i].className = 'stab' + (tabs[i].getAttribute('data-tab') === tab ? ' active' : '');
@@ -976,9 +994,21 @@ function cjhWsSend(obj) {
   return window.__CJ_TAURI__.invoke('ws:send', { text: JSON.stringify(obj) });
 }
 
+/* ---- cjh 侧配置（/api/settings，只读）：Agent 模式的徽章要显示 cjh **真实在用**的模型，
+ * 而不是桌面端选的那个——cjh 模式下这本来就是两回事（见 cjh#3 的需求）。 */
+var cjhSettings = null;
+function loadCjhSettings() {
+  if (!CJH.api) { return; }
+  cjhGet('/api/settings').then(function (r) {
+    cjhSettings = r || null;
+    renderConvs();
+  }).catch(function (e) { cjhSettings = null; });
+}
+
 /* ---- cjh 会话历史：/api/sessions → {sessions:[{id,title,created_at}]}，本地列表之上独立分组 ---- */
 var cjhSessionList = [];
 function refreshCjhSessions() {
+  if (appMode !== 'agent') { return; }   // 聊天模式不拉 cjh 历史（侧栏只留本地会话）
   cjhGet('/api/sessions').then(function (r) {
     cjhSessionList = r.sessions || [];
     renderConvs();
@@ -986,10 +1016,23 @@ function refreshCjhSessions() {
 }
 function resumeCjhSession(id) {
   if (streaming) { return; }
-  newConv();
-  // 记住 cjh 会话 id：后续 chat 帧都带它（cjh 侧在该会话里续聊）；历史回放经 history_messages 帧
-  var c = cur();
-  if (c) { c.cjhId = id; }
+  // 本地已有这个 cjh 会话的镜像就**接着它聊**，不再无条件 newConv()：
+  // 原来每点一次 ⟳ 就多一条本地记录（左栏里同一个会话越点越多，多出来的还是空壳）。
+  // 回放口径不受影响——history_messages 帧走 replayCjhHistory，那里是**清空重建**、不是追加。
+  var hit = null;
+  for (var i = 0; i < convs.length; i++) {
+    if (convs[i].cjhId === id) { hit = convs[i]; break; }
+  }
+  if (hit) {
+    closeCfg();                       // 设置页铺在主区，先让位
+    curId = hit.id;
+    renderConvs(); renderMsgs();
+  } else {
+    newConv();                        // 内部也会 closeCfg()
+    // 记住 cjh 会话 id：后续 chat 帧都带它（cjh 侧在该会话里续聊）；历史回放经 history_messages 帧
+    var c = cur();
+    if (c) { c.cjhId = id; }
+  }
   cjhTurnPending = false;
   cjhWsSend({ type: 'resume_session', session_id: id }).then(function () {
   }).catch(function (e) {
@@ -1091,6 +1134,70 @@ function cycleTheme() {
   applyTheme();
   saveState();
 }
+
+/* ---- 模式：聊天（直连服务商）/ Agent（连 cjh 的工具链）----
+ * 存档记住上次选择，**首次进入默认聊天**（聊天不依赖 cjh 的任何东西，配好服务商就能用）。
+ * 模式决定两件事：走哪条管道回话（直连 http:postStream / cjh ws）与哪些 cjh 面板可见——
+ * 二者必须同一个判据，否则会出现「显示着 Agent 面板、消息却走了直连」的错位。 */
+var appMode = 'chat';     // 'chat' | 'agent'
+/* 切到聊天模式时**真的断开** cjh 的 WS（原来只是把面板藏起来、清掉列表，连接照旧活着）。
+ * 不接的后果：切模式那一刻若正有一轮 agent 在执行，delta / tool 帧会继续往当前气泡里写，
+ * 而顶栏已经写着「聊天」——界面口径与后台状态不一致，事后也说不清那条回复是谁给的。
+ * 收尾只认 **cjh 轮次**（streaming && cjhTurnPending）：HTTP 直连流不归这儿管，
+ * 误调 finishCjhTurn 会把一条正在流式输出的直连回复当场掐断。 */
+function cjhDropWs() {
+  if (streaming && cjhTurnPending) { finishCjhTurn(''); }   // 定稿当前气泡（已收到的部分保留）
+  if (!CJH.ws) { return; }                                  // 端点从未注入：连都没连过，别白调 ws:close
+  var wasUp = CJH.wsUp;
+  CJH.wsUp = false;
+  cjhTurnPending = false;
+  window.__CJ_TAURI__.invoke('ws:close', {}).catch(function (e) {
+    // 断不开如实说，但不致命：界面已按聊天模式走，下次进 Agent 会按 wsUp=false 重连
+    if (wasUp) { appendNote('断开 cjh 失败：' + String(e && e.message)); }
+  });
+  cjhStateUi(false, 'cjh：已断开（聊天模式直连服务商）');
+}
+function applyMode() {
+  var agent = appMode === 'agent';
+  $('btnMode').textContent = agent ? '模式: Agent' : '模式: 聊天';
+  $('btnMode').className = agent ? 'ghost tb-btn on' : 'ghost tb-btn';
+  $('btnMode').title = agent
+    ? '当前 Agent 模式：连 cjh，模型与工具由 cjh 侧决定（点一下切到聊天）'
+    : '当前聊天模式：直连服务商，用顶栏选的模型（点一下切到 Agent）';
+  // cjh 的四面（工作区徽章 / 技能 / MCP / 文件）在聊天模式整体隐去——它们全是 cjh 的能力面，
+  // 留在界面上只会让人以为这些也能用。侧栏品牌与连接行同样按模式说真话，不留 cjh 字样。
+  var stabs = document.querySelectorAll('.stab');
+  for (var i = 0; i < stabs.length; i++) {
+    if (stabs[i].getAttribute('data-tab') !== 'convs') { stabs[i].style.display = agent ? '' : 'none'; }
+  }
+  $('wsBadge').style.display = agent ? '' : 'none';
+  $('brandName').textContent = agent ? 'cjh 客户端' : 'AI 对话';
+  $('cjhState').style.display = agent ? '' : 'none';
+  if (!agent) {
+    cjhSettings = null;                             // 徽章回到桌面端选择（renderConvs 里按模式分流）
+    cjhSessionList = [];                            // cjh 历史只在 Agent 模式展示（切回时重连再取）
+    cjhDropWs();                                    // 真断开（早前只藏面板，连接照旧活着，见函数注释）
+    if (curSideTab !== 'convs') { switchTab('convs'); }
+    renderConvs();
+    return;
+  }
+  // 连 cjh 只在 Agent 模式做：聊天模式走直连，不需要这个后端在跑
+  if (CJH.api) {
+    if (!CJH.wsUp) { cjhConnectWs(); }
+    loadWorkspaces();
+    loadCjhSettings();
+  } else {
+    cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）');
+  }
+}
+function toggleMode() {
+  appMode = appMode === 'agent' ? 'chat' : 'agent';
+  applyMode();
+  // 设置页开着时按新模式刷新诚实横幅：它说的是「这些字段这轮不参与」，
+  // 停留在旧模式的口径就会反过来误导（原来只有 openCfg 那一刻会设）
+  if ($('mask').classList.contains('show')) { $('cfgMode').style.display = appMode === 'agent' ? '' : 'none'; }
+  saveState();
+}
 // 探针计数：系统主题变化事件被接住的次数（只读，不参与逻辑）。自检要证明「变化真会走到
 // applyTheme」——合成事件合不出系统翻面，但走的就是这条回调；不计数就只能断类名，等于没验接线。
 var sysThemeHits = 0;
@@ -1136,7 +1243,7 @@ var $ = function (id) { return document.getElementById(id); };
 var msgsEl = $('msgs');
 
 function saveState() {
-  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode, compact: compact, side: sideHidden ? 1 : 0 }) })
+  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode, compact: compact, side: sideHidden ? 1 : 0, mode: appMode }) })
     .catch(function () {});
 }
 function loadState() {
@@ -1155,14 +1262,37 @@ function loadState() {
       if (typeof s.sysPrompt === 'string') { sysPrompt = s.sysPrompt; }
       else if (s.cfg && typeof s.cfg.sys === 'string') { sysPrompt = s.cfg.sys; }
       if (Array.isArray(s.convs)) { convs = s.convs; }
+      // 脏正文清洗：早前的发送按钮把 send 直接当 onclick 回调，MouseEvent 被当「用户正文」写进存档
+      // （`{"isTrusted":true}`）；真实用户消息一定是字符串，非字符串的一律剔掉，丢了几条写 trace 报出来。
+      var dropped = 0;
+      convs.forEach(function (c) {
+        if (!c || !Array.isArray(c.messages)) { return; }
+        var kept = c.messages.filter(function (m) {
+          if (m && typeof m.content === 'string') { return true; }
+          dropped++; return false;
+        });
+        if (kept.length !== c.messages.length) { c.messages = kept; }
+      });
+      // 注意别在这儿调 send() 里的局部 trace：那名字在本作用域不存在，抛出的 ReferenceError 会被本函数
+      // 末尾那个 catch 静默吞掉，后面的 curId / 主题 / 模式应用整段不执行（实测：trace 行从没落过盘，
+      // 存档已被洗净却当轮主题没应用）。这里直接写同一路日志通道。
+      if (dropped > 0) {
+        try {
+          window.__CJ_TAURI__.log.write('[aichat] loadState: dropped ' + dropped + ' message(s) with non-string content');
+        } catch (e) {}
+      }
       curId = s.curId || (convs[0] && convs[0].id) || null;
       if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'auto') { themeMode = s.theme; }
       if (typeof s.compact === 'boolean') { compact = s.compact; }
       sideHidden = !!s.side;
+      // 存档没有 mode 字段（老存档）时保持默认聊天，不做「按 cjh 是否配置」的猜测——
+      // 模式决定消息走哪条管道，猜错的代价是消息发去了用户没预期的那一边。
+      if (s.mode === 'agent' || s.mode === 'chat') { appMode = s.mode; }
       // 存档里的主题要在读完后**重新应用**：启动时那次 applyTheme() 跑在 loadState
       // 之前（拿的是默认 auto）——不重调的话存档主题永远不生效（实测：写 light 仍是暗色）。
       applyTheme();
       applySide();
+      applyMode();
     } catch (e) { /* 存档坏了就当没有：不因脏数据起不来 */ }
   });
 }
@@ -1199,19 +1329,35 @@ function renderConvs() {
   // 顶栏标题跟随当前会话；模型徽章跟随当前服务商
   var c0 = cur();
   $('convTitle').textContent = c0 ? (c0.title || '新会话') : '';
-  var ap = activeProvider();
-  $('modelBadge').textContent = ap ? ((ap.name || '自定义') + ' · ' + (ap.model || '未配置')) : '未配置服务商';
+  // 徽章按模式说各自的实话：聊天模式 = 桌面端选的服务商；Agent 模式 = cjh 侧**真实在用**的模型。
+  // 早前这里无条件显示桌面端的选择，于是「选了 A、回复来自 B」（cjh 用自己配置）没有一处看得出来。
+  if (appMode === 'agent') {
+    var cs = cjhSettings || {};
+    $('modelBadge').textContent = 'cjh · ' + (cs.model || '未取到');
+  } else {
+    var ap = activeProvider();
+    $('modelBadge').textContent = ap ? ((ap.name || '自定义') + ' · ' + (ap.model || '未配置')) : '未配置服务商';
+  }
+  $('modelBadge').title = appMode === 'agent'
+    ? 'Agent 模式：模型由 cjh 侧配置决定（点一下看说明；要用桌面端选的模型请切到聊天模式）'
+    : '点击切换服务商 / 模型';
   renderProvMenu();
   var q = convQuery.toLowerCase();
   var hits = 0;
   // cjh 会话历史（独立分组，置顶）：连接上才显示；点击即 resume。
   // 这一组**不给改名 / 删除按钮**：cjh 的 /api/sessions 至今只读（没有重命名、删除接口），
   // 与其摆一个点不动的入口，不如把口径写在分组标题的 tooltip 里。
+  // 去重：本地会话里已经有同 cjhId 的（走过 agent 的那条）就不在 ⟳ 组再列一遍。
+  // 早前两组各按自己的来源列，同一个会话会出现两次（用户实况），点 ⟳ 还会再开一份本地会话、越积越多。
+  var mirrored = {};
+  convs.forEach(function (c) { if (c.cjhId) { mirrored[c.cjhId] = true; } });
   var cjhHits = cjhSessionList.filter(function (s) {
+    if (s && s.id && mirrored[s.id]) { return false; }
     return !q || String(s.title || '').toLowerCase().indexOf(q) !== -1 ||
            String(s.id || '').toLowerCase().indexOf(q) !== -1;
   });
-  if (CJH.wsUp && cjhSessionList.length > 0) {
+  // 分组标题也只在真有「没有被本地镜像」的会话时才出现：全被去重掉还挂着空标题，等于换个方式说假话
+  if (CJH.wsUp && cjhHits.length > 0) {
     var head = document.createElement('div');
     head.className = 'sub';
     head.style.cssText = 'padding:4px 6px 2px;font-size:11px';
@@ -1255,8 +1401,9 @@ function renderConvs() {
       setTimeout(function () { inp.focus(); inp.select(); }, 0);
       return;
     }
-    d.textContent = c.title || '新会话';
-    d.title = '双击可改名';
+    // 带 cjhId 的本地会话是 cjh 会话的桌面端镜像：加个 ⟳ 标记，别和纯直连会话混成一个样子
+    d.textContent = (c.cjhId ? '⟳ ' : '') + (c.title || '新会话');
+    d.title = c.cjhId ? ('cjh 会话镜像（' + c.cjhId + '）· 双击可改名') : '双击可改名';
     var del = document.createElement('span');
     del.className = 'del';
     del.textContent = '×';
@@ -1268,7 +1415,7 @@ function renderConvs() {
     ed.title = '重命名';
     ed.onclick = function (ev) { ev.stopPropagation(); startRename(c.id); };
     d.appendChild(ed);
-    d.onclick = function () { if (!streaming && renamingId !== c.id) { curId = c.id; renderConvs(); renderMsgs(); } };
+    d.onclick = function () { if (!streaming && renamingId !== c.id) { closeCfg(); curId = c.id; renderConvs(); renderMsgs(); } };
     d.ondblclick = function () { if (!streaming) { startRename(c.id); } };
     el.appendChild(d);
     hits++;
@@ -1281,6 +1428,8 @@ function renderConvs() {
   }
 }
 function newConv() {
+  // 侧栏点「新会话」/「恢复 cjh 会话」= 要回对话：设置页铺在主区、不会自己关，先让位
+  closeCfg();
   var c = { id: 'c' + Date.now(), title: '新会话', messages: [] };
   convs.unshift(c);
   curId = c.id;
@@ -1481,12 +1630,33 @@ function buildMessages(userText) {
 /* send(text?)：text 缺省取输入框；skipPush（重新生成）时用户消息已在历史里，不再入库。
  * cjh 模式（CJH.up）：走 WS 发 chat（agent 带工具执行），帧流经 handleCjhFrame 回画；
  * 直连模式：走 http:postStream（SSE，纯对话）。两条管道共用同一套气泡/收尾。 */
+/* Agent 模式发给 cjh 的 chat 帧：**前向兼容**带上桌面端选的服务商与模型（cjh 现在忽略未知字段，
+ * 见 cjh#3 的需求契约；cjh 侧实现后这里一行都不用改）。抽成函数是为了让自检能断言「选中的模型
+ * 真的进了帧」——不抽就只能发一条真消息去验，那是拿用户的会话做实验。
+ * apiKey 暂不带：是否接受由 cjh 侧裁（换厂家才需要，届时同一处补上）。 */
+function agentChatFrame(text, cjhId) {
+  var f = { type: 'chat', message: text, session_id: cjhId || '' };
+  var ap = activeProvider();
+  if (ap) {
+    if (ap.model) { f.model = ap.model; }
+    if (ap.baseUrl) { f.baseUrl = ap.baseUrl; }
+  }
+  return f;
+}
 function send(text, skipPush) {
   var input = $('input');
-  if (text === undefined) { text = input.value.trim(); }
+  // 只认字符串：非字符串（undefined、或被误传的 DOM 事件）一律回落到输入框内容
+  if (typeof text !== 'string') { text = input.value.trim(); }
   if (!text || streaming) { return; }
-  // cjh 模式不需要本地 Key（Key 在 cjh 侧）；直连模式没 Key 先开设置
-  if (!CJH.up && !cfg.key) { openCfg(); return; }
+  var useAgent = appMode === 'agent';
+  // 管道由**模式**决定，不再由「cjh 连没连上」决定：早前只要连上 cjh 就走 cjh，于是聊天模式里
+  // 用户选的模型在 cjh 连通时静默失效（实测：换了个没配 Key 的服务商，消息照样有回复）。
+  if (useAgent && !CJH.up) {
+    toast('Agent 模式需要 cjh，当前未连接——点顶栏「模式」切到聊天可直连', true);
+    return;
+  }
+  // 聊天模式不需要 cjh（Key 直连用），但必须有本地 Key，没配就先开设置
+  if (!useAgent && !cfg.key) { openCfg(); return; }
   var c = cur();
   if (!c) { newConv(); c = cur(); }
   if (c.messages.length === 0) { c.title = text.slice(0, 18); renderConvs(); }
@@ -1500,11 +1670,11 @@ function send(text, skipPush) {
   setStreamingUi(true);
   var trace = function (m) { try { window.__CJ_TAURI__.log.write('[aichat] ' + m); } catch (e) {} };
 
-  if (CJH.up) {
+  if (useAgent) {
     // ---- cjh 管道：WS chat；流式气泡在第一个 delta/tool_start 帧到达时才创建 ----
     curStreamingBody = null; curStreamingText = ''; curTools = []; curToolsEl = null; cjhTurnPending = true;
     trace('send: cjh ws chat, session=' + (c.cjhId || '(new)'));
-    cjhWsSend({ type: 'chat', message: text, session_id: c.cjhId || '' }).catch(function (e) {
+    cjhWsSend(agentChatFrame(text, c.cjhId)).catch(function (e) {
       appendNote('cjh 发送失败：' + String(e && e.message));
       streaming = false; setStreamingUi(false); cjhTurnPending = false;
     });
@@ -1765,12 +1935,17 @@ function saveProv() {
   }
   cfgErr('');
   closeCfg(); renderProvList(); renderConvs(); saveState();
+  // 保存要给回执：设置页一关就什么提示都没有，用户无从判断「存上了没有」（同 §4 那条
+  // 「失败/成功都要有凭证」的口径——成功也一样，静默的成功和失败长得一样）
+  toast(appMode === 'agent'
+    ? ('已保存：' + p.name + '（Agent 模式下由 cjh 侧模型执行，这份配置在聊天模式生效）')
+    : ('已保存：' + p.name + ' · ' + (p.model || '未填模型')));
 }
 
 function openCfg() {
   // 连上 cjh 时把「本面板这次对话不参与」摊开说（Key/模型在 cjh 自己那边）：
   // 不说明的话，用户改完 Key/模型发消息没有任何变化，只会以为设置坏了
-  $('cfgMode').style.display = CJH.up ? '' : 'none';
+  $('cfgMode').style.display = appMode === 'agent' ? '' : 'none';   // 横幅按模式出现（Agent 模式下这些字段不参与）
   renderProvList();
   // 预设行：点了直接开一张预填好的新表单（Key 留空给用户）
   var pr = $('presetRow');
@@ -1786,8 +1961,13 @@ function openCfg() {
     };
     pr.appendChild(b);
   });
-  if (providers.length > 0) { openProvForm(activeIdx); } else { $('provForm').style.display = 'none'; }
+  // 服务商为空时不再把表单藏起来：动作条现在常驻，藏了表单却留着「保存」更费解——
+  // 开一张空表单，填完点保存即新增第一个服务商（saveProv 里 editIdx=-1 走 push）
+  if (providers.length > 0) { openProvForm(activeIdx); } else { openProvForm(-1); }
   $('mask').className = 'show';
+  // 打开即定位到当前服务商的表单：早前表单在服务商列表与预设卡片之下，每次都得先往下拉（用户反馈）
+  var _f = $('provForm');
+  if (providers.length > 0 && _f.scrollIntoView) { _f.scrollIntoView({ block: 'start' }); }
 }
 function closeCfg() { $('mask').className = ''; $('provForm').style.display = 'none'; editIdx = -1; }
 
@@ -1819,14 +1999,18 @@ function selfcheck() {
   ok('prov-render', $('provList').querySelectorAll('.prov').length === 2 &&
      $('provList').querySelector('.prov.active .badge') !== null);
   providers = _sp; activeIdx = _si; renderProvList();
-  // ---- 设置弹层（用户反馈「又窄又不好看」后重排）：宽度跟视口、短字段两列、失败要报错、
-  // 预设兜底真能兜、关得掉、cjh 横幅按连接态出现。断言完统一 closeCfg + 还原（含 saveState：
+  // ---- 设置页（用户反馈「打开还得下拉找保存」后改成**内联页**，不再是居中弹层）：
+  // 宽度铺满主区、动作条与错误行移出滚动体成常驻底栏。断言完统一 closeCfg + 还原（含 saveState：
   // 中间那次成功保存会把假服务商写进存档，必须再写回真现场，同 conv-* 那组的教训）。
-  var _sp2 = providers, _si2 = activeIdx, _sy = sysPrompt, _cu = CJH.up;
+  var _sp2 = providers, _si2 = activeIdx, _sy = sysPrompt, _mo2 = appMode;
   openCfg();
-  var cfgW = $('cfg').offsetWidth;
-  ok('cfg-width-fluid', cfgW > 560 && cfgW <= window.innerWidth &&
-     cfgW >= Math.min(900, Math.round(window.innerWidth * 0.9)));
+  // 铺满主区：宽度跟 #main 走、定位是 absolute（原来是 fixed 遮罩 + min(920px,94vw) 居中面板）
+  var _maskSt = getComputedStyle($('mask'));
+  ok('cfg-fills-main', Math.abs($('cfg').offsetWidth - $('main').offsetWidth) <= 2 &&
+     _maskSt.position === 'absolute' && $('main').contains($('mask')));
+  // 底栏与滚动体分离：动作条、错误行都不在 .cfg-body 里（放滚动体内就又得往下拉才够得着「保存」）
+  ok('cfg-acts-outside-scroll', $('btnCfgSave').closest('.cfg-body') === null &&
+     $('cfgErr').closest('.cfg-foot') !== null);
   // 宽面板下「名称/模型」两列排开，窄于 720px 自动回单列（媒体查询按窗口宽度，不看设备）
   var _cols = getComputedStyle(document.querySelector('.row2')).gridTemplateColumns.split(' ').length;
   ok('cfg-two-col', window.innerWidth <= 720 ? _cols === 1 : _cols === 2);
@@ -1837,13 +2021,17 @@ function selfcheck() {
   $('fModel').value = 'm'; $('fSys').value = '不该被写入的提示词';
   openProvForm(0);
   $('fSys').value = '不该被写入的提示词'; $('fBase').value = '';
-  // 动作条吸底：表单长于一屏时「保存/取消」必须仍在可视区内（滚动 60px 后量按钮矩形，
-  // 不吸底的话它会落在折叠线以下）。内容不足一屏时按钮本来就在视野里，这条同样成立。
+  // 底栏常驻：滚动体滚到哪儿它都不动——这是「不用下拉找保存」的直接判据。
+  // 早前是 sticky 吸底，但它在 #provForm 内部、受父盒约束，表单没进视野时照样够不着（用户实况）。
   var _body = document.querySelector('.cfg-body');
-  _body.scrollTop = 60;
+  _body.scrollTop = 0;
+  var _saveTop0 = $('btnCfgSave').getBoundingClientRect().top;
+  _body.scrollTop = 9999;
+  var _saveTop1 = $('btnCfgSave').getBoundingClientRect().top;
   var _acts = document.querySelector('.cfg-acts').getBoundingClientRect();
-  var _bodyRect = _body.getBoundingClientRect();
-  ok('cfg-acts-in-view', _acts.top >= _bodyRect.top - 2 && _acts.bottom <= _bodyRect.bottom + 2);
+  ok('cfg-acts-pinned', Math.abs(_saveTop1 - _saveTop0) <= 1 &&
+     _acts.top >= 0 && _acts.bottom <= window.innerHeight + 1);
+  _body.scrollTop = 0;
   saveProv();
   ok('cfg-err-visible', $('cfgErr').style.display !== 'none' && providers.length === 1 &&
      providers[0].baseUrl === 'u1' && sysPrompt !== '不该被写入的提示词');
@@ -1856,19 +2044,110 @@ function selfcheck() {
   var _added = providers[providers.length - 1];
   ok('cfg-preset-fill', providers.length === 2 && !!_added.baseUrl &&
      _added.baseUrl.indexOf('deepseek') !== -1);
-  // 三条关闭出口都在：右上 ✕、点遮罩、Esc（原来服务商列表为空时表单隐藏，面板再也关不掉）
-  ok('cfg-close-paths', !!$('cfgClose').onclick && !!$('mask').onclick);
+  // 离开设置的出口：头部「← 返回对话」按钮 + Esc（原来是弹层的 ✕ / 点遮罩 / Esc——现在没有遮罩可点）
+  ok('cfg-exit-paths', !!$('cfgClose').onclick && $('cfgClose').textContent.indexOf('返回对话') !== -1);
   closeCfg();
   ok('cfg-close', $('mask').className === '');
-  // 连上 cjh 才提示「本面板这次不参与」：反过来没连上时不许挂着这条横幅误导
-  CJH.up = true; openCfg();
+  // 横幅按**模式**出现（Agent 模式下这些字段不参与）：反向同样要断——聊天模式不许挂着它误导
+  appMode = 'agent'; openCfg();
   var _bUp = $('cfgMode').style.display !== 'none';
-  CJH.up = false; openCfg();
+  appMode = 'chat'; openCfg();
   var _bDown = $('cfgMode').style.display === 'none';
   ok('cfg-cjh-banner', _bUp && _bDown);
   closeCfg();
-  providers = _sp2; activeIdx = _si2; sysPrompt = _sy; CJH.up = _cu;
+  providers = _sp2; activeIdx = _si2; sysPrompt = _sy; appMode = _mo2;
   renderProvList(); renderConvs(); saveState();
+  // 模式开关（聊天 / Agent）：切换后的**显隐**、会话标签收敛、帧透传、存档落盘四件事一起断。
+  // 探针期间置空 CJH.api：applyMode 进 Agent 会真去连 cjh，自检不该碰用户的连接；store:set 也
+  // 拦下不真写（此刻 providers 是探针数据，真写就把假服务商存进用户存档了——同 convs 那组的教训）。
+  var _mo3 = appMode, _api3 = CJH.api, _up3 = CJH.up, _pi3 = activeIdx, _pv3 = providers.slice();
+  // CJH.ws 也要摘掉：切到聊天模式现在会**真下发 ws:close**（本轮新增），留着真端点等于在自检里
+  // 把用户正连着的 cjh 连接掐断——与上面「置空 CJH.api 就不去真连」同一条理由
+  var _ws3 = CJH.ws, _wsUp3 = CJH.wsUp;
+  CJH.api = ''; CJH.ws = ''; CJH.wsUp = false;
+  providers = [{ name: '探针服务商', baseUrl: 'https://probe.example/v1/chat', apiKey: 'k', model: 'probe-model' }];
+  activeIdx = 0;
+  appMode = 'chat'; applyMode(); renderConvs();
+  var _stabs = document.querySelectorAll('.stab');
+  var _hiddenInChat = $('wsBadge').style.display === 'none' && $('cjhState').style.display === 'none' &&
+                      $('brandName').textContent === 'AI 对话' && $('btnMode').textContent.indexOf('聊天') !== -1;
+  for (var _si = 0; _si < _stabs.length; _si++) {
+    if (_stabs[_si].getAttribute('data-tab') !== 'convs') {
+      _hiddenInChat = _hiddenInChat && _stabs[_si].style.display === 'none';
+    }
+  }
+  ok('mode-chat-hides-cjh', _hiddenInChat);
+  // 聊天模式的徽章必须说**桌面端**的事，不许再挂着 cjh 的模型（用户最初报的错位就在这）
+  ok('mode-chat-badge', $('modelBadge').textContent.indexOf('探针服务商') === 0);
+  // 停在 cjh 的面板上切模式：要能收回会话页，否则界面停在「什么都不显示」
+  switchTab('mcp');
+  ok('mode-chat-tab-collapse', curSideTab === 'convs');
+  // 透传：选中服务商的 model/baseUrl 必须真进帧（cjh 侧实现后即生效，见 cjh#3）
+  var _f = agentChatFrame('hi', 'sid-1');
+  ok('mode-frame-passthrough', _f.type === 'chat' && _f.session_id === 'sid-1' &&
+     _f.model === 'probe-model' && _f.baseUrl === 'https://probe.example/v1/chat');
+  // Agent 态：四块回来、品牌改口，徽章改说 cjh 侧（没取到 cjh settings 时如实写「未取到」）
+  appMode = 'agent'; applyMode(); renderConvs();
+  ok('mode-agent-shows-cjh', $('wsBadge').style.display !== 'none' && $('cjhState').style.display !== 'none' &&
+     $('brandName').textContent === 'cjh 客户端' && $('btnMode').textContent.indexOf('Agent') !== -1 &&
+     $('modelBadge').textContent.indexOf('cjh ·') === 0);
+  // 存档：不能只看内存变量——拦一次真实的 store:set，读它准备写进去的 payload
+  var _inv = window.__CJ_TAURI__.invoke, _payload = null, _closed = 0;
+  window.__CJ_TAURI__.invoke = function (cmd, args) {
+    if (cmd === 'store:set' && args && args.key === 'aichat.state') { _payload = args.value; return Promise.resolve(true); }
+    if (cmd === 'ws:close') { _closed++; return Promise.resolve(true); }   // 只计数：真发会掐掉用户的 cjh 连接
+    return _inv.apply(this, arguments);
+  };
+  // 设置页开着时切模式，横幅要跟着刷新：它说的是「这些字段这轮不参与」，停在旧模式的口径
+  // 就变成反过来误导（原来只有 openCfg 那一刻会设一次）
+  openCfg();                                                   // 此刻 appMode='agent'
+  var _bOpenAgent = $('cfgMode').style.display !== 'none';
+  toggleMode();                                                // → chat
+  var _bToggledOff = $('cfgMode').style.display === 'none';
+  toggleMode();                                                // → agent
+  var _bToggledOn = $('cfgMode').style.display !== 'none';
+  ok('cfg-banner-live', _bOpenAgent && _bToggledOff && _bToggledOn);
+  closeCfg();
+  // 切到聊天模式要**真断开**，且收尾只认 cjh 轮次：HTTP 直连流不许被误掐
+  // （finishCjhTurn 不挑来源，实现时就是这么踩到的——这条断言就是那次的经验）
+  var _ws4 = CJH.ws, _up4 = CJH.wsUp, _st4 = streaming, _pend4 = cjhTurnPending;
+  CJH.ws = 'ws://probe'; CJH.wsUp = true; streaming = false; cjhTurnPending = false;
+  cjhDropWs();
+  var _droppedWs = CJH.wsUp === false && _closed === 1;         // wsUp 归零 + 确实下发了 ws:close
+  streaming = true; cjhTurnPending = false;                     // 假装一条 HTTP 直连流在跑
+  cjhDropWs();
+  var _httpKept = streaming === true;                           // 直连流没被收尾
+  streaming = true; cjhTurnPending = true;                      // 假装一条 cjh 轮次在跑
+  cjhDropWs();
+  var _cjhClosed = streaming === false && cjhTurnPending === false;
+  ok('mode-chat-drops-ws', _droppedWs && _httpKept && _cjhClosed);
+  CJH.ws = _ws4; CJH.wsUp = _up4; streaming = false; cjhTurnPending = false; setStreamingUi(false);
+  if (_up4) { cjhStateUi(true, 'cjh：已连接'); }
+  saveState();
+  window.__CJ_TAURI__.invoke = _inv;
+  var _persisted = false;
+  try { _persisted = JSON.parse(_payload || '{}').mode === 'agent'; } catch (e) { _persisted = false; }
+  ok('mode-persist', _persisted);
+  appMode = _mo3; CJH.api = _api3; CJH.ws = _ws3; CJH.wsUp = _wsUp3; CJH.up = _up3;
+  providers = _pv3; activeIdx = _pi3;
+  if (_up3) { cjhStateUi(true, 'cjh：已连接'); }
+  applyMode(); renderProvList(); renderConvs(); saveState();
+  // 左栏两种来源去重：同一个 cjh 会话既在本地（走过 agent 的镜像）又出现在 ⟳ 全量列表里。
+  // 原来两条都列，点 ⟳ 还会再开一份本地会话（用户实况：越积越多）。现在 ⟳ 组按 cjhId 过滤、
+  // 本地那条打 ⟳ 标记，界面上一眼能看出「这条是 cjh 会话的桌面端镜像」。
+  var _cv5 = convs, _cid5 = curId, _csl5 = cjhSessionList, _up5 = CJH.wsUp;
+  convs = [{ id: 'c-probe', title: '镜像会话', messages: [], cjhId: 'sid-dup' }];
+  curId = 'c-probe';
+  cjhSessionList = [{ id: 'sid-dup', title: '重复的那个' }, { id: 'sid-other', title: '没镜像的那个' }];
+  CJH.wsUp = true;
+  renderConvs();
+  var _crow = $('convList').querySelectorAll('.conv'), _ctext = [];
+  for (var _ci = 0; _ci < _crow.length; _ci++) { _ctext.push(_crow[_ci].textContent); }
+  var _cjoin = _ctext.join('|');
+  ok('conv-cjh-dedupe', _cjoin.indexOf('重复的那个') === -1 && _cjoin.indexOf('没镜像的那个') !== -1);
+  ok('conv-cjh-marker', _cjoin.indexOf('⟳ 镜像会话') !== -1);
+  convs = _cv5; curId = _cid5; cjhSessionList = _csl5; CJH.wsUp = _up5;
+  renderConvs();
   // 内容区宽度跟随窗口：不许再写死 820px（最大化后中间一大片空白，实测被点名）
   var probe = document.createElement('div');
   probe.className = 'msg';
@@ -1878,10 +2157,20 @@ function selfcheck() {
   msgsEl.removeChild(probe);
   // 主题三态：applyTheme 后 body 类名与按钮文案必须一致（亮/暗/跟随系统）
   themeMode = 'light'; applyTheme();
-  ok('theme-light', document.body.className === 'light' && $('btnTheme').textContent.indexOf('亮') !== -1);
+  // 期望类名要把**紧凑模式**算进去：applyTheme 把 light 与 compact 合成到同一个 className
+  // （`light compact` / `compact`），写死 `'light'` / `''` 在用户开着紧凑时必然假红——
+  // 2026-10-16 实测：本机存档 compact=true，这两条红了一下午，还被误当成「本轮模式开关改出来的」。
+  ok('theme-light', document.body.className === (compact ? 'light compact' : 'light') &&
+     $('btnTheme').textContent.indexOf('亮') !== -1);
   themeMode = 'dark'; applyTheme();
-  ok('theme-dark', document.body.className === '' && $('btnTheme').textContent.indexOf('暗') !== -1);
+  ok('theme-dark', document.body.className === (compact ? 'compact' : '') &&
+     $('btnTheme').textContent.indexOf('暗') !== -1);
   themeMode = 'auto'; applyTheme();
+  // renderMd 只吃字符串：这条守的是「存档里混进非字符串正文 → renderMd 抛穿、整页脚本停摆、
+  // 页内自检一条都跑不出来」那次事故（根因＝发送按钮把 send 当 onclick 回调，MouseEvent 被当正文存盘）。
+  var mdGuardOk = true;
+  try { renderMd(undefined); renderMd(null); renderMd({ isTrusted: true }); } catch (e2) { mdGuardOk = false; }
+  ok('renderMd-nonstring-guard', mdGuardOk);
   // 会话搜索 + 行内改名：搜索要按**正文**也命中（只搜标题会漏掉「聊了半天、标题还叫新会话」那种），
   // 改名要落进 convs 且去掉首尾空白。**断言完恢复现场并落盘**——不然后面整轮都用假会话，
   // 探针还会把假数据写进 store（实测教训同 prov-* 那组）。
@@ -2158,7 +2447,15 @@ waitForBridge().then(function () {
     }
   });
   // 顶栏徽章 → 服务商切换下拉；点别处收起
-  $('modelBadge').onclick = toggleProvMenu;
+  // 徽章点击按模式分流：Agent 模式下服务商下拉与这一轮对话无关（Key/模型在 cjh 侧），
+  // 让它如实说明，而不是弹一个改了也不生效的菜单。
+  $('modelBadge').onclick = function () {
+    if (appMode === 'agent') {
+      toast('Agent 模式的模型来自 cjh 侧配置；要用桌面端选的服务商请切到聊天模式', true);
+      return;
+    }
+    toggleProvMenu();
+  };
   $('wsBadge').onclick = toggleWsMenu;
   // 文件预览：关闭 / 复制 / 点遮罩空白处 / Esc 都能退（四条路都留，别让用户困在弹层里）
   $('pvClose').onclick = closePreview;
@@ -2181,7 +2478,11 @@ waitForBridge().then(function () {
     if (editIdx >= 0 && editIdx < providers.length && providers.length > 1) {
       providers.splice(editIdx, 1);
       if (activeIdx >= providers.length) { activeIdx = providers.length - 1; }
-      closeCfg(); renderProvList(); saveState();
+      // 页内删除不跳回对话：留在设置页刷新列表与表单（原来弹层时代是删完直接关掉）
+      renderProvList();
+      if (providers.length > 0) { openProvForm(Math.min(editIdx, providers.length - 1)); }
+      else { $('provForm').style.display = 'none'; editIdx = -1; }
+      renderConvs(); saveState();
     }
   };
   $('btnCfgCancel').onclick = closeCfg;
@@ -2190,6 +2491,8 @@ waitForBridge().then(function () {
   $('cfgClose').onclick = closeCfg;
   $('mask').onclick = function (ev) { if (ev.target === $('mask')) { closeCfg(); } };
   $('btnCfgSave').onclick = saveProv;
+  $('btnMode').onclick = toggleMode;
+  applyMode();   // 先按默认值渲染一次（loadState 里还会按存档再应用一次）
   // cjh：侧栏 Tabs、ws 帧监听（先于连接挂上，帧不会漏）
   var tabs = document.querySelectorAll('.stab');
   for (var ti = 0; ti < tabs.length; ti++) {
@@ -2200,8 +2503,11 @@ waitForBridge().then(function () {
     if (s.state === 'connected') { cjhStateUi(true, 'cjh：已连接'); refreshCjhSessions(); }
     else if (s.state === 'closed') { CJH.wsUp = false; cjhStateUi(false, 'cjh：连接断开'); }
   });
-  if (CJH.api) { cjhConnectWs(); loadWorkspaces(); } else { cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）'); }
-  $('btnSend').onclick = send;
+  // cjh 的连接 / 加载交给 applyMode：只有 Agent 模式才连（聊天模式走直连，不碰这个后端）。
+  // 顺序要紧——上面的监听器已挂好，loadState 之后那次 applyMode 才真正决定连不连。
+  // 别把 send 直接当回调绑：onclick 会传 MouseEvent，事件对象一路被当「用户正文」存进存档
+  // （实测：存档里 5 条 role=user / content={"isTrusted":true}），下次加载 renderMd 就炸。
+  $('btnSend').onclick = function () { send(); };
   // 停止统一走 stopStream：它自己按管道分流（cjh 发 abort 帧 / 直连走收手钩子）
   $('btnStop').onclick = stopStream;
   // Enter 发送必须先挡输入法合成态：选词/确认候选也用 Enter（isComposing=true，Safari 走 keyCode 229），

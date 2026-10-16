@@ -430,7 +430,26 @@ static int show_dialog_here(GtkWidget *parent_w, int kind, const char *title, co
     int ok = 0;
 
     *out_path = NULL;
-    if (kind <= 1) {
+    if (kind == 6) {
+        /* 选目录：GET 不到「选目录」的 GTK 动作之外别无他法（kind 6 与文件类 / 消息类并列，
+           见 bridge_core.h 的 dlg_req）。这里不设 filter：目录没有过滤语义。 */
+        GtkWidget *dlg = gtk_file_chooser_dialog_new(
+            title[0] ? title : "选择文件夹",
+            parent,
+            GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+            "取消", GTK_RESPONSE_CANCEL,
+            "选择", GTK_RESPONSE_ACCEPT,
+            NULL);
+        if (gtk_dialog_run(GTK_DIALOG(dlg)) == GTK_RESPONSE_ACCEPT) {
+            char *p = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dlg));
+            if (p) {
+                *out_path = strdup(p);
+                ok = 1;
+                g_free(p);
+            }
+        }
+        gtk_widget_destroy(dlg);
+    } else if (kind <= 1) {
         GtkWidget *dlg = gtk_file_chooser_dialog_new(
             title[0] ? title : (kind == 1 ? "保存文件" : "打开文件"),
             parent,

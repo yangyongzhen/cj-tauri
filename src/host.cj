@@ -248,6 +248,17 @@ public interface WebViewHost {
     func showFileDialogPreset(save: Bool, title: String, filter: String, defaultName: String): String
 
     /**
+     * 原生目录选择对话框（阻塞到用户关闭）：返回选中的目录路径，取消 / 失败返回空串。
+     *
+     * 独立成方法而不是给 `showFileDialog` 加一个开关：选目录在两端都不是「换个动作」——
+     * GTK 是另一个 chooser action，Windows 更是另一套 API（`IFileOpenDialog` +
+     * `FOS_PICKFOLDERS`，`GetOpenFileName` 没有这个能力）。桥侧两者共用同名同签名的
+     * `cj_bridge_show_dialog`，以 kind=6 区分（与文件类 / 消息类并列，见 `dlg_req`）。
+     * 与 `showFileDialog` 同规矩：必须在 start() / startUrl() 之后调用（要拿应用窗口当父窗口）。
+     */
+    func showFolderDialog(title: String): String
+
+    /**
      * 原生消息对话框（阻塞到用户关闭）：返回用户是否点了「确定」。
      *
      * kind 取 "info" / "warning" / "error" / "confirm"（其它值按 info 处理）。

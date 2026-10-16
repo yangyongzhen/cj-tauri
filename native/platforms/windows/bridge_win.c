@@ -30,6 +30,7 @@
 #include <commdlg.h>
 #include <objbase.h>
 #include <shellapi.h> /* DragQueryFileW / DragFinish（CF_HDROP → 文件列表，shell32） */
+#include <shobjidl.h> /* IFileOpenDialog + FOS_PICKFOLDERS（选目录，kind 6；ole32 已在链接项里）*/
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -565,7 +566,51 @@ static int show_dialog_here(cj_host *h, int kind, const char *title, const char 
     int ok = 0;
 
     *out_path = NULL;
-    if (kind <= 1) {
+    if (kind == 6) {
+        /* 选目录：GetOpenFileName 没有选目录能力，走 shell 的 IFileOpenDialog + FOS_PICKFOLDERS。
+           COM 套间在 WebView2 宿主线程上已初始化（WebView2 自身的前提），这里不再 CoInitialize——
+           重复初始化会多一次配平负担（且 STA 下 CoUninitialize 归谁都是麻烦）。
+           失败一律留一行 stderr 凭证：这个 API 家族「静默失败」的形状是弹了框但拿不到路径。 */
+        IFileOpenDialog *fd = NULL;
+        HRESULT hr = CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER,
+                                      &IID_IFileOpenDialog, (void **)&fd);
+        if (SUCCEEDED(hr) && fd) {
+            DWORD opts = 0;
+            if (SUCCEEDED(fd->lpVtbl->GetOptions(fd, &opts))) {
+                fd->lpVtbl->SetOptions(fd, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+            }
+            if (title[0]) {
+                wchar_t *title_w = utf8_to_wide(title);
+                if (title_w) {
+                    fd->lpVtbl->SetTitle(fd, title_w);
+                    free(title_w);
+                }
+            }
+            hr = fd->lpVtbl->Show(fd, owner);
+            if (SUCCEEDED(hr)) {
+                IShellItem *item = NULL;
+                if (SUCCEEDED(fd->lpVtbl->GetResult(fd, &item)) && item) {
+                    PWSTR psz = NULL;
+                    if (SUCCEEDED(item->lpVtbl->GetDisplayName(item, SIGDN_FILESYSPATH, &psz)) && psz) {
+                        char *u8 = wide_to_utf8(psz);
+                        if (u8) {
+                            *out_path = u8;
+                            ok = 1;
+                        }
+                        CoTaskMemFree(psz);
+                    }
+                    item->lpVtbl->Release(item);
+                }
+            } else if (hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+                /* 取消不是失败（用户按了取消 / 关了框）：只有真错才落凭证 */
+                fprintf(stderr, "[cj-bridge] folder dialog failed: hr=0x%08lx\n", (unsigned long)hr);
+            }
+            fd->lpVtbl->Release(fd);
+        } else {
+            fprintf(stderr, "[cj-bridge] folder dialog failed: CoCreateInstance hr=0x%08lx\n",
+                    (unsigned long)hr);
+        }
+    } else if (kind <= 1) {
         wchar_t path[32768];
         wchar_t *title_w = utf8_to_wide(title[0] ? title : (kind == 1 ? "保存文件" : "打开文件"));
         wchar_t *filter_w = build_win_filter(filter);

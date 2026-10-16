@@ -363,6 +363,21 @@ public class WebKitHost <: WebViewHost {
         return this.dialogResult
     }
 
+    public func showFolderDialog(title: String): String {
+        var ok: Int32 = 0
+        unsafe {
+            // 选目录：kind=6（与文件类 / 消息类并列，见 bridge_core.h 的 dlg_req）；
+            // message / filter 不参与，方向框也没有「默认文件名」的概念
+            ok = cj_bridge_show_dialog(this.handle, 6, LibC.mallocCString(title),
+                                       LibC.mallocCString(""), LibC.mallocCString(""))
+        }
+        if (ok == 0) {
+            // 取消 / 宿主未就绪：上游按「空路径」处理
+            return ""
+        }
+        return this.dialogResult
+    }
+
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         var ok: Int32 = 0
         unsafe {

@@ -25,6 +25,8 @@ class FakeHost <: WebViewHost {
     // 对话框入参按「调一次记一次」存成字符串：桩不真弹窗，用例要断言的是「谁被调了、带了什么」
     public var fileDialogArgs: String = ""
     public var messageDialogArgs: String = ""
+    // 选目录与文件框分开记：用例要断言「走的是目录那条路」，不能与 fileDialogArgs 混为一谈
+    public var folderDialogTitle: String = ""
     // 菜单：线路文本 / 单项状态按原样记下（桩不建真菜单，用例断言的是投下来的内容）
     public var menuWire: String = ""
     public var menuItemStateArgs: String = ""
@@ -128,6 +130,12 @@ class FakeHost <: WebViewHost {
                                      defaultName: String): String {
         // 记痕带预置名：多窗取证靠它断言「本窗拿到的是本窗预置的名字」
         this.fileDialogArgs = "${save}|${title}|${filter}|${defaultName}"
+        return ""
+    }
+
+    public func showFolderDialog(title: String): String {
+        // 桩不真弹窗：记下标题即可（用例断言的是「谁被调了、带了什么」）
+        this.folderDialogTitle = title
         return ""
     }
 

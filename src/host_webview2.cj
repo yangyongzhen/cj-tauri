@@ -366,6 +366,20 @@ public class WebView2Host <: WebViewHost {
         return this.dialogResult
     }
 
+    public func showFolderDialog(title: String): String {
+        var ok: Int32 = 0
+        unsafe {
+            // 选目录：kind=6（平台侧走 IFileOpenDialog + FOS_PICKFOLDERS）；message 通道不参与
+            ok = cj_bridge_show_dialog(this.handle, 6, LibC.mallocCString(title),
+                                       LibC.mallocCString(""), LibC.mallocCString(""))
+        }
+        if (ok == 0) {
+            // 取消 / 宿主未就绪：上游按「空路径」处理
+            return ""
+        }
+        return this.dialogResult
+    }
+
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         var ok: Int32 = 0
         unsafe {

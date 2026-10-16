@@ -19,14 +19,22 @@ func messageArgs(text: String): JsonObject {
     return o
 }
 
+/** 造一个只带 title 的对象 */
+func titleArgs(t: String): JsonObject {
+    var o = JsonObject()
+    o.put("title", JsonString(t))
+    return o
+}
+
 @Test
 func testDialogPluginSurface(): Unit {
     let p = DialogPlugin()
     @Expect(p.name(), "dialog")
     let names = pluginCommandNames(p)
-    @Expect(names.size, 3)
+    @Expect(names.size, 4)
     var hasOpen = false
     var hasSave = false
+    var hasPick = false
     var hasMessage = false
     for (n in names) {
         if (n == "dialog:open") {
@@ -35,12 +43,16 @@ func testDialogPluginSurface(): Unit {
         if (n == "dialog:save") {
             hasSave = true
         }
+        if (n == "dialog:pickFolder") {
+            hasPick = true
+        }
         if (n == "dialog:message") {
             hasMessage = true
         }
     }
     @Expect(hasOpen, true)
     @Expect(hasSave, true)
+    @Expect(hasPick, true)
     @Expect(hasMessage, true)
 }
 
@@ -50,6 +62,7 @@ func testDialogPluginShimTargetsItsOwnNamespace(): Unit {
     @Expect(js.contains("t.dialog"), true)
     @Expect(js.contains("'dialog:open'"), true)
     @Expect(js.contains("'dialog:save'"), true)
+    @Expect(js.contains("'dialog:pickFolder'"), true)
     @Expect(js.contains("'dialog:message'"), true)
 }
 
@@ -58,16 +71,36 @@ func testDialogPluginDeclaresPermissionSets(): Unit {
     let sets = pluginPermissionSets(DialogPlugin())
     @Expect(sets.size, 2)
     let files = sets.get("dialog:files").getOrThrow()
-    @Expect(files.size, 2)
+    @Expect(files.size, 3)
     var filesHasMessage = false
     for (m in files) {
         if (m == "dialog:message") {
             filesHasMessage = true
         }
     }
-    // 只想挑文件的应用不该顺带拿到「弹任意提示框」
+    // 只想挑文件（或目录）的应用不该顺带拿到「弹任意提示框」
     @Expect(filesHasMessage, false)
-    @Expect(sets.get("dialog:default").getOrThrow().size, 3)
+    @Expect(sets.get("dialog:default").getOrThrow().size, 4)
+}
+
+@Test
+func testDialogPickFolderGoesToFolderDialog(): Unit {
+    // 选目录走的是独立的宿主方法（不是文件框那条）：桩把标题记下来，用例断言转交的确实是 title
+    let host = FakeHost("main")
+    let cmds = DialogCommands()
+    cmds.attachHost(host)
+    let ctx = IpcContext("main", IpcHub())
+
+    cmds.handle("dialog:pickFolder", titleArgs("选工作区"), ctx)
+    @Expect(host.folderDialogTitle, "选工作区")
+
+    // 不给标题时兜底，别把空标题交给平台（空串会让平台用自己的默认文案）
+    cmds.handle("dialog:pickFolder", JsonObject(), ctx)
+    @Expect(host.folderDialogTitle, "选择文件夹")
+
+    // 用户取消（桩恒回空串）时命令的返回也是空串——上游按「没选」处理
+    let r = cmds.handle("dialog:pickFolder", JsonObject(), ctx)
+    @Expect(r.toString(), "\"\"")
 }
 
 @Test

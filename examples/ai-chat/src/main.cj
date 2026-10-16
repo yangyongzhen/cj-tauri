@@ -12,6 +12,7 @@ import cjTauri.plugins.log.*
 import cjTauri.plugins.store.*
 import cjTauri.plugins.clipboard.*
 import cjTauri.plugins.ws.*
+import cjTauri.plugins.dialog.*
 import stdx.encoding.json.*
 
 /**
@@ -137,6 +138,9 @@ main(): Int64 {
         .plugin(StorePlugin())
         .plugin(ClipboardPlugin())   // 复制按钮的后端：clipboard:write（消息/代码块一键复制）
         .plugin(WsPlugin())          // cjh 后端通道：ws:frame 事件回投聊天流（cjh web /ws）
+        // 工作区「浏览…」：原生目录选择框（dialog:pickFolder）——手输绝对路径的替代路；
+        // 不装配会得到 command not registered（新增能力三处联动，漏一处就用不了，见 AGENTS §2）
+        .plugin(DialogPlugin())
         // 文件预览：cjh **没有** /api/fs/read，所以内容读自家 fs 插件（fs:readText）。
         // 该插件 scopeAware——能读的范围由 capabilities 的 scopes.fs 决定，不是全放行。
         .plugin(FsPlugin())

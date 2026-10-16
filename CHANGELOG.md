@@ -350,6 +350,14 @@
   （`open` + `save` + `pickFolder`）。实机（Linux/GTK，隔离副本）：框标题取自入参、动作是**选目录**
   （没有文件名输入，按钮「选择」），选中 `/root/test` 后 cjh 侧 `/api/workspaces` 真出现该路径、
   cjh 进程 cwd 真 `chdir`——判据取 cjh 侧状态，不看页面徽章。
+- **`examples/ai-chat` 工作区改用原生目录框**：工作区菜单的「浏览…」把手输绝对路径换成
+  `dialog:pickFolder`（`capabilities/app.json` 放行 + 装配 `DialogPlugin`——此前漏装，点了只会得到
+  `command not registered`）；手输框保留，取消选择时不动输入。
+- **`examples/ai-chat` MCP 面板改为可编辑**（写 cjh `POST /api/settings` 的 `mcpServers`）：cjh 侧是
+  **整体校验、一处不合法即整批拒绝**（不落半截），成功回 `note`「需重启 cjh 才建连接」——面板原话照抄，
+  不假装热加载。两处刻意不做：① 单个服务器不加启停 / 重启开关（cjh 没有这个接口，要停就从数组里删）；
+  ② **不把 GET 回来的 `env` 原样回写**——GET 侧一律掩成 `***`，而 POST 侧是整体替换（没有 apiKey 那种
+  「`***` 跳过」语义），回写等于把真实密钥抹成三个星号；`mcpEditGuard()` 检出掩码文本直接拒发。
 - **Linux 目录式便携包 `scripts/pack-linux.sh`（cjh 预编译产物随仓 vendor）**：一条命令产出
   `examples/ai-chat/dist-linux/ai-chat-linux-x64/`（`run.sh` + `bin/main` + 41 个共享库 + `bin/cjh`，
   39 MB；归档 tar.gz 12 MB），照 `pack-win.sh` 的风格收依赖。cjh 的来源是**仓内 vendored 的预编译包**

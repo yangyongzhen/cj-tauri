@@ -11,6 +11,25 @@
 
 ### Added
 
+- **http 插件：页面可控的出网口终于有了白名单（RFC-003 HTTP 白名单收口）**：
+  `http:get` / `http:post` / `http:postStream`（权限集 `http:default`），出网主机白名单写在
+  能力清单 `scopes.http`（`"allow": ["api.deepseek.com", "*.openai.azure.com"]`——判定复用共享层
+  `scopeAllows`/`globMatch`，**没写 scopes.http = 一律拒绝**，出网面不做「没写就放行」）；端口不参与
+  匹配、userinfo 不许伪造、Host/Content-Length 头不许页面自带、**禁自动重定向**（3xx 原样回给页面，
+  要跟就页面显式再过一遍白名单）、响应体上限 8 MiB 截断如实标记。`IpcContext.scopeRuleFor` 新增：
+  scope 规则本体直达插件，给「匹配语义不是文件路径」的插件用（http 把模式当主机名匹配，不走路径
+  规范化）。
+- **`http:postStream`：SSE 流式（AI 对话客户端的管道）**：命令 worker 按块读响应体、每块经
+  `http:chunk` 事件回投（`emitLatest`，渲染层按「最新累计文本」画）；**UTF-8 多字节被块边界切开时
+  尾字节留到下一块拼齐再发**；结束发 `done=true` 末条，命令 resolve 总字节数。SSE 帧解析留在前端
+  （宿主只回投字节），OpenAI 兼容 `data:` 行 / `[DONE]` 由应用自己拼。
+- **示例 `examples/ai-chat`：AI 对话客户端（第五款工具，框架新能力的首个消费者）**：
+  多会话 + 多服务商（自定义 Base URL / API Key / 模型 / system 提示词，Key 存本机 store）、
+  流式 Markdown 渲染（先转义再放行受控标记——模型输出是不可信内容，链接 href 只放行 http(s)）、
+  托盘 + 全局快捷键 Ctrl+Alt+A + 最小化到托盘 + 日志落盘（`setLogToDefaultFile`），
+  **零新命令**——出网全走 http 插件、持久化全走 store 插件。页面自检 8/8（转义/SSE 解析/
+  链接安全/白名单内端点可达），Linux 实机（Xvfb）跑通并截图 `docs/images/example-ai-chat.png`。
+  Windows 未实机验证（如实说明）。
 - **日志落盘：GUI 单文件产物终于有了「双击也能拿到凭证」的出口（RFC-003 第 5 期）**：
   `TauriApp.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(appName)` 在 `start()` 之前开日志，
   仓颉侧 `eprintln`、C 桥与平台实现的诊断全落进**同一份文件**——接管发生在 **fd 级**，两侧上百处调用点

@@ -1,0 +1,31 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": [
+    "http:get",
+    "http:post",
+    "http:postStream",
+    "store:get",
+    "store:set",
+    "store:del",
+    "store:keys",
+    "log:write",
+    "log:path",
+    "quit",
+    "system:version",
+    "system:host"
+  ],
+  "events": ["http:chunk"],
+  "permissions": ["http:default", "store:default", "log:default"],
+  "scopes": {
+    "http": {
+      "allow": [
+        "api.deepseek.com",
+        "api.openai.com",
+        "open.bigmodel.cn",
+        "dashscope.aliyuncs.com",
+        "*.openai.azure.com"
+      ]
+    }
+  }
+}

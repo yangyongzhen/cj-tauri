@@ -1,0 +1,155 @@
+package aiChat
+
+import std.env.*
+import std.fs.*
+import std.collection.*
+import cjTauri.*
+import cjTauri.plugins.http.*
+import cjTauri.plugins.log.*
+import cjTauri.plugins.store.*
+import stdx.encoding.json.*
+
+/**
+ * ai-chat：AI 对话客户端（cj-tauri 示例）
+ *
+ * 零新命令设计：对话全部经 **http 插件**的 `http:postStream`（SSE 流式）+ `http:get`
+ * 出网，配置经 **store 插件**持久化——本应用只做「装配 + 能力清单」，没有一行
+ * 自己的网络/存储代码。框架缺口（HTTP 白名单收口 + 流式）由 http 插件承担：
+ * - 出网主机白名单写在本目录 `capabilities/app.json` 的 `scopes.http`（page 可控 URL
+ *   的第一道闸；没写 = 全拒）；
+ * - 流式回复走 `http:chunk` 事件（emitLatest），前端自己解析 SSE 帧（`data:` 行 + [DONE]）。
+ *
+ * 依赖方向：main.cj 只 import 插件包（子包不得反向 import 应用包）。
+ */
+
+let UI_PATH = "ui/index.html"
+
+func envOr(name: String, fallback: String): String {
+    match (getVariable(name)) {
+        case Some(v) => return v
+        case None => return fallback
+    }
+}
+
+/** 读前端页面（工作目录 = 工程根：capabilities/ 与 ui/ 按相对路径读） */
+func loadUi(): String {
+    var bytes: Array<Byte> = []
+    try {
+        bytes = File.readFrom(UI_PATH)
+    } catch (e: Exception) {
+        throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/ai-chat 目录下启动")
+    }
+    return String.fromUtf8(bytes)
+}
+
+/** 读托盘图标（可选）：仓里没有现成 png 就用主题默认（托盘照样出，无阻塞） */
+func iconPath(): String {
+    let cand = "ui/icon.png"
+    try {
+        let f = File(Path(cand), OpenMode.Read)
+        f.close()
+        return cand
+    } catch (e: Exception) {
+        let _ = e
+        return ""
+    }
+}
+
+/** 从 shell 事件信封里取 id（托盘点击 / 快捷键触发都带 `{"kind":…,"id":…}`）；
+    解析不了按「无 id」处理，不猜（clipboard-history 同款）。 */
+func shellEventId(json: String): String {
+    try {
+        let root = JsonValue.fromStr(json)
+        // JsonKind 没有 ==（AGENTS §4）：枚举比较只能走 match
+        let isObj = match (root.kind()) {
+            case JsonKind.JsObject => true
+            case _ => false
+        }
+        if (isObj) {
+            match (root.asObject().get("id")) {
+                case Some(v) =>
+                    match (v.kind()) {
+                        case JsonKind.JsString => return v.asString().getValue()
+                        case _ => ()
+                    }
+                case None => ()
+            }
+        }
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] shell event 不是 JSON，按无 id 处理：${e}")
+    }
+    return ""
+}
+
+/** 前端主动退应用（quit 在平台层投 GUI 线程，命令里调是安全的） */
+public class QuitCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
+        eprintln("[cj-ai-chat] quit requested by frontend")
+        this.app.quit()
+        return JsonBool(true)
+    }
+}
+
+main(): Int64 {
+    let win = WindowConfig("AI 对话", 1080, 760)
+    win.devTools = true
+    win.minimizeToTray = true
+
+    let app = TauriApp()
+        .window(win)
+        .plugin(HttpPlugin())
+        .plugin(LogPlugin())
+        .plugin(StorePlugin())
+        // 日志落盘：GUI 产物双击没控制台，报障时一个文件看全（C 桥 + 仓颉 + 页面 log:write）
+        .setLogToDefaultFile("ai-chat")
+
+    // 托盘必须在 start() 之前定稿（RFC-002 §7.C）。对话工具常驻托盘是刚需：
+    // 「显示面板」放第一项——窗口藏起来之后只有这里或快捷键回得来。
+    let trayMenu = ArrayList<MenuItem>()
+    trayMenu.add(MenuItem.normal("show", "显示对话"))
+    trayMenu.add(MenuItem.separator())
+    trayMenu.add(MenuItem.normal("quit", "退出"))
+    app.setTray(TrayModel(iconPath(), "AI 对话", trayMenu))
+
+    // 全局快捷键：Ctrl+Alt+A 唤出面板（对话工具的肌肉记忆位）
+    app.setGlobalHotkeys(HotkeyModel().add("Ctrl+Alt+A", "show-panel"))
+
+    // 窗口级 shell 动作：还原可见性只能在原生侧做（页面没有 window.show）；
+    // quit 经命令层收口（与 clipboard-history 同款：run 之后框架收尾，不能直接 exit）。
+    app.onShellEvent({ json: String, label: String =>
+        let _ = label
+        eprintln("[cj-ai-chat] shell event: ${json}")
+        if (shellEventId(json) == "show" || shellEventId(json) == "show-panel") {
+            app.setWindowVisible(true)
+        }
+    })
+
+    app.register("quit", QuitCommand(app))
+
+    // 探针模式（CJ_AICHAT_PROBE=1）：注入自检开关，页面跑完一轮经 log:write 回投 stderr
+    if (envOr("CJ_AICHAT_PROBE", "") == "1") {
+        let js = "window.__CJ_TAURI_SELF_CHECK__ = true;\n"
+        match (app.hostOf("main")) {
+            case Some(host) =>
+                host.addInitScript(js)
+                eprintln("[cj-ai-chat] 探针模式已注入")
+            case None => eprintln("[cj-ai-chat] 探针模式：主窗未登记，配置没注入")
+        }
+    }
+
+    // 页面用 run(html) 内联（clipboard-history 同款）：runUrl 的相对路径 WebKit 解析不了
+    // （实机踩过：页面显示 The URL can't be shown），file:// 绝对路径可用但内联更省事——
+    // 本页面零外部资源（无图片/无 vendor），内联无副作用。
+    let html = loadUi()
+    app.run(html)
+    return 0
+}

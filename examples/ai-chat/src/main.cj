@@ -129,10 +129,6 @@ main(): Int64 {
     let win = WindowConfig("AI 对话", 1080, 760)
     win.devTools = true
     win.minimizeToTray = true
-    // 开窗尺寸随屏幕自适应：工作区的 80%，小屏保底 900x640、大屏（4K）封顶 1600x1000。
-    // 屏幕工作区只有平台拿得到（且只能在宿主线程读），所以策略在这里登记、平台建窗时定稿；
-    // 拿不到工作区时平台会退回上面的 1080x760 并打一行 stderr（不猜）。
-    win.autoSize = WindowAutoSize(80).minSize(900, 640).maxSize(1600, 1000)
 
     let app = TauriApp()
         .window(win)

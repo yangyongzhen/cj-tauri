@@ -342,6 +342,14 @@
 
 ### Added
 
+- **`dialog` 插件新增 `dialog:pickFolder`（选目录）**：宿主接口 `WebViewHost.showFolderDialog(title)`
+  独立成方法，不是给 `showFileDialog` 加开关——GTK 是另一个 chooser action，Windows 更是另一套
+  （`IFileOpenDialog` + `FOS_PICKFOLDERS`，`GetOpenFileName` 没有这个能力）；桥侧两者共用**同名同签名**
+  的 `cj_bridge_show_dialog`，以 `kind=6` 与文件类 / 消息类并列（`dlg_req`）。返回选中目录路径，
+  **取消 / 宿主未就绪返回空串**，与 `open` / `save` 同口径。命名权限集 `dialog:files` 现含它
+  （`open` + `save` + `pickFolder`）。实机（Linux/GTK，隔离副本）：框标题取自入参、动作是**选目录**
+  （没有文件名输入，按钮「选择」），选中 `/root/test` 后 cjh 侧 `/api/workspaces` 真出现该路径、
+  cjh 进程 cwd 真 `chdir`——判据取 cjh 侧状态，不看页面徽章。
 - **Linux 目录式便携包 `scripts/pack-linux.sh`（cjh 预编译产物随仓 vendor）**：一条命令产出
   `examples/ai-chat/dist-linux/ai-chat-linux-x64/`（`run.sh` + `bin/main` + 41 个共享库 + `bin/cjh`，
   39 MB；归档 tar.gz 12 MB），照 `pack-win.sh` 的风格收依赖。cjh 的来源是**仓内 vendored 的预编译包**

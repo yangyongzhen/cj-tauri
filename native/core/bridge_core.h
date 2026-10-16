@@ -90,7 +90,7 @@ typedef struct js_node {
 
 /* ===== 原生对话框请求（core 分配 / 释放；平台只填 ok 与 path）===== */
 typedef struct dlg_req {
-    int kind;      /* 0 打开文件 1 保存文件 2 info 3 warning 4 error 5 confirm */
+    int kind;      /* 0 打开文件 1 保存文件 2 info 3 warning 4 error 5 confirm 6 选择目录 */
     char *title;
     char *message;
     char *filter;  /* "描述|模式|描述|模式"；空串 = 不过滤 */

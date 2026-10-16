@@ -34,9 +34,13 @@
     --em:#0b0f1a; --quote:#5b6473; --scroll:#c9cfdd; --ok:#1a8f4c; --err:#c8372d;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
-  html { color-scheme: dark; }
+  /* 整页等比缩放：--z 由脚本按屏幕可用宽度算（默认 1 = 不变）。zoom 缩放布局本身，
+     body 的宽高按 1/--z 补偿——`100vh` 是**未缩放**视口的高度，不补偿缩放后就溢出。
+     同一个道理适用于本页所有视口单位（下面的 86vw / 70vw / 92vw / 86vh 都除了 --z）。 */
+  html { color-scheme: dark; zoom: var(--z, 1); }
   body.light { color-scheme: light; }
-  body { display:flex; height:100vh; overflow:hidden; background:var(--bg); color:var(--fg);
+  body { display:flex; height:calc(100vh / var(--z, 1)); width:calc(100vw / var(--z, 1));
+         overflow:hidden; background:var(--bg); color:var(--fg);
          font:14px/1.65 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
          transition:background .15s,color .15s; }
   /* 紧凑模式：长会话一屏多看几条，间距/内边距整体收紧一档（顶栏开关，存 store） */
@@ -104,7 +108,7 @@
   /* 工作区下拉：与 provMenu 同款，但更宽（要放绝对路径）+ 每行带「移除」✕ */
   #wsMenu { position:absolute; top:44px; right:16px; background:var(--panel);
             border:1px solid var(--line); border-radius:10px; padding:6px; min-width:360px;
-            max-width:min(560px, 86vw); max-height:360px; overflow-y:auto; display:none; z-index:50;
+            max-width:min(560px, calc(86vw / var(--z, 1))); max-height:360px; overflow-y:auto; display:none; z-index:50;
             box-shadow:0 12px 40px rgba(0,0,0,.4); }
   #wsMenu.show { display:block; }
   #wsMenu .ws-head { padding:6px 10px; font-size:11px; color:var(--dim); }
@@ -125,7 +129,7 @@
   /* 轻量提示条：错误/结果别只进 console（页面没 catch 时用户什么都看不到） */
   #toast { position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
            background:var(--panel); border:1px solid var(--line); border-radius:10px;
-           padding:9px 16px; font-size:13px; max-width:70vw; opacity:0; pointer-events:none;
+           padding:9px 16px; font-size:13px; max-width:calc(70vw / var(--z, 1)); opacity:0; pointer-events:none;
            transition:opacity .18s, transform .18s; z-index:99; box-shadow:0 10px 30px rgba(0,0,0,.35); }
   #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
   #toast.err { border-color:#ff7b72; color:#ff9d95; }
@@ -321,7 +325,7 @@
         display:none; align-items:center; justify-content:center; }
   #pv.show { display:flex; }
   #pvPanel { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-             width:min(880px, 92vw); max-height:86vh; display:flex; flex-direction:column;
+             width:min(880px, calc(92vw / var(--z, 1))); max-height:calc(86vh / var(--z, 1)); display:flex; flex-direction:column;
              box-shadow:0 20px 60px rgba(0,0,0,.5); overflow:hidden; }
   .pv-head { display:flex; align-items:center; gap:8px; padding:12px 16px;
              border-bottom:1px solid var(--line); }
@@ -1171,6 +1175,48 @@ function replayCjhHistory(messages) {
     appendMsgEl(role, m.content || '', false, m.ts || Date.now(), null);
   });
   saveState();
+}
+
+/* ---- 整页等比缩放（自适应的第二件：宿主管窗口尺寸，页面内容跟着屏幕等比走）----
+ * 用 zoom 而不是 transform:scale：transform 只改绘制、不改布局，里面的 100vh 与命中测试都会走样；
+ * zoom 缩放的是布局本身，配合 CSS 里 body 的 calc(100vh / var(--z)) 补偿即可正好铺满
+ *（100vh 是**未缩放**视口的高度，不补偿、缩放后就溢出）。
+ * 依据 screen.availWidth：它不受页面缩放影响，稳定可判；若改用 innerWidth（会被 zoom 改），
+ * 就会形成反馈环——越缩越小 / 越放越大。拿不到 availWidth 时退回 1：宁可不缩放，也不猜。 */
+var UI_BASE_W = 1280;   // 设计基准宽度：这个宽度下就是页面原字号
+
+/* zoom 支持性探测（**先探测再补偿**，顺序不能反）：CSS 里那些 1/--z 的补偿只有在 zoom 真生效时
+ * 才是对的；浏览器不认 zoom 时若还写 --z≠1，body 的高度就只剩 1/z，页面当场短一截。
+ * 认属性不算数——要看到布局真的被放大（量一个 100px 的探针）。 */
+var ZOOM_OK = (function () {
+  var d = document.documentElement;
+  var before = d.style.zoom;
+  d.style.zoom = '1.5';
+  var accepted = (d.style.zoom === '1.5');
+  var measured = 0;
+  if (accepted) {
+    var p = document.createElement('div');
+    p.style.cssText = 'position:absolute;left:-9999px;top:0;width:100px;height:10px';
+    document.body.appendChild(p);
+    measured = p.getBoundingClientRect().width;
+    document.body.removeChild(p);
+  }
+  d.style.zoom = before;
+  return accepted && measured > 120;   // 1.5 倍应得约 150px
+})();
+
+function applyUiScale() {
+  var z = 1;
+  var avail = (window.screen && screen.availWidth) ? screen.availWidth : 0;
+  if (avail > 0 && ZOOM_OK) {
+    z = avail / UI_BASE_W;
+    if (z < 0.85) { z = 0.85; }   // 小屏：字号别缩到看不清
+    if (z > 1.3) { z = 1.3; }     // 大屏：字号别大到离谱（窗口本身已被宿主封顶）
+    z = Math.round(z * 100) / 100;
+  }
+  // ZOOM_OK 为假时 --z 保持 1：可见的代价是「不缩放」，而不是「布局塌一截」
+  document.documentElement.style.setProperty('--z', String(z));
+  return z;
 }
 
 /* ---- 主题：auto（跟随系统）/ light / dark 三态轮换，存档持久化 ----
@@ -2469,6 +2515,37 @@ function selfcheck() {
   ok('sse-delta', sseToText('data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n') === 'A');
   ok('sse-half', sseToText('data: {"choices":[{"delta":{"cont') === '');
   ok('link-safe', renderMd('[x](javascript:alert(1))').indexOf('javascript') === -1);
+
+  // ---- 自适应开窗 + 整页等比缩放（窗口尺寸由宿主按屏幕定，页面按屏幕等比走）----
+  // --z 只在 zoom 真生效（ZOOM_OK）时才 ≠ 1：不认 zoom 的浏览器必须保持中性值 1，
+  // 否则 CSS 里的补偿式 calc(100vh / var(--z)) 会把页面缩短一截。
+  var _zRaw = getComputedStyle(document.documentElement).getPropertyValue('--z').trim();
+  var _z = parseFloat(_zRaw);
+  var _avail = (window.screen && screen.availWidth) ? screen.availWidth : 0;
+  r.push('INFO ui-scale zoomOk=' + ZOOM_OK + ' availW=' + _avail + ' innerW=' + window.innerWidth +
+         ' z=' + _zRaw);
+  ok('ui-scale-var', _zRaw !== '' && !isNaN(_z) && _z >= 0.85 && _z <= 1.3);
+  ok('ui-scale-none-without-zoom', ZOOM_OK || _z === 1);
+  // 期望值照实现算一遍（availWidth / 基准宽 → 夹取 → 两位小数）：算错档位就是这条红
+  var _want = 1;
+  if (_avail > 0 && ZOOM_OK) {
+    _want = _avail / 1280;
+    if (_want < 0.85) { _want = 0.85; }
+    if (_want > 1.3) { _want = 1.3; }
+    _want = Math.round(_want * 100) / 100;
+  }
+  ok('ui-scale-follows-screen', Math.abs(_z - _want) < 0.001);
+  // 属性是不是真吃上了变量（光设 --z 不算，得看 zoom 的计算值）
+  var _zCss = String(getComputedStyle(document.documentElement).zoom || '');
+  ok('ui-scale-zoom-computed', !ZOOM_OK || Math.abs(parseFloat(_zCss) - _z) < 0.001);
+  // 量一个 100px 探针：它在两种 API 语义下分别约 100*z（zoom 计入 rect）或 100（rect 用未缩放
+  // CSS px），所以**只作对账 INFO**，不当断言——真正的「布局被放大」由实机截图证明。
+  var _sp = document.createElement('div');
+  _sp.style.cssText = 'position:absolute;left:-9999px;top:0;width:100px;height:10px';
+  msgsEl.appendChild(_sp);
+  var _spw = Math.round(_sp.getBoundingClientRect().width);
+  msgsEl.removeChild(_sp);
+  r.push('INFO ui-scale-probe100=' + _spw + ' cssZoom=' + _zCss + ' expect=' + Math.round(100 * _z));
   // 端到端只有真网可用时才有意义：无 Key 时直发白名单内的默认端点，
   // 服务端会回 401/400（HTTP 层成功返回、或业务报错都算「链路通」）——
   // 只有 scope/白名单拒绝才算链路断（那说明命令没走到网络层）。
@@ -2688,6 +2765,9 @@ waitForBridge().then(function () {
     if (w.classList.contains('show') && !w.contains(ev.target)) { hideWsMenu(); }
   });
   applyTheme();   // 桥就绪、存档读入后再定主题（auto 需 matchMedia）
+  applyUiScale(); // 整页等比缩放（#4）：按屏幕可用宽度定一档，字号与控件一起走
+  // 换显示器 / 系统缩放变化时重算：算的是 availWidth（稳定值），不会与自身互相喂形成反馈环
+  window.addEventListener('resize', applyUiScale);
   $('btnProvAdd').onclick = function () { openProvForm(-1); };
   $('btnProvDel').onclick = function () {
     if (editIdx >= 0 && editIdx < providers.length && providers.length > 1) {

@@ -356,6 +356,22 @@
   空回复不再无声）。页内自检 **66 PASS / 0 FAIL**（本轮新增 `mode-chat-hides-cjh` / `mode-chat-badge` /
   `mode-chat-tab-collapse` / `mode-frame-passthrough` / `mode-agent-shows-cjh` / `cjh-key-not-logged`），
   `scripts/check-static.sh` 全绿。
+- **开窗尺寸随屏幕自适应（宿主基元，不占能力位）**：`WindowConfig.autoSize =
+  Some(WindowAutoSize(pct, minW, minH, maxW, maxH))`（`src/window.cj`）→ 装配时 `cj_bridge_set_window_auto`
+  → C 桥 core 存策略，**百分比换算与上下限夹取只在 core 一份**（`cj_core_window_size`，两平台共用同一份数学），
+  平台在建窗线程读到工作区后定稿（Linux `gtk_window_set_default_size` / Windows `CreateWindowExW`）；
+  读不到工作区就**如实退回** `win_w` / `win_h` 并打一行 stderr——不猜、不硬开。实机两档（Xvfb 1280x800 /
+  1920x1080，隔离副本）：`window auto: 1024x640 (workarea 1280x800 @80%)`、`window auto: 1536x864
+  (workarea 1920x1080 @80%)`，与屏幕比例两次一致。桩自检 **224 项**（新增换算数学 10 项：夹取、极小工作区
+  兜底 320x240、策略未登记返回 0、工作区不可用返回 0、NULL 宿主安全）。
+- **`examples/ai-chat` 整页等比缩放（自适应的另一半：字号与控件一起跟着屏幕走）**：页面按 `screen.availWidth`
+  定一档 `--z`（`availWidth / 1280`，夹到 `[0.85, 1.3]`），`html { zoom: var(--z) }` 缩放布局本身，
+  `body` 的宽高用 `calc(100vh / var(--z))` **反向补偿**——`100vh` 是未缩放视口的高度，不补偿缩放后就溢出；
+  页面里其余视口单位（`86vw` / `70vw` / `92vw` / `86vh`）同口径补偿。判据是**先探测再补偿**：探测里真的量一个
+  100px 探针，`zoom` 不被支持时 `--z` 保持 1（代价是「不缩放」，而不是「布局塌一截」）。实机（1920x1080）：
+  `INFO ui-scale zoomOk=true availW=1920 z=1.3`、100px 探针量出 130px、`cssZoom=1.3`，页内自检 **70 PASS /
+  0 FAIL**；截图 `/tmp/cj-tauri-shots/scale-1920-root.png`（窗口 1536x864、字号放大、输入区仍贴窗口底部
+  = 视口补偿生效）。
 
 ### Changed
 

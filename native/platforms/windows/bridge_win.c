@@ -1379,8 +1379,29 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     p->thread_set = 1;
 
     /* lpParam = 宿主句柄：WM_NCCREATE 里存进窗口 USERDATA，之后 PostMessage 按窗口寻址即找到宿主 */
+    /* 自适应开窗：工作区（去掉任务栏）换算最终尺寸，拿不到就退回 win_w/win_h 并如实打一行。
+       与窗口可见性 / 拖放策略同一条「建窗时定稿」的路——此刻正站在宿主线程上。 */
+    int win_w;
+    int win_h;
+    win_w = h->win_w;
+    win_h = h->win_h;
+    if (h->win_auto_pct > 0) {
+        RECT wa;
+        if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0) &&
+            cj_core_window_size(h, (int)(wa.right - wa.left), (int)(wa.bottom - wa.top),
+                               &win_w, &win_h)) {
+            fprintf(stderr, "[cj-bridge] window auto: %dx%d (workarea %ldx%ld @%d%%)\n",
+                    win_w, win_h, (long)(wa.right - wa.left), (long)(wa.bottom - wa.top),
+                    h->win_auto_pct);
+        } else {
+            win_w = h->win_w;
+            win_h = h->win_h;
+            fprintf(stderr, "[cj-bridge] window auto: workarea unavailable, fallback %dx%d\n",
+                    win_w, win_h);
+        }
+    }
     p->hwnd = CreateWindowExW(0, WINDOW_CLASS, title_w ? title_w : L"cj-tauri", WS_OVERLAPPEDWINDOW,
-                              CW_USEDEFAULT, CW_USEDEFAULT, h->win_w, h->win_h,
+                              CW_USEDEFAULT, CW_USEDEFAULT, win_w, win_h,
                               NULL, NULL, wc.hInstance, h);
     if (!p->hwnd) {
         fprintf(stderr, "[cj-bridge] CreateWindowExW failed: %lu\n", GetLastError());

@@ -455,6 +455,34 @@ int main(void) {
     case_begin("set_window / set_icon / set_devtools");
     cj_bridge_set_window(h, "First", 800, 600);
     CHECK(h->win_w == 800 && h->win_h == 600, "尺寸生效");
+
+    /* --- 2b. 自适应开窗：百分比 → 上下限夹取 → 兜底（数学在 core，两平台共用一份）--- */
+    case_begin("set_window_auto / cj_core_window_size");
+    {
+        int aw = 0;
+        int ah = 0;
+        CHECK(cj_core_window_size(h, 1920, 1080, &aw, &ah) == 0,
+              "没登记策略时不算自适应（返回 0）");
+        cj_bridge_set_window_auto(h, 80, 900, 640, 1600, 1000);
+        CHECK(h->win_auto_pct == 80 && h->win_auto_min_w == 900 && h->win_auto_max_h == 1000,
+              "策略字段落到宿主上");
+        CHECK(cj_core_window_size(h, 1920, 1080, &aw, &ah) == 1 && aw == 1536 && ah == 864,
+              "1920x1080 工作区 @80% = 1536x864");
+        CHECK(cj_core_window_size(h, 3840, 2160, &aw, &ah) == 1 && aw == 1600 && ah == 1000,
+              "4K 被 max 夹到 1600x1000");
+        CHECK(cj_core_window_size(h, 1000, 700, &aw, &ah) == 1 && aw == 900 && ah == 640,
+              "小屏被 min 兜到 900x640");
+        CHECK(cj_core_window_size(h, 0, 0, &aw, &ah) == 0,
+              "工作区不可用返回 0（调用方退回 win_w/win_h）");
+        CHECK(cj_core_window_size(NULL, 1920, 1080, &aw, &ah) == 0, "NULL 宿主安全");
+        cj_bridge_set_window_auto(h, 80, 0, 0, 0, 0);
+        CHECK(cj_core_window_size(h, 300, 200, &aw, &ah) == 1 && aw == 320 && ah == 240,
+              "极小工作区兜到 320x240（不给没法用的窗口）");
+        cj_bridge_set_window_auto(h, 0, 0, 0, 0, 0);
+        CHECK(cj_core_window_size(h, 1920, 1080, &aw, &ah) == 0, "pct=0 关闭自适应");
+        cj_bridge_set_window_auto(NULL, 80, 0, 0, 0, 0);
+        CHECK(1, "对 NULL 宿主安全");
+    }
     CHECK(h->win_title && strcmp(h->win_title, "First") == 0, "标题是拷贝");
     cj_bridge_set_window(h, "Second", 0, -1);
     CHECK(h->win_title && strcmp(h->win_title, "Second") == 0, "标题替换（旧值已释放）");

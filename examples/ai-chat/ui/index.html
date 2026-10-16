@@ -54,6 +54,9 @@
             border-bottom:1px solid var(--line); background:var(--panel); flex:0 0 auto; }
   #convTitle { flex:1 1 auto; min-width:0; font-size:13px; font-weight:600;
                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #modelBadge { flex:0 0 auto; font-size:11px; color:var(--dim); border:1px solid var(--line);
+                border-radius:10px; padding:2px 10px; max-width:220px; white-space:nowrap;
+                overflow:hidden; text-overflow:ellipsis; }
   .tb-btn { padding:6px 12px; border-radius:8px; font-size:12.5px; }
   /* ---- 主栏 ---- */
   #main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column;
@@ -75,7 +78,19 @@
   @keyframes blink { 50% { opacity:0; } }
   .msg .body p { margin:6px 0; }
   .msg .body pre { background:#0c0e14; padding:12px 14px; border-radius:8px; overflow-x:auto;
-                   margin:10px 0; border:1px solid var(--line); }
+                   margin:10px 0; border:1px solid var(--line); position:relative; }
+  .code-copy { position:absolute; top:6px; right:8px; padding:2px 8px; border-radius:5px;
+               font-size:11px; background:#262c3b; color:var(--dim); border:1px solid var(--line);
+               cursor:pointer; opacity:0; transition:opacity .12s; }
+  pre:hover .code-copy { opacity:1; }
+  .code-copy:hover { color:var(--fg); }
+  .code-copy.copied { color:#7ee2a8; opacity:1; }
+  .msg-copy { padding:2px 8px; border-radius:5px; font-size:11px; background:transparent;
+              color:var(--dim); border:1px solid var(--line); cursor:pointer;
+              opacity:0; transition:opacity .12s; }
+  .msg:hover .msg-copy { opacity:1; }
+  .msg-copy:hover { color:var(--fg); }
+  .msg-copy.copied { color:#7ee2a8; opacity:1; }
   .msg .body pre code { color:#d6dbe6; }
   /* 语法高亮四色：关键字紫 / 字符串橙 / 注释绿灰 / 数字青 */
   .msg .body pre .k { color:#c792ea; }
@@ -119,6 +134,21 @@
            border-radius:8px; padding:9px 12px; font:inherit; transition:border-color .15s; }
   .row input:focus { outline:none; border-color:var(--acc); }
   .hint { font-size:12px; color:var(--dim); margin:10px 0; }
+  /* ---- 服务商管理 ---- */
+  .prov { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px;
+          border:1px solid var(--line); margin-bottom:6px; cursor:pointer; transition:border-color .12s; }
+  .prov:hover { border-color:var(--dim); }
+  .prov.active { border-color:var(--acc); background:rgba(108,140,255,.08); }
+  .prov-main { flex:1 1 auto; min-width:0; font-size:13px; }
+  .prov-sub { font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden;
+              text-overflow:ellipsis; margin-top:2px; }
+  .badge { display:inline-block; margin-left:8px; padding:0 6px; border-radius:4px;
+           font-size:10px; background:var(--acc); color:#fff; vertical-align:1px; }
+  .prov-acts { flex:0 0 auto; display:flex; gap:6px; }
+  .presets { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+  .preset { padding:4px 10px; border-radius:14px; font-size:12px; border:1px solid var(--line);
+            background:var(--panel2); color:var(--dim); cursor:pointer; }
+  .preset:hover { color:var(--fg); border-color:var(--acc); }
 </style>
 </head>
 <body>
@@ -134,6 +164,7 @@
   <div id="main">
     <div id="topbar">
       <div id="convTitle"></div>
+      <span id="modelBadge" title="当前服务商 · 模型"></span>
       <button id="btnTheme" class="ghost tb-btn" title="切换主题：跟随系统 / 亮 / 暗">主题: 系统</button>
     </div>
     <div id="msgs"></div>
@@ -146,16 +177,26 @@
   </div>
   <div id="mask">
     <div id="cfg">
-      <h2>服务商设置</h2>
-      <div class="hint">API Key 只存在本机（store 插件，应用数据目录），出网主机受能力清单白名单约束。</div>
-      <div class="row"><label>Base URL（须在白名单内）</label>
-        <input id="fBase" placeholder="https://api.deepseek.com/v1/chat/completions"></div>
-      <div class="row"><label>API Key</label><input id="fKey" type="password"></div>
-      <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
-      <div class="row"><label>system 提示词（可选）</label><input id="fSys"></div>
-      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-        <button id="btnCfgCancel" class="ghost">取消</button>
-        <button id="btnCfgSave">保存</button>
+      <h2>服务商管理</h2>
+      <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
+        出网受能力清单白名单约束——预置服务商已在白名单内，其他端点会被 scope 拒绝。</div>
+      <div id="provList"></div>
+      <div class="presets" id="presetRow"></div>
+      <div style="display:flex;gap:8px;margin:10px 0">
+        <button id="btnProvAdd" class="ghost" style="flex:0 0 auto">+ 添加自定义服务商</button>
+      </div>
+      <div id="provForm" style="display:none;border-top:1px solid var(--line);padding-top:12px">
+        <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
+        <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
+          <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
+        <div class="row"><label>API Key</label><input id="fKey" type="password"></div>
+        <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
+        <div class="row"><label>system 提示词（可选，全局生效）</label><input id="fSys"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">
+          <button id="btnProvDel" class="ghost">删除此服务商</button>
+          <button id="btnCfgCancel" class="ghost">取消</button>
+          <button id="btnCfgSave">保存</button>
+        </div>
       </div>
     </div>
   </div>
@@ -174,6 +215,38 @@ function waitForBridge() {
       if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { clearInterval(t); resolve(); }
     }, 50);
   });
+}
+
+/* ---- 复制：系统剪贴板（clipboard:write），成功后按钮短暂变「已复制」----
+ * 代码块每个都带复制钮（类名上标 data-ci 指向 blocks 数组下标，渲染后统一绑事件）；
+ * 消息级复制走 hover 浮出的「复制」小钮（存原文，复制的是 Markdown 源而不是渲染后 HTML） */
+var copySeq = 0;
+function copyText(text, btn) {
+  var done = function (ok) {
+    if (!btn) { return; }
+    var old = btn.textContent;
+    btn.textContent = ok ? '已复制' : '复制失败';
+    btn.classList.add('copied');
+    var seq = ++copySeq;
+    setTimeout(function () {
+      if (seq === copySeq) { btn.textContent = old; btn.classList.remove('copied'); }
+    }, 1200);
+  };
+  try {
+    window.__CJ_TAURI__.invoke('clipboard:write', { text: text }).then(function () { done(true); },
+      function () { done(false); });
+  } catch (e) { done(false); }
+}
+
+function bindCopyButtons(root) {
+  var btns = root.querySelectorAll('.code-copy');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].onclick = function () {
+      var ci = +this.getAttribute('data-ci');
+      var txt = this.getAttribute('data-raw') || '';
+      copyText(txt, this);
+    };
+  }
 }
 
 /* ---- 极简 Markdown 渲染：先转义 HTML，再放行受控标记 ----
@@ -209,8 +282,12 @@ function renderMd(src) {
     } catch (e) {
       html = escHtml(body);   // 未知语言/库缺失：退化为纯转义，不能整条失败
     }
-    blocks.push('<pre><code class="hljs">' + html + '</code></pre>');
-    return '\u0000B' + (blocks.length - 1) + '\u0000';
+    var idx = blocks.length;
+    blocks.push('<pre><code class="hljs">' + html + '</code>' +
+      // 复制按钮的原文进 data-raw（转义引号防属性逃逸）——复制的是源码，不是高亮 HTML
+      '<button class="code-copy" data-ci="' + idx + '" data-raw="' +
+      body.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') + '">复制</button></pre>');
+    return '\u0000B' + idx + '\u0000';
   });
   text = escHtml(text);
   text = text.replace(/`([^`\n]+)`/g, function (m, c) { return '<code>' + c + '</code>'; });
@@ -252,8 +329,29 @@ if (sysDark && sysDark.addEventListener) {
   sysDark.addEventListener('change', function () { if (themeMode === 'auto') { applyTheme(); } });
 }
 
-/* ---- 状态 ---- */
-var cfg = { base: 'https://api.deepseek.com/chat/completions', key: '', model: 'deepseek-chat', sys: '' };
+/* ---- 服务商管理（AQBot 式）：主流预设 + 自定义，多服务商并存、一键切换 ----
+ * 预设只填 base/model，Key 仍由用户填（预设 ≠ 放行：出网白名单在 capabilities 的
+ * scopes.http 里，新增服务商如果白名单没覆盖，发消息会明确报 scope 拒绝）。
+ * 旧存档是单份 cfg——读档时迁移成 providers[0]，不丢数据。 */
+var PROVIDER_PRESETS = [
+  { name: 'DeepSeek',  baseUrl: 'https://api.deepseek.com/chat/completions',       model: 'deepseek-chat' },
+  { name: 'OpenAI',    baseUrl: 'https://api.openai.com/v1/chat/completions',      model: 'gpt-4o-mini' },
+  { name: 'GLM 智谱',  baseUrl: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', model: 'glm-4-flash' },
+  { name: '通义千问',   baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model: 'qwen-plus' },
+  { name: 'Kimi 月之暗面', baseUrl: 'https://api.moonshot.cn/v1/chat/completions',  model: 'moonshot-v1-8k' },
+  { name: '自定义',     baseUrl: '',                                               model: '' }
+];
+
+var providers = [];          // [{name, baseUrl, apiKey, model}]
+var activeIdx = 0;
+// 兼容层：其余代码仍读 cfg.base/cfg.key/cfg.model（getter 指到当前服务商）
+var cfg = {
+  get base() { return (providers[activeIdx] || {}).baseUrl || ''; },
+  get key() { return (providers[activeIdx] || {}).apiKey || ''; },
+  get model() { return (providers[activeIdx] || {}).model || ''; }
+};
+function activeProvider() { return providers[activeIdx] || null; }
+var sysPrompt = '';        // system 提示词（全局，不属于某个服务商）
 var convs = [];            // [{id,title,messages:[{role,content}]}]
 var curId = null;
 var streaming = false;
@@ -263,7 +361,7 @@ var $ = function (id) { return document.getElementById(id); };
 var msgsEl = $('msgs');
 
 function saveState() {
-  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ cfg: cfg, convs: convs, curId: curId, theme: themeMode }) })
+  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode }) })
     .catch(function () {});
 }
 function loadState() {
@@ -271,7 +369,16 @@ function loadState() {
     if (!v) { return; }
     try {
       var s = JSON.parse(v);
-      if (s.cfg) { cfg = s.cfg; }
+      if (Array.isArray(s.providers) && s.providers.length > 0) {
+        providers = s.providers;
+        activeIdx = (typeof s.activeIdx === 'number' && s.activeIdx < s.providers.length) ? s.activeIdx : 0;
+      } else if (s.cfg && (s.cfg.base || s.cfg.key)) {
+        // 旧存档迁移：单份 cfg → providers[0]，不丢 Key
+        providers = [{ name: '默认', baseUrl: s.cfg.base || '', apiKey: s.cfg.key || '', model: s.cfg.model || '' }];
+        activeIdx = 0;
+      }
+      if (typeof s.sysPrompt === 'string') { sysPrompt = s.sysPrompt; }
+      else if (s.cfg && typeof s.cfg.sys === 'string') { sysPrompt = s.cfg.sys; }
       if (Array.isArray(s.convs)) { convs = s.convs; }
       curId = s.curId || (convs[0] && convs[0].id) || null;
       if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'auto') { themeMode = s.theme; }
@@ -286,9 +393,11 @@ function loadState() {
 function renderConvs() {
   var el = $('convList');
   el.innerHTML = '';
-  // 顶栏标题跟随当前会话
+  // 顶栏标题跟随当前会话；模型徽章跟随当前服务商
   var c0 = cur();
   $('convTitle').textContent = c0 ? (c0.title || '新会话') : '';
+  var ap = activeProvider();
+  $('modelBadge').textContent = ap ? ((ap.name || '自定义') + ' · ' + (ap.model || '未配置')) : '未配置服务商';
   convs.forEach(function (c) {
     var d = document.createElement('div');
     d.className = 'conv' + (c.id === curId ? ' active' : '');
@@ -346,13 +455,58 @@ function appendMsgEl(role, content, streamingNow) {
   var who = document.createElement('div');
   who.className = 'who';
   who.textContent = role === 'user' ? '你' : '助手';
+  // 消息操作行：复制（Markdown 源）+ 助手消息的重新生成/删除（AQBot 式细节）
+  var cp = document.createElement('button');
+  cp.className = 'msg-copy';
+  cp.textContent = '复制';
+  cp.setAttribute('data-raw', content);
+  cp.onclick = function () { copyText(this.getAttribute('data-raw') || '', this); };
+  who.appendChild(cp);
+  if (role === 'assistant' && !streamingNow) {
+    var rg = document.createElement('button');
+    rg.className = 'msg-copy';
+    rg.textContent = '重新生成';
+    rg.onclick = function () { regenerate(this); };
+    who.appendChild(rg);
+    var del = document.createElement('button');
+    del.className = 'msg-copy';
+    del.textContent = '删除';
+    del.onclick = function () {
+      var c = cur();
+      if (!c || streaming) { return; }
+      // 按内容从后往前找（this._msg 那种新建对象 indexOf 永远不命中）
+      var idx = -1;
+      for (var j = c.messages.length - 1; j >= 0; j--) {
+        if (c.messages[j].role === 'assistant' && c.messages[j].content === content) { idx = j; break; }
+      }
+      if (idx >= 0) { c.messages.splice(idx, 1); renderMsgs(); saveState(); }
+    };
+    who.appendChild(del);
+  }
   var body = document.createElement('div');
   body.className = 'body';
   setBody(body, content, streamingNow && role === 'assistant');
   d.appendChild(who); d.appendChild(body);
   msgsEl.appendChild(d);
+  bindCopyButtons(d);
   msgsEl.scrollTop = msgsEl.scrollHeight;
   return body;
+}
+
+/* 重新生成：去掉最后一条助手回复，把同一轮用户消息再发一遍（零新命令，纯前端流程） */
+function regenerate(btn) {
+  var c = cur();
+  if (!c || streaming) { return; }
+  var last = c.messages[c.messages.length - 1];
+  if (!last || last.role !== 'assistant') { return; }
+  var userText = '';
+  for (var i = c.messages.length - 2; i >= 0; i--) {
+    if (c.messages[i].role === 'user') { userText = c.messages[i].content; break; }
+  }
+  if (!userText) { return; }
+  c.messages.pop();          // 丢掉旧回复
+  renderMsgs();
+  send(userText, true);      // 走同一发送管道；用户消息已在历史，不重复入库
 }
 function setBody(el, content, isStreaming) {
   if (isStreaming) {
@@ -366,22 +520,25 @@ function setBody(el, content, isStreaming) {
 /* ---- 发送与流式接收 ---- */
 function buildMessages(userText) {
   var ms = [];
-  if (cfg.sys) { ms.push({ role: 'system', content: cfg.sys }); }
+  if (sysPrompt) { ms.push({ role: 'system', content: sysPrompt }); }
   var c = cur();
   c.messages.forEach(function (m) { ms.push({ role: m.role, content: m.content }); });
   ms.push({ role: 'user', content: userText });
   return ms;
 }
 
-function send() {
+/* send(text?)：text 缺省取输入框；skipPush（重新生成）时用户消息已在历史里，不再入库 */
+function send(text, skipPush) {
   var input = $('input');
-  var text = input.value.trim();
+  if (text === undefined) { text = input.value.trim(); }
   if (!text || streaming) { return; }
   if (!cfg.key) { openCfg(); return; }
   var c = cur();
   if (!c) { newConv(); c = cur(); }
   if (c.messages.length === 0) { c.title = text.slice(0, 18); renderConvs(); }
-  c.messages.push({ role: 'user', content: text });
+  if (!skipPush) {
+    c.messages.push({ role: 'user', content: text });
+  }
   appendMsgEl('user', text);
   input.value = '';
   var body = appendMsgEl('assistant', '');
@@ -489,26 +646,120 @@ function setStreamingUi(on) {
   $('typing').style.display = on ? '' : 'none';
 }
 
-/* ---- 设置弹层 ---- */
+/* ---- 设置弹层：服务商管理 ---- */
+var editIdx = -1;   // 正在编辑的服务商下标；-1 = 新增
+
+function renderProvList() {
+  var el = $('provList');
+  el.innerHTML = '';
+  providers.forEach(function (p, i) {
+    var d = document.createElement('div');
+    d.className = 'prov' + (i === activeIdx ? ' active' : '');
+    var main = document.createElement('div');
+    main.className = 'prov-main';
+    main.innerHTML = '<b>' + escHtml(p.name || '未命名') + '</b>' +
+      (i === activeIdx ? '<span class="badge">当前</span>' : '') +
+      '<div class="prov-sub">' + escHtml(p.model || '未配置模型') + ' · ' +
+      escHtml(p.baseUrl || '未配置端点') + '</div>';
+    d.appendChild(main);
+    // 卡片右侧动作：使用（切当前）/ 编辑；Key 缺失给个警示点
+    var acts = document.createElement('div');
+    acts.className = 'prov-acts';
+    if (i !== activeIdx) {
+      var use = document.createElement('button');
+      use.className = 'ghost tb-btn';
+      use.textContent = '使用';
+      use.onclick = function (ev) { ev.stopPropagation(); activeIdx = i; renderProvList(); saveState(); };
+      acts.appendChild(use);
+    }
+    var edit = document.createElement('button');
+    edit.className = 'ghost tb-btn';
+    edit.textContent = '编辑';
+    edit.onclick = function (ev) { ev.stopPropagation(); openProvForm(i); };
+    acts.appendChild(edit);
+    d.appendChild(acts);
+    d.onclick = function () { openProvForm(i); };
+    el.appendChild(d);
+  });
+}
+
+function openProvForm(i) {
+  editIdx = i;
+  var p = providers[i] || { name: '', baseUrl: '', apiKey: '', model: '' };
+  $('fName').value = p.name; $('fBase').value = p.baseUrl;
+  $('fKey').value = p.apiKey; $('fModel').value = p.model;
+  $('fSys').value = sysPrompt;
+  $('btnProvDel').style.display = (i >= 0 && providers.length > 1) ? '' : 'none';
+  $('provForm').style.display = '';
+}
+
+function presetByName(name) {
+  for (var i = 0; i < PROVIDER_PRESETS.length; i++) {
+    if (PROVIDER_PRESETS[i].name === name) { return PROVIDER_PRESETS[i]; }
+  }
+  return null;
+}
+
+function saveProv() {
+  var p = {
+    name: $('fName').value.trim() || '自定义',
+    baseUrl: $('fBase').value.trim(),
+    apiKey: $('fKey').value.trim(),
+    model: $('fModel').value.trim()
+  };
+  sysPrompt = $('fSys').value;
+  if (!p.baseUrl) { $('fBase').focus(); return; }
+  // 预设里只改了 Key/模型时，把预设默认值带进来（名称匹配主流服务商就补端点）
+  var preset = presetByName(p.name);
+  if (preset && preset.baseUrl && !p.baseUrl) { p.baseUrl = preset.baseUrl; }
+  if (preset && preset.model && !p.model) { p.model = preset.model; }
+  if (editIdx >= 0 && editIdx < providers.length) {
+    providers[editIdx] = p;
+  } else {
+    providers.push(p);
+    activeIdx = providers.length - 1;
+  }
+  closeCfg(); renderProvList(); renderConvs(); saveState();
+}
+
 function openCfg() {
-  $('fBase').value = cfg.base; $('fKey').value = cfg.key;
-  $('fModel').value = cfg.model; $('fSys').value = cfg.sys;
+  renderProvList();
+  // 预设行：点了直接开一张预填好的新表单（Key 留空给用户）
+  var pr = $('presetRow');
+  pr.innerHTML = '';
+  PROVIDER_PRESETS.forEach(function (ps) {
+    var b = document.createElement('button');
+    b.className = 'preset';
+    b.textContent = ps.name;
+    b.onclick = function () {
+      providers.push({ name: ps.name, baseUrl: ps.baseUrl, apiKey: '', model: ps.model });
+      openProvForm(providers.length - 1);
+      renderProvList();
+    };
+    pr.appendChild(b);
+  });
+  if (providers.length > 0) { openProvForm(activeIdx); } else { $('provForm').style.display = 'none'; }
   $('mask').className = 'show';
 }
-function closeCfg() { $('mask').className = ''; }
-function saveCfg() {
-  cfg.base = $('fBase').value.trim() || cfg.base;
-  cfg.key = $('fKey').value.trim();
-  cfg.model = $('fModel').value.trim() || cfg.model;
-  cfg.sys = $('fSys').value;
-  closeCfg(); saveState();
-}
+function closeCfg() { $('mask').className = ''; $('provForm').style.display = 'none'; editIdx = -1; }
 
 /* ---- 自检探针（CJ_AICHAT_SELFCHECK=1 时无人值守跑一轮） ---- */
 function selfcheck() {
   var r = [];
   var ok = function (name, cond) { r.push((cond ? 'PASS ' : 'FAIL ') + name); };
   ok('bridge', !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke));
+  // 服务商管理：预设表齐、多服务商并存切换、列表渲染（**断言完恢复现场**——
+  // 不然后面的 http-reach-server 拿着假 URL 发请求，必红：实测踩过）
+  ok('prov-presets', PROVIDER_PRESETS.length >= 6 && !!presetByName('DeepSeek'));
+  var _sp = providers, _si = activeIdx;
+  providers = [{ name: 'A', baseUrl: 'u1', apiKey: 'k1', model: 'm1' }, { name: 'B', baseUrl: 'u2', apiKey: '', model: 'm2' }];
+  activeIdx = 1;
+  ok('prov-switch', cfg.base === 'u2' && activeProvider().name === 'B');
+  renderProvList();
+  // 列表真渲染出来了：两张卡片、当前那张带「当前」徽章
+  ok('prov-render', $('provList').querySelectorAll('.prov').length === 2 &&
+     $('provList').querySelector('.prov.active .badge') !== null);
+  providers = _sp; activeIdx = _si; renderProvList();
   // 主题三态：applyTheme 后 body 类名与按钮文案必须一致（亮/暗/跟随系统）
   themeMode = 'light'; applyTheme();
   ok('theme-light', document.body.className === 'light' && $('btnTheme').textContent.indexOf('亮') !== -1);
@@ -578,8 +829,16 @@ waitForBridge().then(function () {
   $('btnCfg').onclick = openCfg;
   $('btnTheme').onclick = cycleTheme;
   applyTheme();   // 桥就绪、存档读入后再定主题（auto 需 matchMedia）
+  $('btnProvAdd').onclick = function () { openProvForm(-1); };
+  $('btnProvDel').onclick = function () {
+    if (editIdx >= 0 && editIdx < providers.length && providers.length > 1) {
+      providers.splice(editIdx, 1);
+      if (activeIdx >= providers.length) { activeIdx = providers.length - 1; }
+      closeCfg(); renderProvList(); saveState();
+    }
+  };
   $('btnCfgCancel').onclick = closeCfg;
-  $('btnCfgSave').onclick = function () { saveCfg(); };
+  $('btnCfgSave').onclick = saveProv;
   $('btnSend').onclick = send;
   $('btnStop').onclick = stopStream;
   $('input').addEventListener('keydown', function (ev) {

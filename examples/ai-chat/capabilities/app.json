@@ -11,6 +11,7 @@
     "store:keys",
     "log:write",
     "log:path",
+    "clipboard:write",
     "quit",
     "system:version",
     "system:host"

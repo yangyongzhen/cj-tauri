@@ -436,6 +436,20 @@
   - **修链接失败**：SQLite 插件并入框架静态库后，示例 `cjpm.toml` 的 Linux `link-option` 必须带
     `-lsqlite3`（与 sqlite-browser 同款），否则 `undefined reference to sqlite3_column_bytes`。
 
+### Fixed
+
+- **修：`examples/ai-chat` 的 Enter 提交不挡输入法合成态（装了输入法就会「选词即发送 / 选词即改名」）**：
+  聊天输入框、会话行内改名框、工作区路径框三处都是「按 Enter 提交」，而中文输入法**选词 / 确认候选
+  用的也是 Enter**（此时 `isComposing` 为真，老 WebKit/Safari 走 `keyCode 229`）——不挡的话，中文用户
+  按下第一个候选词，半句话就被当消息发出去、半句就被当新会话名提交了；连带把文档级快捷键
+  （Ctrl+K / Ctrl+B / Ctrl+Shift+N）也一并挡掉合成态（那些键在合成期归输入法）。
+  **这条路径在没装输入法的机器上永远走不到**，所以自检全绿也发现不了：本机取证的 Xvfb 里根本没有
+  输入法通路（`fcitx` / `ibus` 均未安装、X 无 XIM 服务、应用进程无 `XMODIFIERS` / `GTK_IM_MODULE`），
+  直接注入字符能正常进输入框（另经 `xclip` + `Ctrl+V` 走剪贴板粘贴亦已验证中文可进输入框），
+  但「合成态 + Enter」这个组合从没被真实触发过——属「自检全绿 ≠ 这条路径没问题」。
+  页面自检 35/35 → **36/36**（新增 `ime-enter-guard`：合成 `KeyboardEvent` 打给 `#input`，
+  断言既不发送、也不被 `preventDefault`、输入框内容原样保留）。
+
 ### Added
 
 - **官网落地页（`website/`）**：单页深色站点，**中英双语**（中文即页面正文，英文放 `data-en*` 属性上，由

@@ -293,6 +293,12 @@
   启动时看到的却是 `拒绝访问。`（cmd）或 `No such file or directory`（bash，exit 127），极容易误判成权限 / 杀软问题。
   修法：`rm -f target/release/incremental-cache.json target/release/bin/*.cjo` 再 `cjpm build`。
   **判据看产物**（`ls -l target/release/bin/`），别只看 cjpm 的退出码与那行 success。
+- **链接期 `undefined reference to cjTauri.plugins.<插件>` 先 `cjpm clean`，别急着补 `-l`**（2026-10-16 实测，
+  `examples/ai-chat` 接 dialog 插件）：应用**新 import 一个插件**后，增量缓存里留着的**旧链接列表**不会带上
+  新的插件库，报的是 `undefined reference to cjTauri.plugins.dialog:DialogPlugin.ti`——看着像「`cjpm.toml`
+  少补一条 `-l`」。同一条构建 `cjpm clean` 之后即链上、`cjpm.toml` **一行都不用改**（`cjpm clean` 一律安全：
+  `libcjtbridge.so` 在 `native/` 根、不在 `target/` 里，不受影响）。判据是「clean 后仍失败才算真缺」——
+  否则会照着别的示例（`ai-chat` 为 fs 插件补过的那行）抄一条**可能并不需要**的链接选项，把真因掩盖掉。
 - 换行符：`.sh` 必须 LF（否则 shebang 失效），`.bat` CRLF；以 `.gitattributes` 为准。
 - **Windows 串口的读预算要「按每次调用」下发给驱动，否则 `timeoutMs` 形同虚设**（2026-10-16 实测，
   `native/platforms/windows/bridge_win.c`）：`SetCommTimeouts` 的 `ReadIntervalTimeout=MAXDWORD` +

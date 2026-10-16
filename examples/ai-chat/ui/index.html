@@ -141,8 +141,12 @@
           background:var(--bg); position:relative; }
   body:not(.light) #main { background:radial-gradient(1200px 500px at 70% -10%, #1a2033 0%, var(--bg) 60%); }
   #msgs { flex:1 1 auto; overflow-y:auto; padding:24px 3.5vw; }
-  /* 宽度跟随窗口：min(1080px, 94%)——最大化不再留大片空白，窄窗下留边距不贴边 */
-  .msg { margin-bottom:18px; max-width:min(1080px, 94%); }
+  /* 消息列宽度跟随窗口，但封顶 min(1080px, 94%)（一行约 90 汉字，再宽回行容易串行）。
+     必须配 margin-inline:auto **居中**：只限宽不居中时余量会全堆在右边——1920 宽窗里可用宽
+     1538px（扣掉 248px 侧栏与两侧 3.5vw 边距）只占 1080px，右边空出 458px，看着像「页面没
+     跟着铺开」（2026-10-16 用户实机反馈；同参抓图改前右侧 216px / 改后左右各 ~109px 已留证）。
+     窄窗下 max-width 退成 94%，两侧各留 3%，不贴边。 */
+  .msg { margin-bottom:18px; margin-inline:auto; max-width:min(1080px, 94%); }
   .msg .who { font-size:11px; letter-spacing:.08em; color:var(--dim); margin-bottom:5px;
               text-transform:uppercase; }
   .msg.assistant .who { color:var(--acc); }

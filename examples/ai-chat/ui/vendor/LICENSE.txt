@@ -1,0 +1,14 @@
+Vendored third-party assets for the markdown-notes example (ui/vendor/):
+
+- marked v12.0.2 (marked.min.js) -- Markdown parser
+  Copyright (c) 2011-2024, Christopher Jeffrey. MIT License
+  https://marked.js.org/ (taken from the marked@12.0.2 UMD build)
+
+- Highlight.js v11.9.0 (highlight.min.js, github-dark-dimmed.min.css,
+  github-dark.min.css, atom-one-dark.min.css)
+  Copyright (c) 2006-2023, Ivan Sagalaev. BSD-3-Clause License
+  https://highlightjs.org/ (taken from @highlightjs/cdn-assets@11.9.0)
+
+Both are redistributed unmodified; their upstream license headers are kept
+at the top of each file. Local vendoring only -- the app loads them from
+disk, no CDN at runtime.

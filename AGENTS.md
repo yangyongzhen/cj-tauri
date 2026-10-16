@@ -596,7 +596,10 @@
   35 479 字节、`highlight.min.js` 121 727 字节，hljs 主题样式三份 `github-dark-dimmed.min.css` 1 251 字节、
   `github-dark.min.css` 1 315 字节、`atom-one-dark.min.css` 856 字节，均取自 jsDelivr 的
   UMD/CDN 构建、原样分发；许可证随文件放在 `ui/vendor/LICENSE.txt`——marked 为 MIT、
-  Highlight.js 为 BSD-3-Clause，markdown-notes 预览渲染、代码高亮与主题切换用）、
+  Highlight.js 为 BSD-3-Clause，markdown-notes 预览渲染、代码高亮与主题切换用；
+  **ai-chat 复用同一份 hljs**：`examples/ai-chat/ui/vendor/` 下的 `highlight.min.js` 与
+  `github-dark.min.css` 是 markdown-notes 那份的逐字节拷贝，许可证同一份 `LICENSE.txt`——
+  更新时两处一起换）、
   **CodeMirror 5.65.16**（`examples/leetcode-gui/ui/vendor/` 下的 `codemirror.min.js` 173 953 字节
   与 `codemirror.min.css` 6 378 字节，取自 jsDelivr 的 `codemirror@5.65.16` CDN 构建，尾部的
   sourceMappingURL 行已删——内联后指向不存在的 map 文件；许可证随文件放在

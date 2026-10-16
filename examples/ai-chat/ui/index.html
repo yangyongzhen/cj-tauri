@@ -792,7 +792,10 @@ function renderWsMenu() {
   inp.id = 'wsNewPath';
   inp.placeholder = '绝对路径，如 /root/test/cj/cj-tauri';
   inp.onclick = function (ev) { ev.stopPropagation(); };
-  inp.onkeydown = function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addWorkspace(inp.value); } };
+  inp.onkeydown = function (ev) {
+    if (ev.isComposing || ev.keyCode === 229) { return; }   // 合成态下 Enter 是选词（同 #input 的守卫）
+    if (ev.key === 'Enter') { ev.preventDefault(); addWorkspace(inp.value); }
+  };
   var add = document.createElement('button');
   add.className = 'ghost';
   add.textContent = '添加';
@@ -1239,6 +1242,9 @@ function renderConvs() {
       inp.value = c.title || '';
       inp.onclick = function (ev) { ev.stopPropagation(); };
       inp.onkeydown = function (ev) {
+        // 合成态下 Enter 是「选词」——不挡的话，中文改名时选一次候选就把半句当新名字提交了
+        // （同 #input 那条守卫，见文件末尾 Enter 发送处的说明）
+        if (ev.isComposing || ev.keyCode === 229) { return; }
         if (ev.key === 'Enter') { commitRename(c.id, inp.value); }
         else if (ev.key === 'Escape') { renamingId = null; renderConvs(); }
       };
@@ -1790,6 +1796,17 @@ function selfcheck() {
   var r = [];
   var ok = function (name, cond) { r.push((cond ? 'PASS ' : 'FAIL ') + name); };
   ok('bridge', !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke));
+  // 中文输入：Enter 落在输入法合成态时必须「不发送」——没装 IME 的机器上这条永远绿，一旦装了输入法
+  // 没有守卫就表现为「选词即把半句发出去」。合成态用 isComposing 合成事件模拟（真 IME 走同一判定）。
+  var imeInput = $('input');
+  var imeKept = imeInput.value;
+  imeInput.value = '组合输入测试';
+  var imeEv = new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true });
+  var imeThrew = false;
+  try { imeInput.dispatchEvent(imeEv); } catch (e) { imeThrew = true; }
+  ok('ime-enter-guard', !imeThrew && !imeEv.defaultPrevented && imeInput.value === '组合输入测试');
+  imeInput.value = imeKept;
+  autoGrowInput();
   // 服务商管理：预设表齐、多服务商并存切换、列表渲染（**断言完恢复现场**——
   // 不然后面的 http-reach-server 拿着假 URL 发请求，必红：实测踩过）
   ok('prov-presets', PROVIDER_PRESETS.length >= 6 && !!presetByName('DeepSeek'));
@@ -2128,6 +2145,8 @@ waitForBridge().then(function () {
   // 快捷键（只在带修饰键时接管，不抢普通输入）：Ctrl/Cmd+K 搜会话（顺带切到会话 Tab）、
   // Ctrl/Cmd+B 收侧栏、Ctrl/Cmd+Shift+N 新会话。"key" 在小写化后比较，兼容大写输入态。
   document.addEventListener('keydown', function (ev) {
+    // 合成态下这些键归输入法（Ctrl+K/B/N 不算快捷键）——与 #input 的 Enter 同一条守卫
+    if (ev.isComposing || ev.keyCode === 229) { return; }
     if (!(ev.ctrlKey || ev.metaKey)) { return; }
     var k = (ev.key || '').toLowerCase();
     if (k === 'k') {
@@ -2185,7 +2204,11 @@ waitForBridge().then(function () {
   $('btnSend').onclick = send;
   // 停止统一走 stopStream：它自己按管道分流（cjh 发 abort 帧 / 直连走收手钩子）
   $('btnStop').onclick = stopStream;
+  // Enter 发送必须先挡输入法合成态：选词/确认候选也用 Enter（isComposing=true，Safari 走 keyCode 229），
+  // 不挡就会把半句中文当消息发出去。没装输入法的机器上这条永远不会触发（实测：本机取证的 Xvfb 无 IME，
+  // 直接注入字符能进输入框，但合成态路径根本没被走到）。
   $('input').addEventListener('keydown', function (ev) {
+    if (ev.isComposing || ev.keyCode === 229) { return; }
     if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
   });
   loadState().then(function () {

@@ -167,9 +167,17 @@ public class HttpCommands <: CommandHandler {
                     ipc.emit("http:chunk", this.chunkPayload(status, ctype, delta, total, false, false))
                 }
             }
-            // 收尾：流被掐断时 pending 里可能还有不完整序列——按原样解出来（丢字节比丢整段诚实）
+            // 收尾：流在汉字中间被掐断时，pending 里剩下的是补不齐的不完整序列（最多 3 字节）。
+            // 这里**不能**直接 fromUtf8：它对非法序列抛 IllegalArgumentException，一抛就把整条
+            // 流式命令 reject 掉——页面显示「请求失败」，而正文其实早就收完了。丢这几个字节更诚实，
+            // 但要把丢弃这件事留一行 stderr（别让失败无声）。
             if (pending.size > 0) {
-                let tail = String.fromUtf8(pending.toArray())
+                var tail = ""
+                try {
+                    tail = String.fromUtf8(pending.toArray())
+                } catch (e: Exception) {
+                    eprintln("[cj-tauri] http:postStream 尾部 ${pending.size} 字节不是合法 UTF-8（流被掐断），已丢弃")
+                }
                 ipc.emit("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
             } else {
                 ipc.emit("http:chunk", this.chunkPayload(status, ctype, "", total, true, truncated))
@@ -186,8 +194,12 @@ public class HttpCommands <: CommandHandler {
         return obj
     }
 
-    /** 从 pending 里取走「完整的 UTF-8 序列」并转文本；不完整的尾巴留在原地 */
-    private func takeCompleteUtf8(pending: ArrayList<Byte>): String {
+    /**
+     * 从 pending 里取走「完整的 UTF-8 序列」并转文本；不完整的尾巴留在原地。
+     * `public` 是为了让单测可见（`cjTauri.tests` 是子包，跨包只认 public）：
+     * 这是「少移 1 字节」那类坑的唯一判据点，用例在 `src/tests/plugin_http_test.cj`。
+     */
+    public func takeCompleteUtf8(pending: ArrayList<Byte>): String {
         if (pending.size == 0) {
             return ""
         }
@@ -230,8 +242,13 @@ public class HttpCommands <: CommandHandler {
             return ""
         }
         let out = String.fromUtf8(pending.toArray()[0..cut])
-        // 移除已发走的部分（ArrayList.remove 收 Range，AGENTS 备忘）
-        pending.remove(0..(cut - 1))
+        // 移除已发走的部分（ArrayList.remove 收 Range）。Range 在本机工具链上是**右开**的
+        // （实测：a[0..3] 取 3 个、remove(0..2) 移 2 个），所以这里必须写 0..cut。
+        // 写成 0..(cut-1) 会少移 1 字节：上一个序列的末字节留在 pending 里，下一轮拼出来的
+        // 字节序列非法，fromUtf8 当场抛 IllegalArgumentException，整条流式命令变成
+        // 「请求失败」（2026-10-16 实机：command failed (http:postStream): Invalid utf8 byte sequence.
+        // 且中文长回复才偶发——ASCII 结尾的块少移那个字节仍是合法 UTF-8，所以以前看不太出来）。
+        pending.remove(0..cut)
         return out
     }
 

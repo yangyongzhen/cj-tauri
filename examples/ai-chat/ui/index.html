@@ -361,6 +361,26 @@
                        font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
                        white-space:pre-wrap; word-break:break-word; max-height:240px; overflow:auto; }
   .toolchip.open .tresult { display:block; }
+  /* ---- 危险操作审批（cjh 的 approval_request）----
+   * 这张卡片必须**能回答**：cjh 侧回合阻塞在这一条回执上（默认 5 分钟），超时才按「拒绝」
+   * 收场。批准 / 拒绝各一个按钮，回执后同卡就地改成已决状态并禁用——不留看起来还能点的死按钮。 */
+  .approval { border:1px solid #ffb86b; border-left-width:4px; border-radius:8px;
+              background:rgba(255,184,107,.10); padding:8px 11px; margin:8px 0; max-width:100%; }
+  .approval .ahead { display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600;
+                     color:#ffb86b; }
+  .approval .atime { margin-left:auto; font-weight:400; font-size:11px; color:var(--dim); }
+  .approval .areason { font-size:11.5px; color:var(--dim); margin-top:4px; }
+  .approval .aargs { margin:6px 0 2px; padding:6px 8px; background:var(--code-bg); color:var(--code-fg);
+                     border-radius:6px; font:11px/1.5 ui-monospace,Menlo,Consolas,monospace;
+                     white-space:pre-wrap; word-break:break-word; max-height:180px; overflow:auto; }
+  .approval .abtns { display:flex; gap:8px; margin-top:7px; }
+  .approval .abtn { font-size:11.5px; padding:3px 10px; border-radius:6px; cursor:pointer;
+                    background:var(--panel2); border:1px solid var(--line); }
+  .approval .abtn.ok { border-color:var(--acc); color:var(--acc); }
+  .approval .abtn.no { border-color:#ff7b72; color:#ff7b72; }
+  .approval .abtn[disabled] { opacity:.45; cursor:default; }
+  .approval.decided { border-color:var(--line); background:var(--panel2); }
+  .approval.decided .ahead { color:var(--dim); }
   /* 工具区挂在消息上（不在 .body 里——见 appendMsgEl 的注释） */
   .msg .tools { margin-top:6px; }
   /* 消息时间戳：老存档里的消息没有 ts，就不显示（不硬造一个假时间） */
@@ -1216,6 +1236,111 @@ function cjhTrace(line) {
   try { window.__CJ_TAURI__.log.write('[aichat] [cjh] ' + line); } catch (e) {}
 }
 
+/* ---- 危险操作审批（cjh#3 的 approval_request / approval_response，cjh 侧 `7bcc097` 已落地）----
+ * cjh 侧**阻塞**在这一条回执上（默认 5 分钟），超时 / 断连一律按「拒绝」收场并让回合继续。
+ * 早前这里只 appendNote 一行说明：用户看得见「有工具在等批准」，却**没有任何入口能答**，
+ * 只能干等超时（本轮补上真入口）。回执走同一条 WS：
+ *   {"type":"approval_response","request_id":…,"approved":bool}
+ * 未决卡片在倒计时归零 / 回合收尾时就地改状态，不留一个「看起来还能点」的死按钮。 */
+var curApproval = null;      // { rid, tool, el, stateEl, ok, no, timer }：同时只会有一个（cjh 工具串行调）
+function approvalText(approved) { return approved ? '已批准' : '已拒绝'; }
+/** 把卡片落定：改状态、禁按钮、停倒计时（幂等，重复调用只认第一次状态） */
+function settleApproval(state) {
+  if (!curApproval) { return; }
+  var a = curApproval;
+  curApproval = null;
+  if (a.timer) { clearInterval(a.timer); a.timer = null; }
+  a.el.classList.add('decided');
+  a.stateEl.textContent = state;
+  a.ok.disabled = true; a.no.disabled = true;
+}
+/** 回执：先落痕再发（发送失败时日志里能对上「用户点了什么」），并把结论写进存档 */
+function sendApproval(rid, approved, tool) {
+  if (!curApproval || curApproval.rid !== rid) { return; }   // 已决 / 已换一轮：不重发
+  settleApproval(approvalText(approved));
+  cjhTrace('approval_response request_id=' + rid + ' approved=' + (approved === true ? 'true' : 'false'));
+  var c = cur();
+  if (c) {
+    // 卡片本身是 DOM，刷新即失；结论落进会话，刷新后仍看得见这轮「批过 / 拒过」什么
+    c.messages.push({ role: 'assistant', ts: Date.now(),
+      content: '**[审批]** 工具 `' + tool + '`：' + approvalText(approved) + '（cjh 侧据此继续本轮）' });
+    saveState();
+  }
+  cjhWsSend({ type: 'approval_response', request_id: rid, approved: approved }).catch(function (e) {
+    appendNote('审批回执发送失败：' + String(e && e.message));
+  });
+}
+function appendApprovalCard(m) {
+  var rid = m.request_id || '';
+  var tool = m.tool || '?';
+  var waitS = Math.round((m.expires_in_ms || 0) / 1000);
+  var el = document.createElement('div');
+  el.className = 'approval';
+  var head = document.createElement('div');
+  head.className = 'ahead';
+  head.textContent = '⚠ 危险操作待批准：' + tool;
+  var time = document.createElement('span');
+  time.className = 'atime';
+  head.appendChild(time);
+  el.appendChild(head);
+  if (m.reason) {
+    var rs = document.createElement('div');
+    rs.className = 'areason';
+    rs.textContent = '命中规则：' + m.reason;
+    el.appendChild(rs);
+  }
+  if (m.args !== undefined && m.args !== null) {
+    var ar = document.createElement('pre');
+    ar.className = 'aargs';
+    ar.textContent = (typeof m.args === 'string') ? m.args : JSON.stringify(m.args, null, 2);
+    el.appendChild(ar);
+  }
+  var btns = document.createElement('div');
+  btns.className = 'abtns';
+  var okb = document.createElement('button');
+  okb.className = 'abtn ok'; okb.textContent = '批准';
+  var nob = document.createElement('button');
+  nob.className = 'abtn no'; nob.textContent = '拒绝';
+  btns.appendChild(okb); btns.appendChild(nob);
+  el.appendChild(btns);
+  var state = document.createElement('div');
+  state.className = 'areason';
+  el.appendChild(state);
+  msgsEl.appendChild(el);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+  var a = { rid: rid, tool: tool, el: el, stateEl: state, ok: okb, no: nob, timer: null };
+  curApproval = a;
+  okb.onclick = function () { sendApproval(rid, true, tool); };
+  nob.onclick = function () { sendApproval(rid, false, tool); };
+  // 倒计时与 cjh 的 expires_in_ms 同步：归零就地标超时（cjh 那边按「拒绝」收场，回合继续）
+  if (waitS > 0) {
+    var left = waitS;
+    var tick = function () {
+      if (left <= 0) {
+        if (a.timer) { clearInterval(a.timer); a.timer = null; }
+        if (curApproval === a) { settleApproval('已超时（cjh 按「拒绝」收场，回合继续）'); }
+        return;
+      }
+      time.textContent = left + ' 秒后按「拒绝」收场';
+      left -= 1;
+    };
+    tick();
+    a.timer = setInterval(tick, 1000);
+  } else {
+    time.textContent = '等待回执中';
+  }
+  return el;
+}
+
+/* ---- 流式截断：宿主单次接收有上限（http 插件 CJ_HTTP_MAX_BYTES = 8 MiB），撞上限时流被**掐断**，
+ * `stat.truncated = true`。早前只在页面上 appendNote 一行提示——**没进存档**，刷新后那条回复
+ * 看起来就是完整的一整段（最贵的失败形状：痕迹只活在 DOM 里，AGENTS §4）。这里把标记拼进正文再落盘。 */
+function truncNote(text, stat) {
+  if (!stat || stat.truncated !== true) { return text; }
+  return text + '\n\n**[截断]** 本次响应超过宿主单次接收上限（8 MiB），内容在 ' +
+    (stat.received || 0) + ' 字节处被掐断——上面这段不完整，按需重发或把请求改小。';
+}
+
 /* ---- cjh 帧 → 聊天界面（与 http 流式同一套气泡/收尾口径）---- */
 function handleCjhFrame(m) {
   var type = m.type || '';
@@ -1261,12 +1386,9 @@ function handleCjhFrame(m) {
     cjhTrace('ack action=' + (m.action || '-') + ' model=' + (m.model || '') +
       ' compacted=' + (m.compacted === true ? 'true' : 'false'));
   } else if (type === 'approval_request') {
-    // 危险操作审批：桌面端的审批界面还没做（下一个能力位），但**不能装看不见**——cjh 侧超时/断连
-    // 一律按「拒绝」收场并让回合继续，所以这里如实说清「谁在等、等多久、会怎么收场」，
-    // 而不是让用户对着一个卡住的回合猜五分钟
-    var waitS = Math.round((m.expires_in_ms || 0) / 1000);
-    appendNote('cjh 请求审批：工具 ' + (m.tool || '?') + (m.reason ? '（' + m.reason + '）' : '') +
-      ' —— 桌面端还没有审批入口，' + (waitS > 0 ? waitS + ' 秒后' : '稍后') + '按「拒绝」收场（回合继续）');
+    // 危险操作审批：**必须真能答**——cjh 侧阻塞等这条回执（超时 / 断连才按拒绝放行），
+    // 所以这里给一张可点的卡片（批准 / 拒绝），同时留痕「谁在等、等多久、会怎么收场」
+    appendApprovalCard(m);
     cjhTrace('approval_request tool=' + (m.tool || '?') + ' request_id=' + (m.request_id || '-') +
       ' expires_in_ms=' + (m.expires_in_ms || 0));
   } else if (type === 'history_messages') {
@@ -1284,6 +1406,9 @@ function finishCjhTurn(errText, stopped) {
   // 还停在「运行中…」的工具按中断收口：不假装它跑完了
   curTools.forEach(function (t) { if (t.status === 'running') { t.status = 'stopped'; } });
   if (curToolsEl && curTools.length) { renderTools(curToolsEl, curTools); }
+  // 未决的审批卡片也收口：回合都结束了，留着「批准 / 拒绝」按钮只会让人以为还能答
+  // （真到这一步 cjh 侧已按拒绝放行——回执窗口跟着回合走）
+  if (curApproval) { settleApproval('回合已结束（未回执，cjh 侧按「拒绝」收场）'); }
   if (c && full) {
     // tools 跟着消息落盘：刷新后重绘仍看得见这轮调了什么（DOM 里的 chip 会丢）
     c.messages.push({ role: 'assistant', content: full, ts: Date.now(),
@@ -1996,9 +2121,10 @@ function send(text, skipPush) {
       if (acc && acc.indexOf('<') === 0) { hint += ' 服务端返回的是 HTML 页面而非 SSE 流。'; }
       full = '**[错误]** ' + hint;
     }
+    full = truncNote(full, stat);       // 截断标记进正文：刷新后仍看得见（不只是 DOM 里一行提示）
     c.messages.push({ role: 'assistant', content: full, ts: Date.now() });
     setBody(body, full, false);
-    if (stat && stat.truncated) { appendNote('（回复过长被截断）'); }
+    if (stat && stat.truncated) { appendNote('（回复过长被截断——已在正文留标记）'); }
     streaming = false; setStreamingUi(false);
     saveState();
   }).catch(function (e) {
@@ -2398,8 +2524,8 @@ function selfcheck() {
   _logs8.forEach(function (l) { if (l.indexOf('sk-probe-KEY-9') !== -1) { _kLeak++; } });
   ok('cjh-key-not-logged', _kFrame.indexOf('api_key') !== -1 &&
      _kFrame.indexOf('sk-probe-KEY-9') !== -1 && _kLeak === 0);
-  // ③ 控制帧不静默：cancelled / ack 只留痕（不画进聊天）；approval_request 得在聊天里说清
-  // 「谁在等、等多久、会怎么收场」——桌面端审批界面还没做，但不能让回合静默卡五分钟
+  // ③ 控制帧不静默：cancelled / ack 只留痕（不画进聊天）；approval_request 得**真给入口**——
+  // cjh 侧阻塞在这条回执上（超时才按拒绝），桌面端只写一行说明的话用户根本答不了
   var _logs9 = [], _lw9 = window.__CJ_TAURI__.log && window.__CJ_TAURI__.log.write;
   var _pc9 = cjhTurnPending;
   if (_lw9) { window.__CJ_TAURI__.log.write = function (l) { _logs9.push(String(l)); }; }
@@ -2407,13 +2533,50 @@ function selfcheck() {
   handleCjhFrame({ type: 'cancelled', session_id: 's9', was_running: false });
   handleCjhFrame({ type: 'ack', action: 'compact', model: 'm9', compacted: true });
   handleCjhFrame({ type: 'approval_request', tool: 'bash', reason: '命中危险命令规则',
-                   expires_in_ms: 300000, request_id: 's9#a1' });
-  if (_lw9) { window.__CJ_TAURI__.log.write = _lw9; }
+                   expires_in_ms: 300000, request_id: 's9#a1', args: { command: 'rm -rf /tmp/x' } });
   cjhTurnPending = _pc9;
-  var _j9 = _logs9.join('\n'), _m9 = $('msgs').textContent;
+  var _j9 = _logs9.join('\n');
   ok('cjh-control-frames-not-silent', _j9.indexOf('was_running=false') !== -1 &&
-     _j9.indexOf('ack action=compact') !== -1 && _j9.indexOf('approval_request tool=bash') !== -1 &&
-     _m9.indexOf('请求审批') !== -1 && _m9.indexOf('按「拒绝」收场') !== -1);
+     _j9.indexOf('ack action=compact') !== -1 && _j9.indexOf('approval_request tool=bash') !== -1);
+  // 审批入口：卡片要带工具名 / 参数 / 命中原因，两个按钮可用且倒计时在走
+  var _agg = cur();
+  var _aLen9 = _agg ? _agg.messages.length : 0;
+  var _card9 = $('msgs').querySelector('.approval');
+  var _btns9 = _card9 ? _card9.querySelectorAll('.abtn') : [];
+  ok('approval-card', !!_card9 && _card9.textContent.indexOf('待批准') !== -1 &&
+     _card9.textContent.indexOf('bash') !== -1 && _card9.textContent.indexOf('命中危险命令规则') !== -1 &&
+     _card9.textContent.indexOf('rm -rf /tmp/x') !== -1 &&
+     _card9.textContent.indexOf('秒后按「拒绝」收场') !== -1);
+  ok('approval-buttons', _btns9.length === 2 && _btns9[0].textContent === '批准' &&
+     _btns9[1].textContent === '拒绝' && !_btns9[0].disabled && !_btns9[1].disabled);
+  // 点「批准」要发出**原样的回执帧**（拦 ws:send 读它准备发的文本），并发完就地落定。
+  // 注意日志桩要**覆盖整段点击**——桩早于点击撤掉时，回执那行 trace 不进 _logs9，
+  // 断言就永远看不到它（本轮实测踩过：断言白红两条，而不是应用有病）
+  var _inv9 = window.__CJ_TAURI__.invoke, _sent9 = null;
+  window.__CJ_TAURI__.invoke = function (cmd, args) {
+    if (cmd === 'ws:send') { _sent9 = args && args.text; return Promise.resolve({ sent: true }); }
+    return _inv9.apply(this, arguments);
+  };
+  if (_btns9.length) { _btns9[0].click(); }
+  window.__CJ_TAURI__.invoke = _inv9;
+  if (_lw9) { window.__CJ_TAURI__.log.write = _lw9; }
+  var _j9c = _logs9.join('\n');
+  var _f9 = null;
+  try { _f9 = JSON.parse(_sent9 || 'null'); } catch (e) { _f9 = null; }
+  ok('approval-response-frame', !!_f9 && _f9.type === 'approval_response' &&
+     _f9.request_id === 's9#a1' && _f9.approved === true &&
+     _j9c.indexOf('approval_response request_id=s9#a1') !== -1);
+  // 落定的判据看**卡片自己**（标题写的是「待批准」、状态行才写「已批准」，别拿整页 textContent 凑）
+  ok('approval-settled', _btns9.length === 2 && _btns9[0].disabled && _btns9[1].disabled &&
+     _card9.classList.contains('decided') && _card9.textContent.indexOf('已批准') !== -1);
+  // 结论要落进存档（卡片是 DOM，刷新即失）：本轮多出一条 assistant 记录
+  ok('approval-recorded', (_agg ? _agg.messages.length : 0) === _aLen9 + 1 &&
+     _agg.messages[_agg.messages.length - 1].content.indexOf('已批准') !== -1);
+  if (_agg) { _agg.messages.length = _aLen9; }
+  // 流式截断：标记必须进**正文**（早前只在 DOM 里 appendNote 一行，刷新后那条回复看着仍完整）
+  ok('truncated-note', truncNote('abc', { truncated: true, received: 123 }).indexOf('**[截断]**') !== -1 &&
+     truncNote('abc', { truncated: true, received: 123 }).indexOf('123 字节') !== -1 &&
+     truncNote('abc', { truncated: false }) === 'abc' && truncNote('abc', null) === 'abc');
   // Agent 态：四块回来、品牌改口，徽章改说 cjh 侧（没取到 cjh settings 时如实写「未取到」）
   appMode = 'agent'; applyMode(); renderConvs();
   ok('mode-agent-shows-cjh', $('wsBadge').style.display !== 'none' && $('cjhState').style.display !== 'none' &&

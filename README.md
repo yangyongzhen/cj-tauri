@@ -31,7 +31,7 @@
 - **静态编译的后端**：仓颉无 VM、无 GC 抖动顾虑，协议层两百行可审计；
 - **零 Chromium 捆绑**：直接用系统 WebView（Linux WebKitGTK / Windows WebView2），单示例产物 4~10MB；
 - **能力安全模型**：`capabilities/` 白名单默认最小权限，未声明命令一律拒绝，与宿主实现解耦；
-- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` / `mqtt` / `redis` / `log` / `http` 官方插件，
+- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` / `mqtt` / `redis` / `log` / `http` / `ws` / `sqlite` 十四个官方插件，
   一行接入，权限（命令级白名单 + 命名权限集 + 路径 scope）仍由清单决定；
 - **全链路可验证**：桥 stderr 即时取证 + 页面自检断言回传，每个示例都能无人值守自检；
 - **配套脚手架**：`cj-tauri create/dev/build/run/info/doctor`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完；
@@ -104,7 +104,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下二十二个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
+`examples/` 下二十六个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：
@@ -124,6 +124,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [movie](examples/movie) | **观影应用**：榜单/搜索/详情/播放，数据全由仓颉侧 HTTP 取回，前端零 fetch |
 | [music](examples/music) | **音乐播放器**：榜单/歌单/收藏/分享 + 同步歌词 + 4 套主题色，封面由宿主带 Referer 取回并缩略 |
 | [typing-poem](examples/typing-poem) | **古诗词打字练习**（小学生向）：108 首诗逐字拼音，three.js 3D 卡面，连对升调、世界随输入变化 |
+| [leetcode-gui](examples/leetcode-gui) | **桌面版算法练习工具**：左侧按分类分组的题库 / 中间题面 + 仓颉代码编辑器 / 下方判题终端——点「运行」把代码交给 **cjc 编译**再逐个用例判定，结果带期望值与耗时回投，全程离线 |
 
 **框架能力演示**：
 
@@ -137,9 +138,11 @@ cli\cj-tauri.bat create myapp && cd myapp
 | 框架内置 `log` 插件 + 日志落盘（RFC-003 第 5 期） | `app.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(app)` 把仓颉侧与 C 桥的诊断落进同一份文件（**fd 级接管**，超预算轮转 `.1`…`.keep`）；`CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可为**已分发的 exe** 就地开日志，`system:host` 的 `logFile` 回读生效路径，页面 `log:write` / `log:path` 同走一个出口 |
 | 框架内置 `http` 插件（SEC-006 白名单收口） | 页面可控的出网口：`http:get` / `http:post` / `http:delete` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat`（AI 对话客户端）是首个消费者 |
 | 框架内置 `ws` 插件（长连接出网口） | `ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` 事件，主机白名单写在能力清单 `scopes.ws`（**没写 = 全拒**，与 `http` 插件同构、共用核心层 `urlHostOf`）；握手用 stdx 自带 `WebSocket.upgradeFromClient`，不手写协议 |
-| 示例 `examples/ai-chat` | **cjh 的桌面客户端**：聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；另有 AI 对话客户端本体的多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；UI 侧含会话搜索 / 行内改名 / 侧栏收起 / 输入框自适应 / 文件预览与面包屑 / 工作区切换、停止生成与工具调用 chip、设置页（内联于主区 + 常驻底栏，打开即定位当前服务商）、**「聊天（直连）/ Agent（cjh）」模式开关**（默认聊天：模型选择真的生效；Agent 才连 cjh，徽章显示 cjh 侧真实模型）（页面自检 **58 条全过**） |
+| 示例 `examples/ai-chat` | **cjh 的桌面客户端**：聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；另有 AI 对话客户端本体的多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；UI 侧含会话搜索 / 行内改名 / 侧栏收起 / 输入框自适应 / 文件预览与面包屑 / 工作区切换、停止生成与工具调用 chip、设置页（内联于主区 + 常驻底栏，打开即定位当前服务商）、**「聊天（直连）/ Agent（cjh）」模式开关**（默认聊天：模型选择真的生效；Agent 才连 cjh，徽章显示 cjh 侧真实模型）；cjh 预编译包**随仓 vendored**（`examples/ai-chat/vendor/cjh/`，更新时手动替换包、不做首次联网下载），`scripts/pack-linux.sh` 出 Linux 目录式便携包（包内自带 cjh，65 条自检全过）（页面自检 **56/56 全过**） |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
+| [ipc-coalesce](examples/ipc-coalesce) | 事件合并探针：`emitLatest`（同帧槽位 + rAF 批刷，尾值必达）与 `emit` 的对照——`emitLatest × 50` 合并成个位数次回调、`emit × 50` 老老实实 50 次，默认行为一行没改 |
+| [multi-window](examples/multi-window) | 多窗口：同一份 HTML 起两窗，角色由自己的 label 决定；两窗**同时**开原生对话框各预置 `probe-<label>.txt`，验证宿主回调按句柄路由不串台 |
 
 部分示例截图（全部为实机截图，完整集见各示例 README）：
 
@@ -154,6 +157,8 @@ cli\cj-tauri.bat create myapp && cd myapp
 | ![串口实时波形示波器](docs/images/example-serial-waveform.png) | ![古诗词打字练习](docs/images/example-typing-poem-typing.png) |
 | [movie](examples/movie)：观影应用 | [music](examples/music)：音乐播放器（同步歌词） |
 | ![观影应用](docs/images/example-movie.png) | ![音乐播放器](docs/images/example-music-playing.png) |
+| [ai-chat](examples/ai-chat)：聊天模式（直连，流式 Markdown） | [ai-chat](examples/ai-chat)：Agent 模式（cjh 已连接 + 四面板） |
+| ![AI 对话客户端：聊天模式](docs/images/example-ai-chat-chat.png) | ![AI 对话客户端：Agent 模式](docs/images/example-ai-chat-agent.png) |
 
 ## 架构
 
@@ -238,7 +243,7 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 
 - ✅ Linux（WebKitGTK）与 Windows（WebView2）双平台宿主，IPC/能力模型完全共用
 - ✅ 脚手架 CLI（仓颉原生）：`create / dev / build / run / info`，npm 包跨平台分发
-- ✅ 插件体系 v1 + 官方插件（fs / dialog / shell / serial / store / clipboard / notification / menu）；
+- ✅ 插件体系 v1 + 14 个官方插件（fs / dialog / shell / serial / store / clipboard / notification / menu / mqtt / redis / log / http / ws / sqlite）；
   命令级白名单、命名权限集、**路径 scope**（RFC-003 第 4 期）三层闸门，Windows + Linux 实机证据
 - ✅ 命令异步分发（慢命令不冻窗口）、多窗口按 label 路由、插件清单 `info --json` 机器可读
 - ✅ 宿主能力位：菜单 / **托盘** / **全局快捷键** / 文件拖入 / 通知——Windows（WebView2）与

@@ -51,10 +51,11 @@
   `Shell_NotifyIconW` 已落地**，菜单用 `CreatePopupMenu`、点击回投 `{"kind":"tray","id":…}`），
   **全局快捷键两平台齐了**（Linux X11 grab / Windows `RegisterHotKey`，同一套 accel 词法：
   注册失败如实在 stderr 说明、不致命），
-  **开窗尺寸随屏幕自适应同样是宿主基元**（`WindowConfig.autoSize = Some(WindowAutoSize(pct, min, max))`，
-  不占能力位——没有平台只有一半）：百分比换算与上下限夹取只在 core 一份（`cj_core_window_size`），
-  平台在建窗线程读到工作区后定稿，读不到如实退回 `win_w` / `win_h` 并打一行 stderr；
-  页面侧的等比缩放（`zoom` + 视口单位补偿）由应用自定，框架不插手（坑见 §4）。
+  **开窗尺寸随屏幕自适应已撤除**（用户裁定，2026-10-16：实测不如固定尺寸舒服）——
+  `WindowConfig.autoSize` / `WindowAutoSize` / `cj_bridge_set_window_auto` / core 的 `cj_core_window_size`
+  与两平台建窗换算（GTK 的 `screen_workarea` / Win32 的 `SPI_GETWORKAREA`）全数删除，桩自检对应 10 项一并取消；
+  `WindowConfig(title, width, height)` 给的就是最终尺寸。页面侧的等比缩放（`zoom` + 视口单位补偿）
+  仍是**应用自定、框架不插手**（做法与坑见 `docs/使用文档.md`）。
   **窗口可见性 + 最小化到托盘是宿主基元**（`setWindowVisible` / `setMinimizeToTray`，不占能力位——
   没有平台只有一半）：隐藏态页面照常跑，还原入口由应用给（托盘菜单 / 全局快捷键），
   最小化那一刻平台复核托盘是否**真的**装上了，没装就如实降级为普通最小化 + 一行 stderr。

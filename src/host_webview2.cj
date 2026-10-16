@@ -54,11 +54,6 @@ foreign func cj_bridge_set_window(h: CPointer<Unit>, title: CString, width: Int3
 
 @When[os == "Windows"]
 @C
-foreign func cj_bridge_set_window_auto(h: CPointer<Unit>, pct: Int32, minW: Int32, minH: Int32,
-                                       maxW: Int32, maxH: Int32): Unit
-
-@When[os == "Windows"]
-@C
 foreign func cj_bridge_set_devtools(h: CPointer<Unit>, enabled: Int32): Unit
 
 @When[os == "Windows"]
@@ -458,13 +453,6 @@ public class WebView2Host <: WebViewHost {
             cj_bridge_set_dialog_callback(this.handle, dialogOnResult)
             cj_bridge_set_window(this.handle, LibC.mallocCString(this.config.title),
                                  Int32(this.config.width), Int32(this.config.height))
-            // 自适应开窗策略（可选）：与 set_window 同一时机——只登记，平台建窗时才算最终尺寸
-            match (this.config.autoSize) {
-                case Some(auto) => cj_bridge_set_window_auto(this.handle, Int32(auto.percent),
-                                                             Int32(auto.minWidth), Int32(auto.minHeight),
-                                                             Int32(auto.maxWidth), Int32(auto.maxHeight))
-                case None => ()
-            }
             cj_bridge_set_devtools(this.handle, devTools)
             // 窗口图标：空串表示系统默认图标
             cj_bridge_set_icon(this.handle, LibC.mallocCString(this.config.iconPath))

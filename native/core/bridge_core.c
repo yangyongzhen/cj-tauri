@@ -157,43 +157,6 @@ void cj_bridge_set_window(cj_host *h, const char *title, int width, int height) 
     if (height > 0) h->win_h = height;
 }
 
-/**
- * 自适应开窗：pct = 屏幕工作区的百分比（5..100；0 = 关掉自适应，行为回到 win_w/win_h）。
- *
- * 这里**只记策略**——最终尺寸由平台在「建窗那一刻」定稿（与拖放策略、窗口初始可见性同一条路）：
- * 那时平台正站在自家宿主线程上，够得着显示器 API（GTK 的 monitor / Win32 的工作区），
- * 而 core 不 include 任何平台头。算不出工作区（无显示器信息）时平台退回 win_w/win_h 并打一行 stderr。
- */
-void cj_bridge_set_window_auto(cj_host *h, int pct, int min_w, int min_h, int max_w, int max_h) {
-    if (!h) return;
-    cj_logf("[cj-bridge] window auto size: pct=%d min=%dx%d max=%dx%d\n",
-            pct, min_w, min_h, max_w, max_h);
-    h->win_auto_pct = pct;
-    h->win_auto_min_w = min_w;
-    h->win_auto_min_h = min_h;
-    h->win_auto_max_w = max_w;
-    h->win_auto_max_h = max_h;
-}
-
-int cj_core_window_size(cj_host *h, int work_w, int work_h, int *out_w, int *out_h) {
-    int w;
-    int wh;
-    if (!h || !out_w || !out_h) return 0;
-    if (h->win_auto_pct <= 0 || work_w <= 0 || work_h <= 0) return 0;
-    w = work_w * h->win_auto_pct / 100;
-    wh = work_h * h->win_auto_pct / 100;
-    if (h->win_auto_min_w > 0 && w < h->win_auto_min_w) w = h->win_auto_min_w;
-    if (h->win_auto_min_h > 0 && wh < h->win_auto_min_h) wh = h->win_auto_min_h;
-    if (h->win_auto_max_w > 0 && w > h->win_auto_max_w) w = h->win_auto_max_w;
-    if (h->win_auto_max_h > 0 && wh > h->win_auto_max_h) wh = h->win_auto_max_h;
-    /* 夹取顺序保证不越上限；这里只兜一个「小到没法用」的下限（比它小的屏幕本就少见） */
-    if (w < 320) w = 320;
-    if (wh < 240) wh = 240;
-    *out_w = w;
-    *out_h = wh;
-    return 1;
-}
-
 void cj_bridge_set_icon(cj_host *h, const char *path) {
     if (!h) return;
     cj_logf("[cj-bridge] set icon: path=%s\n", (path && path[0]) ? path : "(default)");

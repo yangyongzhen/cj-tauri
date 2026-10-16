@@ -30,10 +30,12 @@ waitForBridge(function () {
   var t = window.__CJ_TAURI__;
   var lines = [];
   var done = 0;
-  var TOTAL = 9;
-  // 一轮往返 = 9 条命令（version / ping / 未授权 devtools / host 能力位 /
-  // clipboard 写读回环 / notification 桩如实拒绝 / serial 枚举 /
-  // log:path 回读 / log:write 前端诊断落盘）；全部回齐后整体回投。
+  // 计数口径 = **探针块**，不是命令条数：日志那块一次跑两条命令（log:path 回读 + log:write 落盘），
+  // 但只该 finish() 一次。这里曾按命令数写成 9，于是 done 永远到不了 9、聚合行从不发出——
+  // 表象是「某条探针挂住了」，其实是计数器少算一次（2026-10-15 实测，还连累既有 bridge 入口两条断言）。
+  var TOTAL = 8;
+  // 八个探针块：version / ping / 未授权 devtools / host 能力位 / clipboard 写读回环 /
+  // notification（真实现或桩如实拒绝）/ serial 枚举 / 日志（log:path + log:write）；回齐后整体回投。
   function finish() {
     done++;
     if (done < TOTAL) { render(lines); return; }
@@ -96,8 +98,7 @@ waitForBridge(function () {
 
   // 日志落盘（RFC-003 第 5 期）：本工程不显式开日志，路径由 CJ_TAURI_LOG 兜底给。
   // 回读到的路径随标记行一起写回日志：这样 log:path 的返回值也成了**落盘的凭证**，
-  // 不依赖页面最后那条聚合行（聚合行要等九条探针全落定，其中一条在无通知守护的
-  // Xvfb 下可能挂住——那是探针工程自己的事，不该拖住日志这条链路的取证）。
+  // 不必等页面最后那条聚合行——日志这条链路该由它自己的凭证说话（顺带连写 25 行填充压轮转）。
   // 之后用小预算（CJ_TAURI_LOG_MAX_KB=1）压轮转：连写 25 行 ~100 字节的填充，够翻两轮档案。
   var pad = 'pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp';
   function fillerBurst(n, acc) {

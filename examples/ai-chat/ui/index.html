@@ -23,7 +23,7 @@
      * 行内码变黑块、加粗变白字（白底上看不见）——实测就是这个形状被用户点出来的。 */
     --code-bg:#0c0e14; --code-bg2:#12151d; --code-fg:#d6dbe6; --code-line:#262c3b;
     --syn-kw:#c792ea; --syn-str:#f4a259; --syn-cmt:#7a8478; --syn-num:#5fd7c5;
-    --em:#ffffff; --quote:#9aa3b8; --scroll:#2c3345; --ok:#7ee2a8;
+    --em:#ffffff; --quote:#9aa3b8; --scroll:#2c3345; --ok:#7ee2a8; --err:#ff7b72;
   }
   body.light {
     --bg:#f6f7fb; --panel:#ffffff; --panel2:#eef0f6; --line:#dfe3ec;
@@ -31,7 +31,7 @@
     --user:#e3e9ff;
     --code-bg:#f1f3f9; --code-bg2:#e7eaf2; --code-fg:#242a38; --code-line:#e1e5ef;
     --syn-kw:#8b3fd0; --syn-str:#b45309; --syn-cmt:#6b7280; --syn-num:#0f766e;
-    --em:#0b0f1a; --quote:#5b6473; --scroll:#c9cfdd; --ok:#1a8f4c;
+    --em:#0b0f1a; --quote:#5b6473; --scroll:#c9cfdd; --ok:#1a8f4c; --err:#c8372d;
   }
   * { margin:0; padding:0; box-sizing:border-box; }
   html { color-scheme: dark; }
@@ -234,16 +234,37 @@
   #mask { position:fixed; inset:0; background:rgba(5,7,12,.6); backdrop-filter:blur(3px);
           display:none; align-items:center; justify-content:center; }
   #mask.show { display:flex; }
+  /* 宽度跟着视口走：原来写死 540px，在 1080 宽的窗口里两侧空一大片、字段挤成一列（用户反馈）。
+     改成 min(920px, 94vw)——与文件预览面板同口径，窗口变小自动收窄，不再有硬编码宽度。
+     头/体分段：标题与底部动作钉住，长服务商列表只滚中间，不会被顶出视野。 */
   #cfg { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-         padding:24px 26px; width:540px; max-height:86vh; overflow-y:auto;
-         box-shadow:0 20px 60px rgba(0,0,0,.5); }
-  #cfg h2 { font-size:16px; margin-bottom:6px; }
+         width:min(920px, 94vw); max-height:88vh; display:flex; flex-direction:column;
+         box-shadow:0 20px 60px rgba(0,0,0,.5); overflow:hidden; }
+  .cfg-head { display:flex; align-items:center; justify-content:space-between; gap:10px;
+              padding:16px 22px 12px; border-bottom:1px solid var(--line); }
+  .cfg-head h2 { font-size:16px; }
+  .cfg-body { padding:16px 22px 20px; overflow-y:auto; }
   .row { margin-bottom:12px; }
   .row label { display:block; font-size:12px; color:var(--dim); margin-bottom:5px; }
-  .row input { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--fg);
+  .row input, .row textarea { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--fg);
            border-radius:8px; padding:9px 12px; font:inherit; transition:border-color .15s; }
-  .row input:focus { outline:none; border-color:var(--acc); }
+  .row textarea { resize:vertical; min-height:62px; line-height:1.5; }
+  .row input:focus, .row textarea:focus { outline:none; border-color:var(--acc); }
+  /* 短字段在宽面板里两列排开（名称/模型），窄于 720px 自动回单列——
+     按窗口宽度回退，不用「设备类型」这类判不准的东西 */
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:0 14px; }
+  @media (max-width:720px) { .row2 { grid-template-columns:1fr; } }
   .hint { font-size:12px; color:var(--dim); margin:10px 0; }
+  .hint.err { color:var(--err); }
+  /* 顶部横幅：连上 cjh 时如实说明「本面板这次不参与」——比改完没反应再去猜强 */
+  .banner { border:1px solid var(--acc); border-radius:9px; padding:9px 12px; margin:0 0 12px;
+            font-size:12px; line-height:1.6; background:rgba(108,140,255,.08); color:var(--fg); }
+  /* 动作条吸在面板底部：表单比一屏长时「保存/取消」不再滚出视野（截图里实测被压到折叠线以下）。
+     bottom 取负的 .cfg-body 底内边距，且自身补一层同高 padding——滚到底与吸住两种状态位置一致，不跳。 */
+  .cfg-acts { display:flex; align-items:center; gap:10px; margin-top:14px;
+              border-top:1px solid var(--line); padding:12px 0 20px;
+              position:sticky; bottom:-20px; background:var(--panel); }
+  .cfg-acts .spacer { flex:1 1 auto; }
   /* ---- 服务商管理 ---- */
   .prov { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:9px;
           border:1px solid var(--line); margin-bottom:6px; cursor:pointer; transition:border-color .12s; }
@@ -382,25 +403,44 @@
   </div>
   <div id="mask">
     <div id="cfg">
-      <h2>服务商管理</h2>
-      <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
-        出网受能力清单白名单约束——预置服务商已在白名单内，其他端点会被 scope 拒绝。</div>
-      <div id="provList"></div>
-      <div class="presets" id="presetRow"></div>
-      <div style="display:flex;gap:8px;margin:10px 0">
-        <button id="btnProvAdd" class="ghost" style="flex:0 0 auto">+ 添加自定义服务商</button>
+      <div class="cfg-head">
+        <h2>设置·服务商</h2>
+        <button id="cfgClose" class="ghost tb-btn" title="关闭">✕</button>
       </div>
-      <div id="provForm" style="display:none;border-top:1px solid var(--line);padding-top:12px">
-        <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
-        <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
-          <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
-        <div class="row"><label>API Key</label><input id="fKey" type="password"></div>
-        <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
-        <div class="row"><label>system 提示词（可选，全局生效）</label><input id="fSys"></div>
-        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px">
-          <button id="btnProvDel" class="ghost">删除此服务商</button>
-          <button id="btnCfgCancel" class="ghost">取消</button>
-          <button id="btnCfgSave">保存</button>
+      <div class="cfg-body">
+        <!-- 连上 cjh 时的诚实横幅：这些字段这次对话根本不参与，写在最上面比让人改完等反应强 -->
+        <div class="banner" id="cfgMode" style="display:none">
+          当前已连上 cjh：对话由 cjh 侧执行，Key 与模型来自 cjh 自己的配置——
+          下面这些字段<b>只在「未连上 cjh」的直连模式下生效</b>，cjh 模式下改了不会影响这一轮对话。
+        </div>
+        <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
+          出网受能力清单白名单约束——预置服务商已在白名单内，其他端点会被 scope 拒绝。</div>
+        <div id="provList"></div>
+        <div class="presets" id="presetRow"></div>
+        <div style="display:flex;gap:8px;margin:10px 0">
+          <button id="btnProvAdd" class="ghost" style="flex:0 0 auto">+ 添加自定义服务商</button>
+        </div>
+        <div id="provForm" style="display:none">
+          <div class="row2">
+            <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
+            <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
+          </div>
+          <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
+            <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
+          <div class="row"><label>API Key（只存本机存档，不外传）</label><input id="fKey" type="password"></div>
+          <div class="row"><label>system 提示词（可选，全局，仅直连模式随请求发出）</label>
+            <textarea id="fSys" rows="3" placeholder="例如：回答尽量简洁，代码用 Markdown 代码块"></textarea></div>
+          <div class="hint err" id="cfgErr" style="display:none"></div>
+          <div class="cfg-acts">
+            <button id="btnProvDel" class="ghost">删除此服务商</button>
+            <span class="spacer"></span>
+            <button id="btnCfgCancel" class="ghost">取消</button>
+            <button id="btnCfgSave">保存</button>
+          </div>
+        </div>
+        <div class="hint">
+          <b>生效时机</b>：保存后<b>下一次发送</b>就用新配置，<b>不需要重启</b>；改动同时写入本机存档，下次开应用照旧。
+          （MCP 面板仍是只读——cjh 的 <code>/api/settings</code> 暂不支持写 mcpServers。）
         </div>
       </div>
     </div>
@@ -1668,6 +1708,7 @@ function openProvForm(i) {
   $('fName').value = p.name; $('fBase').value = p.baseUrl;
   $('fKey').value = p.apiKey; $('fModel').value = p.model;
   $('fSys').value = sysPrompt;
+  cfgErr('');   // 换一张表单就清掉上一次的错误行，否则旧错误跟着新服务商一起显示
   $('btnProvDel').style.display = (i >= 0 && providers.length > 1) ? '' : 'none';
   $('provForm').style.display = '';
 }
@@ -1679,6 +1720,15 @@ function presetByName(name) {
   return null;
 }
 
+/* 表单内的错误行：校验失败必须说出来。原来只 focus 一下目标输入框就静默 return，
+ * 用户看到面板关不上/没反应，会以为「存上了」——失败无声是最贵的失败形状。 */
+function cfgErr(msg) {
+  var el = $('cfgErr');
+  if (!msg) { el.textContent = ''; el.style.display = 'none'; return; }
+  el.textContent = msg;
+  el.style.display = '';
+}
+
 function saveProv() {
   var p = {
     name: $('fName').value.trim() || '自定义',
@@ -1686,22 +1736,35 @@ function saveProv() {
     apiKey: $('fKey').value.trim(),
     model: $('fModel').value.trim()
   };
-  sysPrompt = $('fSys').value;
-  if (!p.baseUrl) { $('fBase').focus(); return; }
-  // 预设里只改了 Key/模型时，把预设默认值带进来（名称匹配主流服务商就补端点）
+  // 预设兜底要放在校验**之前**：原来写在 `if (!p.baseUrl) return;` 之后，
+  // 那会儿 p.baseUrl 必非空，两行永远够不着（死代码）——名称命中预设就该省掉手填端点。
   var preset = presetByName(p.name);
-  if (preset && preset.baseUrl && !p.baseUrl) { p.baseUrl = preset.baseUrl; }
-  if (preset && preset.model && !p.model) { p.model = preset.model; }
+  if (preset) {
+    if (!p.baseUrl && preset.baseUrl) { p.baseUrl = preset.baseUrl; }
+    if (!p.model && preset.model) { p.model = preset.model; }
+  }
+  if (!p.baseUrl) {
+    cfgErr('Base URL 不能为空：要写完整的 chat/completions 端点（点上面的预设卡片可自动带出）。本次未保存。');
+    $('fBase').focus();
+    return;
+  }
+  // system 提示词是全局的，校验通过**之后**才赋值：原来在 return 之前就写，
+  // 一次失败的保存也会把生效中的提示词换掉（没落盘，但这一轮请求已经变了）
+  sysPrompt = $('fSys').value;
   if (editIdx >= 0 && editIdx < providers.length) {
     providers[editIdx] = p;
   } else {
     providers.push(p);
     activeIdx = providers.length - 1;
   }
+  cfgErr('');
   closeCfg(); renderProvList(); renderConvs(); saveState();
 }
 
 function openCfg() {
+  // 连上 cjh 时把「本面板这次对话不参与」摊开说（Key/模型在 cjh 自己那边）：
+  // 不说明的话，用户改完 Key/模型发消息没有任何变化，只会以为设置坏了
+  $('cfgMode').style.display = CJH.up ? '' : 'none';
   renderProvList();
   // 预设行：点了直接开一张预填好的新表单（Key 留空给用户）
   var pr = $('presetRow');
@@ -1739,6 +1802,56 @@ function selfcheck() {
   ok('prov-render', $('provList').querySelectorAll('.prov').length === 2 &&
      $('provList').querySelector('.prov.active .badge') !== null);
   providers = _sp; activeIdx = _si; renderProvList();
+  // ---- 设置弹层（用户反馈「又窄又不好看」后重排）：宽度跟视口、短字段两列、失败要报错、
+  // 预设兜底真能兜、关得掉、cjh 横幅按连接态出现。断言完统一 closeCfg + 还原（含 saveState：
+  // 中间那次成功保存会把假服务商写进存档，必须再写回真现场，同 conv-* 那组的教训）。
+  var _sp2 = providers, _si2 = activeIdx, _sy = sysPrompt, _cu = CJH.up;
+  openCfg();
+  var cfgW = $('cfg').offsetWidth;
+  ok('cfg-width-fluid', cfgW > 560 && cfgW <= window.innerWidth &&
+     cfgW >= Math.min(900, Math.round(window.innerWidth * 0.9)));
+  // 宽面板下「名称/模型」两列排开，窄于 720px 自动回单列（媒体查询按窗口宽度，不看设备）
+  var _cols = getComputedStyle(document.querySelector('.row2')).gridTemplateColumns.split(' ').length;
+  ok('cfg-two-col', window.innerWidth <= 720 ? _cols === 1 : _cols === 2);
+  // 保存失败：不许静默丢弃、不许先改掉全局 system 提示词（原来 return 在赋值之后），
+  // 且必须在表单里给出原因——「点保存没反应」是最贵的失败形状
+  providers = [{ name: 'A', baseUrl: 'u1', apiKey: 'k1', model: 'm1' }]; activeIdx = 0;
+  $('fName').value = '野端点'; $('fBase').value = ''; $('fKey').value = 'k';
+  $('fModel').value = 'm'; $('fSys').value = '不该被写入的提示词';
+  openProvForm(0);
+  $('fSys').value = '不该被写入的提示词'; $('fBase').value = '';
+  // 动作条吸底：表单长于一屏时「保存/取消」必须仍在可视区内（滚动 60px 后量按钮矩形，
+  // 不吸底的话它会落在折叠线以下）。内容不足一屏时按钮本来就在视野里，这条同样成立。
+  var _body = document.querySelector('.cfg-body');
+  _body.scrollTop = 60;
+  var _acts = document.querySelector('.cfg-acts').getBoundingClientRect();
+  var _bodyRect = _body.getBoundingClientRect();
+  ok('cfg-acts-in-view', _acts.top >= _bodyRect.top - 2 && _acts.bottom <= _bodyRect.bottom + 2);
+  saveProv();
+  ok('cfg-err-visible', $('cfgErr').style.display !== 'none' && providers.length === 1 &&
+     providers[0].baseUrl === 'u1' && sysPrompt !== '不该被写入的提示词');
+  // 预设名兜底：只填名称（端点留空）也要从预设补出端点——原来那两行写在 return 之后，永远够不着。
+  // 走「+ 添加自定义服务商」那条入口（editIdx=-1）：上一格 openProvForm(0) 留着 editIdx=0，
+  // 不重置的话这次保存是**改现有**、不会新增，断言的 length 判断会白红（实测踩过）。
+  openProvForm(-1);
+  $('fName').value = 'DeepSeek'; $('fBase').value = '';
+  saveProv();
+  var _added = providers[providers.length - 1];
+  ok('cfg-preset-fill', providers.length === 2 && !!_added.baseUrl &&
+     _added.baseUrl.indexOf('deepseek') !== -1);
+  // 三条关闭出口都在：右上 ✕、点遮罩、Esc（原来服务商列表为空时表单隐藏，面板再也关不掉）
+  ok('cfg-close-paths', !!$('cfgClose').onclick && !!$('mask').onclick);
+  closeCfg();
+  ok('cfg-close', $('mask').className === '');
+  // 连上 cjh 才提示「本面板这次不参与」：反过来没连上时不许挂着这条横幅误导
+  CJH.up = true; openCfg();
+  var _bUp = $('cfgMode').style.display !== 'none';
+  CJH.up = false; openCfg();
+  var _bDown = $('cfgMode').style.display === 'none';
+  ok('cfg-cjh-banner', _bUp && _bDown);
+  closeCfg();
+  providers = _sp2; activeIdx = _si2; sysPrompt = _sy; CJH.up = _cu;
+  renderProvList(); renderConvs(); saveState();
   // 内容区宽度跟随窗口：不许再写死 820px（最大化后中间一大片空白，实测被点名）
   var probe = document.createElement('div');
   probe.className = 'msg';
@@ -2033,7 +2146,9 @@ waitForBridge().then(function () {
   $('pvCopy').onclick = function () { copyText(pvRaw, this); };
   $('pv').onclick = function (ev) { if (ev.target === $('pv')) { closePreview(); } };
   document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && $('pv').classList.contains('show')) { closePreview(); }
+    if (ev.key !== 'Escape') { return; }
+    if ($('pv').classList.contains('show')) { closePreview(); return; }   // 预览优先：它是更上层的遮罩
+    if ($('mask').classList.contains('show')) { closeCfg(); }
   });
   document.addEventListener('click', function (ev) {
     var m = $('provMenu');
@@ -2051,6 +2166,10 @@ waitForBridge().then(function () {
     }
   };
   $('btnCfgCancel').onclick = closeCfg;
+  // 关闭出口要够多：右上 ✕、点遮罩空白、Esc。原来只有表单里的「取消/保存」两个——
+  // 服务商列表为空或表单被隐藏时，面板就再也关不掉了（面板一通宽体改造顺手补上）
+  $('cfgClose').onclick = closeCfg;
+  $('mask').onclick = function (ev) { if (ev.target === $('mask')) { closeCfg(); } };
   $('btnCfgSave').onclick = saveProv;
   // cjh：侧栏 Tabs、ws 帧监听（先于连接挂上，帧不会漏）
   var tabs = document.querySelectorAll('.stab');

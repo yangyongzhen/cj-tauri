@@ -7,6 +7,7 @@ import cjTauri.*
 import cjTauri.plugins.http.*
 import cjTauri.plugins.log.*
 import cjTauri.plugins.store.*
+import cjTauri.plugins.clipboard.*
 import stdx.encoding.json.*
 
 /**
@@ -130,6 +131,7 @@ main(): Int64 {
         .plugin(HttpPlugin())
         .plugin(LogPlugin())
         .plugin(StorePlugin())
+        .plugin(ClipboardPlugin())   // 复制按钮的后端：clipboard:write（消息/代码块一键复制）
         // 日志落盘：GUI 产物双击没控制台，报障时一个文件看全（C 桥 + 仓颉 + 页面 log:write）
         .setLogToDefaultFile("ai-chat")
 

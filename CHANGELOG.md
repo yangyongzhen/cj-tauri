@@ -390,22 +390,14 @@
   空回复不再无声）。页内自检 **66 PASS / 0 FAIL**（本轮新增 `mode-chat-hides-cjh` / `mode-chat-badge` /
   `mode-chat-tab-collapse` / `mode-frame-passthrough` / `mode-agent-shows-cjh` / `cjh-key-not-logged`），
   `scripts/check-static.sh` 全绿。
-- **开窗尺寸随屏幕自适应（宿主基元，不占能力位）**：`WindowConfig.autoSize =
-  Some(WindowAutoSize(pct, minW, minH, maxW, maxH))`（`src/window.cj`）→ 装配时 `cj_bridge_set_window_auto`
-  → C 桥 core 存策略，**百分比换算与上下限夹取只在 core 一份**（`cj_core_window_size`，两平台共用同一份数学），
-  平台在建窗线程读到工作区后定稿（Linux `gtk_window_set_default_size` / Windows `CreateWindowExW`）；
-  读不到工作区就**如实退回** `win_w` / `win_h` 并打一行 stderr——不猜、不硬开。实机两档（Xvfb 1280x800 /
-  1920x1080，隔离副本）：`window auto: 1024x640 (workarea 1280x800 @80%)`、`window auto: 1536x864
-  (workarea 1920x1080 @80%)`，与屏幕比例两次一致。桩自检 **224 项**（新增换算数学 10 项：夹取、极小工作区
-  兜底 320x240、策略未登记返回 0、工作区不可用返回 0、NULL 宿主安全）。
-
 ### Changed
 
 - **`examples/ai-chat` 撤回「窗口随屏幕 + 页面等比缩放」两件（用户实测反馈：等比放大后不如原样）**：
   页面按 `screen.availWidth` 定档的 `--z`、`html { zoom: var(--z) }` 与全部视口单位补偿（`100vh` / `86vw` /
-  `70vw` / `92vw` / `86vh`）一并撤掉，`WindowConfig` 回到固定 `1080x760`（不再设 `autoSize`）。框架侧的
-  宿主基元 `WindowConfig.autoSize` / `cj_bridge_set_window_auto` **保留**（默认 `None`、装配零成本，
-  桩自检 224 项照跑），要用它的应用自行打开。取证：`set window: title=AI 对话 size=1080x760`
+  `70vw` / `92vw` / `86vh`）一并撤掉，`WindowConfig` 回到固定 `1080x760`。**随后框架侧这套基元也整体撤除**
+  （`WindowConfig.autoSize` / `WindowAutoSize` / `cj_bridge_set_window_auto` / core 的 `cj_core_window_size`
+  与两平台建窗换算全删，桩自检相应 10 项一并取消——留着只会让后续应用再照着接一遍）。取证：
+  `set window: title=AI 对话 size=1080x760`
   （用户实例 22:17:25 与 Xvfb 副本 22:19:34 两次）、页内自检 **56/56 断言、FAIL 0**（明细 65 条 PASS，
   其中 9 条 CJH-* 不并入计数）、截图 `/tmp/cj-tauri-shots/after-unscale-1280-root.png`（1280x800 窗口、
   字号回原口径、输入区仍贴底部）。

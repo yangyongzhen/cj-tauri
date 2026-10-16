@@ -100,8 +100,14 @@ func checkCjhBin(p: String): Option<String> {
 
 /**
  * 确保 cjh web 就绪：端口上已有活的就复用（gCjhOwned=false，退出不收）；
- * 没有且配了 CJ_AICHAT_CJH 就 spawn（cjh web --port <port>）并轮询健康检查
- * 最多 10 秒。失败不致命——页面拿「未连接」状态，聊天/工具区如实显示不可用。
+ * 没有且配了 CJ_AICHAT_CJH 就 spawn（cjh web --port <port> --bind 127.0.0.1）
+ * 并轮询健康检查最多 10 秒。失败不致命——页面拿「未连接」状态，聊天/工具区如实显示不可用。
+ *
+ * 为什么显式 `--bind 127.0.0.1`：cjh web 的默认绑定是 0.0.0.0，而默认又不带鉴权
+ * token（cjh 自己会打一行安全警告）。跟着默认走等于把「能读写工作区、能跑 shell、
+ * 能发消息给 LLM」的整套 API 摆在局域网上——本应用的消费面全在本机（页面、ws、
+ * REST 都是 127.0.0.1），所以这里收到回环。**注意只对本应用 spawn 的实例生效**：
+ * 用户自己起的 cjh（被复用那条路）绑定仍由用户决定，框架不去改别人的进程。
  */
 public func ensureCjhWeb(): Bool {
     let port = cjhPort()
@@ -122,7 +128,9 @@ public func ensureCjhWeb(): Bool {
     }
     var proc: SubProcess
     try {
-        proc = launch(bin, ["web", "--port", port.toString()])
+        // --bind 127.0.0.1：cjh web 默认 0.0.0.0 且不带 token，不显式收回来就等于
+        // 把整套 agent API 摆到局域网上（详见本函数上方注释与类注释）
+        proc = launch(bin, ["web", "--port", port.toString(), "--bind", "127.0.0.1"])
     } catch (e: Exception) {
         eprintln("[cj-ai-chat] 启动 cjh web 失败：${e}")
         return false

@@ -31,7 +31,9 @@ func envOr(name: String, fallback: String): String {
     }
 }
 
-/** 读前端页面（工作目录 = 工程根：capabilities/ 与 ui/ 按相对路径读） */
+/** 读前端页面（工作目录 = 工程根：capabilities/ 与 ui/ 按相对路径读）。
+    vendor 库在装配期读盘内联进占位符——run(html) 的页面没有真实来源，
+    `<script src>` 相对路径取不到文件（markdown-notes 同款机制）。 */
 func loadUi(): String {
     var bytes: Array<Byte> = []
     try {
@@ -39,7 +41,26 @@ func loadUi(): String {
     } catch (e: Exception) {
         throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/ai-chat 目录下启动")
     }
-    return String.fromUtf8(bytes)
+    return inlineVendor(String.fromUtf8(bytes))
+}
+
+/** 把 vendor 库内联进页面占位符。库缺失不致命——高亮退化为无色纯文本，
+    不该启动失败，每份读不到只留一行 stderr。 */
+func inlineVendor(html: String): String {
+    var js = ""
+    try {
+        js += String.fromUtf8(File.readFrom("ui/vendor/highlight.min.js")) + "\n"
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）：${e}")
+    }
+    var out = html.replace("/*__VENDOR_JS__*/", js)
+    try {
+        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark.min.css"))
+        out = out.replace("/*__VENDOR_CSS__*/", css)
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] vendor 样式缺失 ui/vendor/github-dark.min.css（高亮无配色）：${e}")
+    }
+    return out
 }
 
 /** 读托盘图标（可选）：仓里没有现成 png 就用主题默认（托盘照样出，无阻塞） */

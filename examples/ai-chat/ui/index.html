@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <title>AI 对话</title>
+<script>
+/*__VENDOR_JS__*/
+</script>
+<style>
+/*__VENDOR_CSS__*/
+</style>
 <style>
   :root {
     --bg:#0f1117; --panel:#161a23; --panel2:#1c2130; --line:#262c3b;
@@ -163,60 +169,26 @@ function escHtml(s) {
  * 单遍扫描、状态机互斥（字符串/注释里的关键字不当关键字），先转义后加 span 时
  * 只对**词法片段**包 span，不产生未转义的尖括号。
  */
-var HL_KEYWORDS = {};
-'var let const function return if else for while class new this import package from as true false null undefined async await try catch finally throw switch case break continue typeof instanceof in of default do void static public private protected interface struct enum impl fn def elif end then nil None self int float str bool String Int Bool'
-  .split(' ').forEach(function (k) { HL_KEYWORDS[k] = 1; });
-
-function highlightCode(code) {
-  var out = '';
-  var i = 0, n = code.length;
-  while (i < n) {
-    var c = code[i];
-    // 注释：// 或 # 开头到行尾；/* */ 块注释
-    if ((c === '/' && code[i + 1] === '/') || (c === '#' && code[i - 1] !== '$')) {
-      var e1 = code.indexOf('\n', i); if (e1 < 0) { e1 = n; }
-      out += '<span class="c">' + escHtml(code.slice(i, e1)) + '</span>';
-      i = e1; continue;
-    }
-    if (c === '/' && code[i + 1] === '*') {
-      var e2 = code.indexOf('*/', i + 2); e2 = e2 < 0 ? n : e2 + 2;
-      out += '<span class="c">' + escHtml(code.slice(i, e2)) + '</span>';
-      i = e2; continue;
-    }
-    // 字符串：'..' ".." `..`（容忍 \" 转义）
-    if (c === '"' || c === "'" || c === '`') {
-      var j = i + 1;
-      while (j < n && code[j] !== c) { if (code[j] === '\\') { j++; } j++; }
-      j = Math.min(j + 1, n);
-      out += '<span class="s">' + escHtml(code.slice(i, j)) + '</span>';
-      i = j; continue;
-    }
-    // 数字
-    if (/[0-9]/.test(c) && !/[A-Za-z0-9_$]/.test(code[i - 1] || '')) {
-      var k = i;
-      while (k < n && /[0-9a-fA-FxX._]/.test(code[k])) { k++; }
-      out += '<span class="n">' + escHtml(code.slice(i, k)) + '</span>';
-      i = k; continue;
-    }
-    // 标识符/关键字
-    if (/[A-Za-z_$]/.test(c)) {
-      var m = i;
-      while (m < n && /[A-Za-z0-9_$]/.test(code[m])) { m++; }
-      var word = code.slice(i, m);
-      out += HL_KEYWORDS[word] ? '<span class="k">' + word + '</span>' : escHtml(word);
-      i = m; continue;
-    }
-    out += escHtml(c);
-    i++;
-  }
-  return out;
-}
-
+/* ---- 代码块语法高亮：highlight.js（vendor 内联，markdown-notes 同款）----
+ * 与手写 tokenizer 的取舍（2026-10-16 用户裁定）：web 前端生态正是这套技术的优势，
+ * 该用就用——自动语言检测、覆盖 190+ 语言、词法完备度都远好于四色手写版；
+ * 「内联」仍是前提（run(html) 无真实来源，相对 src 取不到文件），但内联的是
+ * **成熟的库**，不是自己维护的 tokenizer。
+ */
 function renderMd(src) {
   var blocks = [];
-  // 先摘代码块（tokenizer 高亮后占位，避免里面的标记被二次加工）
+  // 先摘代码块（hljs 高亮后占位，避免里面的标记被二次加工）
   var text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function (m, lang, code) {
-    blocks.push('<pre><code>' + highlightCode(code.replace(/\n$/, '')) + '</code></pre>');
+    var body = code.replace(/\n$/, '');
+    var html = '';
+    try {
+      // 带语言标注就按语言，否则自动检测
+      html = lang ? hljs.highlight(body, { language: lang, ignoreIllegals: true }).value
+                  : hljs.highlightAuto(body).value;
+    } catch (e) {
+      html = escHtml(body);   // 未知语言/库缺失：退化为纯转义，不能整条失败
+    }
+    blocks.push('<pre><code class="hljs">' + html + '</code></pre>');
     return '\u0000B' + (blocks.length - 1) + '\u0000';
   });
   text = escHtml(text);
@@ -489,10 +461,12 @@ function selfcheck() {
   var ok = function (name, cond) { r.push((cond ? 'PASS ' : 'FAIL ') + name); };
   ok('bridge', !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke));
   ok('md-escape', renderMd('<img src=x onerror=alert(1)>').indexOf('<img') === -1);
-  ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;b&gt;') !== -1);
+  // 代码块里的 HTML 必须被转义（hljs 也会包 span，但尖括号本体必须是实体——XSS 防线）
+  ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;') !== -1);
   ok('md-bold', renderMd('**hi**').indexOf('<strong>hi</strong>') !== -1);
-  ok('hl-keyword', renderMd('```\nvar x = 1\n```').indexOf('<span class="k">var</span>') !== -1);
-  ok('hl-string', renderMd('```\nx = "hi"\n```').indexOf('<span class="s">') !== -1);
+  // 高亮走 hljs（vendor 内联）：关键字/字符串都有 hljs- 前缀的 span；库缺失时退化为纯转义
+  ok('hl-keyword', renderMd('```\nvar x = 1\n```').indexOf('hljs-keyword') !== -1);
+  ok('hl-string', renderMd('```\nx = "hi"\n```').indexOf('hljs-string') !== -1);
   // 流式期间画的是解析后文本：原始 SSE 帧（data: {...}）不许出现在气泡里（实测踩过）
   ok('stream-no-raw', sseToText('data: {"choices":[{"delta":{"content":"hello world"}}]}\n\ndata: [DONE]\n').indexOf('data:') === -1);
   ok('sse-delta', sseToText('data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n') === 'A');

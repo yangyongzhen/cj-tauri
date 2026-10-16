@@ -1046,6 +1046,30 @@ function resumeCjhSession(id) {
   });
 }
 
+/* cjh 的 error 帧带 code / retryable（cjh#2/#3，cjh 侧 `7bcc097` 已落地）：按 code 给出**能照着做**的话，
+ * 而不是把 model_unavailable 这种内部词直接甩给用户。缺 code 的老服务端一律落 internal 分支。 */
+var CJH_ERR_HINT = {
+  model_unavailable: '桌面端选的服务商在 cjh 侧建不出来：多半是模型名或 base_url 不对——换回已配置的' +
+                     '服务商，或改设置里的模型名再发一次（本次没有执行）。',
+  provider_error: '上游服务商报错（网络 / Key / 限流都可能），可以重试。',
+  switch_model_failed: 'cjh 侧切换模型失败，没有建出 provider（模型没换、会话还在）。',
+  approval_timeout: '危险操作审批超时，按「拒绝」收场——回合继续，工具拿到的是拒绝结果。',
+  approval_unknown: '审批回执的 request_id 对不上，已按「拒绝」收场。',
+  internal: ''
+};
+function cjhErrText(m) {
+  var code = m.code || 'internal';
+  var t = '**[cjh ' + code + ']** ' + (m.message || 'unknown');
+  var hint = CJH_ERR_HINT[code];
+  if (hint) { t += '\n\n' + hint; }
+  if (m.retryable === true) { t += '\n（服务端标了可重试）'; }
+  return t;
+}
+/* 控制帧（ack / cancelled）不画进聊天，但要留痕：「什么都没发生」而无一行日志最贵（AGENTS §4） */
+function cjhTrace(line) {
+  try { window.__CJ_TAURI__.log.write('[aichat] [cjh] ' + line); } catch (e) {}
+}
+
 /* ---- cjh 帧 → 聊天界面（与 http 流式同一套气泡/收尾口径）---- */
 function handleCjhFrame(m) {
   var type = m.type || '';
@@ -1071,9 +1095,34 @@ function handleCjhFrame(m) {
     else { curTools.push({ name: m.name || 'tool', args: '', status: m.is_error ? 'error' : 'done', result: res }); }
     renderTools(curToolsEl, curTools);
   } else if (type === 'done') {
-    finishCjhTurn('');
+    // finish_reason：stop（正常收尾）/ cancelled（回合被中断）/ error（回合内异常）。cjh#2 后必带；
+    // 老服务端缺这个字段时按 stop 处置——与旧行为一字不差，不做额外推断
+    var fr = m.finish_reason || 'stop';
+    if (fr === 'cancelled') { finishCjhTurn('', true); }
+    else if (fr === 'error') { finishCjhTurn('（本回合异常收尾：细节见上面的工具结果与 cjh 日志）'); }
+    else { finishCjhTurn(''); }
   } else if (type === 'error') {
-    finishCjhTurn('**[cjh 错误]** ' + (m.message || 'unknown'));
+    finishCjhTurn(cjhErrText(m));
+  } else if (type === 'cancelled') {
+    // abort / cancel 后 cjh 必回这一帧（cjh#3）。桌面端点「停止」时已本地收口，所以这里通常只留痕；
+    // was_running=false 是**事实**（那一帧到达时没有在跑的回合），不是错误，别当失败报
+    if (cjhTurnPending) { finishCjhTurn('', true); }
+    cjhTrace('cancelled session=' + (m.session_id || '-') +
+      ' was_running=' + (m.was_running === true ? 'true' : 'false'));
+  } else if (type === 'ack') {
+    // 控制帧回执（switch_model / compact 用；桌面端不发这两个，正常收不到）。留着是为了
+    // 「服务端的控制帧在桌面端都有落点」——真收到就留痕，不静默丢（cjh#3 的诉求）
+    cjhTrace('ack action=' + (m.action || '-') + ' model=' + (m.model || '') +
+      ' compacted=' + (m.compacted === true ? 'true' : 'false'));
+  } else if (type === 'approval_request') {
+    // 危险操作审批：桌面端的审批界面还没做（下一个能力位），但**不能装看不见**——cjh 侧超时/断连
+    // 一律按「拒绝」收场并让回合继续，所以这里如实说清「谁在等、等多久、会怎么收场」，
+    // 而不是让用户对着一个卡住的回合猜五分钟
+    var waitS = Math.round((m.expires_in_ms || 0) / 1000);
+    appendNote('cjh 请求审批：工具 ' + (m.tool || '?') + (m.reason ? '（' + m.reason + '）' : '') +
+      ' —— 桌面端还没有审批入口，' + (waitS > 0 ? waitS + ' 秒后' : '稍后') + '按「拒绝」收场（回合继续）');
+    cjhTrace('approval_request tool=' + (m.tool || '?') + ' request_id=' + (m.request_id || '-') +
+      ' expires_in_ms=' + (m.expires_in_ms || 0));
   } else if (type === 'history_messages') {
     // 帧里带 session_id：新建会话上第一轮对话后 cjh 会开新会话，从这里把 id 接住
     if (m.session_id) { var cc = cur(); if (cc && !cc.cjhId) { cc.cjhId = m.session_id; } }
@@ -1093,6 +1142,12 @@ function finishCjhTurn(errText, stopped) {
     // tools 跟着消息落盘：刷新后重绘仍看得见这轮调了什么（DOM 里的 chip 会丢）
     c.messages.push({ role: 'assistant', content: full, ts: Date.now(),
       tools: curTools.length ? curTools.slice() : null });
+  }
+  if (!curStreamingBody) {
+    // 一个 delta / tool 帧都没有就直接收口（服务端空回复、或只回了个 done）时，此前这里是**什么都不画**：
+    // 页面上只剩用户那条消息，看着像「发出去了没反应」，而正文其实已经落盘（要刷新才出现）。
+    // 实机踩到：新 cjh 用了帧内服务商后请求失败、收口只有 done 没有文本，页面就此空白（2026-10-16）。
+    curStreamingBody = appendMsgEl('assistant', '', true, Date.now(), null);
   }
   if (curStreamingBody) {
     setBody(curStreamingBody, full, false);
@@ -1684,16 +1739,22 @@ function buildMessages(userText) {
 /* send(text?)：text 缺省取输入框；skipPush（重新生成）时用户消息已在历史里，不再入库。
  * cjh 模式（CJH.up）：走 WS 发 chat（agent 带工具执行），帧流经 handleCjhFrame 回画；
  * 直连模式：走 http:postStream（SSE，纯对话）。两条管道共用同一套气泡/收尾。 */
-/* Agent 模式发给 cjh 的 chat 帧：**前向兼容**带上桌面端选的服务商与模型（cjh 现在忽略未知字段，
- * 见 cjh#3 的需求契约；cjh 侧实现后这里一行都不用改）。抽成函数是为了让自检能断言「选中的模型
- * 真的进了帧」——不抽就只能发一条真消息去验，那是拿用户的会话做实验。
- * apiKey 暂不带：是否接受由 cjh 侧裁（换厂家才需要，届时同一处补上）。 */
+/* Agent 模式发给 cjh 的 chat 帧：带上桌面端**选中的**服务商与模型。
+ * 契约（cjh#3，cjh 侧 `7bcc097` 已落地）：帧内 model / base_url / api_key 覆盖该会话当前配置，
+ * **只对这一回合生效、不落盘、不粘住**；三个字段全缺 = 旧客户端一字不差的老行为。字段名按 cjh 侧
+ * 实现写蛇形（它同时兼容 baseUrl / apiKey，这里不押两种拼法）。
+ * 为什么必须带 api_key：不同厂家的 Key 不通用，只带 model + base_url 时 cjh 会拿自己的 Key 去打
+ * 别的端点，失败形状是 provider 报错、「桌面端选的服务商」等于没生效（用户 2026-10-16 报的就是这个）。
+ * cjh 侧承诺这把 Key 仅本次请求、绝不落盘、日志不打印；桌面端这边的对应承诺是**它不进任何日志行**
+ * （trace / 自检日志都不带它），自检断言 cjh-key-not-logged 守着这条。
+ * 抽成函数是为了让自检能断言「选中的模型真进了帧」——不抽就只能发一条真消息去验，那是拿用户的会话做实验。 */
 function agentChatFrame(text, cjhId) {
   var f = { type: 'chat', message: text, session_id: cjhId || '' };
   var ap = activeProvider();
   if (ap) {
     if (ap.model) { f.model = ap.model; }
-    if (ap.baseUrl) { f.baseUrl = ap.baseUrl; }
+    if (ap.baseUrl) { f.base_url = ap.baseUrl; }
+    if (ap.apiKey) { f.api_key = ap.apiKey; }
   }
   return f;
 }
@@ -2136,10 +2197,63 @@ function selfcheck() {
   // 停在 cjh 的面板上切模式：要能收回会话页，否则界面停在「什么都不显示」
   switchTab('mcp');
   ok('mode-chat-tab-collapse', curSideTab === 'convs');
-  // 透传：选中服务商的 model/baseUrl 必须真进帧（cjh 侧实现后即生效，见 cjh#3）
+  // 透传：选中服务商的 model / base_url / api_key 必须真进帧（cjh 侧 `7bcc097` 已实现覆盖，见 cjh#3）
   var _f = agentChatFrame('hi', 'sid-1');
   ok('mode-frame-passthrough', _f.type === 'chat' && _f.session_id === 'sid-1' &&
-     _f.model === 'probe-model' && _f.baseUrl === 'https://probe.example/v1/chat');
+     _f.model === 'probe-model' && _f.base_url === 'https://probe.example/v1/chat' &&
+     _f.api_key === 'k');
+  // --- cjh 新协议落点（cjh#2/#3，cjh 侧 `7bcc097`）：error 的 code 分流、控制帧不静默、密钥只进帧 ---
+  // ① error 帧按 code 给「能照着做」的提示；未知 code 回落 internal（不把内部词裸甩给用户）
+  var _e1 = cjhErrText({ message: 'bad model', code: 'model_unavailable', retryable: false });
+  var _e2 = cjhErrText({ message: 'boom', code: 'who_knows', retryable: true });
+  ok('cjh-error-code-split', _e1.indexOf('model_unavailable') !== -1 &&
+     _e1.indexOf('模型名或 base_url') !== -1 && _e1.indexOf('可重试') === -1 &&
+     _e2.indexOf('who_knows') !== -1 && _e2.indexOf('可重试') !== -1);
+  // ② 密钥只进帧、不进日志：拦下 ws:send / log:write / store:set 三个出口，跑一次**真实**发送路径
+  // （真发一条 cjh WS 帧是不可能的——那会用到用户的会话与 Key；这里只到「帧已交给 ws:send」为止）
+  var _inv8 = window.__CJ_TAURI__.invoke, _lw8 = window.__CJ_TAURI__.log && window.__CJ_TAURI__.log.write;
+  var _logs8 = [], _sent8 = null;
+  var _cv8 = convs, _cid8 = curId, _mo8 = appMode, _pv8 = providers, _pi8 = activeIdx;
+  var _up8 = CJH.up, _wsUp8 = CJH.wsUp;
+  window.__CJ_TAURI__.invoke = function (cmd, args) {
+    if (cmd === 'ws:send') { _sent8 = args; return Promise.resolve(true); }
+    if (cmd === 'log:write') { _logs8.push(String((args && args.line) || '')); return Promise.resolve(true); }
+    if (cmd === 'store:set') { return Promise.resolve(true); }
+    return Promise.resolve(null);
+  };
+  if (_lw8) { window.__CJ_TAURI__.log.write = function (l) { _logs8.push(String(l)); }; }
+  providers = [{ name: '探针服务商', baseUrl: 'https://probe.example/v1/chat',
+                 apiKey: 'sk-probe-KEY-9', model: 'probe-model' }];
+  activeIdx = 0; appMode = 'agent'; CJH.up = true; CJH.wsUp = true;
+  convs = [{ id: 'c-k8', title: '密钥探针', messages: [] }]; curId = 'c-k8';
+  streaming = false;
+  send('hello');
+  var _kFrame = JSON.stringify(_sent8 || '');
+  finishCjhTurn('', true);          // 在临时会话上收口（此刻出口还是桩：不落盘、不真发 ws）
+  if (_lw8) { window.__CJ_TAURI__.log.write = _lw8; }
+  window.__CJ_TAURI__.invoke = _inv8;
+  convs = _cv8; curId = _cid8; appMode = _mo8; providers = _pv8; activeIdx = _pi8;
+  CJH.up = _up8; CJH.wsUp = _wsUp8; applyMode(); renderConvs();
+  var _kLeak = 0;
+  _logs8.forEach(function (l) { if (l.indexOf('sk-probe-KEY-9') !== -1) { _kLeak++; } });
+  ok('cjh-key-not-logged', _kFrame.indexOf('api_key') !== -1 &&
+     _kFrame.indexOf('sk-probe-KEY-9') !== -1 && _kLeak === 0);
+  // ③ 控制帧不静默：cancelled / ack 只留痕（不画进聊天）；approval_request 得在聊天里说清
+  // 「谁在等、等多久、会怎么收场」——桌面端审批界面还没做，但不能让回合静默卡五分钟
+  var _logs9 = [], _lw9 = window.__CJ_TAURI__.log && window.__CJ_TAURI__.log.write;
+  var _pc9 = cjhTurnPending;
+  if (_lw9) { window.__CJ_TAURI__.log.write = function (l) { _logs9.push(String(l)); }; }
+  cjhTurnPending = false;
+  handleCjhFrame({ type: 'cancelled', session_id: 's9', was_running: false });
+  handleCjhFrame({ type: 'ack', action: 'compact', model: 'm9', compacted: true });
+  handleCjhFrame({ type: 'approval_request', tool: 'bash', reason: '命中危险命令规则',
+                   expires_in_ms: 300000, request_id: 's9#a1' });
+  if (_lw9) { window.__CJ_TAURI__.log.write = _lw9; }
+  cjhTurnPending = _pc9;
+  var _j9 = _logs9.join('\n'), _m9 = $('msgs').textContent;
+  ok('cjh-control-frames-not-silent', _j9.indexOf('was_running=false') !== -1 &&
+     _j9.indexOf('ack action=compact') !== -1 && _j9.indexOf('approval_request tool=bash') !== -1 &&
+     _m9.indexOf('请求审批') !== -1 && _m9.indexOf('按「拒绝」收场') !== -1);
   // Agent 态：四块回来、品牌改口，徽章改说 cjh 侧（没取到 cjh settings 时如实写「未取到」）
   appMode = 'agent'; applyMode(); renderConvs();
   ok('mode-agent-shows-cjh', $('wsBadge').style.display !== 'none' && $('cjhState').style.display !== 'none' &&

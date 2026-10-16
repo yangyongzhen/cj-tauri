@@ -337,6 +337,25 @@
 - **托盘能力位（PLG-009）**：`TrayModel`（`src/tray.cj`，图标 + 提示 + 平铺一层菜单，复用 `MenuItem` 与菜单 wire 格式）→ `TauriApp.setTray()` → `WebViewHost.setTray()` → C 桥 `cj_bridge_set_tray`（core 记 pending，两头都能用：装配前调由宿主线程装配时创建，运行期调整表重建）。Linux 走 **libayatana-appindicator3**（可选编译 `CJ_HAVE_TRAY`，`build_linux.sh` 用 pkg-config 探测；点击经 `cj_core_tray_clicked` 以 `{"kind":"tray","id":…}` 走 shell 通道，前端事件 `tray:click`）；Windows 桩如实报未实现。托盘菜单行走 `cj_core_menu_walk` 同一遍解析，Submenu 整条出局并打 stderr。
 - **全局快捷键能力位（PLG-010）**：`HotkeyModel`（`src/hotkey.cj`）→ `TauriApp.setGlobalHotkeys()` → C 桥 `cj_bridge_set_global_hotkeys`。Linux 走 **X11 XGrabKey**（可选编译 `CJ_HAVE_X11`；独立 grab 线程独占 X 连接、按键经管道送 GTK 线程，NumLock/CapsLock 四组合都 grab；Wayland 如实报不支持），点击以 `{"kind":"hotkey","id":…}` 走 shell 通道（前端事件 `hotkey:press`）；Windows 桩。能力位 `CJ_CAP_HOTKEY`/`CJ_CAP_TRAY` 按编译期开关如实上报（`system:host`），桩自检 182 项（含托盘接线 8 项）。
 - **新示例 `examples/clipboard-history`**（剪贴板历史管理器）：托盘 + 全局快捷键的首个消费者——**历史捕获零新命令**（前端 500ms 轮询 `clipboard:read` 去重入史，store 持久化上限 200 条），点击条目 `clipboard:write` 回写。Linux 实机 E2E **15/15**（`dist/e2e-evidence/linux-clipboard-history.json`）：托盘真建（tray applied）、grab 注册、轮询捕获、回写后 `xclip -o` **外部回读**对账。已实测的坑入档：剪贴板 core 层单槽防并发（read/write 撞车返回 code=-3），前端探针带退避重试。
+- **`examples/ai-chat` Agent 模式：桌面端选中的服务商随帧带给 cjh（会话级覆盖，cjh#3 契约）**：
+  Agent 模式发给 cjh 的 `chat` 帧现在带 `model` / `base_url` / `api_key`（取当前选中的服务商，
+  字段为空则**不发**该字段），cjh 侧（`7bcc097`）只对本回合生效、不落盘、不粘住；三者全缺时与旧客户端
+  行为一字不差。为什么必须连 **api_key** 一起给：不同厂家的 Key 不通用，只带 `model` + `base_url`
+  会让 cjh 拿自己的 Key 去打别的端点，失败形状是 provider 报错、「桌面端选的服务商」等于没生效
+  （用户 2026-10-16 报的就是这个）。桌面端的对应承诺是**这把 Key 不进任何日志行**（trace 与页内自检
+  日志都不带），断言 `cjh-key-not-logged` 守着。构造逻辑抽成 `agentChatFrame()`，好让自检能断言
+  「选中的模型真进了帧」——不抽就只能发一条真消息去验，那是拿用户的会话做实验。
+  实机对照（Xvfb + 隔离副本 + HEAD 构建的 cjh 另起 18899 端口）：**旧 cjh + 打不通的 `base_url` = 有文本
+  回复**（旧服务端整帧忽略）、**新 cjh + 同一份帧 = 空回复**、**新 cjh + 不带覆盖字段 = `OK`** ——
+  第三条钉住「服务端与它自己的配置都是好的」，于是第二条的空回复只能来自「帧内服务商被消费」，
+  透传在实机成立（三条的判据都是副本 `store.json` 里那一轮落盘的正文，不是退出码）。
+- **`examples/ai-chat` 补齐 cjh 新帧的落点**（对齐 cjh `7bcc097` 的帧身份 / 审批通道 / 结构化收尾）：
+  `ack`（请求已受理）、`cancelled{was_running}`（中止回执——本回合是被取消，不是失败）、
+  `error{code,retryable}`（按 code 映射成人话提示，并标明可否重试）、`approval_request`（工具待批准的
+  落点）、`done.finish_reason`（收尾原因：`length` / `content_filter` / `error` 各给一行说明，
+  空回复不再无声）。页内自检 **66 PASS / 0 FAIL**（本轮新增 `mode-chat-hides-cjh` / `mode-chat-badge` /
+  `mode-chat-tab-collapse` / `mode-frame-passthrough` / `mode-agent-shows-cjh` / `cjh-key-not-logged`），
+  `scripts/check-static.sh` 全绿。
 
 ### Changed
 
@@ -500,6 +519,11 @@ expand/fill、页面 `100vh` 与外层 flex 都跟着变（隔离副本在 Xvfb 
 
 ### Fixed
 
+- **修：`examples/ai-chat` 收口时一个 delta 都没有的回复，页面上一个字都不画**（2026-10-16 实机踩到）：
+  正文其实**已经落盘**（刷新就出现），但 `finishCjhTurn` 原先只在「已有流式气泡」时才渲染正文，
+  于是页面上只剩用户那条消息，看着像「发出去了没反应」——最容易把服务端的失败读成「桌面端卡住了」。
+  收口前先补一个助手气泡再写正文。触发它的正是本轮那轮实机：新 cjh 用了帧内服务商、请求打不通，
+  收尾只有一个 `done`、没有任何文本（**cjh 侧这时也没回 `error` 帧**，已另提 issue；桌面端这边至少不再无声）。
 - **修：`examples/ai-chat` 左栏同一个 cjh 会话出现两次，点一次「⟳ cjh 会话历史」就多一份本地会话**
   （用户实况）：两个来源各列各的——本地会话里走过 agent 的那条带 `cjhId`，`⟳` 组又是 `/api/sessions`
   的全量，同一个会话于是排成两行；而 `resumeCjhSession()` 无条件 `newConv()`，每点一次 ⟳ 就多一条本地

@@ -83,6 +83,15 @@ public class IpcContext {
     public func resolveScopedPath(plugin: String, rawPath: String): String {
         return this.hub.resolveScopedPath(plugin, rawPath)
     }
+
+    /**
+     * 取某插件的 scope 规则**本体**（不给判定）：给「匹配语义不是文件路径」的插件用——
+     * 如 http 插件把 allow/deny 模式当**主机名**匹配（不能先走 normalizeScopePath 的
+     * 文件路径折叠）。判定本身仍走共享层 `scopeAllows`，插件不自己写第二份 glob。
+     */
+    public func scopeRuleFor(plugin: String): Option<ScopeRule> {
+        return this.hub.scopeRuleFor(plugin)
+    }
 }
 
 /**
@@ -151,6 +160,16 @@ public class IpcHub {
             case None => ()
         }
         return resolved
+    }
+
+    /**
+     * 取某插件的 scope 规则**本体**（不给判定）：给「匹配语义不是文件路径」的插件用——
+     * 如 http 插件把 allow/deny 模式当**主机名**匹配（不能先走 normalizeScopePath 的
+     * 文件路径折叠，那会把 `api.example.com` 当成相对路径去拼接）。判定本身仍走共享层
+     * `scopeAllows`，插件不自己写第二份 glob。
+     */
+    public func scopeRuleFor(plugin: String): Option<ScopeRule> {
+        return this.capabilities.scopeForPlugin(plugin)
     }
 
     /**

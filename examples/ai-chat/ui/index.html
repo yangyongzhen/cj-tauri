@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AI 对话</title>
+<style>
+  :root { --bg:#1e1f22; --panel:#2b2d31; --line:#3f4147; --fg:#e3e5e8; --dim:#949ba4; --acc:#5865f2; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { display:flex; height:100vh; background:var(--bg); color:var(--fg);
+         font:14px/1.6 system-ui,"Segoe UI","Microsoft YaHei",sans-serif; }
+  /* ---- 左栏：会话列表 ---- */
+  #side { width:230px; background:var(--panel); display:flex; flex-direction:column; border-right:1px solid var(--line); flex:0 0 auto; }
+  #side h1 { font-size:13px; padding:12px 14px 8px; color:var(--dim); font-weight:600; }
+  #convList { flex:1 1 auto; overflow-y:auto; padding:0 8px; }
+  .conv { padding:8px 10px; border-radius:6px; cursor:pointer; margin-bottom:2px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .conv:hover { background:#35373c; }
+  .conv.active { background:var(--acc); color:#fff; }
+  .conv .del { float:right; opacity:0; padding:0 4px; }
+  .conv:hover .del { opacity:.7; }
+  #sideBtns { padding:10px; border-top:1px solid var(--line); display:flex; gap:8px; }
+  /* ---- 主栏 ---- */
+  #main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  #msgs { flex:1 1 auto; overflow-y:auto; padding:18px 22px; }
+  .msg { margin-bottom:14px; max-width:860px; }
+  .msg .who { font-size:12px; color:var(--dim); margin-bottom:3px; }
+  .msg .body { white-space:pre-wrap; }
+  .msg.user .body { background:var(--panel); display:inline-block; padding:8px 12px; border-radius:8px; }
+  .msg.assistant .body .cursor { display:inline-block; width:8px; height:15px;
+        background:var(--fg); vertical-align:-2px; animation:blink .8s step-end infinite; }
+  @keyframes blink { 50% { opacity:0; } }
+  .msg .body p { margin:6px 0; }
+  .msg .body pre { background:#16171a; padding:10px 12px; border-radius:6px; overflow-x:auto; margin:8px 0; }
+  .msg .body code { font-family:Consolas,Menlo,monospace; font-size:13px; }
+  .msg .body p code, .msg .body li code { background:#16171a; padding:1px 5px; border-radius:4px; }
+  #typing { color:var(--dim); font-size:13px; padding:6px 0; display:none; }
+  /* ---- 输入区 ---- */
+  #inputBar { border-top:1px solid var(--line); padding:12px 16px; display:flex; gap:10px; align-items:flex-end; flex:0 0 auto; }
+  #input { flex:1 1 auto; min-width:0; background:var(--panel); border:1px solid var(--line); color:var(--fg);
+           border-radius:8px; padding:10px 12px; font:inherit; resize:none; height:64px; }
+  #input:focus { outline:none; border-color:var(--acc); }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:9px 18px;
+           font:inherit; cursor:pointer; flex:0 0 auto; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--dim); }
+  /* ---- 设置弹层 ---- */
+  #mask { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none;
+          align-items:center; justify-content:center; }
+  #mask.show { display:flex; }
+  #cfg { background:var(--panel); border-radius:10px; padding:20px 22px; width:520px; max-height:86vh; overflow-y:auto; }
+  #cfg h2 { font-size:15px; margin-bottom:12px; }
+  .row { margin-bottom:10px; }
+  .row label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
+  .row input, .row select { width:100%; background:var(--bg); border:1px solid var(--line); color:var(--fg);
+           border-radius:6px; padding:8px 10px; font:inherit; }
+  .hint { font-size:12px; color:var(--dim); margin:8px 0; }
+</style>
+</head>
+<body>
+  <div id="side">
+    <h1>会话</h1>
+    <div id="convList"></div>
+    <div id="sideBtns">
+      <button id="btnNew">新会话</button>
+      <button id="btnCfg" class="ghost">设置</button>
+    </div>
+  </div>
+  <div id="main">
+    <div id="msgs"></div>
+    <div id="typing">正在输入…</div>
+    <div id="inputBar">
+      <textarea id="input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+      <button id="btnSend">发送</button>
+      <button id="btnStop" class="ghost" style="display:none">停止</button>
+    </div>
+  </div>
+  <div id="mask">
+    <div id="cfg">
+      <h2>服务商设置</h2>
+      <div class="hint">API Key 只存在本机（store 插件，应用数据目录），出网主机受能力清单白名单约束。</div>
+      <div class="row"><label>Base URL（须在白名单内）</label>
+        <input id="fBase" placeholder="https://api.deepseek.com/v1/chat/completions"></div>
+      <div class="row"><label>API Key</label><input id="fKey" type="password"></div>
+      <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
+      <div class="row"><label>system 提示词（可选）</label><input id="fSys"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+        <button id="btnCfgCancel" class="ghost">取消</button>
+        <button id="btnCfgSave">保存</button>
+      </div>
+    </div>
+  </div>
+<script>
+'use strict';
+/* ============================================================
+ * ai-chat 前端：零新命令——出网走 http:postStream（SSE），持久化走 store:*。
+ * 流程：invoke('http:postStream') 立即返回前，宿主已在按块读响应体并推
+ * http:chunk 事件（emitLatest）；命令的 resolve 值是最终统计（received 等）。
+ * ============================================================ */
+
+function waitForBridge() {
+  return new Promise(function (resolve) {
+    if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { resolve(); return; }
+    var t = setInterval(function () {
+      if (window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke) { clearInterval(t); resolve(); }
+    }, 50);
+  });
+}
+
+/* ---- 极简 Markdown 渲染：先转义 HTML，再放行受控标记 ----
+ * 模型输出是**不可信内容**，绝不能 innerHTML 直插（XSS）。
+ * 顺序：整段转义 → 代码块/行内代码/粗体/斜体/标题/链接（链接 href 只许 http(s)）。
+ */
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function renderMd(src) {
+  var blocks = [];
+  // 先摘代码块（转义后占位，避免里面的标记被二次加工）
+  var text = src.replace(/```(\w*)\n?([\s\S]*?)```/g, function (m, lang, code) {
+    blocks.push('<pre><code>' + escHtml(code.replace(/\n$/, '')) + '</code></pre>');
+    return '\u0000B' + (blocks.length - 1) + '\u0000';
+  });
+  text = escHtml(text);
+  text = text.replace(/`([^`\n]+)`/g, function (m, c) { return '<code>' + c + '</code>'; });
+  text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/(^|\n)#{1,4}\s+([^\n]+)/g, '$1<strong>$2</strong>');
+  // 链接：href 白名单 http/https，其余只留文字
+  text = text.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, label, href) {
+    if (/^https?:\/\//.test(href)) {
+      return '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>';
+    }
+    return label;
+  });
+  // 按双换行切段；段内单换行保留（white-space:pre-wrap 兜着）
+  text = text.split(/\n{2,}/).map(function (p) {
+    if (/^\u0000B\d+\u0000$/.test(p.trim())) { return p; }
+    return '<p>' + p + '</p>';
+  }).join('');
+  return text.replace(/\u0000B(\d+)\u0000/g, function (m, i) { return blocks[+i]; });
+}
+
+/* ---- 状态 ---- */
+var cfg = { base: 'https://api.deepseek.com/v1/chat/completions', key: '', model: 'deepseek-chat', sys: '' };
+var convs = [];            // [{id,title,messages:[{role,content}]}]
+var curId = null;
+var streaming = false;
+var abortFlag = false;
+
+var $ = function (id) { return document.getElementById(id); };
+var msgsEl = $('msgs');
+
+function saveState() {
+  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ cfg: cfg, convs: convs, curId: curId }) })
+    .catch(function () {});
+}
+function loadState() {
+  return window.__CJ_TAURI__.invoke('store:get', { key: 'aichat.state' }).then(function (v) {
+    if (!v) { return; }
+    try {
+      var s = JSON.parse(v);
+      if (s.cfg) { cfg = s.cfg; }
+      if (Array.isArray(s.convs)) { convs = s.convs; }
+      curId = s.curId || (convs[0] && convs[0].id) || null;
+    } catch (e) { /* 存档坏了就当没有：不因脏数据起不来 */ }
+  });
+}
+
+/* ---- 会话列表 ---- */
+function renderConvs() {
+  var el = $('convList');
+  el.innerHTML = '';
+  convs.forEach(function (c) {
+    var d = document.createElement('div');
+    d.className = 'conv' + (c.id === curId ? ' active' : '');
+    d.textContent = c.title || '新会话';
+    var del = document.createElement('span');
+    del.className = 'del';
+    del.textContent = '×';
+    del.onclick = function (ev) { ev.stopPropagation(); deleteConv(c.id); };
+    d.appendChild(del);
+    d.onclick = function () { if (!streaming) { curId = c.id; renderConvs(); renderMsgs(); } };
+    el.appendChild(d);
+  });
+}
+function newConv() {
+  var c = { id: 'c' + Date.now(), title: '新会话', messages: [] };
+  convs.unshift(c);
+  curId = c.id;
+  renderConvs(); renderMsgs(); saveState();
+}
+function deleteConv(id) {
+  convs = convs.filter(function (c) { return c.id !== id; });
+  if (curId === id) { curId = (convs[0] && convs[0].id) || null; }
+  if (!curId && convs.length === 0) { newConv(); return; }
+  renderConvs(); renderMsgs(); saveState();
+}
+function cur() {
+  for (var i = 0; i < convs.length; i++) { if (convs[i].id === curId) { return convs[i]; } }
+  return null;
+}
+
+/* ---- 消息渲染 ---- */
+function renderMsgs() {
+  var c = cur();
+  msgsEl.innerHTML = '';
+  if (!c) { return; }
+  c.messages.forEach(function (m) { appendMsgEl(m.role, m.content); });
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+function appendMsgEl(role, content, streamingNow) {
+  var d = document.createElement('div');
+  d.className = 'msg ' + role;
+  var who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = role === 'user' ? '你' : '助手';
+  var body = document.createElement('div');
+  body.className = 'body';
+  setBody(body, content, streamingNow && role === 'assistant');
+  d.appendChild(who); d.appendChild(body);
+  msgsEl.appendChild(d);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+  return body;
+}
+function setBody(el, content, isStreaming) {
+  if (isStreaming) {
+    // 流式期间：渲染已到文本 + 光标；渲染层每帧整体重画（增量由 emitLatest 聚合）
+    el.innerHTML = renderMd(content) + '<span class="cursor"></span>';
+  } else {
+    el.innerHTML = renderMd(content);
+  }
+}
+
+/* ---- 发送与流式接收 ---- */
+function buildMessages(userText) {
+  var ms = [];
+  if (cfg.sys) { ms.push({ role: 'system', content: cfg.sys }); }
+  var c = cur();
+  c.messages.forEach(function (m) { ms.push({ role: m.role, content: m.content }); });
+  ms.push({ role: 'user', content: userText });
+  return ms;
+}
+
+function send() {
+  var input = $('input');
+  var text = input.value.trim();
+  if (!text || streaming) { return; }
+  if (!cfg.key) { openCfg(); return; }
+  var c = cur();
+  if (!c) { newConv(); c = cur(); }
+  if (c.messages.length === 0) { c.title = text.slice(0, 18); renderConvs(); }
+  c.messages.push({ role: 'user', content: text });
+  appendMsgEl('user', text);
+  input.value = '';
+  var body = appendMsgEl('assistant', '');
+  var acc = '';
+  streaming = true; abortFlag = false;
+  setStreamingUi(true);
+
+  // 事件监听先于 invoke 挂上（命令发出后块可能立刻到达）
+  var off = window.__CJ_TAURI__.listen('http:chunk', function (p) {
+    if (p.done) { return; }            // 收尾用命令 resolve 对账，避免事件与 resolve 竞争
+    acc += p.delta || '';
+    setBody(body, acc, true);
+  });
+
+  var payload = JSON.stringify({ model: cfg.model, messages: buildMessages(text), stream: true });
+  window.__CJ_TAURI__.invoke('http:postStream', {
+    url: cfg.base,
+    body: payload,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.key }
+  }).then(function (stat) {
+    off();
+    // SSE 帧 → 纯文本（宿主只回投字节，帧解析在前端：data: 行取 JSON，拼 delta，[DONE] 收）
+    var full = sseToText(acc);
+    c.messages.push({ role: 'assistant', content: full });
+    setBody(body, full, false);
+    if (stat && stat.truncated) { appendNote('（回复过长被截断）'); }
+    streaming = false; setStreamingUi(false);
+    saveState();
+  }).catch(function (e) {
+    off();
+    if (abortFlag) {
+      // 主动停止：留已收到的部分，不算错误
+      if (acc) { c.messages.push({ role: 'assistant', content: sseToText(acc) + '\n\n（已停止）' }); }
+      setBody(body, sseToText(acc) + (acc ? '\n\n（已停止）' : '（已停止）'), false);
+    } else {
+      var msg = '请求失败：' + (e && e.message ? e.message : String(e));
+      c.messages.push({ role: 'assistant', content: msg });
+      setBody(body, msg, false);
+      appendNote('若提示 scope/白名单，请到 设置 里确认 Base URL 在白名单内');
+    }
+    streaming = false; setStreamingUi(false);
+    saveState();
+  });
+}
+
+/* ---- SSE 帧解析（前端侧）：OpenAI 兼容格式 ----
+ * 宿主的 http:chunk 只给字节增量；这里维护跨事件的不完整行。
+ */
+var sseLineBuf = '';
+function sseToText(acc) {
+  // acc 是**累计字节流**的文本（emitLatest 只保最新，所以每次全量重解，
+  // 简单且无状态——几十 KB 的重解成本远低于流式等待本身）
+  var out = '';
+  var lines = acc.split('\n');
+  lines.forEach(function (line) {
+    var t = line.trim();
+    if (t.indexOf('data:') !== 0) { return; }
+    var d = t.slice(5).trim();
+    if (!d || d === '[DONE]') { return; }
+    try {
+      var j = JSON.parse(d);
+      var ch = j.choices && j.choices[0];
+      var delta = ch && ch.delta && ch.delta.content;
+      if (typeof delta === 'string') { out += delta; }
+      // 兼容非流式错误返回
+      if (j.error && j.error.message) { out += '\n\n[服务端错误] ' + j.error.message; }
+    } catch (e) { /* 半截 JSON（块边界）等下一轮 */ }
+  });
+  return out;
+}
+
+function appendNote(text) {
+  var n = document.createElement('div');
+  n.className = 'hint';
+  n.textContent = text;
+  msgsEl.appendChild(n);
+}
+
+function stopStream() {
+  // 没有服务端取消通道（difficult 分期）：置标志，收尾时保留已到文本
+  abortFlag = true;
+}
+
+function setStreamingUi(on) {
+  $('btnSend').disabled = on;
+  $('btnStop').style.display = on ? '' : 'none';
+  $('typing').style.display = on ? '' : 'none';
+}
+
+/* ---- 设置弹层 ---- */
+function openCfg() {
+  $('fBase').value = cfg.base; $('fKey').value = cfg.key;
+  $('fModel').value = cfg.model; $('fSys').value = cfg.sys;
+  $('mask').className = 'show';
+}
+function closeCfg() { $('mask').className = ''; }
+function saveCfg() {
+  cfg.base = $('fBase').value.trim() || cfg.base;
+  cfg.key = $('fKey').value.trim();
+  cfg.model = $('fModel').value.trim() || cfg.model;
+  cfg.sys = $('fSys').value;
+  closeCfg(); saveState();
+}
+
+/* ---- 自检探针（CJ_AICHAT_SELFCHECK=1 时无人值守跑一轮） ---- */
+function selfcheck() {
+  var r = [];
+  var ok = function (name, cond) { r.push((cond ? 'PASS ' : 'FAIL ') + name); };
+  ok('bridge', !!(window.__CJ_TAURI__ && window.__CJ_TAURI__.invoke));
+  ok('md-escape', renderMd('<img src=x onerror=alert(1)>').indexOf('<img') === -1);
+  ok('md-code', renderMd('```\n<b>\n```').indexOf('&lt;b&gt;') !== -1);
+  ok('md-bold', renderMd('**hi**').indexOf('<strong>hi</strong>') !== -1);
+  ok('sse-delta', sseToText('data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n') === 'A');
+  ok('sse-half', sseToText('data: {"choices":[{"delta":{"cont') === '');
+  ok('link-safe', renderMd('[x](javascript:alert(1))').indexOf('javascript') === -1);
+  // 端到端只有真网可用时才有意义：无 Key 时直发白名单内的默认端点，
+  // 服务端会回 401/400（HTTP 层成功返回、或业务报错都算「链路通」）——
+  // 只有 scope/白名单拒绝才算链路断（那说明命令没走到网络层）。
+  // （实测：deepseek 对无鉴权请求回 400 的 JSON，invoke 正常 resolve——
+  //   最初把「resolve 了」判 FAIL 是断言写反了，恰好证明白名单放行 + 网络可达。）
+  var p = window.__CJ_TAURI__.invoke('http:post', { url: cfg.base, body: '{}' }).then(function (s) {
+    ok('http-reach-server', !!s && s.status >= 400);
+    return r;
+  }).catch(function (e) {
+    ok('http-reach-server', String(e && e.message).indexOf('scope') === -1);
+    return r;
+  });
+  p.then(function () {
+    window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] SELFCHECK ' + r.filter(function (x) { return x.indexOf('PASS') === 0; }).length + '/' + r.length }).catch(function () {});
+    r.forEach(function (x) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] ' + x }).catch(function () {}); });
+    document.title = 'SELFCHECK ' + r.filter(function (x) { return x.indexOf('PASS') === 0; }).length + '/' + r.length;
+  });
+}
+
+/* ---- 启动 ---- */
+waitForBridge().then(function () {
+  $('btnNew').onclick = function () { if (!streaming) { newConv(); } };
+  $('btnCfg').onclick = openCfg;
+  $('btnCfgCancel').onclick = closeCfg;
+  $('btnCfgSave').onclick = function () { saveCfg(); };
+  $('btnSend').onclick = send;
+  $('btnStop').onclick = stopStream;
+  $('input').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
+  });
+  loadState().then(function () {
+    if (convs.length === 0) { newConv(); } else { renderConvs(); renderMsgs(); }
+    if (window.location.search.indexOf('selfcheck') !== -1 || window.__CJ_TAURI_SELF_CHECK__) {
+      setTimeout(selfcheck, 300);
+    }
+  });
+});
+</script>
+</body>
+</html>

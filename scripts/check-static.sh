@@ -134,9 +134,9 @@ fi
 section "插件实现文件物理边界"
 before=$fails
 # git 的通配会跨目录（src/*.cj 连 src/plugins/ 一起列），按显式列表过滤顶层
-stray=$(git ls-files 'src' | grep '^src/[^/]*\.cj$' | grep -E '(^src/plugin_|_bridge\.cj$)' | grep -v '^src/clipboard_bridge.cj' || true)
+stray=$(git ls-files 'src' | grep '^src/[^/]*\.cj$' | grep -E '(^src/plugin_|_bridge\.cj$)' | grep -v '^src/clipboard_bridge.cj' | grep -v '^src/log_bridge.cj' || true)
 if [ -n "$stray" ]; then
-    bad "src/ 顶层发现插件实现/FFI 桥文件（应移入 src/plugins/；例外：clipboard_bridge.cj 属核心宿主 FFI）："
+    bad "src/ 顶层发现插件实现/FFI 桥文件（应移入 src/plugins/；例外：clipboard_bridge.cj / log_bridge.cj 属核心宿主 FFI）："
     printf '%s\n' "$stray" | sed 's/^/        /'
 fi
 # 6b-2. 插件文件必须落在插件自己的子包目录（一个插件一个子包），不准直接平铺在 src/plugins/ 根

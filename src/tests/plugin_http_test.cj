@@ -2,6 +2,7 @@ package cjTauri.tests
 
 import cjTauri.*
 import cjTauri.plugins.http.*
+import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
 
@@ -84,4 +85,40 @@ func testHttpLimitsAreSane(): Unit {
     @Expect(CJ_HTTP_MAX_BYTES == 8 * 1024 * 1024, true)
     @Expect(CJ_HTTP_TIMEOUT_SECONDS > 0, true)
     @Expect(CJ_HTTP_MAX_HEADERS > 0, true)
+}
+
+/*
+ * 流式分块的 UTF-8 边界（2026-10-16 实机 → 回归）：`takeCompleteUtf8` 取走完整序列后
+ * 必须把 pending 里的**这些字节**全移掉。曾经写成 `remove(0..(cut-1))`（Range 是右开的，
+ * 这样就少移 1 字节），上一个序列的末字节留在 pending 里，下一轮拼出的字节序列非法，
+ * fromUtf8 抛 IllegalArgumentException，表现是「中文回复偶发整条 postStream 请求失败」。
+ * 判据就一条：整块都是完整序列时，取完 pending 必须**空**。
+ */
+
+@Test
+func testHttpTakeCompleteUtf8ConsumesWholeCompleteChunk(): Unit {
+    let pending = ArrayList<Byte>()
+    for (b in "abc你".toArray()) {
+        pending.add(b)
+    }
+    let cmds = HttpCommands()
+    @Expect(cmds.takeCompleteUtf8(pending), "abc你")
+    @Expect(pending.size, 0)
+}
+
+@Test
+func testHttpTakeCompleteUtf8KeepsPartialTail(): Unit {
+    // 尾巴不完整（汉字只到了前 2 字节）：留在 pending 里等下一块补齐，不能按原样解出来
+    let bytes = "你".toArray()
+    @Expect(bytes.size, 3)
+    let pending = ArrayList<Byte>()
+    pending.add(bytes[0])
+    pending.add(bytes[1])
+    let cmds = HttpCommands()
+    @Expect(cmds.takeCompleteUtf8(pending), "")
+    @Expect(pending.size, 2)
+    // 第 3 字节到了：跨块的字符拼回来，pending 随之清空
+    pending.add(bytes[2])
+    @Expect(cmds.takeCompleteUtf8(pending), "你")
+    @Expect(pending.size, 0)
 }

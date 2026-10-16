@@ -242,6 +242,14 @@
 
 ### Fixed
 
+- **修：`http` 插件流式分块每轮少移 1 字节，中文长回复偶发整条失败**（`Invalid utf8 byte sequence.`）：
+  `takeCompleteUtf8` 把「完整 UTF-8 序列」取走后用 `remove(0..(cut - 1))` 清缓冲，而仓颉的 Range 是
+  **右开**的——`0..(cut - 1)` 只移走 `cut - 1` 个字节，上一个序列的末字节留在缓冲里，下一轮拼出的
+  字节序列非法，严格的 `fromUtf8` 当场抛异常。改成 `remove(0..cut)`，尾部 `fromUtf8` 补 `try/catch`
+  （丢字节也不静默，打一行 stderr 留痕）。**形状值得记住：ASCII 结尾的块少移一字节照样合法，
+  只有块边界切在汉字中间才炸**——所以它躲过了所有「跑一遍看看」的检查，是中英文长回复才逼出来的。
+  `takeCompleteUtf8` 改 `public` 并在 `src/tests/plugin_http_test.cj` 新增 2 条边界用例
+  （`cjpm test` 279/279 PASS）。
 - **修：Windows 串口读的 `timeoutMs` 形同虚设（`serial:read` 不等数据、当场返回 0 字节）**：
   打开串口时设的 `ReadIntervalTimeout=MAXDWORD` + 两个 total 全 0 是「立刻交回已有字节」语义——
   缓冲里没数据时驱动当场把请求完成成 0 字节、`ReadFile` 返回 TRUE，C 桥里那条「等 OVERLAPPED 事件

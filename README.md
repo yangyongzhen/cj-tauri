@@ -1,33 +1,45 @@
-# cj-tauri：仓颉版 Tauri
+<div align="center">
 
-![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux-blue) ![仓颉](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4) ![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green) ![技术交流群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)
+# cj-tauri · 仓颉版 Tauri
 
-[English](README_EN.md) | 中文
+**用华为仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端，产物不带 Chromium、几 MB 级。**
 
-用华为仓颉语言实现的轻量混合开发框架——**仓颉语言的 Tauri**：把 Tauri（Rust + 系统 WebView）的三件套架构在仓颉里独立实现：
-**WebView 宿主 + IPC 双向桥 + 能力安全模型**。前端用任意 Web 技术，后端用仓颉静态编译，
-产物是不带 Chromium 的原生桌面应用。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
+[![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux-blue)](#示例一览)
+[![Cangjie](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4)](https://cangjie-lang.cn)
+[![License](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)](./LICENSE)
+[![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
 
-- 仓库：**[AtomGit](https://atomgit.com/qq8864/cj-tauri)** ｜ [GitHub](https://github.com/yangyongzhen/cj-tauri)（双托管，一次 push 同步两仓）
-- 版本：**0.8.0**（[CHANGELOG](CHANGELOG.md)）· 许可证 MIT
-- npm：`npx cj-tauri create myapp`（[npmjs.com/cj-tauri](https://www.npmjs.com/package/cj-tauri)）
-- 技术交流群（QQ）：**92381027**
-- 官网：**[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)**（中英双语，
-  源文件在 `website/`，`bash scripts/site-check.sh` 自检；托管在 GitHub Pages 是本项目唯一「非 AtomGit 的对外链接」）
+前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
+26 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
 
-## 运行效果
+> 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、19 屏实机截图与文档入口。
+
+> 💬 **QQ 技术交流群**：**92381027** —— 使用问题、功能建议、插件与踩坑交流都欢迎。
+
+[运行效果](#运行效果) · [快速开始](#快速开始) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [示例一览](#示例一览) · [架构](#架构) · [文档](#文档索引)
+
+</div>
+
+## 30 秒上手
+
+**最快路径：npm 脚手架，三行命令出第一个应用**（前置：[仓颉 SDK](docs/使用文档.md#2-环境准备) 1.0.5+ 与 stdx；Windows 另需 mingw gcc 与 WebView2 Runtime（Win11 自带），Linux 需 `libwebkit2gtk-4.1-dev`）：
+
+```bash
+npx cj-tauri create myapp          # 免安装，直接跑
+cd myapp
+npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
+```
+
+不想装 SDK？仓库随版本分发**八份静态链接的单文件 Windows 工具**（4.69–9.79 MB，免安装、
+双击即用，PE 导入表全部实测过）——[直接下载](#方式二直接下载单文件工具免安装免-sdk)。
 
 ![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
 
 *hello 示例：深色卡片 UI，输入名字点 greet 触发 invoke，底部实时显示仓颉后端推送的 tick 事件。*
 
-用 cj-tauri 实现的 **Modbus 调试工具**（`examples/modbus-poll`，对标 Modbus Poll 并补齐其痛点）：
+## 运行效果
 
-![Modbus Poll (cj-tauri) 主界面](examples/modbus-poll/images/modbus-poll-main.png)
-
-*多面板并行监控 + 底部报文监视逐帧滚动 Tx/Rx 十六进制。详见[它的 README](examples/modbus-poll/README.md)。*
-
-**AI 对话客户端**（`examples/ai-chat`）的两段实机录屏：
+用 cj-tauri 实现的 **AI 对话客户端**（`examples/ai-chat`，聊天直连服务商 / Agent 接本机 cjh 两种模式）：
 
 ![ai-chat 模式切换](docs/images/ai-chat-mode-switch.gif)
 
@@ -36,6 +48,12 @@
 ![ai-chat 缺 cjh 引导](docs/images/ai-chat-guide.gif)
 
 *缺 cjh 时切 Agent 出引导卡：按平台给下载产物，选一次可执行文件当场拉起并记住路径。*
+
+用 cj-tauri 实现的 **Modbus 调试工具**（`examples/modbus-poll`，对标 Modbus Poll 并补齐其痛点）：
+
+![Modbus Poll (cj-tauri) 主界面](examples/modbus-poll/images/modbus-poll-main.png)
+
+*多面板并行监控 + 底部报文监视逐帧滚动 Tx/Rx 十六进制。详见[它的 README](examples/modbus-poll/README.md)。*
 
 更多示例截图见下文[示例一览](#示例一览)。
 
@@ -60,9 +78,9 @@ cd myapp
 npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
 ```
 
-前置条件：[仓颉 SDK](docs/使用文档.md#2-环境准备)（1.0.5+，验证版本 1.2.0）+ stdx；
-Windows 另需 mingw gcc 与 WebView2 Runtime（Win11 自带），Linux 需 `libwebkit2gtk-4.1-dev`。
-找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，而不是一句 `command not found`。
+前置条件见[30 秒上手](#30-秒上手)。找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，
+而不是一句 `command not found`。同目录还有 `cj-tauri build/run/info/doctor`：
+`doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
 
 ### 方式二：直接下载单文件工具（免安装、免 SDK）
 

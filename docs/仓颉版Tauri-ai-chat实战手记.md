@@ -10,11 +10,11 @@
 
 结果是：**它没露馅**。而且反过来，它把 cj-tauri 狠狠补了一轮。
 
-![ai-chat 聊天模式](https://raw.githubusercontent.com/yangyongzhen/cj-tauri/main/docs/images/example-ai-chat-chat.png)
+![ai-chat 聊天模式](https://ghfast.top/https://raw.githubusercontent.com/yangyongzhen/cj-tauri/main/docs/images/example-ai-chat-chat.png)
 
 *"聊天"模式：直连 OpenAI 兼容端点，流式增量按 Markdown 真实渲染（加粗、列表都走真实解析，不是当纯文本贴上去）。*
 
-![ai-chat Agent 模式](https://raw.githubusercontent.com/yangyongzhen/cj-tauri/main/docs/images/example-ai-chat-agent.png)
+![ai-chat Agent 模式](https://ghfast.top/https://raw.githubusercontent.com/yangyongzhen/cj-tauri/main/docs/images/example-ai-chat-agent.png)
 
 *切到"Agent"模式：侧栏品牌跟着改口成 `cjh 客户端`、显示 `cjh: 已连接`，会话 / 技能 / MCP / 文件四个面板就位——管道换了，界面还在原地。*
 

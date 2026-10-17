@@ -340,6 +340,12 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [1.0.0] - 2026-10-17
+
+（首个 1.0.0：自 0.8.0 起 146 个提交——9 个新官方插件、托盘 / 全局快捷键 / 文件拖入三个能力位、
+路径 scope、native 按平台分目录、官网与三套打包脚本、ai-chat 整个应用与一半示例。能力面已齐、
+双平台实机、有 ADR 与需求追踪背书，对外 API 自此进入稳定承诺。）
+
 ### Added
 
 - **`dialog` 插件新增 `dialog:pickFolder`（选目录）**：宿主接口 `WebViewHost.showFolderDialog(title)`

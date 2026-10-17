@@ -27,6 +27,16 @@
 
 *多面板并行监控 + 底部报文监视逐帧滚动 Tx/Rx 十六进制。详见[它的 README](examples/modbus-poll/README.md)。*
 
+**AI 对话客户端**（`examples/ai-chat`）的两段实机录屏：
+
+![ai-chat 模式切换](docs/images/ai-chat-mode-switch.gif)
+
+*聊天（直连服务商）→ Agent（接本机 cjh）一键切换：侧栏改口、四面板就位、徽章显示 cjh 侧真实模型。*
+
+![ai-chat 缺 cjh 引导](docs/images/ai-chat-guide.gif)
+
+*缺 cjh 时切 Agent 出引导卡：按平台给下载产物，选一次可执行文件当场拉起并记住路径。*
+
 更多示例截图见下文[示例一览](#示例一览)。
 
 ## 为什么是 cj-tauri

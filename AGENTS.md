@@ -201,7 +201,9 @@
   只补 import 不改正文不行——限定名仍报未声明，而那条 import 反过来被判 `unused import`。
 - **`@Expect` 宏对 enum 实参推不出泛型**：单测断言里直接 `@Expect(x == SomeEnum.A)` 会报泛型推断失败；
   `JsonKind` 则**没有 `==`**（比较要走 match 分支）。这类断言改成显式 match / 布尔表达式再断言。
-- **并发原语比想象中少**：`SyncCounter` **没有 `inc()`**（只有 `add`），`Thread` **没有 `wait`/`join`**。
+- **并发原语比想象中少**：`SyncCounter` **没有 `inc()`**（加一用 `add(1)`，另有 `dec()`），等待并发任务
+  **不要去 `Thread` 上找 `join`/`wait`**——`Thread` 只有取消与异常处理相关成员，`spawn { => ... }` 返回的是
+  `Future<T>`，等它做完 / 取结果用 `future.get()`（2026-10-16 实测：`let fu = spawn {...}` + `fu.get()` 编译运行均通）。
   并发测试用 `SyncCounter` 计数（`add(1)`），异步开线程用 `spawn { => ... }`（`src/ipc_hub.cj` 有先例）。
 - **`stdx.net.http` 的 `ClientBuilder` 不带默认 TLS**：发 https 请求直接抛
   `HttpException: TLS must be configured when HTTPS requests are sent.`，必须显式

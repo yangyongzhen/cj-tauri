@@ -17,8 +17,11 @@
     "log:path",
     "clipboard:write",
     "fs:readText",
+    "dialog:open",
     "dialog:pickFolder",
     "quit",
+    "cjh:status",
+    "cjh:start",
     "system:version",
     "system:host"
   ],

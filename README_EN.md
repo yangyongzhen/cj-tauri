@@ -1,25 +1,58 @@
-# cj-tauri: Tauri, in Cangjie
+<div align="center">
 
-English | [中文](README.md)
+# cj-tauri · Tauri, in Cangjie
 
-A lightweight hybrid-app framework written in Huawei's **Cangjie** language — the same three-part
-architecture as Tauri: **WebView host + bidirectional IPC bridge + capability security model**.
-Front-end in any web technology, back-end statically compiled with Cangjie. The result is a native
-desktop app with no bundled Chromium. Both Linux (WebKitGTK) and Windows (WebView2) backends are
-working on real hardware; HarmonyOS ArkWeb is scaffolded.
+**A hybrid desktop-app framework in Huawei's Cangjie language — statically compiled Cangjie backend + system WebView front end, no bundled Chromium, multi-MB binaries.**
 
-- Repos: **[AtomGit](https://atomgit.com/qq8864/cj-tauri)** ｜ [GitHub](https://github.com/yangyongzhen/cj-tauri) (dual-hosted, one push updates both)
-- Version: **0.8.0** ([CHANGELOG](CHANGELOG.md)) · License: MIT
-- npm: `npx cj-tauri create myapp` ([npmjs.com/cj-tauri](https://www.npmjs.com/package/cj-tauri))
-- Site: **[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)** (bilingual,
-  sources in `website/`, checked by `bash scripts/site-check.sh`; GitHub Pages is the one non-AtomGit
-  public link in this project)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)](#examples)
+[![Cangjie](https://img.shields.io/badge/SDK-1.2.0%2B-ff69b4)](https://cangjie-lang.cn)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![QQ Group](https://img.shields.io/badge/QQ%20group-92381027-red)](#repos--push)
 
-## Screenshots
+Front-end in any web technology; the back-end is an auditable static binary: bidirectional IPC
+bridge, capability security model, 14 official plugins, 26 runnable examples. Both Linux
+(WebKitGTK) and Windows (WebView2) backends are working on real hardware; HarmonyOS ArkWeb is scaffolded.
+
+> 📖 **Website**: <https://yangyongzhen.github.io/cj-tauri/> — bilingual, features, 19 real-screenshot carousel and doc links.
+
+> 💬 **QQ group**: **92381027** — usage questions, feature ideas, plugin and debugging chat welcome.
+
+[Screenshots](#screenshots) · [Getting started](#getting-started) · [Why cj-tauri](#why-cj-tauri) · [Examples](#examples) · [Architecture](#architecture) · [Docs](#documentation)
+
+</div>
+
+## 30 seconds to a first app
+
+**Fastest path: the npm scaffold, three commands** (prerequisites: the
+[Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx; Windows additionally needs mingw gcc
+and the WebView2 Runtime (bundled with Win11), Linux needs `libwebkit2gtk-4.1-dev`):
+
+```bash
+npx cj-tauri create myapp          # no install needed
+cd myapp
+npx cj-tauri dev                   # takes over the Vite dev server (Vue/React templates), HMR in-window
+```
+
+No SDK? The repo ships **eight statically linked single-file Windows tools** (4.69–9.79 MB,
+no install, double-click to run; every PE import table audited) —
+[download directly](#option-2-download-single-file-tools-no-install-no-sdk).
 
 ![cj-tauri hello example](docs/images/cj_tauri.png)
 
 *The hello example: dark card UI, invoke on button click, live events pushed from the Cangjie backend.*
+
+## Screenshots
+
+An **AI chat client** built with cj-tauri (`examples/ai-chat`; chat mode talks to providers directly,
+Agent mode talks to a local cjh backend):
+
+![ai-chat mode switch](docs/images/ai-chat-mode-switch.gif)
+
+*Chat (direct to provider) → Agent (local cjh) with one click: the sidebar rebrands, four panels appear, the badge shows cjh's real model.*
+
+![ai-chat missing-cjh guide](docs/images/ai-chat-guide.gif)
+
+*When cjh is missing, switching to Agent shows a guide card: the download artifact for this platform, and picking the executable once starts it and remembers the path.*
 
 A **Modbus debugging tool** built with cj-tauri (`examples/modbus-poll`, inspired by Modbus Poll,
 without its long-standing pain points):
@@ -56,10 +89,8 @@ cd myapp
 npx cj-tauri dev                   # takes over the Vite dev server (Vue/React templates), HMR in-window
 ```
 
-Prerequisites: the [Cangjie SDK](docs/使用文档.md#2-环境准备) (1.0.5+, verified with 1.2.0) + stdx.
-Windows additionally needs mingw gcc and the WebView2 Runtime (bundled with Win11); Linux needs
-`libwebkit2gtk-4.1-dev`. If the SDK is missing, the CLI prints setup instructions and a
-`CANGJIE_HOME` example instead of `command not found`.
+Prerequisites: see [30 seconds to a first app](#30-seconds-to-a-first-app). If the SDK is missing,
+the CLI prints setup instructions and a `CANGJIE_HOME` example instead of `command not found`.
 
 ### Option 2: download a ready-made tool (no SDK, no install)
 

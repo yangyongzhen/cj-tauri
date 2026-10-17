@@ -1691,6 +1691,7 @@ function applyMode() {
   $('brandName').textContent = agent ? 'cjh 客户端' : 'AI 对话';
   $('cjhState').style.display = agent ? '' : 'none';
   if (!agent) {
+    applyMode.wasAgent = false;                     // 复位：下次真进 Agent 还要重新探活（见下面 guard）
     cjhSettings = null;                             // 徽章回到桌面端选择（renderConvs 里按模式分流）
     cjhSessionList = [];                            // cjh 历史只在 Agent 模式展示（切回时重连再取）
     cjhDropWs();                                    // 真断开（早前只藏面板，连接照旧活着，见函数注释）
@@ -1702,8 +1703,15 @@ function applyMode() {
   // 连 cjh 只在 Agent 模式做：聊天模式走直连，不需要这个后端在跑。
   // **每次进 Agent 都先向后端确认一次**（cjh:status）：端点可能来自启动期注入，也可能来自
   // 用户刚选的那个可执行文件——只认注入那一份的话，装好 cjh 也只能重启应用（见 cjhEnterAgent）。
+  // 但「每次进」= 从聊天切过来那一次：applyMode 在启动期会被连着调几次（默认值渲染一次、
+  // loadState 读存档再一次，探针还会再调），不挡的话 cjh:status / 探活就被同一份状态重复打
+  // （实测日志 state=missing ×6，全是启动期那几次，不是用户操作）。引导卡的「重新检测」
+  // 按钮直接调 cjhEnterAgent，不经过这里，重查的入口不受影响。
+  if (applyMode.wasAgent) { return; }
+  applyMode.wasAgent = true;
   cjhEnterAgent();
 }
+applyMode.wasAgent = false;
 function toggleMode() {
   appMode = appMode === 'agent' ? 'chat' : 'agent';
   applyMode();

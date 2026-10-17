@@ -65,7 +65,8 @@ jobs:
 
       - name: 发布
         # 不打 --provenance：trusted publishing 会自动附带 provenance（公开仓库 + 公开包）
-        run: npm publish dist-npm/cj-tauri-*.tgz --access public --registry=https://registry.npmjs.org/
+        # 路径必须带 ./ 前缀：不带时 npm 把 dist-npm/…tgz 当成 git spec 去 ls-remote（实测 v1.0.0 首跑踩坑）
+        run: npm publish ./dist-npm/cj-tauri-*.tgz --access public --registry=https://registry.npmjs.org/
 
       - name: 核对
         run: npm view cj-tauri version --registry=https://registry.npmjs.org/

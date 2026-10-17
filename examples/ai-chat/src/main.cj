@@ -170,6 +170,13 @@ main(): Int64 {
 
     app.register("quit", QuitCommand(app))
 
+    // cjh 的两条运维命令（Agent 模式引导卡用）：状态查询 + 按选中的可执行文件拉起。
+    // 页面切 Agent 模式先问 cjh:status——三态决定给不给引导；用户选完文件调 cjh:start
+    // （命令三处联动：这里注册 + capabilities/app.json 的 commands + 页面的 invoke）。
+    let cjhCmds = CjhCommands()
+    app.register("cjh:status", cjhCmds)
+    app.register("cjh:start", cjhCmds)
+
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。
     let cjhUp = ensureCjhWeb()
@@ -187,7 +194,11 @@ main(): Int64 {
 
     // 探针模式（CJ_AICHAT_PROBE=1）：注入自检开关，页面跑完一轮经 log:write 回投 stderr
     if (envOr("CJ_AICHAT_PROBE", "") == "1") {
-        let js = "window.__CJ_TAURI_SELF_CHECK__ = true;\n"
+        // CJ_AICHAT_PROBE_BIN 给自检一条可用的 cjh 路径：原生「选择文件」框没人点不了，
+        // 自检就调按钮背后那个 cjh:start 把这条链路跑完（对话框本身仍要人点，见 README）。
+        let probeBin = envOr("CJ_AICHAT_PROBE_BIN", "")
+        let js = "window.__CJ_TAURI_SELF_CHECK__ = true;\n" +
+            (if (probeBin.size > 0) { "window.__AICHAT_PROBE_BIN__ = '" + probeBin + "';\n" } else { "" })
         match (app.hostOf("main")) {
             case Some(host) =>
                 host.addInitScript(js)

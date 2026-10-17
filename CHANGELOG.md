@@ -404,6 +404,23 @@
   = 8 MiB），撞上限时流被掐断、`stat.truncated = true`。此前只在页面上 `appendNote` 一行提示——
   **没进存档**，刷新后那条回复看起来就是完整的一整段（痕迹只活在 DOM 里，AGENTS §4 那类最贵的失败形状）。
   现在由 `truncNote()` 把标记连**已收字节数**一起拼进正文再落盘。断言 `truncated-note`。
+- **`examples/ai-chat` 缺 cjh 时给一条「能走完的引导」，不再只报一句未连接**：此前页面只把连接行涂成
+  「未连接」，用户没有任何下一步可走——而 `__CJH_API__` 是 document-start **一次性**注入的（启动那刻
+  cjh 不在，此后永远拿不到端点），Windows 双击 GUI 更是连设环境变量的地方都没有。现在切 Agent 模式先问
+  一次 `cjh:status`，按三态分流：**已经在跑**（含用户自己起的）直接接上；**有路径**（上次挑过的 >
+  `CJ_AICHAT_CJH`）当场拉起并接上；**都没有**才出引导卡——一页说清 cjh 是什么、为什么装在本地
+  （只听 `127.0.0.1`，Key 与工作区不出本机）、**按当前平台**给该下的产物名与下载页
+  （linux-x64 / windows-x64-selfcontained.zip——写死一个平台，另一种系统的用户会照着下错包，自检
+  `guide-artifact-linux` / `guide-artifact-win` 钉住），出口是「选择 cjh 可执行文件… / 重新检测 /
+  回到聊天模式」。第三个按钮背后是新命令 `cjh:start {path}`（**运行期**指定 cjh 可执行文件，这就是
+  「应用自己接住安装结果」那一步），挑过的路径记进存档，下次进 Agent 不再问。引导卡走
+  `guide-on-missing` / `no-fake-endpoint`：没装 cjh 时页面**不得**假装端点已就绪。实机（Xvfb 隔离副本 +
+  独立 cjh，不碰用户存档与在跑的 8765）：run1 缺 cjh → 引导出卡、产物名 `cjh-v1.5.1-linux-x64`、
+  自检 **71/71**（比上一轮 67 多出 `guide-artifact-linux` / `guide-artifact-win` / `guide-card` /
+  `guide-hidden`）；run2 给一条路径 → `start ok reused=false` → `state=running api=yes ws=up` →
+  `guide-hidden-after-start` → `bin-remembered`，随后面板 4/4、文件预览 5/5、WS 聊天
+  `deltas=1 done=1 err=0`。**如实记**：引导卡上「选择…」那一跳是原生文件框（阻塞模态），无人值守点不了，
+  自动化取证走的是它背后同一个 `cjhStartWith()`、命令链路一致，对话框本身留人点验。
 ### Changed
 
 - **`examples/ai-chat` 撤回「窗口随屏幕 + 页面等比缩放」两件（用户实测反馈：等比放大后不如原样）**：

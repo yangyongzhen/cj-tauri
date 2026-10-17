@@ -386,6 +386,27 @@
   /* 消息时间戳：老存档里的消息没有 ts，就不显示（不硬造一个假时间） */
   .msg .msg-time { margin-left:8px; font-size:10.5px; color:var(--dim); opacity:.8; }
   #cjhState.off { color:#ff9d66; }
+  /* ---- Agent 模式引导卡（切模式时先查 cjh，缺失/没起来才出现）----
+   * 铺在主栏上方而不是侧栏一行小字：这件事要交代的是「cjh 是什么 + 本平台拿哪个产物 +
+   * 怎么接上」三步，一行字放不下。走完（或回聊天模式）就整块撤掉，不留常驻横幅。
+   * z-index 8：盖住消息区，但低于设置页（#mask 20）与文件预览（#pv 30）。 */
+  #cjhGuide { position:absolute; left:0; right:0; top:0; bottom:0; z-index:8; display:none;
+              overflow-y:auto; padding:30px 22px; background:var(--bg); }
+  #cjhGuide.show { display:block; }
+  .gd-wrap { max-width:580px; margin:0 auto; }
+  .gd-title { font-size:16.5px; font-weight:600; margin-bottom:8px; }
+  .gd-sub { color:var(--dim); font-size:12.5px; line-height:1.7; margin-bottom:16px; }
+  .gd-sub b { color:var(--fg); }
+  .gd-step { display:flex; gap:9px; margin:11px 0; font-size:12.5px; line-height:1.65; }
+  .gd-n { flex:0 0 auto; width:18px; height:18px; border-radius:50%; background:var(--acc);
+          color:#fff; font-size:11px; text-align:center; line-height:18px; }
+  .gd-url { display:block; margin:6px 0 0; padding:6px 9px; border-radius:6px;
+            font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;
+            background:var(--code-bg); color:var(--code-fg); word-break:break-all; }
+  .gd-btns { display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }
+  .gd-btns button { font-size:12.5px; }
+  .gd-log { margin-top:14px; color:var(--dim); white-space:pre-wrap; word-break:break-word;
+            font:11.5px/1.6 ui-monospace,Menlo,Consolas,monospace; }
 </style>
 </head>
 <body>
@@ -421,6 +442,7 @@
     <div id="provMenu"></div>
     <div id="wsMenu"></div>
     <div id="toast"></div>
+    <div id="cjhGuide"></div>
     <div id="msgs"></div>
     <div id="typing">正在输入…</div>
     <div id="inputBar">
@@ -1489,6 +1511,169 @@ function cjhDropWs() {
   });
   cjhStateUi(false, 'cjh：已断开（聊天模式直连服务商）');
 }
+/* ============================================================
+ * Agent 模式引导：切到 Agent 时先问后端「cjh 在不在」（cjh:status）
+ *
+ * 为什么不再只认启动期注入的 __CJH_API__：那是**一次性**的——应用起来那一刻 cjh 不在，
+ * 页面此后永远拿不到端点，装好 cjh 也只能重启应用。而页面自己也分不清「没装」和
+ * 「装了没起」（两种都只是"连不上"），于是给不出正确的下一步。三态由后端判：
+ *   running    —— 已就绪，把端点交给页面接上（**运行期**拿到，不再依赖 document-start 注入）
+ *   configured —— 配了路径但没起：直接按它拉起
+ *   missing    —— 没有可用路径：给「什么是 cjh + 本平台该拿哪个产物 + 怎么接上」
+ * 引导走完（或回到聊天模式）就整块撤掉，不留常驻横幅。
+ * ============================================================ */
+var CJH_VER = 'v1.5.1';   // 与 vendor/cjh/ 里那份一致（下载页永远给最新版，产物名带版本）
+var CJH_DOWNLOAD_PAGE = 'https://atomgit.com/qq8864/cjh/releases';
+var cjhPlatform = '';
+var cjhBinSaved = '';     // 用户选过的 cjh 路径：记住，下次进 Agent 直接用
+var cjhGuideBusy = false;
+
+/* 平台 → 该拿哪个产物。linux 是静态单文件；windows 有两个包，**推荐 selfcontained**
+ * （自带 4 个运行时 DLL，解压即跑），另一个要用户自备 DLL。 */
+function cjhArtifactFor(platform) {
+  var p = String(platform || '').toLowerCase();
+  if (p.indexOf('win') === 0) {
+    return { file: 'cjh-' + CJH_VER + '-windows-x64-selfcontained.zip', exe: 'cjh.exe',
+             note: '同目录里还要放它自带的 4 个运行时 DLL' };
+  }
+  return { file: 'cjh-' + CJH_VER + '-linux-x64', exe: 'cjh', note: 'chmod +x 之后直接能跑' };
+}
+function cjhPlatformLabel(platform) {
+  var p = String(platform || '').toLowerCase();
+  return p.indexOf('win') === 0 ? 'Windows' : (p.indexOf('lin') === 0 ? 'Linux' : (platform || '未知'));
+}
+function cjhLoadPlatform() {
+  if (cjhPlatform) { return Promise.resolve(cjhPlatform); }
+  return window.__CJ_TAURI__.invoke('system:version', {}).then(function (v) {
+    cjhPlatform = (v && v.platform) ? String(v.platform) : '';
+    return cjhPlatform;
+  }).catch(function () { return ''; });
+}
+
+/* 取证通道：引导的出现与启动结果各留一行（与 CJH-PANELS / CJH-CHAT 同款独立探针行）。
+ * 不能只看「页面上有没有卡片」——那得靠抓图人眼认，日志里一行凭证更好对账。 */
+function cjhGuideTrace(line) {
+  window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-GUIDE ' + line }).catch(function () {});
+}
+
+/* 后端回的端点就是页面的接线依据 */
+function cjhAdoptEndpoint(st) {
+  CJH.api = st.apiUrl; CJH.ws = st.wsUrl;
+  if (!CJH.wsUp) { cjhConnectWs(); }
+  loadWorkspaces();
+  loadCjhSettings();
+  cjhStateUi(true, 'cjh：已连接（' + String(st.apiUrl).replace('http://', '') + '）');
+  hideCjhGuide();
+}
+
+/* 进 Agent 模式的唯一入口：先确认 cjh，再决定接线还是出引导 */
+function cjhEnterAgent() {
+  cjhStateUi(false, 'cjh：检查中…');
+  return window.__CJ_TAURI__.invoke('cjh:status', {}).then(function (st) {
+    if (appMode !== 'agent') { return; }              // 用户已切回聊天：晚到的结果丢掉
+    var state = (st && st.state) ? st.state : 'missing';
+    if (state === 'running') { cjhGuideTrace('state=running'); cjhAdoptEndpoint(st); return; }
+    // 路径优先级：上次选过的 > 环境变量配的。能起就别让用户再选一遍
+    var bin = cjhBinSaved || (st && st.binPath) || '';
+    cjhGuideTrace('state=' + state + ' bin=' + (bin ? 'yes' : 'no'));
+    if (bin) { cjhStartWith(bin, state === 'configured' ? '按配置的路径' : '按上次选的路径'); return; }
+    cjhShowGuide(state);
+  }).catch(function (e) {
+    // 命令本身失败（未放行 / 未注册）不是「没装 cjh」——如实说，别把人引去下载
+    cjhGuideTrace('status failed: ' + String(e && e.message));
+    cjhStateUi(false, 'cjh：状态检查失败（' + String(e && e.message) + '）');
+  });
+}
+
+function cjhStartWith(path, label) {
+  if (cjhGuideBusy) { return Promise.resolve(); }
+  cjhGuideBusy = true;
+  cjhGuideLog((label ? label + '：' : '') + '正在启动 cjh …');
+  cjhStateUi(false, 'cjh：启动中…');
+  cjhGuideTrace('start path=' + path);
+  return window.__CJ_TAURI__.invoke('cjh:start', { path: path }).then(function (r) {
+    cjhGuideBusy = false;
+    if (r && r.ok) {
+      cjhBinSaved = path; saveState();                 // 记住：下次进 Agent 不必再选
+      cjhGuideTrace('start ok reused=' + (r.reused ? 'true' : 'false'));
+      cjhGuideLog(r.reused ? 'cjh 已在运行，直接复用' : 'cjh 已就绪');
+      if (appMode === 'agent') { cjhAdoptEndpoint(r); }
+      return;
+    }
+    var why = (r && r.error) ? r.error : '未知原因';
+    cjhGuideTrace('start failed: ' + why);
+    cjhGuideLog('启动失败：' + why);
+    cjhStateUi(false, 'cjh：启动失败');
+    cjhShowGuide('failed');                            // 失败也把引导留在眼前（带原因），不让人对着空面板
+  }).catch(function (e) {
+    cjhGuideBusy = false;
+    cjhGuideTrace('start rejected: ' + String(e && e.message));
+    cjhGuideLog('启动失败：' + String(e && e.message));
+    cjhStateUi(false, 'cjh：启动失败');
+    cjhShowGuide('failed');
+  });
+}
+
+function cjhShowGuide(state) {
+  var el = $('cjhGuide');
+  var reason = state === 'failed'
+    ? 'cjh 这次没起来。'
+    : (state === 'configured' ? '这台机器配了 cjh 的路径，但 cjh 没在跑。' : '这台机器上还没找到 cjh。');
+  el.innerHTML = '<div class="gd-wrap">' +
+    '<div class="gd-title">Agent 模式需要一个本机的 cjh 后端</div>' +
+    '<div class="gd-sub">' + escHtml(reason) +
+      '<b>cjh</b> 是用仓颉写的 AI agent 后端：会话、技能、MCP、工具调用都在它那一侧，' +
+      '而且只监听 127.0.0.1——你的代码与密钥不出本机。它不在，Agent 的面板就没有数据来源。' +
+      '<br>只想聊天的话，切回聊天模式即可（直连服务商，不需要 cjh）。</div>' +
+    '<div class="gd-step"><span class="gd-n">1</span><div id="gdStep1">正在确认本平台要拿哪个产物…</div></div>' +
+    '<div class="gd-step"><span class="gd-n">2</span><div>解压得到 <b id="gdExe">cjh</b>（<span id="gdNote"></span>）。</div></div>' +
+    '<div class="gd-step"><span class="gd-n">3</span><div>点「选择 cjh 可执行文件…」选中它——应用会当场启动 cjh 并记住这个路径，' +
+      '下次不用再选。也可以手动设 <b>CJ_AICHAT_CJH</b> 后重启应用。</div></div>' +
+    '<div class="gd-btns">' +
+      '<button id="gdPick">选择 cjh 可执行文件…</button>' +
+      '<button id="gdRetry" class="ghost">重新检测</button>' +
+      '<button id="gdChat" class="ghost">回到聊天模式</button>' +
+    '</div>' +
+    '<div class="gd-log" id="gdLog"></div>' +
+  '</div>';
+  el.className = 'show';
+  $('gdPick').onclick = cjhPickAndStart;
+  $('gdRetry').onclick = function () { cjhEnterAgent(); };
+  $('gdChat').onclick = function () { if (appMode === 'agent') { toggleMode(); } };
+  cjhFillGuideDownload();
+}
+
+/* 第 1 步按**真实平台**填：写死一个平台的产物名，Windows 用户会照着去下载 linux 的包 */
+function cjhFillGuideDownload() {
+  cjhLoadPlatform().then(function (p) {
+    var s1 = $('gdStep1');
+    if (!s1) { return; }                              // 引导已撤（回包晚到）
+    var a = cjhArtifactFor(p);
+    s1.innerHTML = '到下载页取本平台（<b>' + escHtml(cjhPlatformLabel(p)) + '</b>）的 <b>' +
+      escHtml(a.file) + '</b>：<span class="gd-url">' + escHtml(CJH_DOWNLOAD_PAGE) + '</span>';
+    $('gdExe').textContent = a.exe;
+    $('gdNote').textContent = a.note;
+  });
+}
+
+function cjhPickAndStart() {
+  var a = cjhArtifactFor(cjhPlatform);
+  var isWin = String(cjhPlatform || '').toLowerCase().indexOf('win') === 0;
+  // Windows 的产物是 exe：给个过滤器；Linux 那边没有扩展名，让用户自己挑
+  var filter = isWin ? ('cjh 可执行文件|' + a.exe + '|所有文件|*.*') : '所有文件|*';
+  window.__CJ_TAURI__.invoke('dialog:open', { title: '选择 cjh 可执行文件', filter: filter }).then(function (p) {
+    if (!p) { cjhGuideLog('没有选中文件（取消）'); return; }
+    cjhStartWith(String(p), '已选');
+  }).catch(function (e) { cjhGuideLog('打开文件框失败：' + String(e && e.message)); });
+}
+
+function cjhGuideLog(text) {
+  var el = $('gdLog');
+  if (el) { el.textContent += (el.textContent ? '\n' : '') + text; }
+}
+
+function hideCjhGuide() { var el = $('cjhGuide'); if (el) { el.className = ''; } }
+
 function applyMode() {
   var agent = appMode === 'agent';
   $('btnMode').textContent = agent ? '模式: Agent' : '模式: 聊天';
@@ -1509,18 +1694,15 @@ function applyMode() {
     cjhSettings = null;                             // 徽章回到桌面端选择（renderConvs 里按模式分流）
     cjhSessionList = [];                            // cjh 历史只在 Agent 模式展示（切回时重连再取）
     cjhDropWs();                                    // 真断开（早前只藏面板，连接照旧活着，见函数注释）
+    hideCjhGuide();                                 // 引导卡只在 Agent 模式有意义（回聊天就撤掉）
     if (curSideTab !== 'convs') { switchTab('convs'); }
     renderConvs();
     return;
   }
-  // 连 cjh 只在 Agent 模式做：聊天模式走直连，不需要这个后端在跑
-  if (CJH.api) {
-    if (!CJH.wsUp) { cjhConnectWs(); }
-    loadWorkspaces();
-    loadCjhSettings();
-  } else {
-    cjhStateUi(false, 'cjh：未配置（设 CJ_AICHAT_CJH 后重启）');
-  }
+  // 连 cjh 只在 Agent 模式做：聊天模式走直连，不需要这个后端在跑。
+  // **每次进 Agent 都先向后端确认一次**（cjh:status）：端点可能来自启动期注入，也可能来自
+  // 用户刚选的那个可执行文件——只认注入那一份的话，装好 cjh 也只能重启应用（见 cjhEnterAgent）。
+  cjhEnterAgent();
 }
 function toggleMode() {
   appMode = appMode === 'agent' ? 'chat' : 'agent';
@@ -1575,7 +1757,7 @@ var $ = function (id) { return document.getElementById(id); };
 var msgsEl = $('msgs');
 
 function saveState() {
-  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode, compact: compact, side: sideHidden ? 1 : 0, mode: appMode }) })
+  window.__CJ_TAURI__.invoke('store:set', { key: 'aichat.state', value: JSON.stringify({ providers: providers, activeIdx: activeIdx, sysPrompt: sysPrompt, convs: convs, curId: curId, theme: themeMode, compact: compact, side: sideHidden ? 1 : 0, cjhBin: cjhBinSaved, mode: appMode }) })
     .catch(function () {});
 }
 function loadState() {
@@ -1617,6 +1799,8 @@ function loadState() {
       if (s.theme === 'light' || s.theme === 'dark' || s.theme === 'auto') { themeMode = s.theme; }
       if (typeof s.compact === 'boolean') { compact = s.compact; }
       sideHidden = !!s.side;
+      // 用户选过的 cjh 路径：老存档没这字段（或类型不对）就当没记过——不猜、不编一个默认路径
+      if (typeof s.cjhBin === 'string') { cjhBinSaved = s.cjhBin; }
       // 存档没有 mode 字段（老存档）时保持默认聊天，不做「按 cjh 是否配置」的猜测——
       // 模式决定消息走哪条管道，猜错的代价是消息发去了用户没预期的那一边。
       if (s.mode === 'agent' || s.mode === 'chat') { appMode = s.mode; }
@@ -2400,6 +2584,18 @@ function selfcheck() {
   ok('ws-browse-entry', $('wsBrowseBtn') !== null && typeof browseWorkspace === 'function');
   wsList = _wl;
   renderWsMenu();
+  // 缺 cjh 引导（方案 B）：产物名必须**按平台给**——给错平台，用户照着下载页下错包，
+  // 解压出来的东西根本跑不起来，而引导本身看着一切正常（纯函数，直接验）
+  ok('guide-artifact-linux', cjhArtifactFor('linux').file === 'cjh-' + CJH_VER + '-linux-x64' &&
+     cjhArtifactFor('linux').exe === 'cjh');
+  ok('guide-artifact-win', cjhArtifactFor('Windows').file === 'cjh-' + CJH_VER + '-windows-x64-selfcontained.zip' &&
+     cjhArtifactFor('Windows').exe === 'cjh.exe');
+  // 引导卡画得出来（三个按钮 + 说明里点明它只听本机）：画完立刻撤掉，别把自检现场留在界面上
+  cjhShowGuide('missing');
+  ok('guide-card', $('cjhGuide').className === 'show' && $('gdPick') !== null && $('gdRetry') !== null &&
+     $('gdChat') !== null && $('cjhGuide').textContent.indexOf('127.0.0.1') !== -1);
+  hideCjhGuide();
+  ok('guide-hidden', $('cjhGuide').className === '');
   // ---- 设置页（用户反馈「打开还得下拉找保存」后改成**内联页**，不再是居中弹层）：
   // 宽度铺满主区、动作条与错误行移出滚动体成常驻底栏。断言完统一 closeCfg + 还原（含 saveState：
   // 中间那次成功保存会把假服务商写进存档，必须再写回真现场，同 conv-* 那组的教训）。
@@ -2813,30 +3009,91 @@ function selfcheck() {
     // cjh 端到端探针：WS 发一条 chat，数回帧（delta/done/error 任一到来 = 管道通）。
     // 单独打 CJH-CHAT 行（不进 SELFCHECK 计数）——它依赖 cjh 侧配置，断言口径独立。
     setTimeout(function () {
-      if (!window.__CJ_TAURI__ || !CJH.api) { return; }
-      var cj = { deltas: 0, doneF: 0, errs: 0 };
-      var off3 = window.__CJ_TAURI__.listen('ws:frame', function (m) {
-        if (m.type === 'delta') { cj.deltas++; }
-        else if (m.type === 'done') { cj.doneF++; }
-        else if (m.type === 'error') { cj.errs++; }
-      });
-      var cjhLog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-CHAT ' + line }).catch(function () {}); };
-      var goChat = function () {
-        cjhWsSend({ type: 'chat', message: 'reply with exactly: OK' }).then(function () {
-          setTimeout(function () {
-            off3();
-            var pass = (cj.deltas + cj.doneF + cj.errs) > 0;
-            cjhLog('deltas=' + cj.deltas + ' done=' + cj.doneF + ' err=' + cj.errs);
-            cjhLog(pass ? 'PASS' : 'FAIL');
-          }, 20000);
-        }).catch(function (e) {
-          off3();
-          cjhLog('sendfail ' + String(e && e.message).slice(0, 80));
+      if (!window.__CJ_TAURI__) { return; }
+      // 端点不一定是启动时就有的：缺 cjh 那条路是「引导 → 当场拉起 → 运行期接上」（约 2.5s），
+      // 这条探针 1.5s 就起跑，按 `if (!CJH.api) return` 直接返回的话整条 CJH-CHAT 行都不出现
+      // （实测踩过：明明接上了，却一条 WS 凭证都没有）。等端点，最多 6s。
+      var booted = false;
+      var waitApi = function (n) {
+        if (booted || !window.__CJ_TAURI__) { return; }
+        if (!CJH.api) {
+          if (n < 12) { setTimeout(function () { waitApi(n + 1); }, 500); }
+          return;
+        }
+        booted = true;
+        var cj = { deltas: 0, doneF: 0, errs: 0 };
+        var off3 = window.__CJ_TAURI__.listen('ws:frame', function (m) {
+          if (m.type === 'delta') { cj.deltas++; }
+          else if (m.type === 'done') { cj.doneF++; }
+          else if (m.type === 'error') { cj.errs++; }
         });
+        var cjhLog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-CHAT ' + line }).catch(function () {}); };
+        var goChat = function () {
+          cjhWsSend({ type: 'chat', message: 'reply with exactly: OK' }).then(function () {
+            setTimeout(function () {
+              off3();
+              var pass = (cj.deltas + cj.doneF + cj.errs) > 0;
+              cjhLog('deltas=' + cj.deltas + ' done=' + cj.doneF + ' err=' + cj.errs);
+              cjhLog(pass ? 'PASS' : 'FAIL');
+            }, 20000);
+          }).catch(function (e) {
+            off3();
+            cjhLog('sendfail ' + String(e && e.message).slice(0, 80));
+          });
+        };
+        if (CJH.wsUp) { goChat(); }
+        else { setTimeout(function () { if (CJH.wsUp) { goChat(); } else { cjhLog('ws-down'); } }, 3000); }
       };
-      if (CJH.wsUp) { goChat(); }
-      else { setTimeout(function () { if (CJH.wsUp) { goChat(); } else { cjhLog('ws-down'); } }, 3000); }
+      waitApi(0);
     }, 1500);
+    // 缺 cjh 引导的**链路**（不只是画面）：切 Agent → 三态查询 → 出引导 → 按给定路径当场拉起
+    // → 接上后端。与 CJH-PANELS 同理独立成行、不占 SELFCHECK 计数。
+    // 原生「选择 cjh 可执行文件…」框是阻塞式模态、没人点不了，所以这里调它背后那个函数
+    // （cjhStartWith），命令链路与点按钮完全一致；对话框那一跳留实机人点取证（README 写明）。
+    // 起跑时机要早于 CJH-CHAT(1500)，否则那条 WS 探针起跑时端点还没接上、静默返回（实测：晚到
+    // 就没有 CJH-CHAT 那一行）——本轮拉起的后端得来得及让后面几条探针一并跑起来。
+    setTimeout(function () {
+      var glog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-GUIDE ' + line }).catch(function () {}); };
+      var inv = function (cmd, args) { return window.__CJ_TAURI__.invoke(cmd, args); };
+      var probeBin = window.__AICHAT_PROBE_BIN__ || '';
+      appMode = 'agent';
+      applyMode();                                  // 真入口：applyMode 内部就是 cjhEnterAgent()
+      setTimeout(function () {
+        cjhLoadPlatform().then(function (plat) {
+          var art = cjhArtifactFor(plat);
+          return inv('cjh:status', {}).then(function (st) {
+            var state = (st && st.state) || '?';
+            var shown = $('cjhGuide').className === 'show';
+            glog((['running', 'configured', 'missing'].indexOf(state) !== -1 ? 'PASS' : 'FAIL') +
+                 ' status state=' + state + ' platform=' + plat + ' api=' + (CJH.api ? 'yes' : 'no'));
+            if (state === 'running') {
+              // 已经就绪：应当直接接上、不出引导（引导是「缺 cjh」的路，不该拦着能用的）
+              glog((!shown && !!CJH.api ? 'PASS' : 'FAIL') + ' entered-running guide=' + shown +
+                   ' api=' + (CJH.api ? 'yes' : 'no'));
+              return;
+            }
+            // 没起来：引导必须在眼前（含本平台产物名），且**不得**假装端点有了
+            glog((shown ? 'PASS' : 'FAIL') + ' guide-on-missing shown=' + shown + ' state=' + state);
+            glog(($('gdStep1') && $('gdStep1').textContent.indexOf(art.file) !== -1 ? 'PASS' : 'FAIL') +
+                 ' guide-artifact-text file=' + art.file);
+            glog((!CJH.api ? 'PASS' : 'FAIL') + ' no-fake-endpoint api=' + (CJH.api ? 'yes' : 'no'));
+            if (!probeBin) { glog('INFO 未给 CJ_AICHAT_PROBE_BIN：跳过「选完文件当场拉起」一跳'); return; }
+            // 选完文件之后走的就是这一跳：当场启动 cjh → 端点交给页面 → 引导撤掉 → 记住路径
+            return cjhStartWith(probeBin, '探针·指定路径').then(function () {
+              return new Promise(function (res) { setTimeout(res, 1500); });   // 等它起来并握手上
+            }).then(function () {
+              return inv('cjh:status', {});
+            }).then(function (st2) {
+              var v2 = (st2 && st2.state) || '?';
+              glog((v2 === 'running' && !!CJH.api ? 'PASS' : 'FAIL') + ' started state=' + v2 +
+                   ' api=' + (CJH.api ? 'yes' : 'no') + ' ws=' + (CJH.wsUp ? 'up' : 'down'));
+              glog(($('cjhGuide').className !== 'show' ? 'PASS' : 'FAIL') + ' guide-hidden-after-start');
+              glog((cjhBinSaved === probeBin ? 'PASS' : 'FAIL') + ' bin-remembered');
+            });
+          });
+        }).catch(function (e) { glog('FAIL ' + String(e && e.message).slice(0, 100)); });
+      }, 600);
+    }, 600);
     // 侧栏三个数据面板（技能 / MCP / 文件）必须真从 cjh 取到并渲染——只验其中一个会漏掉
     // 「目录与文件是两个数组」这类形状错（实测：文件区 rows>0 却一个目录都没有，只数行数发现不了）。
     // 与 CJH-CHAT 同理独立成行，不占 SELFCHECK 计数。

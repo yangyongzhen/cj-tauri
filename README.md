@@ -9,6 +9,7 @@
 - 仓库：**[AtomGit](https://atomgit.com/qq8864/cj-tauri)** ｜ [GitHub](https://github.com/yangyongzhen/cj-tauri)（双托管，一次 push 同步两仓）
 - 版本：**0.8.0**（[CHANGELOG](CHANGELOG.md)）· 许可证 MIT
 - npm：`npx cj-tauri create myapp`（[npmjs.com/cj-tauri](https://www.npmjs.com/package/cj-tauri)）
+- 技术交流群（QQ）：**92381027**
 - 官网：**[yangyongzhen.github.io/cj-tauri](https://yangyongzhen.github.io/cj-tauri/)**（中英双语，
   源文件在 `website/`，`bash scripts/site-check.sh` 自检；托管在 GitHub Pages 是本项目唯一「非 AtomGit 的对外链接」）
 

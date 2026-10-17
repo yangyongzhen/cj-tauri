@@ -1,5 +1,7 @@
 # cj-tauri：仓颉版 Tauri
 
+![平台](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux-blue) ![仓颉](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4) ![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green) ![技术交流群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)
+
 [English](README_EN.md) | 中文
 
 用华为仓颉语言实现的轻量混合开发框架——**仓颉语言的 Tauri**：把 Tauri（Rust + 系统 WebView）的三件套架构在仓颉里独立实现：

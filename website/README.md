@@ -15,7 +15,7 @@
 | `assets/og.svg` → `assets/og.png` | 分享卡片源图与产物（1200×630，`og:image` 用） |
 | `assets/architecture.svg` | 架构图（与 `docs/images/` 同源拷贝） |
 | `assets/dist-size-compare.svg` | 产物体积对比图 |
-| `assets/screenshots/*.png\|jpg` | 实机截图 15 张：6 张源自 `docs/images/`，9 张为本机补抓（见下「素材口径」） |
+| `assets/screenshots/*.png\|jpg` | 实机截图 20 张：17 张源自 `docs/images/`（`example-*` 的同源拷贝），3 张为本机补抓（`modbus-poll` / `mqtt-client` / `redis-client`，见下「素材口径」） |
 | `.nojekyll` | 关掉 GitHub Pages 的 Jekyll 处理（本项目用不到 Jekyll，且避免它改写文件） |
 
 ## 发布
@@ -84,7 +84,7 @@ bash scripts/site-check.sh --shots      # 再抓中英两态截图到 /tmp/cj-ta
   量不到，页面就写「还没量到」，不拿别处的数字替它。
 - **截图**：从 `docs/images/` 的实机取证里挑，拷进 `assets/screenshots/`。>200KB 的转 JPEG
   （`convert x.png -resize '1200>' -strip -quality 82 x.jpg`）——UI 截图里的封面/剧照用 PNG 存纯属浪费。
-  轮播里另外 8 张是**本机补抓**的（`docs/images/` 没收录那几个示例）：Xvfb 起 1280×800 虚拟屏 →
+  轮播里另外 3 张是**本机补抓**的（`docs/images/` 没收录那几个示例）：Xvfb 起 1280×800 虚拟屏 →
   `xdotool` 等窗口出现 → ImageMagick `import -window root` 抓整屏 → 裁掉黑边 → 无损压缩。
   按窗口句柄直抓在这套环境下出来是**空白图**，所以走「整屏 + 裁边」；抓之前记得关掉示例探针的
   自动退窗开关，否则拍到的是已经关掉的窗口。

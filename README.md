@@ -176,6 +176,12 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [ipc-coalesce](examples/ipc-coalesce) | 事件合并探针：`emitLatest`（同帧槽位 + rAF 批刷，尾值必达）与 `emit` 的对照——`emitLatest × 50` 合并成个位数次回调、`emit × 50` 老老实实 50 次，默认行为一行没改 |
 | [multi-window](examples/multi-window) | 多窗口：同一份 HTML 起两窗，角色由自己的 label 决定；两窗**同时**开原生对话框各预置 `probe-<label>.txt`，验证宿主回调按句柄路由不串台 |
 
+**生态项目**（独立仓库，基于 cj-tauri 构建、不在 `examples/` 里）：
+
+| 项目 | 一句话 |
+|---|---|
+| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI 原生 Markdown 笔记**：三栏（笔记库 / 编辑区 / AI 助手）+ 三态视图（编辑/分屏/预览，`Ctrl+1/2/3`）；**原生菜单栏 + 副标题**——文件 / 视图 / 帮助 三个顶层菜单，标题·保存状态·字数推进系统菜单行右侧（能力位不给就退回页面顶栏）；侧栏「大纲」页签抽 1~3 级标题点击跳行；勾「引用当前笔记」把全文注入 AI 上下文、勾「问笔记库」先 `note:search` 再喂命中片段，选区改写 / 续写 / 翻译走 **diff 确认**；`Ctrl+O` 打开库外 `.md` 只进内存作草稿（首次 `Ctrl+S` 才落库，绝不静默改写原文件）、`Ctrl+P` 页内快速打开；请求全由仓颉侧直发（页面零 `fetch`），域名白名单兜底；Linux 实机页面自检 **31 项全绿** |
+
 部分示例截图（全部为实机截图，完整集见各示例 README）：
 
 | [markdown-notes](examples/markdown-notes)：文件树 / 编辑 / 实时预览 | [sqlite-browser](examples/sqlite-browser)：分页网格 + SQL 调试台 |
@@ -191,6 +197,8 @@ cli\cj-tauri.bat create myapp && cd myapp
 | ![观影应用](docs/images/example-movie.png) | ![音乐播放器](docs/images/example-music-playing.png) |
 | [ai-chat](examples/ai-chat)：聊天模式（直连，流式 Markdown） | [ai-chat](examples/ai-chat)：Agent 模式（cjh 已连接 + 四面板） |
 | ![AI 对话客户端：聊天模式](docs/images/example-ai-chat-chat.png) | ![AI 对话客户端：Agent 模式](docs/images/example-ai-chat-agent.png) |
+| [cjnote](https://atomgit.com/qq8864/cjnote)（生态项目）：分屏编辑 + AI 助手，顶栏并入原生菜单行 | [cjnote](https://atomgit.com/qq8864/cjnote)：原生「视图」菜单（三态与主题勾选同步） |
+| ![cjnote：分屏编辑 + AI 助手](docs/images/example-cjnote.png) | ![cjnote：原生视图菜单](docs/images/example-cjnote-menu.png) |
 
 ## 架构
 

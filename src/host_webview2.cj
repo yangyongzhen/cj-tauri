@@ -109,6 +109,14 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
                                            checked: Int32): Unit
 
 /**
+ * 窗口顶部副标题：Windows 侧如实降级（返回 -4，能力位 CJ_CAP_SUBTITLE 不置位）。
+ * 同名同签名保留是为了上层不出现平台分支（AGENTS §2 的第一条）。
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_titlebar_subtitle(h: CPointer<Unit>, text: CString): Int32
+
+/**
  * 拖放策略（RFC-002 §5）：Windows 侧当前为桩（能力位如实不置位），同名同签名保上层零平台分支
  */
 @When[os == "Windows"]
@@ -257,6 +265,17 @@ public class WebView2Host <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_menu_item_state(this.handle, LibC.mallocCString(id), e, c)
+        }
+    }
+
+    public func setTitlebarSubtitle(text: String): Unit {
+        if (this.handle.isNull()) {
+            return
+        }
+        unsafe {
+            // 本平台如实降级（桥返回 -4，能力位不含 CJ_CAP_SUBTITLE）：这里不当作错误刷屏，
+            // 应用据 hostCapabilities().subtitle 自己就不会依赖这条通道
+            let _ = cj_bridge_set_titlebar_subtitle(this.handle, LibC.mallocCString(text))
         }
     }
 

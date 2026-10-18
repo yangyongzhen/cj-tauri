@@ -117,12 +117,19 @@ static int g_drag_calls;
 static int g_drag_last_enabled;
 static int g_drag_last_files;
 
+/* 标题栏副标题：桩平台只记录调用（core 的职责是参数校验 + 透传）*/
+static int g_subtitle_calls;
+static char *g_last_subtitle_text;
+
 static void reset_counters(void) {
     g_post_js_calls = g_wake_calls = g_quit_calls = g_start_calls = 0;
     g_fini_calls = g_run_dialog_calls = g_post_dialog_calls = 0;
     g_load_url_calls = g_reload_calls = g_devtools_calls = 0;
     g_set_menu_calls = g_menu_state_calls = g_caps_calls = 0;
     g_drag_calls = g_drag_last_enabled = g_drag_last_files = 0;
+    g_subtitle_calls = 0;
+    free(g_last_subtitle_text);
+    g_last_subtitle_text = NULL;
     free(g_last_js);
     g_last_js = NULL;
     free(g_last_menu_text);
@@ -241,6 +248,15 @@ void cj_plat_set_menu(cj_host *h, const char *wire) {
     g_set_menu_calls++;
     free(g_last_menu_text);
     g_last_menu_text = wire ? strdup(wire) : NULL;
+}
+
+/* 桩平台：副标题一律接受（真平台未就绪返回 -3、Windows 返回 -4，那是平台自己的事）*/
+int cj_plat_set_titlebar_subtitle(cj_host *h, const char *text) {
+    (void)h;
+    g_subtitle_calls++;
+    free(g_last_subtitle_text);
+    g_last_subtitle_text = text ? strdup(text) : NULL;
+    return 0;
 }
 
 void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
@@ -710,7 +726,28 @@ int main(void) {
     cj_bridge_set_menu(NULL, "x");
     CHECK(1, "set_menu 对 NULL 宿主安全");
 
-    /* --- 15. 菜单点击：shell 回调带回宿主身份 + JSON 载荷 --- */
+    /* --- 15. titlebar 副标题：core 校验参数、原样透传平台 --- */
+    case_begin("titlebar 副标题：校验 + 透传平台");
+    reset_counters();
+    CHECK(cj_bridge_set_titlebar_subtitle(h, "n.md · 已保存 · 54 字") == 0, "正常文本返回 0");
+    CHECK(g_subtitle_calls == 1 && g_last_subtitle_text &&
+          strcmp(g_last_subtitle_text, "n.md · 已保存 · 54 字") == 0,
+          "原文透传平台（UTF-8 多字节不截断）");
+    cj_bridge_set_titlebar_subtitle(h, "");
+    CHECK(g_last_subtitle_text && g_last_subtitle_text[0] == '\0', "空串 = 清空副标题（仍透传）");
+    {
+        /* 超 1024 字节：core 当场拒绝，不透传——平台在 UI 线程里不该再做第二份校验 */
+        char big[1100];
+        memset(big, 'a', sizeof(big) - 1);
+        big[sizeof(big) - 1] = '\0';
+        reset_counters();
+        CHECK(cj_bridge_set_titlebar_subtitle(h, big) == -1, "超过 1024 字节返回 -1");
+        CHECK(g_subtitle_calls == 0, "被拒的请求不透传到平台");
+    }
+    CHECK(cj_bridge_set_titlebar_subtitle(h, NULL) == -1, "NULL 文本返回 -1");
+    CHECK(cj_bridge_set_titlebar_subtitle(NULL, "x") == -1, "NULL 宿主返回 -1");
+
+    /* --- 16. 菜单点击：shell 回调带回宿主身份 + JSON 载荷 --- */
     case_begin("menu 点击回调带宿主句柄 + JSON 载荷（多窗口不串台）");
     reset_counters();
     g_shell_cb_calls = 0;

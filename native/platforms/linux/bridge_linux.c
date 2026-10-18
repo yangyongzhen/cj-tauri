@@ -69,7 +69,9 @@ typedef struct plat_host {
     GtkWidget *window;  /* 主窗口；窗口销毁时置空（含用户关窗路径）*/
     GtkWidget *view;    /* WebKitWebView；宿主线程收尾时 unref 并置空 */
     /* --- 菜单栏（只在 GTK 线程上建 / 换 / 改）--- */
-    GtkWidget *box;      /* window 里那层竖向 GtkBox：装菜单栏（若有）+ view */
+    GtkWidget *box;      /* window 里那层竖向 GtkBox：装顶行（菜单栏 + 副标题）+ view */
+    GtkWidget *topbar;   /* 顶部那一行水平 GtkBox：菜单栏靠左、副标题靠右 */
+    GtkWidget *subtitle; /* 副标题 label；文本空串即隐藏（不留一条空行）*/
     GtkWidget *menubar;  /* 当前菜单栏；NULL = 没有（空菜单栏不留空条）*/
     menu_slot menu_items[CJ_MENU_MAX_ITEMS];
     int menu_item_count;
@@ -643,9 +645,21 @@ static void *gtk_thread_main(void *arg) {
         webkit_web_view_set_settings(WEBKIT_WEB_VIEW(p->view), settings);
     }
     g_signal_connect(p->view, "load-changed", G_CALLBACK(on_load_changed), NULL);
-    /* 装配：window 里套一层竖向 GtkBox（菜单栏 + view）。固定套一层而不是「有菜单才套」——
-       少一种装配分支就少一类时序坑，代价只是一个 GtkBox 的开销。 */
+    /* 装配：window 里套一层竖向 GtkBox，顶部再套一层水平 GtkBox（菜单栏 + 副标题）。
+       固定套这几层而不是「有菜单才套」——少一种装配分支就少一类时序坑。顶行常驻但
+       默认不显示：菜单栏是按需重建的、副标题是运行期高频改的，两者都有落点时整行才
+       该出现，显隐统一由 topbar_sync_visible() 决定（no_show_all 挡掉 show_all 的蔓延）。 */
     p->box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    p->topbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    p->subtitle = gtk_label_new(NULL);
+    gtk_label_set_ellipsize(GTK_LABEL(p->subtitle), PANGO_ELLIPSIZE_END);
+    gtk_label_set_single_line_mode(GTK_LABEL(p->subtitle), TRUE);
+    gtk_widget_set_margin_start(p->subtitle, 8);
+    gtk_widget_set_margin_end(p->subtitle, 12);
+    gtk_box_pack_end(GTK_BOX(p->topbar), p->subtitle, FALSE, FALSE, 0);
+    gtk_widget_set_no_show_all(p->topbar, TRUE);
+    gtk_widget_set_no_show_all(p->subtitle, TRUE);
+    gtk_box_pack_start(GTK_BOX(p->box), p->topbar, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(p->box), p->view, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(p->window), p->box);
     /* 装配期就已经 set_menu 过：这时把菜单栏建出来（运行期再改的走 g_idle_add 到本线程）*/
@@ -700,6 +714,8 @@ static void *gtk_thread_main(void *arg) {
        窗口一旦销毁，view 指针就已失效，只能置空。 */
     p->view = NULL;
     p->box = NULL;      /* 随窗口一起销毁了 */
+    p->topbar = NULL;   /* 同上：顶行与副标题都是窗口的子 widget */
+    p->subtitle = NULL;
     p->menubar = NULL;
     menu_clear_slots(p); /* 槽里的 app_id 是我们 malloc 的，跟平台状态一起收 */
 #ifdef CJ_HAVE_TRAY
@@ -953,6 +969,24 @@ static void menu_post_layout(cj_host *h) {
     g_idle_add_full(G_PRIORITY_LOW, menu_layout_idle_cb, m, NULL);
 }
 
+/* 顶部那一行的显隐：菜单栏挂着、或副标题文本非空时整行才出现。
+   空菜单栏不留空条（原有约束）同样适用于空副标题——否则应用没设副标题时窗口顶部
+   会凭空多出一条空行高度。 */
+static void topbar_sync_visible(plat_host *p) {
+    const char *t;
+
+    if (!p) return;
+    t = p->subtitle ? gtk_label_get_text(GTK_LABEL(p->subtitle)) : "";
+    if (p->subtitle) {
+        if (t && t[0]) gtk_widget_show(p->subtitle);
+        else gtk_widget_hide(p->subtitle);
+    }
+    if (p->topbar) {
+        if (p->menubar || (t && t[0])) gtk_widget_show(p->topbar);
+        else gtk_widget_hide(p->topbar);
+    }
+}
+
 static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
     menu_build_ctx c;
 
@@ -965,6 +999,7 @@ static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
     }
     menu_clear_slots(p);
     if (!wire || !wire[0]) { /* 空串 = 清空菜单栏（不留一条空条）*/
+        topbar_sync_visible(p);
         fprintf(stderr, "[cj-bridge] menu cleared\n");
         return;
     }
@@ -976,9 +1011,16 @@ static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
     c.ok[0] = 1;
     cj_core_menu_walk(wire, menu_add_row, &c);
     p->menubar = c.menubar;
-    gtk_box_pack_start(GTK_BOX(p->box), p->menubar, FALSE, FALSE, 0);
-    gtk_box_reorder_child(GTK_BOX(p->box), p->menubar, 0); /* 菜单栏必须在 view 之上 */
+    /* 菜单栏装进顶行（topbar 常驻；万一没有则回落 box，保持旧装配可用的形状）*/
+    if (p->topbar) {
+        gtk_box_pack_start(GTK_BOX(p->topbar), p->menubar, FALSE, FALSE, 0);
+        gtk_box_reorder_child(GTK_BOX(p->topbar), p->menubar, 0); /* 菜单栏在副标题左侧 */
+    } else {
+        gtk_box_pack_start(GTK_BOX(p->box), p->menubar, FALSE, FALSE, 0);
+        gtk_box_reorder_child(GTK_BOX(p->box), p->menubar, 0); /* 菜单栏必须在 view 之上 */
+    }
     gtk_widget_show_all(p->menubar);
+    topbar_sync_visible(p);
     /* 凭证是「事后从 GTK 侧读回来」，不是「我调过 gtk_menu_bar_new 了」：菜单栏没挂进 box、
        或条目一个都没建出来时，光打一句 applied 会把人骗过去（Windows 侧 SetMenu 静默失败
        正是这么踩的，见 bridge_win.c 的 GetMenu 复核）。bar_children 是菜单栏的顶层项数
@@ -992,6 +1034,58 @@ static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
         g_list_free(kids);
     }
     menu_post_layout(h); /* 布局走完再读一次几何（低优先级 idle），驱动脚本据此定位 */
+}
+
+/* ===== 窗口顶部副标题（与菜单栏同一行的右侧）===== */
+/* 运行期高频更新（标题 / 保存状态 / 字数），一律投 g_idle 到 GTK 线程——
+   与 set_menu 同一条纪律：仓颉侧任何线程都可能调用，别在主循环外碰 widget。 */
+typedef struct subtitle_idle {
+    cj_host *h;
+    char *text;
+} subtitle_idle;
+
+static gboolean subtitle_idle_cb(gpointer data) {
+    subtitle_idle *s = (subtitle_idle *)data;
+
+    if (!s) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = s->h ? (plat_host *)s->h->plat : NULL;
+        if (p && p->window && p->subtitle) {
+            gtk_label_set_text(GTK_LABEL(p->subtitle), s->text ? s->text : "");
+            topbar_sync_visible(p);
+            /* 凭证：文本回读 + 整行显隐都打一行，避免「我设过了」式的假成功
+               （菜单那轮的教训：SetMenu 返回 FALSE 也照打 applied） */
+            fprintf(stderr, "[cj-bridge] titlebar subtitle: \"%s\" topbar_visible=%d\n",
+                    gtk_label_get_text(GTK_LABEL(p->subtitle)),
+                    (p->topbar && gtk_widget_get_visible(p->topbar)) ? 1 : 0);
+        }
+    }
+    free(s->text);
+    free(s);
+    return G_SOURCE_REMOVE;
+}
+
+int cj_plat_set_titlebar_subtitle(cj_host *h, const char *text) {
+    plat_host *p;
+    subtitle_idle *s;
+
+    if (!h || !text) return -1;
+    p = (plat_host *)h->plat;
+    if (!p || !p->window) return -3;
+    s = (subtitle_idle *)calloc(1, sizeof(*s));
+    if (!s) return -3;
+    s->h = h;
+    s->text = strdup(text);
+    if (!s->text) {
+        free(s);
+        return -3;
+    }
+    if (!g_idle_add(subtitle_idle_cb, s)) {
+        free(s->text);
+        free(s);
+        return -3;
+    }
+    return 0;
 }
 
 /* 跨线程换菜单：线路文本进 g_idle 队列，由 GTK 线程消费（payload 谁分配谁在 idle 里释放）*/
@@ -1229,15 +1323,16 @@ int cj_plat_host_capabilities(cj_host *h) {
        托盘同理按 CJ_HAVE_TRAY 如实（libayatana-appindicator3 编进来了才置位）。 */
 #ifdef CJ_HAVE_X11
 #ifdef CJ_HAVE_TRAY
-    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY | CJ_CAP_TRAY;
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY | CJ_CAP_TRAY |
+        CJ_CAP_SUBTITLE;
 #else
-    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY;
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_HOTKEY | CJ_CAP_SUBTITLE;
 #endif
 #else
 #ifdef CJ_HAVE_TRAY
-    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_TRAY;
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_TRAY | CJ_CAP_SUBTITLE;
 #else
-    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION;
+    return CJ_CAP_MENU | CJ_CAP_DRAG_DROP | CJ_CAP_NOTIFICATION | CJ_CAP_SUBTITLE;
 #endif
 #endif
 }

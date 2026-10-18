@@ -81,6 +81,8 @@ typedef void (*cj_on_shell_fn)(struct cj_host *host, const char *json);
 #define CJ_CAP_DRAG_DROP 4
 #define CJ_CAP_NOTIFICATION 8 /* 平台通知可用（Linux = freedesktop Notifications）*/
 #define CJ_CAP_HOTKEY    16 /* 全局快捷键可用（Linux = X11 grab；Wayland 不置位）*/
+#define CJ_CAP_SUBTITLE  32 /* 窗口顶部那一行能显示副标题（Linux = 与菜单栏同排的 label；
+                               Windows 的系统菜单没有自绘区，未实现、不置位）*/
 
 /* ===== 回投队列节点（core 拥有；UTF-8 存储，宽字符转换由平台在 cj_plat_post_js 里做）===== */
 typedef struct js_node {
@@ -237,6 +239,10 @@ void cj_plat_reload(cj_host *h);
    调用时机两头都要支持：**未就绪**时只记下（平台建窗时读 h->pending_menu_text）；**已就绪**时由平台
    投到 UI 线程重建菜单。cj_plat_menu_item_state 只改运行期状态（可用 / 勾选），要快、可能频繁。 */
 void cj_plat_set_menu(cj_host *h, const char *wire);
+
+/* 平台原语：把副标题写到窗口顶部那一行（UI 线程调用）。返回 0 = 已提交，
+   -3 = 宿主未就绪，-4 = 本平台没这块（Windows 的系统菜单没有自绘区）。 */
+int cj_plat_set_titlebar_subtitle(cj_host *h, const char *text);
 void cj_plat_menu_item_state(cj_host *h, const char *id, int enabled, int checked);
 void cj_plat_set_drag_drop(cj_host *h, int enabled, int files);
 
@@ -420,6 +426,13 @@ CJ_BRIDGE_API void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int
 /* 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关）。
    两头都能用：未就绪时记 pending（建 view 时读），就绪后平台投 UI 线程重挂 drag dest。 */
 CJ_BRIDGE_API void cj_bridge_set_drag_drop(cj_host *h, int enabled, int files);
+
+/* 窗口顶部副标题：把一行 UTF-8 文本画在原生菜单栏**同一行的右侧**（应用据此省掉
+   自己的页面顶栏，标题 / 保存状态 / 字数都能挂在原生那一行上）。允许运行期高频更新，
+   实现必须自己投递到 UI 线程（Linux 走 g_idle_add，同 set_menu）。
+   返回 0 = 已受理，-1 = 参数非法（含超过 1024 字节），-3 = 宿主未就绪，
+   -4 = 本平台未实现（应用据 CJ_CAP_SUBTITLE 决定要不要自己画顶栏）。 */
+CJ_BRIDGE_API int cj_bridge_set_titlebar_subtitle(cj_host *h, const char *text);
 
 /* 全局快捷键：wire 一行一条 `<accel>:<id>`（空串 = 全部注销）。
    两头都能用：未就绪时记 pending（宿主线程起来后读），就绪后整表替换（ungrab 旧表再 grab 新表）。 */

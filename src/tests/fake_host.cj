@@ -30,6 +30,8 @@ class FakeHost <: WebViewHost {
     // 菜单：线路文本 / 单项状态按原样记下（桩不建真菜单，用例断言的是投下来的内容）
     public var menuWire: String = ""
     public var menuItemStateArgs: String = ""
+    // 标题栏副标题：桩只记最后一次文本（用例断言的是「投下来的是什么」）
+    public var titlebarSubtitleText: String = ""
     public var dragDropArgs: String = ""
     public var hotkeyWire: String = ""
     public var trayWire: String = ""
@@ -86,6 +88,10 @@ class FakeHost <: WebViewHost {
 
     public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
         this.menuItemStateArgs = "${id}|${enabled}|${checked}"
+    }
+
+    public func setTitlebarSubtitle(text: String): Unit {
+        this.titlebarSubtitleText = text
     }
 
     public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {

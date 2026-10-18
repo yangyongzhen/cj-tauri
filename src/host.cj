@@ -417,11 +417,7 @@ class HostGlobals {
     static func registerHostRoute(handle: CPointer<Unit>, onShell: (String) -> Unit,
                                   onDestroy: () -> Unit, onDialog: (String) -> Unit): Unit {
         for (r in HostGlobals.hostRoutes) {
-            var same: Int32 = 0
-            unsafe {
-                same = cj_bridge_host_eq(r.handle, handle)
-            }
-            if (same != 0) {
+            if (hostHandleEquals(r.handle, handle)) {
                 r.onShell = onShell
                 r.onDestroy = onDestroy
                 r.onDialog = onDialog
@@ -436,11 +432,7 @@ class HostGlobals {
      */
     static func hostRouteOf(handle: CPointer<Unit>): Option<HostRoute> {
         for (r in HostGlobals.hostRoutes) {
-            var same: Int32 = 0
-            unsafe {
-                same = cj_bridge_host_eq(r.handle, handle)
-            }
-            if (same != 0) {
+            if (hostHandleEquals(r.handle, handle)) {
                 return Some(r)
             }
         }
@@ -524,9 +516,17 @@ func shellOnEvent(host: CPointer<Unit>, json: CString): Unit {
  * 必须是构造参数而不是事后 setter——label 决定页面侧 `window.__CJ_TAURI_LABEL__` 与事件过滤，
  * 启动之后再改就晚了（见 docs/架构演进-多平台与多窗口.md §7.3）。
  */
-@When[os == "Linux"]
+// 鸿蒙目标下 `os` 仍取 `Linux`（实测：@When[os == "Linux"] 命中），`os` 维度分不开鸿蒙与 Linux；
+// 唯一可用的编译期判据是 `arch`。桌面 Linux 走 WebKit，ARM64（鸿蒙）没有内置宿主、
+// 只能由应用经 setHostFactory 注入（见 host_factory.cj）。
+@When[os == "Linux" && arch != "aarch64"]
 func createHost(label: String): WebViewHost {
     return WebKitHost(label)
+}
+
+@When[os == "Linux" && arch == "aarch64"]
+func createHost(label: String): WebViewHost {
+    return requireInjectedHost(label)
 }
 
 @When[os == "Windows"]
@@ -535,12 +535,61 @@ func createHost(label: String): WebViewHost {
 }
 
 /**
+ * 两个宿主句柄是否指向同一宿主
+ *
+ * 桌面两平台走 C 桥 `cj_bridge_host_eq`——仓颉的 `CPointer` 既没有 `==` 也没有 `!=`
+ * （实测报 `invalid binary operator '!=' on type 'CPointer<Unit>'`），也没有 `hashCode`，
+ * 比较只能交给 C 侧。鸿蒙没有 C 桥：宿主由应用经 `setHostFactory` 注入、回调也由应用自己持有，
+ * 框架不按句柄路由，因此恒为 false 并留一行 stderr——**不假装相等**（假装相等会把两扇窗的路由串台）。
+ */
+@When[os == "Windows"]
+func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
+    unsafe {
+        return cj_bridge_host_eq(a, b) != 0
+    }
+}
+
+@When[os == "Linux" && arch != "aarch64"]
+func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
+    unsafe {
+        return cj_bridge_host_eq(a, b) != 0
+    }
+}
+
+// 只在无 C 桥的平台用到，声明也放进同一门禁：桌面侧保留会变成 unused variable
+@When[os == "Linux" && arch == "aarch64"]
+private var HOST_ROUTE_WARNED: Bool = false
+
+@When[os == "Linux" && arch == "aarch64"]
+func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
+    let _ = a
+    let _ = b
+    if (!HOST_ROUTE_WARNED) {
+        HOST_ROUTE_WARNED = true
+        eprintln("[cj-tauri] host route by handle unavailable on this platform: injected host keeps its own callbacks")
+    }
+    return false
+}
+
+/**
  * 造一个「裸宿主句柄」：只分配 C 侧宿主对象（不 init / 不 start、不碰图形栈）
  *
  * 只给单元测试用（子包可见，不算对外 API）。为什么需要这层包皮：`cj_bridge_create` 是
  * `foreign func`——没有函数体、也就没有跨包符号，子包 `cjTauri.tests` 直接调会在**链接期**炸
  * （实测 `ld.lld: error: undefined symbol: cjTauri:cj_bridge_create`）；框架包内包一层就有实体符号了。
+ *
+ * 只编桌面两平台：鸿蒙没有 C 桥也就没有这个符号，而单测只在桌面跑（`cjpm test` 用桌面目标）。
  */
+@When[os == "Windows"]
+func createBareHostHandle(): CPointer<Unit> {
+    var h: CPointer<Unit> = CPointer<Unit>()
+    unsafe {
+        h = cj_bridge_create()
+    }
+    return h
+}
+
+@When[os == "Linux" && arch != "aarch64"]
 func createBareHostHandle(): CPointer<Unit> {
     var h: CPointer<Unit> = CPointer<Unit>()
     unsafe {

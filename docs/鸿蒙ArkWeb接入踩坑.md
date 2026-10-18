@@ -150,8 +150,19 @@ cjTauri = { path = "E:/test/harmonyos/test/cj-tauri" }
 | 写法 | 结果 |
 |---|---|
 | `@When[os == "ohos"]` | **编译期直接报** `error: builtin condition 'os' do not support 'ohos'…` |
+| `@When[os == "HarmonyOS"]` / `"OHOS"` / `"OpenHarmony"` | 同样被拒；报错把支持列表原样吐出：`supported listed: 'Windows Linux macOS iOS'` |
 | `@When[os == "Linux"]` | **命中**（鸿蒙目标下 `os` 取值就是 `Linux`，与桌面 Linux 撞车） |
-| `@When[arch == "aarch64"]` | 命中鸿蒙；桌面 Linux 是 `x86_64` —— **唯一可用的判据** |
+| `@When[arch == "aarch64"]` | 命中鸿蒙；桌面 Linux 是 `x86_64` —— **当前唯一可用的判据** |
+
+注意这条判据表达的是「架构」而不是「操作系统」，两个方向都会误伤：ARM64 桌面 Linux（鲲鹏 / 树莓派）
+会落进鸿蒙分支，鸿蒙 x86_64 目标会落进桌面分支。它只是**在官方给出鸿蒙取值前的临时口径**——
+`os` 的支持列表里已经有 `iOS` 却没有 `HarmonyOS`，属于遗漏而非取舍（cjnative 版手册反过来写着支持
+`HarmonyOS`，文档与实现不一致），已提 [Cangjie/cangjie_compiler#1205](https://atomgit.com/Cangjie/cangjie_compiler/issues/1205)。
+官方放开取值后，这里应收口成单条件、把 49 处两段写减半。
+
+自定义条件（`--cfg "platform=ohos"`）能工作，但**未定义的自定义条件不是静默不命中、而是直接编译失败**
+（`conditional compilation have not supported this condition: 'platform'`）——它会把平台判定变成对
+应用 `cjpm.toml` / hvigor 构建 / 脚手架生成工程 / CI 每个入口的配置要求，漏一处即编不过，因此没被采用。
 
 所以框架里所有「桌面 vs 鸿蒙」的分叉一律写成两段：
 

@@ -19,6 +19,16 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* mingw 的 <io.h> 把 mkdir 声明成单参（MSVCRT 语义，且已标 deprecated），
+   POSIX 的两参形态在 Windows 上直接编不过（too many arguments to function call）——
+   用例里统一走这个包装，两边的语义都是「建一级目录」。 */
+#ifdef _WIN32
+#include <direct.h>
+static int cj_test_mkdir(const char *p) { return _mkdir(p); }
+#else
+static int cj_test_mkdir(const char *p) { return mkdir(p, 0700); }
+#endif
+
 /* ===== 断言与用例 ===== */
 
 static int g_pass = 0;
@@ -1063,7 +1073,7 @@ int main(void) {
         int i;
 
         snprintf(dir, sizeof(dir), "/tmp/cj-bridge-logtest-%ld", (long)getpid());
-        mkdir(dir, 0700);
+        cj_test_mkdir(dir);
         /* 路径故意多两级不存在的目录：默认日志目录（~/.local/state/cj-tauri）常常还不存在，
            走到 ③ 顺带证明「父目录按需建出来」 */
         snprintf(path, sizeof(path), "%s/nested/deep/app.log", dir);

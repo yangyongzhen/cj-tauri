@@ -26,3 +26,14 @@
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["${CANGJIE_STDX}"]
+
+[target.aarch64-linux-ohos]
+  # 鸿蒙目标（真机 / 鸿蒙 PC）：交叉编译工具链与 sysroot 由 DevEco 仓颉套件提供，
+  # 四个路径全部走环境变量展开——hvigor 构建时由插件注入前两个，命令行交叉编译时自行 export 同名变量。
+  # 照抄 DevEco 生成的工程（TestCj2）同一串参数，避免两套口径。
+  compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\""
+
+[target.aarch64-linux-ohos.bin-dependencies]
+    # stdx 必须用鸿蒙版（官方发布 cangjie-stdx-ohos-aarch64-<cjc 版本>.zip，桌面版 ABI 不通）；
+    # CANGJIE_OHOS_LIBS 指 DevEco 套件的 api/lib/linux_ohos_aarch64_cjnative/ohos（仓颉标准库 + ohos API 绑定）。
+    path-option = ["D:/cangjie-stdx-ohos/linux_ohos_aarch64_cjnative/dynamic/stdx", "C:/Users/yang/.cangjie-sdk/6.1/cangjie/api/lib/linux_ohos_aarch64_cjnative/ohos"]

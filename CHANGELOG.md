@@ -342,6 +342,25 @@
 
 ### Added
 
+- **鸿蒙（HarmonyOS ArkWeb）接入第一段打通：框架核心能在真机 HAP 里执行**——本轮只做到「框架代码跑起来」，
+  宿主（`WebViewHost` 的 ArkWeb 实现）仍未落地，能力位如实报 0。实测证据（真机 `3QC0124B20000048`，
+  bundle `com.yang.testcj`）：页面 `file://` 加载完成后经 `javaScriptProxy` 回调鸿蒙侧，仓颉侧调到
+  `cjTauri` 包里的函数并回投 **`framework: platform=ohos version=1.0.0`**，hilog 里
+  `MyAbilityStage onCreated` → `onWindowStageCreate` → `CjTauriProbe` 三条齐全，无崩溃行。
+  落地要点：
+  - **鸿蒙 entry 模块用 cjpm 源码依赖接框架**（`[dependencies] cjTauri = { path = … }`），
+    `hvigor` 的 `CompileCangjie` 直接按 dynamic 根包形态编进来；手工 `-L… -lcjTauri` 也链得过，
+    但包初始化登记链不归 cjpm 管，属未维护路径（AGENTS §4）；
+  - **修掉一个会让应用一启动就 SIGSEGV 的旧缺陷**：`src/log_bridge.cj` 的三个 `cj_bridge_log_*`
+    FFI 原本按「桌面两平台同名导出」口径不写 `@When`，而无 C 桥的平台（鸿蒙）没有实现，
+    模块里就留成未解析符号、加载期直接崩（表象是白屏 / 秒退、hilog 里连 `AbilityStage.onCreate` 都没有）。
+    现在 FFI 与薄包装统一按 `@When[arch != "aarch64"]` 门禁，鸿蒙侧如实降级：
+    `enableLogFile` 返回 false 并留一行 stderr、`currentLogFilePath` 回空串、`writeLogLine` 返回 false
+    （**不落盘就说没落盘**，能力位口径不变）。桌面两平台行为零变化；
+  - `src/host.cj` 的「无 C 桥平台」提示变量 `HOST_ROUTE_WARNED` 的声明随其使用点一并进 `arch` 门禁，
+    桌面侧不再有 `unused variable` 警告（零警告门禁）；
+  - 完整踩坑过程（判据命令、被数据否定的三条弯路、hvigor 与签名断点、真机 hilog 取证方法）
+    单独沉淀在 `docs/鸿蒙ArkWeb接入踩坑.md`，`AGENTS.md` §4 只留判据。
 - **宿主新增「标题栏副标题」能力（`WebViewHost.setTitlebarSubtitle` / `cj_bridge_set_titlebar_subtitle`，
   能力位 `CJ_CAP_SUBTITLE` = 32）**：一行文本画在原生菜单栏**同一行的右侧**，应用据此把自己的页面顶栏
   整行让出来（标题 / 保存状态 / 字数挂在原生那一行），界面高度少一层。语义与判据：
@@ -361,6 +380,15 @@
   屏数 19 → 20 一并改掉，别让数字与实物对不上）。它不是框架能力的增量，而是能力面的**外部证明**：
   原生菜单 + 副标题（页面顶栏整行让出）+ 三态视图 + AI 流式 + 外部草稿，全部由 `examples/` 之外的应用
   自己走通——AGENTS §2 里「能力位与宿主回调」那套约定在第三方应用身上同样成立。
+
+### Fixed
+
+- **C 桥桩自检（`native/tests/test_bridge_core.c`）在 Windows / llvm-mingw 下编不过**：
+  用例按 POSIX 写 `mkdir(dir, 0700)`，而 mingw 的 `<io.h>` 把 `mkdir` 声明成单参（MSVCRT 语义、
+  且已标 deprecated），报 `too many arguments to function call, expected 1, have 2`——
+  于是 `scripts/test-bridge-core.sh`（以及 `test.sh` / `check-static.sh` 里那一步）在这台机器上
+  连着整条门禁一起红。改为统一走 `_WIN32` 分支的 `cj_test_mkdir()` 包装，两边语义都是「建一级目录」；
+  修后桩自检 **221/221** 通过。
 
 ## [1.0.0] - 2026-10-17
 

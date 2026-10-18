@@ -130,7 +130,9 @@
 - 新增文件按单一职责拆分（例：`src/window.cj` 只放窗口配置模型，`src/capability_loader.cj` 只放清单加载/扫描）。
 - **native/ 目录契约**：`native/core/`（`bridge_core.c/.h` + `bridge_js.h`，跨平台共享层，GTK-free，
   桩平台自检就编它）、`native/platforms/linux|windows|harmonyos/`（平台实现，一个平台一个目录；
-  harmonyos 目前只有契约 README——scaffold 先行、能力位如实报 0、禁假实现）、`native/tests/`（桩自检）。
+  harmonyos 目前只有契约 README——scaffold 先行、能力位如实报 0、禁假实现；
+  2026-10-18 起「框架核心跑在真机 HAP 里」已验证（探针工程回投 `framework: platform=ohos version=1.0.0`，
+  判据见 §4），但**宿主与 C 桥都还没写**，能力位仍是 0）、`native/tests/`（桩自检）。
   **FFI/源文件归属判据「谁调用谁包内」**；新平台从照抄 Windows 桩的同名导出开始。构建脚本
   `native/build_linux.sh` / `build_win.bat` 留在 native/ 根作入口（源文件路径已指子目录），
   **产物必须落在 `native/` 根**（`cjpm.toml` 的 `-Lnative -lcjtbridge`、CLI 模板、打包脚本都按这个路径找）。
@@ -469,6 +471,29 @@
   与框架代码无关，gdb 里一眼可见）。`onDestroy` 仍由 `destroy` 信号触发一次，收尾里那次是幂等兜底。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
+- **平台没有 C 桥时，「不带 `@When` 的核心包 `foreign func`」会留成未解析符号，表现是应用一启动就没**
+  （2026-10-18 鸿蒙 ArkWeb 首轮实测：白屏三轮、误判成「静态包硬链进动态根包导致 init 卡死」）：
+  `src/log_bridge.cj` 原本**故意**不写 `@When`（桌面两平台同名导出、实现只有 `native/core/bridge_core.c` 一份），
+  可鸿蒙侧**没有 C 桥产物**（`native/platforms/harmonyos/` 目前只有契约），于是 `cj_bridge_set_log_file` /
+  `cj_bridge_log_file` / `cj_bridge_log_write` 在模块里是 `U`，模块加载期直接 **SIGSEGV**
+  （`exit with signal:11`，地址看着像野指针而非空指针）。表象极具误导性：窗口白屏或应用秒退，
+  **hilog 里连 `AbilityStage.onCreate` 一行都没有**，而 Cangjie 运行时自己的 `CANGJIE-RUNTIME` 行照常打——
+  很容易往「ability 生命周期卡死」「运行时模块 init 死锁」「stdx 重复链接」这些方向排查，
+  这条路当晚白走了好几轮。
+  **判据**：`llvm-nm -D --undefined-only <模块.so> | grep cj_bridge` 必须是 **0 行**——它比任何运行期日志都直接。
+  落法是给 FFI 声明与薄包装**同一口径的 `@When[arch != "aarch64"]`**，并为无桥平台写一份如实降级
+  （`enableLogFile` 返回 false 且留一行 stderr、`currentLogFilePath` 回空串、`writeLogLine` 返回 false），
+  **不要**为了让它编过而假装成功。改完判据：同一命令 0 行 + `MyAbilityStage onCreated` 重新出现。
+  同族风险面：`src/clipboard_bridge.cj` 与任何「谁调用谁包内」的核心 FFI，新增时先问「这个平台有桥吗」。
+  完整过程（判据命令、被数据否定的三条弯路、真机 hilog 取证、hvigor 与签名断点）见
+  `docs/鸿蒙ArkWeb接入踩坑.md`——本文只留判据，过程不在 §4 展开。
+- **鸿蒙工程接框架走 cjpm 源码依赖，别手工把 static 产物塞进 `link-option`**（2026-10-18 实测）：
+  `entry/cjpm.toml` 写 `[dependencies] cjTauri = { path = "<框架根>" }` 后 `hvigor` 的 `CompileCangjie`
+  会按本模块（`output-type = "dynamic"`）需要的形态把框架各包编进来，零额外配置；
+  手工 `-L… -lcjTauri` 虽然也链得过（框架是单对象 `libcjTauri.a`，一引就整包进来），
+  但**包初始化登记链不由 cjpm 负责**，属于没人维护的路径——别再走。
+  顺带一个 `@When` 口径：鸿蒙的 `os` 取值**就是 `"Linux"`**，与桌面 Linux 撞车，分叉只能靠 `arch`
+  （鸿蒙 `arch == "aarch64"`，桌面 `x86_64`）。
 - CLI 让应用「跑完装配但**不能开窗口**」的场景（`cj-tauri info` 取插件清单）务必防住陈旧产物：旧产物认不出
   新环境变量，会真的创建窗口把命令卡住。守卫 = 「框架源码里有变量名」+「产物 mtime 不比框架源码旧」，
   两者都过才允许跑。

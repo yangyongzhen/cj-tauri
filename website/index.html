@@ -447,7 +447,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
     <div class="wrap">
       <div class="sec-head">
         <span class="kicker" data-en="Examples">示例</span>
-        <h2 class="sec-title" data-en="26 runnable examples — 19 of them below, all on-device screenshots">26 个可直接运行的示例<br>下面 19 屏全是实机截图</h2>
+        <h2 class="sec-title" data-en="26 runnable examples, plus ecosystem apps — 20 shots below, all on-device">26 个可直接运行的示例<br>下面 20 屏全是实机截图</h2>
         <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console, an AI chat client. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence. The strip below scrolls sideways — drag it, swipe it, or use the arrows.">
           不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台、AI 对话客户端……
           每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。下面是一条横向轮播，左右拖动、滚轮横滚或箭头都能翻。
@@ -651,11 +651,21 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                   </div>
                 </a>
               </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cjnote" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/cjnote.png" width="1280" height="800" loading="lazy" alt="cjnote：分屏编辑 + AI 助手，标题与状态并入原生菜单行" data-en-alt="cjnote: split editor with the AI assistant, title and state pushed into the native menu row"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="cjnote — AI-native Markdown notes (ecosystem app)">cjnote：AI 原生 Markdown 笔记（生态项目）</h3>
+                    <p class="slide__desc" data-en="An independent app built on cj-tauri, not one of the examples. Three panes plus three view states; the page's own top bar is gone — title, saved-state and word count ride the right end of the native menu row through setTitlebarSubtitle. AI takes the whole note or search hits as context, and rewrite / continue / translate land in a diff strip before they touch the document. Ctrl+O opens an outside .md as an in-memory draft, saved into the library only on the first Ctrl+S.">基于 cj-tauri 的独立应用（不在 examples/ 里）。三栏 + 三态视图；页面自己的顶栏整条去掉——标题、保存状态、字数经 setTitlebarSubtitle 推到原生菜单行右端。AI 上下文取整篇笔记或库里检索命中片段，改写 / 续写 / 翻译先进 diff 确认条再动文档。Ctrl+O 打开库外 .md 只进内存作草稿，首次 Ctrl+S 才落库。</p>
+                    <span class="slide__tag" data-en="atomgit.com/qq8864/cjnote · menu + subtitle + http">atomgit.com/qq8864/cjnote · 菜单 + 副标题 + http</span>
+                  </div>
+                </a>
+              </li>
             </ul>
           </div>
         </div>
         <div class="carousel__foot">
-          <p class="carousel__hint" data-en="Swipe or scroll sideways — 19 on-device shots, picked from 26 examples">左右拖动或滚动查看——19 屏实机截图，从 26 个示例里挑的</p>
+          <p class="carousel__hint" data-en="Swipe or scroll sideways — 20 on-device shots, picked from 26 examples plus one ecosystem app">左右拖动或滚动查看——20 屏实机截图，从 26 个示例与 1 个生态项目里挑的</p>
         </div>
       </div>
 

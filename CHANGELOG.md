@@ -340,6 +340,28 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- **宿主新增「标题栏副标题」能力（`WebViewHost.setTitlebarSubtitle` / `cj_bridge_set_titlebar_subtitle`，
+  能力位 `CJ_CAP_SUBTITLE` = 32）**：一行文本画在原生菜单栏**同一行的右侧**，应用据此把自己的页面顶栏
+  整行让出来（标题 / 保存状态 / 字数挂在原生那一行），界面高度少一层。语义与判据：
+  - **Linux 真画出来了**：窗口第一层竖向 box 里套一层水平 box——菜单栏 pack 到左、label pack 到右；
+    两者都没有时整行隐藏（空标题行不许凭空占高度，沿用「空菜单栏不留空条」的约束）。桥的凭证行
+    `[cj-bridge] titlebar subtitle: "…" topbar_visible=1` 是**回读文本 + 整行显隐**，不是「我调过了」；
+  - **Windows 如实降级**：系统菜单（`SetMenu`）那一行没有自绘区，导出同名同签名但返回 `-4`、能力位
+    不置位、只打一行 stderr——应用据能力位决定画不画自己的顶栏，别在没这能力的平台上删了顶栏没替代；
+  - **运行期能力、允许高频更新**：每次编辑都可能改（字数），调用方线程不限，Linux 侧一律投 `g_idle`
+    到 GTK 线程再碰 widget；core 做参数校验（`NULL` / 超过 1024 字节返回 `-1`，且**不透传平台**），
+    建窗之前调用返回 `-3`（不像 `setMenu` 那样记 pending）；
+  - `system:host` 的 JSON 多一个 `subtitle` 字段；桩平台自检 187 → 221 项（超长拒绝、
+    「被拒不透传」两条是新增判据）。
+- **生态项目 `cjnote` 进 README 与官网**（独立仓库 <https://atomgit.com/qq8864/cjnote>，**不在 `examples/` 里**）：
+  `README.md` / `README_EN.md` 的示例一览新增「生态项目」小节与两屏实机截图（`docs/images/example-cjnote.png` /
+  `example-cjnote-menu.png`），官网示例轮播加一屏 `assets/screenshots/cjnote.png`（同时把该区标题与轮播提示的
+  屏数 19 → 20 一并改掉，别让数字与实物对不上）。它不是框架能力的增量，而是能力面的**外部证明**：
+  原生菜单 + 副标题（页面顶栏整行让出）+ 三态视图 + AI 流式 + 外部草稿，全部由 `examples/` 之外的应用
+  自己走通——AGENTS §2 里「能力位与宿主回调」那套约定在第三方应用身上同样成立。
+
 ## [1.0.0] - 2026-10-17
 
 （首个 1.0.0：自 0.8.0 起 146 个提交——9 个新官方插件、托盘 / 全局快捷键 / 文件拖入三个能力位、

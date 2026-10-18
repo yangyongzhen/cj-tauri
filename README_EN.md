@@ -140,6 +140,12 @@ and self-check instructions. Most docs are in Chinese; the code and logs are the
 | [menu](examples/menu) | Native menu bar (real click evidence on Windows + Linux) |
 | [ipc-bench](examples/ipc-bench) | IPC benchmark: round-trip latency / throughput / payload scaling / event cost |
 
+**Ecosystem projects** (separate repos built on cj-tauri, not part of `examples/`):
+
+| Project | In one line |
+|---|---|
+| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI-native Markdown notes**: three panes (note library / editor / AI assistant) + three view states (`Ctrl+1/2/3`); **native menu bar plus a subtitle** — File / View / Help, with title · saved-state · word count pushed into the system menu row (falls back to the in-page bar when the capability is missing); an Outline tab that jumps to 1–3 level headings; AI context from the whole note or from `note:search` hits, with rewrite / continue / translate going through a **diff confirm** strip; `Ctrl+O` opens an external `.md` as an in-memory draft (saved into the library only on the first `Ctrl+S`, never rewriting the original), `Ctrl+P` quick-opens library notes; every network call is made by the Cangjie side (zero `fetch` in the page) with a host whitelist behind it; page self-check **31/31 on Linux hardware** |
+
 | movie app | music player, playing |
 |---|---|
 | ![movie app](docs/images/example-movie.png) | ![music playing](docs/images/example-music-playing.png) |

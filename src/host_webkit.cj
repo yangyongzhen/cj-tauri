@@ -109,6 +109,13 @@ foreign func cj_bridge_set_menu(h: CPointer<Unit>, wire: CString): Unit
 foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabled: Int32,
                                            checked: Int32): Unit
 
+/**
+ * 窗口顶部副标题（与菜单栏同一行的右侧）。返回 0 = 已提交、-3 = 宿主未就绪、-4 = 平台没有这块
+ */
+@When[os == "Linux"]
+@C
+foreign func cj_bridge_set_titlebar_subtitle(h: CPointer<Unit>, text: CString): Int32
+
 /** 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关） */
 @When[os == "Linux"]
 @C
@@ -256,6 +263,20 @@ public class WebKitHost <: WebViewHost {
         }
         unsafe {
             cj_bridge_set_menu_item_state(this.handle, LibC.mallocCString(id), e, c)
+        }
+    }
+
+    public func setTitlebarSubtitle(text: String): Unit {
+        if (this.handle.isNull()) {
+            // 运行期能力：建窗前没有落点（见接口注释），不拿空句柄去 FFI
+            return
+        }
+        unsafe {
+            let rc = cj_bridge_set_titlebar_subtitle(this.handle, LibC.mallocCString(text))
+            if (rc != 0) {
+                // 能力位说支持、这次却没写进去：留一行凭证（宿主未就绪 / 文本超 1024 字节）
+                eprintln("[cj-tauri] titlebar subtitle rejected: rc=${rc}")
+            }
         }
     }
 

@@ -1809,6 +1809,20 @@ static void menu_apply_wire(cj_host *h, plat_host *p, const char *wire) {
             p->menu_item_count, (void *)p->hwnd, (void *)p->menu, (void *)GetMenu(p->hwnd));
 }
 
+/* 窗口顶部副标题：Windows 侧菜单栏是 SetMenu 挂上的系统菜单，那一行没有自绘区，
+   如实降级（CJ_CAP_SUBTITLE 也不置位）。应用据能力位决定是否自己画页面顶栏。
+   提示只打一次：页面可能每次编辑都调（字数变化），刷屏不如一行够用。 */
+int cj_plat_set_titlebar_subtitle(cj_host *h, const char *text) {
+    static int warned = 0;
+    (void)text;
+    if (!h) return -1;
+    if (!warned) {
+        warned = 1;
+        fprintf(stderr, "[cj-bridge] titlebar subtitle not implemented on windows (capability CJ_CAP_SUBTITLE off)\n");
+    }
+    return -4;
+}
+
 void cj_plat_set_menu(cj_host *h, const char *wire) {
     plat_host *p = h ? (plat_host *)h->plat : NULL;
     if (!p || !wire) return;

@@ -213,6 +213,20 @@ void cj_bridge_set_menu(cj_host *h, const char *wire) {
     cj_plat_set_menu(h, h->pending_menu_text ? h->pending_menu_text : "");
 }
 
+int cj_bridge_set_titlebar_subtitle(cj_host *h, const char *text) {
+    int rc;
+
+    if (!h || !text) return -1;
+    if (strlen(text) > 1024) return -1;
+    rc = cj_plat_set_titlebar_subtitle(h, text);
+    /* 失败必须留痕：页面上的状态行不出现时，这一行是唯一能区分
+       「应用没调」与「平台没这块」的凭证 */
+    if (rc != 0) {
+        cj_logf("[cj-bridge] titlebar subtitle rejected: rc=%d text=\"%s\"\n", rc, text);
+    }
+    return rc;
+}
+
 void cj_bridge_set_menu_item_state(cj_host *h, const char *id, int enabled, int checked) {
     if (!h || !id || !id[0]) return;
     cj_logf("[cj-bridge] set menu item: id=%s enabled=%d checked=%d\n",

@@ -32,6 +32,10 @@ public const CJ_CAP_DRAG_DROP: Int32 = 4
 /** 全局快捷键（与 native/bridge_core.h 的 CJ_CAP_HOTKEY 逐位对齐；Linux = 编进了 X11 支持） */
 public const CJ_CAP_HOTKEY: Int32 = 16
 
+/** 标题栏副标题（与 native/bridge_core.h 的 CJ_CAP_SUBTITLE 逐位对齐；Linux = 菜单栏同排的 label，
+    Windows 的系统菜单没有自绘区、不置位）。应用据它决定要不要自己画页面顶栏。 */
+public const CJ_CAP_SUBTITLE: Int32 = 32
+
 /**
  * 宿主能力位的**可读形态**（RFC-002 §5.3）：`CJ_CAP_*` 位域 → 具名布尔 + `toJson`。
  *
@@ -48,13 +52,15 @@ public class HostCapabilities {
     public let tray: Bool
     public let dragDrop: Bool
     public let hotkey: Bool
+    public let subtitle: Bool
 
-    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool, hotkey: Bool) {
+    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool, hotkey: Bool, subtitle: Bool) {
         this.platform = platform
         this.menu = menu
         this.tray = tray
         this.dragDrop = dragDrop
         this.hotkey = hotkey
+        this.subtitle = subtitle
     }
 
     /** 位域 → 具名布尔（`platform` 由调用方给，见类注释） */
@@ -64,11 +70,12 @@ public class HostCapabilities {
             (caps & CJ_CAP_MENU) != 0,
             (caps & CJ_CAP_TRAY) != 0,
             (caps & CJ_CAP_DRAG_DROP) != 0,
-            (caps & CJ_CAP_HOTKEY) != 0
+            (caps & CJ_CAP_HOTKEY) != 0,
+            (caps & CJ_CAP_SUBTITLE) != 0
         )
     }
 
-    /** `system:host` 的返回形状：`{"platform":"windows","menu":true,"tray":true,"dragDrop":true,"hotkey":false}` */
+    /** `system:host` 的返回形状：`{"platform":"linux","menu":true,"tray":true,"dragDrop":true,"hotkey":true,"subtitle":true}` */
     public func toJson(): JsonValue {
         var obj = JsonObject()
         obj.put("platform", JsonString(this.platform))
@@ -76,6 +83,7 @@ public class HostCapabilities {
         obj.put("tray", JsonBool(this.tray))
         obj.put("dragDrop", JsonBool(this.dragDrop))
         obj.put("hotkey", JsonBool(this.hotkey))
+        obj.put("subtitle", JsonBool(this.subtitle))
         return obj
     }
 }
@@ -151,6 +159,19 @@ public interface WebViewHost {
      * （Windows 的 HMENU、GTK 的 GtkCheckMenuItem），模型本身是只读的——理由见 src/menu.cj。
      */
     func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit
+
+    /**
+     * 设置**窗口顶部副标题**：一行文本画在原生菜单栏**同一行的右侧**
+     *
+     * 用途是让应用省掉自己那条页面顶栏——标题 / 保存状态 / 字数挂在原生这一行上，
+     * 界面高度直接少一层。允许运行期高频更新（每次编辑都可能改），平台自己投递到
+     * UI 线程，调用方在哪个线程调都行。
+     * 这是**运行期能力**：建窗之前调用返回 -3（不像 `setMenu` 那样记 pending），
+     * 应用要么等页面加载后再调，要么按返回值如实处理。
+     * 平台没有该能力（能力位不含 `CJ_CAP_SUBTITLE`，Windows 即如此）时如实降级：
+     * 文本不显示、桥打一行 stderr，应用据能力位自己决定画不画页面顶栏。
+     */
+    func setTitlebarSubtitle(text: String): Unit
 
     /**
      * 设置拖放策略（RFC-002 §5）：enabled=false 平台不注册 drop target。

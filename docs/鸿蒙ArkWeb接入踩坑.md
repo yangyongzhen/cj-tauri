@@ -1,6 +1,7 @@
-# 鸿蒙 ArkWeb 接入踩坑（第一段：框架核心在真机跑通）
+# 鸿蒙 ArkWeb 接入踩坑（两段：框架核心跑通 + 宿主落地真机闭环）
 
-> 记录日期：2026-10-18　探针工程：`E:/test/harmonyos/TestCj2`　真机：`3QC0124B20000048`（bundle `com.yang.testcj`）
+> 记录日期：2026-10-18（§1~§8）；2026-10-19 补记（§8.1 组件接入、§9 失败总账、§10 构建链假阴性、§11 语言差异）
+> 探针工程：`E:/test/harmonyos/TestCj2`　真机：`3QC0124B20000048`（bundle `com.yang.testcj`）
 > 配套阅读：`docs/进度记录.md` §四（本轮结论与证据表）、`AGENTS.md` §4（只留最锋利的两条）、
 > `native/platforms/harmonyos/README.md`（宿主契约）、`docs/TAURI_TO_HARMONYOS_PORTING_GUIDE.md`（上游 Tauri 移植指南）
 >
@@ -11,6 +12,9 @@
 ---
 
 ## 0. 一句话结论
+
+> 本节是**第一段（2026-10-18）**的结论；第二段（2026-10-19 宿主落地 + 真机闭环）见 §8.1，
+> 两段合起来的**失败尝试总账**见 §9（16 条，含每条被什么数据否定）——那张表才是「下次别再走」的入口。
 
 鸿蒙这一轮**不是**在接 ArkWeb 宿主（宿主与 C 桥都还没写），而是解决了一个更前置的问题：
 **框架包能编进鸿蒙模块、在真机上初始化不崩、函数调用能通**。
@@ -167,8 +171,8 @@ cjTauri = { path = "E:/test/harmonyos/test/cj-tauri" }
 所以框架里所有「桌面 vs 鸿蒙」的分叉一律写成两段：
 
 ```cangjie
-@When[os == "Linux" && arch != "aarch64"]   // 桌面 Linux：WebKit 宿主
-@When[os == "Linux" && arch == "aarch64"]   // 鸿蒙：由应用注入宿主
+@When[os == "Linux" && env != "ohos"]   // 桌面 Linux：WebKit 宿主
+@When[env == "ohos"]   // 鸿蒙：由应用注入宿主
 ```
 
 配套的两条硬约束（`src/host.cj` / `src/host_factory.cj`）：
@@ -241,9 +245,10 @@ cd entry && cjpm.exe build --target=aarch64-linux-ohos -j10
 
 ---
 
-## 6. 仓颉 ↔ ArkTS 互操作：已探到的形状（宿主尚未实现）
+## 6. 仓颉 ↔ ArkTS 互操作：已探到的形状
 
-以下都是**编译探针时实测撞到**的约束，不是设计推演；宿主（ArkTS `Web` + `javaScriptProxy`）本身还没写。
+以下都是**编译/真机时实测撞到**的约束，不是设计推演。本节写于宿主尚未实现时（2026-10-18），
+其中「绑定形状 ≠ ArkTS 文档」那几条到宿主落地（2026-10-19，见 §8.1 / §9.2）时仍然成立。
 
 | 报错 / 现象 | 含义 | 落法 |
 |---|---|---|
@@ -252,7 +257,7 @@ cd entry && cjpm.exe build --target=aarch64-linux-ohos -j10
 | 绑定**没有 `loadData`** | `run(html)` 不能直喂字符串 | 落沙箱文件后走 `file://`（本次实测路径 `/data/storage/el2/base/haps/entry/files/probe.html`） |
 | `String` 实现 `ResourceStr` | 资源参数可直接传字符串 | 无需额外转换 |
 | `error: invalid binary operator '!=' on type 'CPointer<Unit>'`、`undeclared identifier 'hashCode'` | 句柄是 `CPointer<Unit>`，不能直接比较、没有 `hashCode` | 有 C 桥的平台走 `cj_bridge_host_eq`；无桥平台如实报「不可用」（见 §4） |
-| `ability_loader.cpp73 failed:UIAbility` | 仓颉 UIAbility 的继承/签名与模板不一致 | 照官方仓颉模板的 Ability 形状写 |
+| `ability_loader.cpp73 failed:UIAbility` | **曾经的归因写错过**：不是「UIAbility 继承/签名与模板不一致」，真正同轮出现它的时候 `entry/libs/arm64-v8a/ohos/` 里放着 SDK 的 `kit.*` mock，而 mock 的 `libkit.AbilityKit.so` NEEDED `libcangjie-std-core.so`（§9.3） | 先清 mock 目录再排查 Ability 形状；Ability 名与 `module.json5` 对齐（§10.4） |
 
 **判据仍然按 AGENTS §1 第 4 条**：能力位在实现落地前一律报 0，未验证的能力写成「未实现」而不是「理论上可以」。
 
@@ -311,7 +316,251 @@ CjTauriProbe: page end: file:///…/probe.html
 
 ---
 
-## 9. 下一步（未完成，勿当成已完成）
+## 8.1 组件侧接入与取证的新坑（2026-10-19 真机实测）
+
+### 8.1.1 `build()` 读到的页面地址是空串 → 白屏死锁
+
+`@Component` 的 `build()` 是**声明式的一次性求值**，而宿主把内联页面落盘后的 `file://` 地址
+只存在**宿主对象**上；组件自己那个字段初值是 `""`。于是首帧 `if (pageUrl.size > 0)` 不成立 →
+不建 `Web` → `onPageBegin` 永远不来 → 而原设计的「地址同步点」恰好就在 `onPageBegin` 里 →
+**死锁，页面永远白屏**。
+
+判据（两个信号必须一起看）：
+- hilog 有 `BindWebTagToWebInstance webTag:arkweb:0`（Web 组件**确实**建过）
+- 但 `page begin` / `page end` **一条都没有**，截图是纯白
+
+修法：在 `aboutToAppear()`（首次 `build()` 之前调用一次）里从宿主取 `currentUrl()` 写进 `@State`。
+**不要**指望 `@State` 自己从宿主刷新——它只在**组件自己赋值**时触发重绘；
+宿主在别的线程改自己的字段，组件永远是旧值。先打印一次 `h.currentUrl()` 确认地址确实非空
+（本机是 `file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html`）。
+
+### 8.1.2 `@State` 不允许带 `private` / `public`
+
+`@State private var pageUrl: String = ""` 直接编译失败，去掉修饰符写 `@State var pageUrl` 即可。
+宏对装饰器与访问修饰符的组合有硬约束，报错文案指向修饰符那一条。
+
+### 8.1.3 `Hilog.info` 带**整型**插值会落到 4 参数重载
+
+`Hilog.info(1, "tag", "len=${result.size}")` 报「缺少第 4 个参数 `Array<String>`」——
+`result.size` 是整型，插值后编译器选了 4 参重载。同一行里换成固定串
+（`Hilog.info(1, "tag", "runJavaScript ok")`）就编过。字符串插值（`${e.message}`）没这个问题。
+
+### 8.1.4 一次性 `hilog -x` 会把启动瞬间那几行滚掉
+
+`hilog -r` 清空 → 启动应用 → 等十几秒 → `hilog -x`，这中间系统日志能刷到三千多行，
+把我们的 5~10 行挤出环形缓冲；**`hilog -x -T Cangjie` 也一样取不到**（`-x` 导出的就是已经滚动的缓冲，
+过滤发生在导出之后）。
+
+判据：同一轮 `ps` 显示进程活着（`:gpu` / `:render` 都在），但 `Cangjie` tag 计数 **0** ——
+不是没打日志，是滚掉了。取证一律**流式**：先起 `hdc shell hilog > file`（后台作业）→ 再启动应用 →
+等 15 秒 → 停掉抓取 → 再 grep 文件。本轮靠这条才看到 `page begin` / `runJavaScript ok`。
+
+### 8.1.5 桥脚本的 `post` 是静默的，抛异常要靠页面自己暴露
+
+`ARKWEB_BRIDGE_JS` 里 `post()` 用 `try { ... } catch (e) { }` 吞掉一切异常——`javaScriptProxy`
+调用若失败，页面完全无感，那条 `invoke` 的 promise **永久 pending**（页面停在 `-`，既不 resolve 也不 reject，
+看起来像「命令没执行」，其实可能是通道根本没通）。
+
+诊断要在页面里**绕过桥**做三件事，并把结果写进 DOM（截图即证据）：
+1. `typeof window.__CJ_TAURI_HOST__` 与 `typeof window.__CJ_TAURI_HOST__.post` —— 判 `javaScriptProxy` 有没有注入；
+2. 直接 `post('{...}')` 并用 try/catch 抓异常 —— 判同步调用本身是否可用；
+3. `setTimeout` 后打一次 `poll()` 并把返回值截断显示 —— 判仓颉侧队列里有没有回投脚本。
+
+本轮实测：前两项**都是好的**（`host=object / post=function / manual post ok`），
+所以问题不在注入通道，得继续往 `messageHandler` → `IpcHub` → 回投这条线上查。
+
+### 8.1.5.1 **`javaScriptProxy` 的返回值传不回页面**（决定性，2026-10-19 真机）
+
+按桌面 C 桥的形状，鸿蒙侧原本用「页面 `setInterval` 调 `poll()` 取回待执行脚本」当回投泵。
+真机上**收不到**：页面显示 `poll -> null`，而页面 → 原生方向的 `post` 一切正常
+（`host=object / post=function / manual post ok`）。
+
+隔离实验（不碰框架，只改应用侧 `javaScriptProxy` 的 `funcList`）：
+把 `poll` 换成**无条件返回固定串** `{ _ => "poll-probe" }`，页面拿到的仍是 `null`。
+
+结论：**仓颉侧 `funcList` 的返回值不会回到 JS**——参数能进去、枚举顺序也对（`methodList`
+里的 `post` / `poll` 都能调），但返回值是 `null`。所以「页面拉、原生答」这种同步取数模型在
+鸿蒙侧不成立，`ARKWEB_BRIDGE_JS` 里那个 `poll` 泵必须换掉。
+
+可行的方向：**反过来由原生推**。`controller.runJavaScript(script, cb)` 是通的
+（`onPageBegin` 里注入桥脚本就是这条，日志有 `runJavaScript ok`），且 `post` 的回调本身
+就在 UI 线程上——所以让页面 `setInterval` 发一条 `{"type":"pull"}` 心跳，仓颉在 `post` 回调里
+（UI 线程，可安全碰 controller）把队列里的脚本用 `runJavaScript` 推出去即可。
+**注意返回值的教训是通用的**：不要把「同步方法有返回值」当成可用通道，先用一个固定串验一遍。
+
+### 8.1.6 `hdc file recv` 的**本地**路径也要 Windows 形式
+
+远端路径加 `MSYS_NO_PATHCONV=1` 只解决了远端那一半；本地目标写成 `/e/test/...` 会被 hdc 拼成
+`E:\test\...\test\cj-tauri\e\test\...` 之类，然后 `FileTransfer finish` 照报成功、文件却不在预期位置。
+本地路径用 `'E:\test\harmonyos\.romdump\shot.jpeg'` 这种**带盘符的 Windows 形式**。
+
+---
+
+## 9. 失败尝试总账（每条都写清「被什么数据否定」，别再重走）
+
+> 这一节是全文的索引：**凡走过的错路都在这里**，包括那些「架构层听起来最像」的方向。
+> 已有专节的不重复细节，只给交叉引用；§9.2~§9.4 是之前没落成文字的三段。
+
+### 9.1 全表（16 条）
+
+| # | 曾经的方向 | 怎么被否定（可复现的数据） | 结论 |
+|---|---|---|---|
+| 1 | 「静态框架包硬链进动态根包 → 包初始化登记链不完整」 | 改 **cjpm 源码依赖**后症状**一模一样**（HAP 1387673 B、同样无 `onCreate`、同样 signal:11） | 否，链接形态不是因（§2） |
+| 2 | 「stdx 静态 + 动态重复链接」 | 产物里只有 51 个泛型 `.ti` 符号，没有第二份 stdx 实例 | 否（§2） |
+| 3 | 「`libcjTauri.a` 里只有一个 `cjTauri.o`（整包单对象）是根因」 | 单对象只是链接粒度事实，一引就整包进来，与崩溃无因果关系 | 不是本次原因（§3 解释了「手工 `-lcjTauri` 会把整包拉进来」） |
+| 4 | **核心包裸 `foreign func`（真因）** | `llvm-nm -D --undefined-only` 里 `U cj_bridge_*` 三个；加 `@When` 门禁后同一命令 **0 行** + `MyAbilityStage onCreated` 回归 | **是**（§1） |
+| 5 | 「让框架包直接持有 `@Component` + `Web`」（`src/arkweb_view.cj`） | 三组对照：入口包自写组件**正常启动**；入口包只引框架一个字符串常量**照样崩**；把唯一碰 ArkUI 的文件移出编译**立刻正常** | 否：**ArkUI 声明式组件只能由应用模块持有**（§9.2） |
+| 6 | 「把框架改成 `output-type = "dynamic"` 绕开崩溃」 | 同样崩，且落点更糟：`[anon:cangjie_heap]` 里 `SEGV_ACCERR` | 否，形态不是因（§9.2） |
+| 7 | 「把 SDK 的 `kit.*` mock 拷进 `entry/libs/arm64-v8a/ohos/` 补上符号」 | SDK mock 只有 `_CGP9ohos.mock*`，**没有** ROM 的 `_CGP9kit.ArkUIiiHv`；mock 的 `libkit.AbilityKit.so` 还 NEEDED `libcangjie-std-core.so` | 否：**别把 kit.* mock 塞进包**（§9.3） |
+| 8 | 「页面 `setInterval` 调 `poll()` 从原生同步取数」 | 固定串隔离实验：`poll` 换成 `{ _ => "poll-probe" }`，页面拿到的仍是 `null` | 否：返回值通道不可用，改「原生推」（§8.1.5.1） |
+| 9 | 「在 `build()` 里同步宿主页面地址」 | `build()` 是一次性求值、组件字段还是初值 `""` → 不建 `Web` → `onPageBegin` 永不到 → 白屏死锁 | 否，改 `aboutToAppear()`（§8.1.1） |
+| 10 | 「自定义编译条件 `--cfg platform=ohos`」 | 未定义的自定义条件**不是静默不命中、而是直接编译失败**，等于要求应用 cjpm.toml / hvigor / 脚手架 / CI 每个入口都配 | 否，用 `env`（§4） |
+| 11 | 「`@When[os == "HarmonyOS"]` / `"ohos"` / `"OpenHarmony"`」 | 编译器一律拒，并把支持列表原样吐出：`Windows Linux macOS iOS` | 否，`os` 在鸿蒙下就是 `"Linux"`（§4） |
+| 12 | 「手工 `-L… -lcjTauri` 塞框架 static 产物」 | 链得过（单对象一引整包进），但**包初始化登记链不由 cjpm 负责** | 否，走 cjpm 源码依赖（§3） |
+| 13 | 「用 `devecocli` 的设备管理器」 | 它自带的 `hdc.exe` 未数字签名，初始化直接失败 | 否，`hdc` 直连（§5.4） |
+| 14 | 「命令行 `hap-sign-tool` 打签名包」 | `storePassword`/`keyPassword` 是 DevEco **机器绑定密文**，工具要明文；调试 profile 绑死那一个 `.p12` + `keyAlias=debugKey` | 不通（唯一没打通的一环），走 GUI 签名（§5.3） |
+| 15 | 「`hilog -x` 一次性 dump 取证」 | 启动那 5~10 行被三千多行系统日志挤出环形缓冲，`Cangjie` tag 计数 **0**，而进程明显活着 | 否，一律流式抓取（§8.1.4） |
+| 16 | 「用桌面 `cjpm` 加 `--target=aarch64-linux-ohos`」 | 目标**静默回落**成 `x86_64-w64-mingw32`，编出来是 Windows 产物 | 必须用鸿蒙 SDK 的 `tools/bin/cjpm`（§5.1） |
+
+**方法论（比任何一条单点结论都值钱）**：
+
+- 每一条「听起来最像」的架构解释都被数据否掉了，真因先后落在**一个小文件里的三个符号**（§1）
+  和**一行 import**（§9.2）上。所以定位顺序应当反过来：**先查「符号面 / 依赖面 / 诊断通道」，
+  再谈架构**。
+- 反过来说：凡是「改了 A 症状没变」的对照实验，**必须先把旧产物清干净再加 A**（§10.1 的假阴性就是这么来的），
+  否则每次结论都建立在别人留下的 `.so` 上。
+
+### 9.2 框架包一旦 import `kit.ArkUI.*`，启动瞬间死在包初始化
+
+这一条是本轮**代价最大**的一段（多轮白屏、十几次重编、两套链接形态都试过）。
+
+**现象**：窗口起不来（或秒退成白屏），hilog 里只有 `InitCJLibrary` 起头的一行
+`SIGSEGV(SEGV_MAPERR)@0x0004exxx`，**我方一行日志都没有**（`eprintln` 也不进 hilog，见 §9.4），
+`AbilityStage.onCreate` 同样没有——与 §1 的现象几乎一样，但根因完全不同。
+
+**三组对照（都在真机上跑的，这是判据的核心）**：
+
+| 实验 | 结果 |
+|---|---|
+| 入口包**自己**写 `@Component` + `Web`（不引用框架） | 正常启动，还拉起了 `:gpu` / `:render` |
+| 入口包只引用框架的**一个字符串常量**（`DEFAULT_WINDOW_LABEL`），框架里仍有碰 ArkUI 的文件 | **照样崩**在包初始化 |
+| 把 `src/arkweb_view.cj`（框架里唯一 `import kit.ArkUI.*` 的文件）移出编译 | **立刻正常**：`onCreated` / `onWindowStageCreate` 都有、`SIGSEGV` 计数 0 |
+
+**机理**：框架包是**独立编译单元**（`output-type = "static"`），合并进应用的动态库之后，
+`InitCJLibrary → cangjie_entry::package_global_init → cjTauri::package_global_init` 里那条
+`bl _CGP9kit.ArkUIiiHv@plt` 跳进未映射地址。同一张 PLT 表在**入口包**里调用 `_CGP9kit.ArkUIiiHv`
+是好的——所以这不是「ROM 缺库」，是**框架包这一侧的重定位/初始化链**问题。
+
+**两种链接形态都崩，落点不同**（这就是当时「动态形态能绕开」被否定的原因）：
+
+| 形态 | 崩溃落点 |
+|---|---|
+| `static`（框架现状） | 栈尾是 `package_global_init` → `cjTauri::package_global_init` → `0x72c88` → **未重定位的 `0x509c0`**，信号 `SEGV_MAPERR` |
+| `dynamic` | 同样崩，但它落在 `[anon:cangjie_heap]` 里，`SEGV_ACCERR` |
+
+**落法（已落地）**：框架侧只保留 **ArkUI-free** 的接线——`src/arkweb_proxy.cj`（两个 proxy 函数）、
+`src/arkweb_script.cj`（桥脚本 + label 注入）、`src/host_arkweb.cj`（宿主实现，纯仓颉）；
+`@Component` / `Web(...)` / `javaScriptProxy` 全部由**应用模块**持有。这与 ArkUI 自身的模型一致：
+组件树属于应用的 UIAbility。根因注释就写在 `src/arkweb_proxy.cj` 文件头，改这块之前先读它。
+
+> 注意 `native/platforms/harmonyos/README.md` 早期版本还把 `src/arkweb_view.cj` 当作框架文件列出——
+> 那个文件**已经不在框架里**了，它以「应用侧样板」的身份只存在于踩坑文档与探针工程中。
+
+### 9.3 SDK 的 `kit.*` mock 不是补符号的办法（它会把真实现遮蔽掉）
+
+当时的现象是 `bl _CGP9kit.ArkUIiiHv@plt` 解析不了，很自然的一个想法是「把 SDK 里带 kit 的库拷进包」。
+**这条路是死路，而且会引入新问题**：
+
+- SDK 的 mock 桩在 `C:/Users/yang/.cangjie-sdk/6.1/cangjie/api/lib/linux_ohos_aarch64_cjnative/{kit,ohos}`，
+  里面**只有 `_CGP9ohos.mock*` 前缀的符号**，根本没有 ROM 上那些 `_CGP9kit.ArkUIiiHv`；
+- 拷进 `entry/libs/arm64-v8a/ohos/` 之后，mock 会**遮蔽** ROM 的真实现（同名库优先取包内的），
+  而 mock 自己还带着 `NEEDED libcangjie-std-core.so` 之类的依赖——启动随即报
+  `[Ability] failed:UIAbility`（同轮清空 mock 目录后该行消失；这一步没做严格 A/B 隔离，记为**强相关**，不是已证因果）；
+- ROM 上的真实现位置（用来核对「谁该定义这个符号」）：
+  `/system/lib64/platformsdk/cjsdk/` 下的 `libkit.ArkUI.so` 定义 `_CGP9kit.ArkUIiiHv`、
+  `libkit.ArkWeb.so` 导出 `_CGP10kit.ArkWebiiHv`、`libohos.arkui.component.web.so` 导出
+  `_CGP24ohos.arkui.component.webiiHv`、`libohos.arkui.component.custom_component.so` 导出 `CustomView.ti`。
+
+**HAP 打包侧的事实**（解释了「不手动拷就没有 `ohos/` 目录」）：
+
+- 打出来的 HAP 里**没有 `ohos/` 目录**；`extend_libs/.../cjbins/` 下只有三个库；
+- 系统是按 `InitCJMockNS` 去 `libs/arm64/ohos` 找 mock 的——也就是说「手动拷进去」是唯一能让它出现在
+  HAP 里的路径，**而这条路恰恰是不该走的**。
+
+处置：mock 目录已清空，**勿恢复**。真要补符号，方向是让框架不依赖那个符号（§9.2），不是往包里塞桩。
+
+### 9.4 `eprintln` 在设备上完全不可见（诊断通道选错，白查一轮）
+
+桌面两平台的规矩是「诊断一律走 stderr」（AGENTS §4）。鸿蒙上这条**不成立**：
+`eprintln` 不进 hilog，整轮日志里只剩两行系统自己的 `CANGJIE-RUNTIME`。
+表象是「应用什么都没干就走了」，实际是**我们打的东西没人收**。
+
+落法：鸿蒙侧诊断一律写 `Hilog`，并且**用显式的三参数**（`Hilog.info(1, "tag", "msg")`）——
+带整型插值会落到 4 参数重载导致编译失败（§8.1.3）。取证仍靠 §8.1.4 的流式抓取。
+
+## 10. 构建链的假阴性（最贵的一类失败：结论被旧产物污染）
+
+这一类失败**不报错**，它让「对照实验」本身失真——你改了半天、症状没变，于是得出「改了没用」的
+错误结论。本轮至少被它骗过两轮。
+
+### 10.1 增量缓存：`entry/build` 与框架 `target` 必须一起清
+
+- 症状：改了框架代码，真机上的表现**一字未变**；或者崩溃栈明明指向框架包，可你**已经**把那个文件移出去了。
+- 实测数据：残留的旧 `libcjTauri.so`（824088 B）还在包里时，崩溃链**仍然**落在框架包
+  （`cjTauri::package_global_init`）；`rm -rf entry/build` + 框架 `target/` 清理重建后，
+  入口 `.so` 变成 939 KB 且含框架全链，判据才可信。
+- 为什么必须两边都清：hvigor 的 `CompileCangjie` 有自己的增量判断，框架侧 cjpm 也有；
+  **只清一边，另一边会把旧对象喂回来**。
+- 判据：不看 `build success`，看**产物**——`ls -l` 的尺寸/时间戳 + `llvm-nm` 里 `cjTauri` 符号数
+  （本轮健康值是 330 个符号）。AGENTS §4 的「`cjpm build success` 不等于产物存在」是桌面版同一条坑。
+
+### 10.2 `cjpm.exe` 退出码 `0xC0000139`
+
+`0xC0000139` = `STATUS_ENTRYPOINT_NOT_FOUND`，在这里的形状是**桌面 Cangjie SDK 的 DLL 冲突**
+（环境里同时存在桌面 SDK 与鸿蒙 `build-tools`，`cjpm.exe` 加载到了不匹配的运行时）。
+处置：把桌面 SDK 从 `PATH` / `CANGJIE_HOME` 里摘掉，并**重启 hvigor daemon**（daemon 会把旧环境一直带着）。
+它不会打印任何有用信息，只有退出码。
+
+### 10.3 `bash: failed to spawn shell: 拒绝访问 (os error 5)`
+
+本机 Git Bash 的偶发故障：某个时刻起，连 `/usr/bin/rm` 都 `Permission denied`，编译进程起不来。
+处置：把 `TMPDIR` 指到**仓库内**目录（如 `.atomcode/tmp`）再跑即可恢复；不必重启机器。
+判据是「同一条命令在设了 `TMPDIR` 后能跑」，不要往代码或工具链上找原因。
+
+### 10.4 `aa start` 用的是 `module.json5` 里的 ability 名，不是仓颉类名
+
+`aa start -b com.yang.testcj -a MainAbility` 返回 **`10104001`**（找不到 ability），
+因为 `module.json5` 里声明的是 `EntryAbility`。本机实测：换成 `EntryAbility` 立即启动。
+顺带：`aa start` 要求**屏幕已解锁**（§7.3），锁屏状态下的「启动失败」不是真失败。
+
+### 10.5 桌面 `cjpm` 交叉编会**静默回落**
+
+`cjpm build --target=aarch64-linux-ohos` 用桌面 cjpm 时会回落到 `x86_64-w64-mingw32`——
+不报错，只是编出一份 Windows 产物。判据：产物路径与 `llvm-readobj` 里的机器类型（§5.1）。
+
+## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
+
+桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。
+
+| 桌面写法 | 鸿蒙侧 | 报错 / 现象 |
+|---|---|---|
+| `ArrayList.append(x)` | **`add(x)`** | `'append' is not a member of ...` |
+| 命名参数（`f(name: v)`） | 多数 ArkUI/OHOS API **拒绝命名参数** | 参数不匹配，指向调用行 |
+| `s.indexOf(t)` 当 `Int64` 用 | 返回 **`Option<...>`** | 拿它直接比大小/相加编不过 |
+| `Duration.second(n)` 之类 | 用 `Duration.millisecond * 10` 这类乘法表达 | 构造器缺失 |
+| `Hilog.error(msg)`（2 参） | **需 4 参数**（`Hilog.info` 用显式 3 参） | §8.1.3 |
+| `for (c in s)` 期望字符 | 迭代出 **`UInt8` 字节** | 与 AGENTS §4 同一条，鸿蒙侧同样成立 |
+| `import pkg.synchronized`（成员名） | `synchronized` 是**关键字**，不能当包成员导入 | 改成通配导入 `import pkg.*` |
+| 跨包直接用内部符号 | **必须 `public`**（`DEFAULT_WINDOW_LABEL`、`ARKWEB_PROXY_NAME` 都因此改过） | 链接期 `undefined` 或编译期不可见 |
+| `build()` 里写逻辑（`let` / 赋值） | 只能写 UI 组件语法，**代理方法表要内联进调用参数** | 编译期语法错 |
+| ArkUI 侧找定时器 / `UIContext` | 没有；页面侧用 `setInterval` | 见 §8.1.5.1 的心跳方案 |
+| `WebviewController.loadData(...)` | **不存在** | §6：落沙箱文件走 `file://` |
+| `runJavaScript(script, callback)` 命名调用 | 两个都是**位置参数** | 参数不匹配 |
+
+**判据口径不变**：能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框）在 `native/platforms/harmonyos/`
+真正落地并通过真机取证之前，一律报 **0 / 未实现**，不写「理论上可以」。
+
+## 12. 下一步（未完成，勿当成已完成）
 
 1. **ArkWeb 宿主 + NAPI 桥**（按 `native/platforms/harmonyos/README.md` 的契约）：ArkTS `Web` 组件 +
    `javaScriptProxy` 注入 `window.__CJ_TAURI__`、生命周期与加载事件回投；C 桥按「同名同签名」承接 `cj_core_*`，

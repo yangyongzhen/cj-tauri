@@ -1,3 +1,5 @@
+# 本机 stdx 联接（build-hap.sh 用 CANGJIE_STDX_OHOS 建，entry/cjpm.toml 按 ../stdx 引用）
+/stdx
 /node_modules
 /oh_modules
 /local.properties

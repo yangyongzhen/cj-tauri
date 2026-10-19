@@ -26,11 +26,14 @@
 [target.aarch64-linux-ohos]
   compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\""
 [target.aarch64-linux-ohos.bin-dependencies]
-  # 鸿蒙版 stdx 的 dynamic/stdx 目录。这里留占位符、由 build-hap.sh 在构建前替换成
-  # 本机真实路径（构建后还原）：hvigor 起的 cjpm 不展开进程环境变量，占位符留着会变成
-  # 空串，而空串会让**整条 path-option 一起失效**——报错却是
-  # 「imports package 'stdx.encoding.json' ... not added as a dependency」，看着像漏配依赖。
-  path-option = ["${AARCH64_LIBS}", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}", "${CANGJIE_STDX_OHOS}"]
+  # 鸿蒙版 stdx。这里写**相对路径**，指向工程根上的 stdx junction（本机由 build-hap.sh 用
+  # CANGJIE_STDX_OHOS 建，见 README；不入库）。两条实测依据：
+  # ① hvigor 只替换它自己的模板变量（${AARCH64_LIBS} 这组），写别的 ${...} 会变成空串，
+  #    而空串会让**整条 path-option 一起失效**，报错却是
+  #    「imports package 'stdx.encoding.json' ... not added as a dependency」，看着像漏配依赖；
+  # ② 本机绝对路径能编过，但换机器就得改文件（IDE 里点 Build 也不会经脚本落地）——
+  #    相对路径两处都通用。
+  path-option = ["${AARCH64_LIBS}", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}", "../stdx"]
   package-option = {}
 
 [target.x86_64-linux-ohos]

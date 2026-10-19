@@ -55,17 +55,30 @@ if [ -z "${DEVECO_HVIGOR_CANGJIE_PLUGIN:-}" ]; then
     fi
 fi
 
-# entry/cjpm.toml 里 stdx 那条留的是 ${CANGJIE_STDX_OHOS} 占位符，必须在这里落地：
-# hvigor 起的 cjpm **不展开进程环境变量**（同一份 toml 直接跑 cjpm 时是展开的，别被这点骗了），
-# 占位符会变成空串，而空串会让整条 path-option 一起失效，报错却是
-# 「imports package 'stdx.encoding.json' ... not added as a dependency」。
-# 替换值用 cygpath -m（D:/… 正斜杠）：cjpm 认它，也避开 sed 替换串里反斜杠的转义。
-toml=entry/cjpm.toml
-if grep -q 'CANGJIE_STDX_OHOS' "$toml"; then
-    stdx_mixed="$(cygpath -m "$CANGJIE_STDX_OHOS")"
-    cp "$toml" "$toml.orig"
-    trap 'mv -f "$toml.orig" "$toml"' EXIT INT TERM
-    sed -i "s|\\\${CANGJIE_STDX_OHOS}|$stdx_mixed|g" "$toml"
+# entry/cjpm.toml 里 stdx 那条写的是相对路径 "../stdx"，指向**工程根上的 stdx 联接**。
+# 为什么不是占位符：hvigor 只替换它自己的模板变量（${AARCH64_LIBS} 那组），写别的 ${...}
+# 会被替换成空串，而空串会让整条 path-option 一起失效，报错却是
+# 「imports package 'stdx.encoding.json' ... not added as a dependency」，看着像 cjpm.toml 漏配。
+# 为什么不是本机绝对路径：换机器要改文件，而且 DevEco IDE 里点 Build 不经过本脚本。
+# 相对路径 + 本机联接两处都通用：脚本负责在缺联接时按 CANGJIE_STDX_OHOS 建出来。
+stdx_link="$(pwd)/stdx"
+if [ ! -e "$stdx_link" ]; then
+    : "${CANGJIE_STDX_OHOS:?工程根上没有 stdx 联接，请先 export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx}"
+    stdx_src="$(cygpath -u "$CANGJIE_STDX_OHOS")"
+    if [ ! -d "$stdx_src" ]; then
+        echo "[ohos-probe] CANGJIE_STDX_OHOS 指向的目录不存在：$CANGJIE_STDX_OHOS" >&2
+        exit 1
+    fi
+    if command -v cmd >/dev/null 2>&1; then
+        # Windows：用 junction（不需要管理员权限，也不占空间）
+        cmd //c mklink //J "$(cygpath -w "$stdx_link")" "$(cygpath -w "$stdx_src")" >/dev/null || {
+            echo "[ohos-probe] 建 stdx 联接失败：" "$stdx_link -> $stdx_src" >&2
+            exit 1
+        }
+    else
+        ln -s "$stdx_src" "$stdx_link"
+    fi
+    echo "[ohos-probe] 已建 stdx 联接：$stdx_link -> $stdx_src"
 fi
 
 "$node_exe" "$hvigor_js" --mode module -p product=default -p module=entry@default assembleHap

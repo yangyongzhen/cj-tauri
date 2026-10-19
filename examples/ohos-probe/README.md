@@ -38,11 +38,16 @@
 | `DEVECO_WIN` | DevEco 安装根（Windows 形式）；不在默认路径才需要 | `D:\oh\DevEcoStudio` |
 | `CANGJIE_STDX_OHOS` | 鸿蒙版 stdx 的 `dynamic/stdx` 目录 | `D:/cangjie-stdx-ohos/linux_ohos_aarch64_cjnative/dynamic/stdx` |
 
-`$CANGJIE_STDX_OHOS` 由 `build-hap.sh` 在构建前写进 `entry/cjpm.toml` 的 `path-option`、
-构建后（含失败/中断）原样还原——**不是**靠 cjpm 展开进程环境变量：经 hvigor 起的 cjpm
-不展开它，占位符会变成空串，而空串会让整条 `path-option` 一起失效，报错却是
-「imports package 'stdx.encoding.json' … not added as a dependency」，看着像 toml 漏配依赖
-（AGENTS §4 同款坑）。
+`entry/cjpm.toml` 里 stdx 那条写的是**相对路径** `../stdx`，指向工程根上的 `stdx` 联接
+（Windows junction，不入库）。`build-hap.sh` 发现联接不存在时按 `CANGJIE_STDX_OHOS` 建一个，
+之后 DevEco IDE 里直接点 Build 也能编——**这是相对路径 + 本机联接、而不是环境变量或占位符的原因**：
+
+- 占位符 `${...}` 不行：hvigor 只替换它自己的模板变量（`${AARCH64_LIBS}` 那组），别的会被换成空串，
+  而空串会让整条 `path-option` 一起失效，报错却是「imports package 'stdx.encoding.json' …
+  not added as a dependency」，看着像 toml 漏配依赖（AGENTS §4 同款坑）。
+- 本机绝对路径能编，但换机器要改文件，且 IDE 构建不经过本脚本，落地不了。
+
+想手工建联接（等价于脚本那步）：`cmd /c mklink /J stdx <鸿蒙版 stdx>\linux_ohos_aarch64_cjnative\dynamic\stdx`。
 
 `build-hap.sh` 还会自己补两件事，从命令行构建（headless）时缺一不可：
 

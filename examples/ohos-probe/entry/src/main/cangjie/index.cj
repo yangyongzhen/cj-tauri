@@ -148,10 +148,18 @@ class CjTauriWebView {
                                    弹不弹、怎么弹由应用说了算。 */
                                 match (arkWebTakeDialog(this.windowLabel)) {
                                     case Some(request) =>
-                                        if (request.isConfirm()) {
-                                            getUIContext().showAlertDialog(confirmArkWebDialog(request, this.windowLabel))
-                                        } else {
-                                            getUIContext().showAlertDialog(infoArkWebDialog(request, this.windowLabel))
+                                        /* 取证诊断：`dialog take` 之后到画面之间没有任何日志时，
+                                           分不清是抛异常还是「调了但没画」——两侧各留一行。 */
+                                        Hilog.info(1, "CjTauriProbe", "dialog show begin label=${this.windowLabel} id=${request.id.toString()} title=${request.title} msg=${request.message}")
+                                        try {
+                                            if (request.isConfirm()) {
+                                                getUIContext().showAlertDialog(confirmArkWebDialog(request, this.windowLabel))
+                                            } else {
+                                                getUIContext().showAlertDialog(infoArkWebDialog(request, this.windowLabel))
+                                            }
+                                            Hilog.info(1, "CjTauriProbe", "dialog show returned id=${request.id.toString()}")
+                                        } catch (err: Exception) {
+                                            Hilog.info(1, "CjTauriProbe", "dialog show threw id=${request.id.toString()} err=${err}")
                                         }
                                     case None => ()
                                 }

@@ -549,6 +549,17 @@
   手工设 `NODE_PATH` 只让 `require` 不报错、schema 依然不认 `cangjieOptions`。表象是
   `Schema validate failed … property name must be valid: cangjieOptions`——**很像工程配置写错**，
   实际是插件没被加载；而「同样的工程在 IDE 里编得过」只是因为 IDE 喂了这个变量。
+  **「NODE_PATH 不报错、schema 仍不认」的真因（2026-10-20 读源码定死）**：插件被判定为**未启用**时，
+  `handleCangjieSchema()` 走的是 `deleteSchema()`——**主动把 cangjie 的 schema 删掉**，不报任何错。
+  启用判定是纯环境变量：`DEVECO_CANGJIE_PATH` 指向含 `oh-uni-package.json` 的 SDK 根，
+  或 `DEVECO_CANGJIE_PLUGIN_ENABLED=true`（`cangjie-plugin-factory.js` 的 `isPluginEnabled()`）。
+  headless 构建要**两个都给**：`DEVECO_CANGJIE_PLUGIN_ENABLED=true`（或 `DEVECO_CANGJIE_PATH`）
+  + `NODE_PATH=<工程>/node_modules`。真因只在 `<工程>/.hvigor/outputs/build-logs/build.log`
+  （`grep -i cangjie`，形如 `failed to load cangjie to dynamically generate schemas: …`），
+  终端只有 `00303038` 一行。IDE 侧同一条错看
+  `%APPDATA%\Huawei\DevEcoStudio6.1\options\CangjiePluginConfiguration.xml` 的 `pluginStatus`（`DISABLE` 即失败）。
+  **两个会把结论带偏的假线索**：① 同一工程「刚才还能编、现在不能」多为常驻 daemon 复用（分界是那个
+  装好插件的进程还在不在，不是 `--no-daemon`）；② 「`*.hap` 存在」不能当构建成功——先删产物再看 mtime/大小。
   同族的第二条：环境里预置的 `DEVECO_SDK_HOME` / `NODE_HOME` 若指向**不存在**的安装（本机有一条
   `D:\Program Files\Huawei\DevEco Studio\sdk`），hvigor 当场判 `Invalid value of 'DEVECO_SDK_HOME'`；
   脚本要么校验目录存在再采用、要么让 `DEVECO_WIN` 覆盖（`examples/ohos-probe/build-hap.sh` 是校验后回退）。

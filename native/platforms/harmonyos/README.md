@@ -84,10 +84,13 @@
 
 真机（平板 / 2-in-1；手机需单独声明）上要拿到的证据，按 AGENTS §1：
 
-- [ ] HAP 能构建（DevEco 工程的 cangjie 插件装配目前仍未打通）
-- [ ] 应用启动到 ArkWeb 页面，hilog 里没有 panic / fatal
-- [ ] 前端 `invoke('system:version')` 往返成功，返回 `platform=ohos`
+- [x] HAP 能构建（`entry-default-signed.hap`）
+- [x] 应用启动到 ArkWeb 页面，hilog 里没有 panic / fatal（同轮 `SIGSEGV` 计数 0）
+- [x] 前端 `invoke('system:version')` 往返成功，返回 `platform=ohos`
 - [ ] 多窗口下宿主事件按 label 路由、不串台
-- [ ] `llvm-nm -D --undefined-only <模块.so> | grep cj_bridge` 为 0 行
+- [x] `llvm-nm -D --undefined-only <模块.so> | grep cj_bridge` 为 0 行
 
-上面的勾**目前一个都没有**——这是 scaffold 阶段的正常状态，别把「代码写了」读成「验收过了」。
+前三项与最后一项是 2026-10-19 那轮真机闭环的取证结果（过程见
+`docs/鸿蒙ArkWeb接入踩坑.md` §8.1）。**剩下的多窗口路由一条仍未取证**，
+而宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知）**一项都还没有证据**，
+所以 `hostCapabilities()` 保持返回 0——别因为「代码里写了降级」就把它读成验收过了。

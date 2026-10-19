@@ -12,7 +12,9 @@
 配套仓颉原生脚手架 CLI 与工程模板：`cli/templates/app/`（内联 HTML 的零 Node 样板，`create` 缺省用它）、
 `cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者带 `ui/` 前端工程，
 `cj-tauri dev` 会接管它们的 Vite dev server（`CJ_TAURI_DEV_URL`）。
-平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、鸿蒙 ArkWeb 为架构预留位。
+平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、
+**鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；宿主能力位仍全 0，判据见
+`native/platforms/harmonyos/README.md`）。
 
 ## 1. 交付门禁
 
@@ -23,7 +25,7 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 193 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   当前 287 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
    （`native/tests/test_bridge_core.c`，187 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。

@@ -761,6 +761,42 @@ Node 会对工程内 junction 做 realpath，所以工程里的 `node_modules/@o
    会把失败盖成成功。正确判据是**先删产物、再看 mtime 与大小都变**；本机就因此把失败误报过一次成功。
 
 
+### 10.9 `opt.exe` 以 `0xC000001D` 退出：`--cangjie-pipeline` 在真 bitcode 上 trap
+
+过了 §10.8 的 schema 关、再修好 §10.2 的 `cjpm` 启动之后，构建推到**编译阶段**才露出这一条：
+
+```
+error: "<SDK>\build-tools\third_party\llvm\bin\opt.exe" "<tmp>\2-cjTauri.bc" "-passes=default<O0>"
+       "--cangjie-pipeline" "--cj-ptrauth-backward-cfi=true" "--only-verify-out"
+       "--mtriple=aarch64-linux-gnu" "-o" "<tmp>\2-cjTauri.opt.bc"
+       : command failed with exit code 3221225501
+```
+
+`3221225501` = `0xC000001D` = `STATUS_ILLEGAL_INSTRUCTION`。**别急着怀疑 CPU 指令集**：Windows 上
+`0xC000001D` 同样出现在程序执行 `ud2`（编译器的 `llvm_unreachable` / trap）时，是**程序内部 trap**。
+
+二分定位（`opt.exe` 版本 `LLVM 15.0.4`，宿主 i5-12450H）：
+
+| 输入 / 参数 | 结果 |
+|---|---|
+| 手搓一行 `define i32 @f(){ret i32 0}` + 全套参数 | **exit 0**（不崩） |
+| 现场那份真 bitcode（`cjTauri.bc`，602892 B），仅 `-passes=default<O0>` | exit 0 |
+| 同上 + `--cangjie-pipeline …`（约简后的最小触发集） | **132（=SIGILL）** |
+| 同上，连跑 6 次 | **6/6 全崩**（不是偶发） |
+
+所以触发条件是「**`--cangjie-pipeline` + 真实 bitcode**」两件事同时成立，与 CPU 指令集无关（同一条命令
+喂玩具 IR 就正常）。截至 2026-10-20 **未定位到根因**：可能是 SDK 内置 LLVM 的仓颉流水线在特定 IR 上踩
+`llvm_unreachable`，也可能是两代工具混用（`cjpm` 1.1.3 与 `cjc` 不是同一代时，`cjc` 产出的 IR 版本与
+`opt` 期望的不一致）——后一条**尚无取证**，别当结论。
+
+**取证陷阱（本轮白跑一次）**：给 `opt.exe` 写 `-o /dev/null` 时，MSYS 会把这条路经交给 Windows 程序，
+退出码变成 `0`，而 stderr 同时还打下 `Illegal instruction`——**同一次调用既「成功」又崩**。
+判崩溃只看**真实输出文件**加 `$?`（或 `rc=$?` 立刻记下），别用 `/dev/null` 或管道末端的状态。
+
+**当前状态**：`examples/ohos-probe` 的 headless 构建止步于此，**HAP 未产出**（AGENTS §1 口径：
+没有先删再建的产物不算成功）。所以对话框能力位的真机取证仍**未完成**。
+
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

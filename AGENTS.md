@@ -13,8 +13,8 @@
 `cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者带 `ui/` 前端工程，
 `cj-tauri dev` 会接管它们的 Vite dev server（`CJ_TAURI_DEV_URL`）。
 平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、
-**鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；宿主能力位仍全 0，判据见
-`native/platforms/harmonyos/README.md`）。
+**鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；**多窗口 label 路由已取证**，
+宿主能力位仍全 0，判据见 `native/platforms/harmonyos/README.md`）。
 
 ## 1. 交付门禁
 
@@ -133,7 +133,9 @@
 - **native/ 目录契约**：`native/core/`（`bridge_core.c/.h` + `bridge_js.h`，跨平台共享层，GTK-free，
   桩平台自检就编它）、`native/platforms/linux|windows|harmonyos/`（平台实现，一个平台一个目录；
   harmonyos 的宿主**已在仓颉侧落地**（2026-10-19 真机闭环：页面 `system:version` 往返成功、
-  回投 `platform=ohos`、同轮 `SIGSEGV` 0，判据见 §4 与 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1），
+  回投 `platform=ohos`、同轮 `SIGSEGV` 0；同日第二轮又把**多窗口 label 路由**取证完——两窗各认自己的
+  宿主、跨窗定向投递双向成立、报文 `window=` 与页面自认 `me=` 逐条恒等，判据见 §4 与
+  `docs/鸿蒙ArkWeb接入踩坑.md` §8.1 / §8.2），
   但 **C 桥（`cj_core_*`）仍未落地**、宿主能力位仍全 0（菜单 / 托盘 / 快捷键 / 拖放 / 对话框
   一律如实拒绝，`hostCapabilities()` 返回 0）。**`@Component` / `Web` / `javaScriptProxy` 属应用侧**——
   框架包只要引用 ArkUI，鸿蒙包初始化链就会跳坏地址、启动即 SIGSEGV，详见 §4）、`native/tests/`（桩自检）。
@@ -515,6 +517,21 @@
   同族的两个哑巴失败：`cjpm.exe` 退出码 `0xC0000139` = 桌面 SDK 与鸿蒙 `build-tools` 的运行时冲突
   （摘掉桌面 SDK 并**重启 hvigor daemon**）；`aa start` 的 `-a` 要用 `module.json5` 的 `EntryAbility`，
   写成仓颉类名 `MainAbility` 返回 `10104001`。清单见 `docs/鸿蒙ArkWeb接入踩坑.md` §10。
+- **鸿蒙侧给 `@Component` 传参只有一种写法：`@Prop` 成员 + 调用点纯调用**（2026-10-19 多窗口实测，
+  两种写法报的都是同一句、看着都像「参数写错」）：
+  ① 成员写成普通 `var x: String = "…"` 时，宏把它展开成 `ObservedProperty<String>` 形参，外面传
+  字符串报 `missing arguments for parameter list '(Option<CustomView>, Option<ObservedProperty<String>>, …)'`；
+  ② 改成 `@Prop var x: String` 后报同一句——真因是**调用点挂了链式修饰**
+  （`MyComp(x: "y").height(50.percent)`）：宏展开时补不上 `__gen_parent`，同样报「expected 4 arguments」。
+  落法是**调用点保持纯调用**，尺寸交给外层容器（`Column() { MyComp(x: "y") }.height(50.percent)`）。
+- **鸿蒙侧每个窗口都要各自等宿主登记**（多窗口白屏）：`onWindowStageCreate` 只等默认 label 时，
+  第二扇窗的组件 `aboutToAppear` 读到的 `currentUrl()` 仍是空串 → 永不建 `Web` → 白屏死锁，
+  与单窗口那条是同一条链。判据：hilog 里 `host pageUrl label=<label>` 与 `page begin label=<label>`
+  **每个 label 各一行**（页面文件名是 `cj-tauri-<label>.html`，两窗不会共用一份）。
+- **多窗口「不串台」的判据是「原生归属 == 页面自认」逐条成立**：页面报一条自带 `me`（它读到的
+  `__CJ_TAURI_LABEL__`）的命令，原生把报文里的 `window`（`IpcContext.window`）打进**同一行** hilog——
+  `window == me` 全部成立才算路由正确；定向投递必须**发给对面窗口**（发给自己在错误实现下也能通过，
+  等于没测）。
 - **鸿蒙工程接框架走 cjpm 源码依赖，别手工把 static 产物塞进 `link-option`**（2026-10-18 实测）：
   `entry/cjpm.toml` 写 `[dependencies] cjTauri = { path = "<框架根>" }` 后 `hvigor` 的 `CompileCangjie`
   会按本模块（`output-type = "dynamic"`）需要的形态把框架各包编进来，零额外配置；

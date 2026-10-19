@@ -21,6 +21,14 @@
   原生在 `post` 回调里 `runJavaScript` 推送）、**`aboutToAppear` 同步宿主页面地址**
   （`build()` 组件字段还是空串，会白屏死锁）。判据与踩坑见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1。
 
+- **鸿蒙多窗口 label 路由真机取证**：同一份 HAP 同时挂两扇 ArkWeb 窗口（`main` / `second`，
+  页面按 label 分文件 `cj-tauri-<label>.html` 落盘），两窗各完成一次 `system:version` 往返；
+  跨窗**定向**投递双向成立（`probe:hello` → 对面窗的 `probe:ping` → `probe:log`），
+  每条报文里原生归属 `window=` 与页面自认 `me=` **逐条恒等**——这就是「不串台」的判据。
+  同轮 `SIGSEGV` / `panic` / `fatal` 与 `command not allowed|registered|rejected` 计数均为 0。
+  宿主能力位**仍全 0**（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知都还没有实机证据）。
+  过程与两条新踩的坑见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.2。
+
 - **`examples/ai-chat` 一轮 UI 大改造（用户实测清单 11 项，全部落地）**：浅色主题下的「黑块」、
   看不见的工作区、停不下来的生成一并收口。改动与判据：
   - **Markdown 渲染修好**：代码块样式原先**写死暗色**（`#0c0e14`），浅色主题下就是一块黑——改走主题

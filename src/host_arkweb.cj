@@ -122,6 +122,50 @@ public class ArkWebRuntime {
 }
 
 /**
+ * 一条待应用侧呈现的原生消息框（`dialog:message` 命令的载荷）
+ *
+ * 为什么要过一道队列：ArkUI 的弹窗 `getUIContext().showAlertDialog(...)` 只能在**应用侧组件**
+ * 里、且在 UI 线程上调（框架不碰 ArkUI，见文件头），而命令 handler 跑在 worker 线程上。
+ * 于是框架只描述「弹什么」，呈现与点击结果交给 UI 侧回填。
+ *
+ * `kind` 原样透传（`dialog` 插件的语义：`info` / `warning` / `error` 只有一个「确定」，
+ * `confirm` 才有取消）。按钮文案与布局属于呈现，由应用侧决定，框架不猜。
+ */
+@When[env == "ohos"]
+public class ArkWebDialogRequest {
+    public let id: Int64
+    public let kind: String
+    public let title: String
+    public let message: String
+
+    public init(id: Int64, kind: String, title: String, message: String) {
+        this.id = id
+        this.kind = kind
+        this.title = title
+        this.message = message
+    }
+
+    /** 是否「确定 / 取消」两键（其余 kind 只有一个确定键，弹出即成立） */
+    public func isConfirm(): Bool {
+        return this.kind == "confirm"
+    }
+}
+
+/**
+ * `showMessageDialog` 等 UI 侧回填的上限（毫秒）
+ *
+ * 桌面两平台在这里真的阻塞到用户点按钮，鸿蒙上只能等 UI 线程来取。窗口没建、页面没跑
+ * 的情况下无限期钉住一个 worker 线程比超时更糟，所以给一个宽上限：超时就如实返回 false
+ * 并在 stderr 里说清是「没弹出来」而不是「用户取消」——两者对调用方都是 false，但日志分得清。
+ */
+@When[env == "ohos"]
+let CJ_ARKWEB_DIALOG_WAIT_MS: Int64 = 120000
+
+/** 等回填的轮询间隔（毫秒）：只影响「点了按钮 → 命令返回」的延迟，与页面心跳无关 */
+@When[env == "ohos"]
+let CJ_ARKWEB_DIALOG_POLL_MS: Int64 = 20
+
+/**
  * 一个鸿蒙窗口的宿主
  *
  * 与桌面宿主的分工差异：这里**所有**图形相关动作都只是「入队 / 记状态」，真正执行发生在
@@ -151,6 +195,18 @@ public class ArkWebHost <: WebViewHost {
     private var pageBeginCount: Int64 = 0
     private var pageEndCount: Int64 = 0
     private var jsInCount: Int64 = 0
+
+    /*
+     * 原生对话框（showMessageDialog）的三个槽，全部受 ArkWebRuntime.queueLock 保护：
+     * worker 线程入队并等待、UI 线程取走并回填，跨线程只经这两个动作交接。
+     * id 单调自增（每窗一份），所以「晚到的答案」撞不上新请求。
+     */
+    private var dialogSeq: Int64 = 0
+    private let pendingDialogs: ArrayList<ArkWebDialogRequest> = ArrayList<ArkWebDialogRequest>()
+    private let awaitingDialogs: HashSet<Int64> = HashSet<Int64>()
+    private let dialogAnswers: HashMap<Int64, Bool> = HashMap<Int64, Bool>()
+    private var dialogRequestCount: Int64 = 0
+    private var dialogAnswerCount: Int64 = 0
 
     private var messageHandler: (String) -> Unit = { _ => }
     private var shellHandler: (String) -> Unit = { _ => }
@@ -301,12 +357,116 @@ public class ArkWebHost <: WebViewHost {
         return ""
     }
 
+    /**
+     * 原生消息框（`dialog:message` 命令的落点）
+     *
+     * 与桌面的差异：桌面在 C 桥里**同步阻塞**到用户点按钮；鸿蒙的弹窗只有 ArkUI 侧能做，
+     * 所以这里退成「入队 → 有界轮询等 UI 侧回填」。等待发生在命令 worker 线程上
+     * （命令分发本来就是异步的，见 AGENTS §2），不占 UI 线程，窗口照常响应。
+     *
+     * 返回 false 的三种情况要在日志里分得清：宿主已销毁（拒绝）、UI 侧没来取（超时）、
+     * 用户点了取消（answered + confirmed=false）。
+     */
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
-        let _ = kind
-        let _ = title
-        let _ = message
-        eprintln("[cj-tauri] ArkWeb: native message dialog unsupported (needs an alert-dialog component)")
+        if (this.disposed) {
+            eprintln("[cj-tauri] ArkWeb dialog rejected: label=\"${this.windowLabel}\" (host disposed)")
+            return false
+        }
+        var id: Int64 = 0
+        synchronized(ArkWebRuntime.queueLock) {
+            this.dialogSeq += 1
+            id = this.dialogSeq
+            this.dialogRequestCount += 1
+            this.pendingDialogs.add(ArkWebDialogRequest(id, kind, title, message))
+            this.awaitingDialogs.add(id)
+        }
+        eprintln(
+            "[cj-tauri] ArkWeb dialog queued: label=\"${this.windowLabel}\" id=${id} kind=\"${kind}\" title=\"${title}\""
+        )
+        var waited: Int64 = 0
+        while (waited < CJ_ARKWEB_DIALOG_WAIT_MS) {
+            var answered = false
+            var confirmed = false
+            synchronized(ArkWebRuntime.queueLock) {
+                if (this.dialogAnswers.contains(id)) {
+                    confirmed = this.dialogAnswers[id]
+                    this.dialogAnswers.remove(id)
+                    answered = true
+                }
+            }
+            if (answered) {
+                eprintln(
+                    "[cj-tauri] ArkWeb dialog answered: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed}"
+                )
+                return confirmed
+            }
+            sleep(Duration.millisecond * CJ_ARKWEB_DIALOG_POLL_MS)
+            waited += CJ_ARKWEB_DIALOG_POLL_MS
+        }
+        synchronized(ArkWebRuntime.queueLock) {
+            this.awaitingDialogs.remove(id)
+            this.dropPendingDialog(id)
+            this.dialogAnswers.remove(id)
+        }
+        eprintln(
+            "[cj-tauri] ArkWeb dialog timed out: label=\"${this.windowLabel}\" id=${id} after ${CJ_ARKWEB_DIALOG_WAIT_MS}ms (UI side never answered; this is NOT a user cancel)"
+        )
         return false
+    }
+
+    /**
+     * 取一条待呈现的对话框（**只在 UI 线程调**：`ArkWebView` 组件的页面心跳回调里）
+     *
+     * 取走即从队列移除，所以同一个请求不会弹两次；返回 None 是绝大多数心跳的正常结果。
+     */
+    public func takePendingDialog(): Option<ArkWebDialogRequest> {
+        synchronized(ArkWebRuntime.queueLock) {
+            if (this.pendingDialogs.isEmpty()) {
+                return None
+            }
+            let request = this.pendingDialogs[0]
+            this.pendingDialogs.remove(at: 0)
+            return Some(request)
+        }
+    }
+
+    /**
+     * 回填用户的选择（**只在 UI 线程调**：弹窗按钮的回调里）
+     *
+     * 只接受仍在等待的 id：超时之后等待方已经放弃，这时再记一个答案会把它一直挂在这个槽里
+     * （没人取走），所以按 `awaitingDialogs` 校验一次，并在日志里说明被丢弃的那次点击。
+     */
+    public func answerDialog(id: Int64, confirmed: Bool): Unit {
+        var accepted = false
+        synchronized(ArkWebRuntime.queueLock) {
+            if (this.awaitingDialogs.contains(id)) {
+                this.awaitingDialogs.remove(id)
+                this.dialogAnswers[id] = confirmed
+                this.dialogAnswerCount += 1
+                accepted = true
+            }
+        }
+        if (accepted) {
+            eprintln(
+                "[cj-tauri] ArkWeb dialog answer: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed}"
+            )
+            return
+        }
+        eprintln(
+            "[cj-tauri] ArkWeb dialog answer dropped: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed} (no longer awaiting)"
+        )
+    }
+
+    /** 从待呈现队列里按 id 移除（超时清场用；调用方必须已持有 `queueLock`） */
+    private func dropPendingDialog(id: Int64): Unit {
+        var index: Int64 = 0
+        while (index < this.pendingDialogs.size) {
+            if (this.pendingDialogs[index].id == id) {
+                this.pendingDialogs.remove(at: index)
+                return
+            }
+            index += 1
+        }
     }
 
     public func clipboardWriteText(text: String): Bool {
@@ -373,7 +533,7 @@ public class ArkWebHost <: WebViewHost {
         this.disposed = true
         ArkWebRuntime.unregister(this.windowLabel)
         eprintln(
-            "[cj-tauri] ArkWeb host disposed: label=\"${this.windowLabel}\" pageBegin=${this.pageBeginCount} pageEnd=${this.pageEndCount} jsIn=${this.jsInCount}"
+            "[cj-tauri] ArkWeb host disposed: label=\"${this.windowLabel}\" pageBegin=${this.pageBeginCount} pageEnd=${this.pageEndCount} jsIn=${this.jsInCount} dialogRequested=${this.dialogRequestCount} dialogAnswered=${this.dialogAnswerCount}"
         )
     }
 

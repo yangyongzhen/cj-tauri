@@ -424,6 +424,18 @@
 
 ### Fixed
 
+- **鸿蒙 headless 构建的 `opt.exe` 崩溃（`0xC000001D` + `EnumReflection format: operand numbers error!`）已解除，
+  HAP 重新产得出来**：根因不是 LLVM pass，而是两件事叠加——① `cjc` 与 `opt` **两代混用**（`cjc` 不按
+  `PATH` 找 `opt`，它按 `CANGJIE_HOME` 下到 `third_party/llvm/bin/opt.exe`；1.2.0 的 `cjc` 写 7 操作数的
+  `*.ti`、1.1.3 的 `CJIRVerifier` 只认 6 个，IR 一定被判 Broken global value）；② **hvigor 常驻 daemon
+  复用自己启动时的 env**，脚本里钉的 `PATH` / `CANGJIE_HOME` 根本进不去，于是长期表现为
+  「手动跑 `cjpm build` 成功、`build-hap.sh` 一跑就崩」。`examples/ohos-probe/build-hap.sh` 现在同时
+  钉 `CANGJIE_HOME=<SDK>/build-tools`、把 `cjc` / `opt` 的实际路径与版本打进日志当凭证、给 `hvigorw`
+  加 `--no-daemon`。实测判据：`BUILD SUCCESSFUL in 46 s`，产出
+  `entry-default-signed.hap`（1 760 473 B，mtime 本轮），`hdc install -r` 装机成功。
+  对照实验（最小枚举程序 + 框架根/entry 两处直连 `cjpm`）与「别再查 `-debug-pass-manager`」的理由
+  见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.9 / §10.10。
+
 - **鸿蒙示例的 headless 构建被 `cangjieOptions` schema 拦下：真因是仓颉插件「未启用」时主动删 schema**：
   `examples/ohos-probe/build-hap.sh` 现在会显式给 `DEVECO_CANGJIE_PLUGIN_ENABLED=true` 与
   `NODE_PATH=<工程>/node_modules`（两者缺一即失败）。查清的形状是：插件里的

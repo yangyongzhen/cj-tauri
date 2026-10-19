@@ -5,6 +5,8 @@
 /local.properties
 /.idea
 **/build
+# build-hap.sh 的构建日志（排查 opt/daemon 这类问题时要留档，但不入库）
+/.buildlog
 /.hvigor
 .cxx
 /.clangd

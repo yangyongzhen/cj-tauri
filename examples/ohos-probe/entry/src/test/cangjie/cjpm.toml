@@ -1,0 +1,20 @@
+[package]
+  cjc-version = "1.1.3"
+  compile-option = "--dy-std --cfg=\"${COMPILE_CONDITION_ENTRY}\""
+  description = "CangjieUI Application"
+  name = "ohos_app_cangjie_entry_local_test"
+  output-type = "dynamic"
+  src-dir = "."
+  target-dir = ""
+  version = "1.0.0"
+
+[profile]
+  [profile.build]
+    incremental = true
+    lto = ""
+    [profile.build.combined]
+      ohos_app_cangjie_entry_local_test = "dynamic"
+  [profile.customized-option]
+    debug = "-g -Woff all -Won apilevel-check"
+    release = "--fast-math -O2 -s -Woff all -Won apilevel-check"
+  [profile.test]

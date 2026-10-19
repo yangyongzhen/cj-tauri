@@ -386,9 +386,11 @@
   框架走 `../../..` 源码依赖，stdx 与 DevEco 路径改用环境变量。
   配套 `build-hap.sh` 把 headless 构建的三个断点一次补上：`DEVECO_HVIGOR_CANGJIE_PLUGIN` 定位仓颉插件
   （缺它 hvigor 只报 `cangjieOptions` 不是合法属性）、环境里预置的无效 `DEVECO_SDK_HOME` 校验后回退、
-  `CANGJIE_STDX_OHOS` 占位符在构建前替换成机器路径并在退出/中断时还原（hvigor 起的 cjpm 不展开
-  进程环境变量，空串会让整条 `path-option` 失效）。判据与弯路见 AGENTS §4 与
-  `docs/鸿蒙ArkWeb接入踩坑.md` §10.6 / §10.7。
+  鸿蒙版 stdx 走**相对路径 + 工程内联接**（`entry/cjpm.toml` 写 `../stdx`、工程根的 `stdx` junction
+  由脚本按 `CANGJIE_STDX_OHOS` 建且不入库）。最后这条是踩过一轮才定型的：hvigor 只替换自己的模板变量，
+  写 `${CANGJIE_STDX_OHOS}` 会变空串、连带整条 `path-option` 失效，报错却是「stdx 未加进 cjpm.toml
+  依赖」；而「脚本替换成绝对路径 + `trap` 还原」只治命令行那一路，DevEco IDE 点 Build 仍报同一条错。
+  判据与弯路见 AGENTS §4 与 `docs/鸿蒙ArkWeb接入踩坑.md` §10.6 / §10.7。
 - **宿主新增「标题栏副标题」能力（`WebViewHost.setTitlebarSubtitle` / `cj_bridge_set_titlebar_subtitle`，
   能力位 `CJ_CAP_SUBTITLE` = 32）**：一行文本画在原生菜单栏**同一行的右侧**，应用据此把自己的页面顶栏
   整行让出来（标题 / 保存状态 / 字数挂在原生那一行），界面高度少一层。语义与判据：

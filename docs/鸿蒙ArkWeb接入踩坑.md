@@ -657,8 +657,18 @@ hvigor 常驻 daemon（带着 IDE 的正确环境），`--no-daemon` 一加立�
 3. 把这一条整个删掉（想验证 `AARCH64_LIBS` 是否已覆盖 stdx）→ 同样失败：
    `AARCH64_LIBS` / `AARCH64_MACRO_LIBS` / `AARCH64_KIT_LIBS` 这组 hvigor 注入的路径**不含 stdx**。
 
-落法：仓库里保留占位符，由 `build-hap.sh` 在构建前替换成本机路径、`trap` 在退出/中断时还原
-（替换值取 `cygpath -m` 的正斜杠形式：cjpm 认，也能避开 `sed` 替换串里反斜杠的转义）。
+落法（2026-10-20 定型）：**相对路径 + 工程内联接**。`entry/cjpm.toml` 写 `"../stdx"`，工程根放一个
+`stdx` junction（Windows 下 `mklink /J`，不入库），`build-hap.sh` 发现联接不存在就按
+`CANGJIE_STDX_OHOS` 建一个。建成之后的通用性有实测依据：脚本自建联接 → HAP 1736386 B 产出。
+
+**为什么不能停在「脚本替换绝对路径 + `trap` 还原」**：那条只治命令行这一路。DevEco IDE 里点
+Build（以及任何不经过本脚本的构建入口）拿到的仍是占位符 = 空串，报错一字不差。本项目入 round 里
+就复现过：仓库里明明已经加上替换逻辑，用户侧构建仍报同一条
+`imports package 'stdx.encoding.json' …`——因为那一次是 IDE 起的构建。相对路径这条路两边通用，
+本机差异全部收敛到「工程根有没有那个联接」一件事上。
+
+顺带记下 `stdx` 联接的拆法：**`cmd /c rmdir <联接>`**，不要用 `rm -rf`——它可能穿透到目标目录里去删
+真正的 stdx 内容。
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

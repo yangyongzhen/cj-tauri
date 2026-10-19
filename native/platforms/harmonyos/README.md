@@ -87,10 +87,20 @@
 - [x] HAP 能构建（`entry-default-signed.hap`）
 - [x] 应用启动到 ArkWeb 页面，hilog 里没有 panic / fatal（同轮 `SIGSEGV` 计数 0）
 - [x] 前端 `invoke('system:version')` 往返成功，返回 `platform=ohos`
-- [ ] 多窗口下宿主事件按 label 路由、不串台
+- [x] 多窗口下宿主事件按 label 路由、不串台
 - [x] `llvm-nm -D --undefined-only <模块.so> | grep cj_bridge` 为 0 行
 
-前三项与最后一项是 2026-10-19 那轮真机闭环的取证结果（过程见
-`docs/鸿蒙ArkWeb接入踩坑.md` §8.1）。**剩下的多窗口路由一条仍未取证**，
-而宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知）**一项都还没有证据**，
+前四项与最后一项是 2026-10-19 两轮真机闭环的取证结果（过程见
+`docs/鸿蒙ArkWeb接入踩坑.md` §8.1 / §8.2）。多窗口那条的判据（同一台真机、同一份 HAP）：
+
+- 两个 `@Component` 实例各带自己的 label（`main` / `second`），上层宿主登记里出现两行
+  `host pageUrl label=main url="…/cj-tauri-main.html"` 与 `…cj-tauri-second.html`
+  ——**页面文件按 label 分开**，两窗看的不是同一份 HTML；
+- 两窗各自 `page begin label=main` / `label=second`，两窗各完成一次 `probe:hello`；
+- 跨窗**定向**投递双向成立：`probe:hello window=main -> probe:ping target=second` 之后是
+  `probe:log window=second <- {"kind":"ping-recv","me":"second","from":"main"}`，反向同理；
+  每条报文里 `window=`（原生侧归属）与 `me=`（页面自认的 label）**逐条恒等**——这就是「不串台」；
+- 同轮 `SIGSEGV` / `panic` / `fatal` 计数 0，`command not allowed|registered|rejected` 计数 0。
+
+宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知）**仍一项都没有证据**，
 所以 `hostCapabilities()` 保持返回 0——别因为「代码里写了降级」就把它读成验收过了。

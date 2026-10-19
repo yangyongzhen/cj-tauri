@@ -396,6 +396,83 @@ CjTauriProbe: page end: file:///…/probe.html
 
 ---
 
+## 8.2 多窗口路由取证（2026-10-19 第二轮真机，两扇窗同屏）
+
+这一轮的目标只有一个：把「多窗口下宿主事件按 label 路由、不串台」从**未取证**变成**有证据**。
+框架侧一行没改，全部代价都落在应用侧的 ArkUI 装配上——而恰恰是那一侧连踩两个语法坑。
+
+### 8.2.1 给 `@Component` 传参：`@Prop` + 调用点纯调用，缺一不可
+
+想让同一个组件类服务两扇窗，最自然的写法是加一个 `windowLabel` 成员由父组件传入。
+两轮编译失败都报同一句话、指向的位置都不像真因：
+
+```text
+error: missing arguments for parameter list
+'(Enum-Option<Class-CustomView>, Option<ObservedProperty<String>>, Option<ObservedProperty<String>>, Option<LocalStorage>)'
+... expected 4 arguments, found 0
+```
+
+1. **普通成员不行**：写成 `private var windowLabel: String = DEFAULT_WINDOW_LABEL` 时，宏把它当成
+   可观察状态、在生成的 `init` 里展开成 `ObservedProperty<String>` 形参——外面传一个字符串进去
+   自然对不上，而且连 `CjTauriWebView()` 这种无参调用也报「expected 4 arguments, found 0」。
+2. **只改成 `@Prop` 还不够**：改成 `@Prop var windowLabel: String` 后，报错变成
+   「缺第一个形参 `Option<CustomView>`（`__gen_parent`）」——真因是**调用点挂了链式修饰**：
+
+   ```cangjie
+   // 编不过：宏展开时补不上 __gen_parent
+   CjTauriWebView(windowLabel: "second").height(50.percent)
+   // 编得过：纯调用，尺寸交给外层容器
+   Column() { CjTauriWebView(windowLabel: "second") }.height(50.percent)
+   ```
+
+本机既有工程（`nutpishop` 的 `NavBar(title: "添加地址", showBack: true)`、
+`EmptyWidget(tips: "…")`）的调用点**都是纯调用**，这就是照抄得出来的地方。
+判据：改完 `hvigor BUILD SUCCESSFUL`（编译期的事，别去设备上找原因）。
+
+### 8.2.2 每个窗口都要各自等宿主登记，否则第二扇窗白屏
+
+`onWindowStageCreate` 里原来只等 `DEFAULT_WINDOW_LABEL`。多窗口时第二扇窗的组件
+`aboutToAppear` 读到的 `currentUrl()` 还是空串 → `build()` 里 `if (pageUrl.size > 0)` 不成立 →
+永不建 `Web` → `onPageBegin` 不来 → 地址没人同步，与 §8.1.1 是**同一条死锁**，只是这次多了一个窗。
+改成每个 label 各等一次（`waitAndLogHost(label)`，有界 3s、等不到如实打一行）。
+
+判据（hilog，`Cangjie` tag）：每个 label 各一行 `host registered after N polls label=<label>`、
+各一行 `host pageUrl label=<label> url="…/cj-tauri-<label>.html"`、各一行 `page begin label=<label>`。
+两窗的 `file://` 地址**必然不同**——沙箱页面文件名带 label（`cj-tauri-main.html` / `cj-tauri-second.html`），
+如果两行地址一样，说明第二扇窗根本没登记成功、读到的是别人的页面。
+
+### 8.2.3 「不串台」的判据要取「原生归属 vs 页面自认」恒等
+
+只证明「两窗都能用」是不够的：静态单槽的实现照样能让两窗各自跑通命令，只是事件与回执会串。
+所以探针这么设计（`TestCj2/entry/src/main/cangjie/probe_app.cj`）：
+
+- 页面报一条自带 `me`（它读到的 `__CJ_TAURI_LABEL__`）的命令；
+- 原生把报文里的 `window`（`IpcContext.window`）打进**同一行** hilog；
+- `probe:hello` 触发一条**发给对面窗口**的定向事件（发给自己在错误实现下也能通过，等于没测）；
+  对面窗收到后回投 `probe:log` 带 `kind=ping-recv`。
+
+拿到的证据（同一份 HAP、同一台 `3QC0124B20000048`）：
+
+```text
+host registered after 0 polls label=main
+host registered after 0 polls label=second
+host pageUrl label=main   url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
+host pageUrl label=second url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-second.html"
+page begin label=main
+page begin label=second
+probe:hello window=main   -> probe:ping target=second
+probe:log window=second   <- {"kind":"ping-recv","me":"second","from":"main"}
+probe:hello window=second -> probe:ping target=main
+probe:log window=main     <- {"kind":"ping-recv","me":"main","from":"second"}
+```
+
+`window=` 与 `me=` **逐条恒等**，两窗 `page begin` / `page end` 各 2 次，同轮 `SIGSEGV` / `panic` /
+`fatal` 与 `command not allowed|registered|rejected` 计数均为 0。截图里上半屏 `label=main` 显示
+「ping from second」、下半屏 `label=second` 显示「ping from main」，与日志一致。
+
+**尚未取证**：宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知）一项都没有真机证据，
+`hostCapabilities()` 仍是 0——多窗口这条通了不代表能力位通了。
+
 ## 9. 失败尝试总账（每条都写清「被什么数据否定」，别再重走）
 
 > 这一节是全文的索引：**凡走过的错路都在这里**，包括那些「架构层听起来最像」的方向。

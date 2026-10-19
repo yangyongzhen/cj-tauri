@@ -443,6 +443,10 @@
   现在把该目录前置进 `PATH`（`CANGJIE_SDK` 可覆盖），修后同一构建从「21 ms 崩」推进到真实编译阶段。
   **仍未解决**：编译期 `opt.exe --cangjie-pipeline` 在真实 bitcode 上以 `0xC000001D`（trap）退出，
   6/6 必现，喂玩具 IR 则正常——本轮未定位根因，HAP 因此仍未产出，对话框能力位的真机取证仍未完成。
+  **DevEco IDE 的 Build Hap(s) 报一字不差的同一条**（`Failed :entry:default@CompileCangjie` → 同一条
+  `opt.exe` 命令、同一退出码），所以「换 IDE 构建」不是绕法。四条待跑的诊断路线（`-debug-pass-manager`
+  定位 pass / `llvm-reduce` 缩最小复现 / 试 5.0 工具链 / 查 `opt.exe` 其他按名字加载的依赖）列在
+  踩坑文档 §10.9 末尾，进度与会话交接分别在 `docs/进度记录.md` §六、`docs/会话交接.md` §35。
   取证细节与「`-o /dev/null` 会让退出码变 0」的坑见踩坑文档 §10.9。
 
 - **测试编译恢复零警告、用例数同步**：`scripts/test.sh` 此前会刷 16 条「未使用变量」+

@@ -3,6 +3,7 @@ package cjTauri.tests
 import cjTauri.*
 import cjTauri.plugins.serial.*
 import std.collection.*
+import std.sort.*
 import stdx.encoding.json.*
 import std.unittest.*
 import std.unittest.testmacro.*
@@ -254,7 +255,7 @@ func testSerialPortListIsSortedAndWhitelisted(): Unit {
         sorted.add(ports[i])
         i++
     }
-    sorted.sort()
+    sort(sorted)
     @Expect(sorted.size, ports.size)
     i = 0
     while (i < ports.size) {

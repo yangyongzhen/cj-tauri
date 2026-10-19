@@ -24,9 +24,6 @@ package cjTauri
  * 这个序列（那是 raw string 的收尾）。
  */
 @When[env == "ohos"]
-import std.collection.*
-
-@When[env == "ohos"]
 public let ARKWEB_PROXY_NAME: String = "__CJ_TAURI_HOST__"
 
 @When[env == "ohos"]
@@ -140,7 +137,7 @@ let ARKWEB_BRIDGE_JS: String = #"window.__CJ_TAURI__ = (function () {
  */
 @When[env == "ohos"]
 public func arkWebLabelScript(label: String): String {
-    return "window.__CJ_TAURI_LABEL__ = ${jsonQuote(label)};"
+    return "window.__CJ_TAURI_LABEL__ = ${jsStringLiteral(label)};"
 }
 
 /**
@@ -155,21 +152,3 @@ func arkWebDispatchScript(payloadJson: String): String {
     return "window.__CJ_TAURI__ && window.__CJ_TAURI__._dispatch(${payloadJson});"
 }
 
-/**
- * 包成 JS 双引号字符串字面量
- *
- * 只转义两样：反斜杠与双引号——label 是应用给定的短标识（默认 `main`），不承载换行等控制字符；
- * 但引号必须转义，否则 `arkWebLabelScript` 生成的脚本当场语法错误，页面里 label 永远是默认值
- * （这种错不报错、只让事件过滤失灵，属于最难查的一类）。
- */
-@When[env == "ohos"]
-private func jsonQuote(text: String): String {
-    var out = ArrayList<UInt8>()
-    for (b in text.toArray()) {
-        if (b == 0x5Cu8 || b == 0x22u8) {
-            out.add(0x5Cu8)
-        }
-        out.add(b)
-    }
-    return "\"${String.fromUtf8(out.toArray())}\""
-}

@@ -15,6 +15,9 @@ import std.unittest.testmacro.*
 /** 固定返回 "ok" 的处理器 */
 class OkHandler <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         return JsonString("ok")
     }
 }
@@ -22,6 +25,9 @@ class OkHandler <: CommandHandler {
 /** 抛 CommandException 的处理器（预期内的失败） */
 class BoomHandler <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         throw CommandException("boom")
     }
 }
@@ -29,6 +35,9 @@ class BoomHandler <: CommandHandler {
 /** 抛普通异常的处理器（预期外的失败） */
 class CrashHandler <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         throw Exception("crash")
     }
 }
@@ -236,6 +245,9 @@ func testIpcMessageResolveKeepsPayload(): Unit {
 /** 睡 300ms 再回答：模拟 `shell:exec` 这类慢命令 */
 class SlowHandler <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         sleep(Duration.millisecond * 300)
         return JsonString("slow-ok")
     }
@@ -304,6 +316,7 @@ func testConcurrentInvokesEachResolveExactlyOnce(): Unit {
 
 /** 抛异常的监听器：验证「一个听众崩了不牵连别的听众与发送方」 */
 func boomListener(p: JsonValue): Unit {
+    let _ = p
     throw Exception("listener boom")
 }
 

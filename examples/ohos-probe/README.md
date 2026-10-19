@@ -49,12 +49,17 @@
 
 想手工建联接（等价于脚本那步）：`cmd /c mklink /J stdx <鸿蒙版 stdx>\linux_ohos_aarch64_cjnative\dynamic\stdx`。
 
-`build-hap.sh` 还会自己补两件事，从命令行构建（headless）时缺一不可：
+`build-hap.sh` 还会自己补三件事，从命令行构建（headless）时缺一不可：
 
 - `DEVECO_HVIGOR_CANGJIE_PLUGIN` → 自动在 DevEco 用户目录里找
   `plugins/devecostudio-cangjie-plugin-*/lib/hvigor/cangjie-build-support`。**缺它 hvigor 加载不到
   仓颉插件**，报的是 `entry/build-profile.json5` 里 `cangjieOptions` 不是合法属性（schema 校验失败），
   很像工程配置写错。DevEco IDE 里构建时由 IDE 喂，命令行构建必须自己给。
+- `DEVECO_CANGJIE_PLUGIN_ENABLED=true` + `NODE_PATH=<工程>/node_modules` → **光是「加载到插件」不够**：
+  插件里 `isPluginEnabled()` 为假时 `handleCangjieSchema()` 会走 `deleteSchema()`，
+  **主动把 cangjie 的 schema 删掉且不报错**，终端只剩同一条 `cangjieOptions` 错；
+  而 `require` 的解析起点是 hvigor 安装目录（工程内 junction 被 realpath 化解），所以 `NODE_PATH` 也要给。
+  真因只落 `<工程>/.hvigor/outputs/build-logs/build.log`（debug 级，`grep -i cangjie`）。
 - `DEVECO_SDK_HOME` / `NODE_HOME` → 环境里预置的旧值若指向不存在的安装（本机就有一条
   `D:\Program Files\Huawei\DevEco Studio\sdk`），hvigor 直接判 `Invalid value of 'DEVECO_SDK_HOME'`；
   脚本会校验目录、无效就回退到 `$DEVECO_WIN` 下的路径并打一行提示。

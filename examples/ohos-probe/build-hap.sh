@@ -55,6 +55,18 @@ if [ -z "${DEVECO_HVIGOR_CANGJIE_PLUGIN:-}" ]; then
     fi
 fi
 
+# 插件「能 require 到」和插件「被判定为已启用」是两件事，必须都满足：
+#   - require("@ohos/cangjie-build-support/index") 的解析起点是 **hvigor 安装目录**
+#     （node 会对工程内 junction 做 realpath），所以给 NODE_PATH 才能解析到；
+#   - 仅解析到还不够：插件里 isPluginEnabled() 为假时，handleCangjieSchema() 会走 deleteSchema()
+#     ——**主动把 cangjie 的 schema 删掉且不报错**，终端只剩
+#     『00303038 Configuration Error … propertyName: 'cangjieOptions'』，真因只在
+#     <工程>/.hvigor/outputs/build-logs/build.log（debug 级）。
+# 启用判定的开关是环境变量（DEVECO_CANGJIE_PATH 指向含 oh-uni-package.json 的 SDK 根，
+# 或 DEVECO_CANGJIE_PLUGIN_ENABLED=true），这里直接给后者。
+export DEVECO_CANGJIE_PLUGIN_ENABLED=true
+export NODE_PATH="$(cygpath -w "$(pwd)/node_modules")"
+
 # entry/cjpm.toml 里 stdx 那条写的是相对路径 "../stdx"，指向**工程根上的 stdx 联接**。
 # 为什么不是占位符：hvigor 只替换它自己的模板变量（${AARCH64_LIBS} 那组），写别的 ${...}
 # 会被替换成空串，而空串会让整条 path-option 一起失效，报错却是

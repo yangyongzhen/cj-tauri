@@ -379,6 +379,16 @@
     桌面侧不再有 `unused variable` 警告（零警告门禁）；
   - 完整踩坑过程（判据命令、被数据否定的三条弯路、hvigor 与签名断点、真机 hilog 取证方法）
     单独沉淀在 `docs/鸿蒙ArkWeb接入踩坑.md`，`AGENTS.md` §4 只留判据。
+- **`examples/ohos-probe/`：鸿蒙宿主验收台入库**（此前是仓库外的临时 DevEco 工程 `TestCj2`，换机器就没法接着跑）：
+  DevEco 工程（hvigor 打 HAP）+ 仓颉侧 ArkWeb 宿主，装到真机就自跑一轮闭环并只往 hilog 打结论
+  （桥注入 / `system:version` 往返 / 多窗口 label 不串台 / 原生对话框）。入库只带源码、`README.md`
+  与 `.gitignore`——实验备份、截图、hilog、本机 `local.properties` 与构建产物都不进仓库，
+  框架走 `../../..` 源码依赖，stdx 与 DevEco 路径改用环境变量。
+  配套 `build-hap.sh` 把 headless 构建的三个断点一次补上：`DEVECO_HVIGOR_CANGJIE_PLUGIN` 定位仓颉插件
+  （缺它 hvigor 只报 `cangjieOptions` 不是合法属性）、环境里预置的无效 `DEVECO_SDK_HOME` 校验后回退、
+  `CANGJIE_STDX_OHOS` 占位符在构建前替换成机器路径并在退出/中断时还原（hvigor 起的 cjpm 不展开
+  进程环境变量，空串会让整条 `path-option` 失效）。判据与弯路见 AGENTS §4 与
+  `docs/鸿蒙ArkWeb接入踩坑.md` §10.6 / §10.7。
 - **宿主新增「标题栏副标题」能力（`WebViewHost.setTitlebarSubtitle` / `cj_bridge_set_titlebar_subtitle`，
   能力位 `CJ_CAP_SUBTITLE` = 32）**：一行文本画在原生菜单栏**同一行的右侧**，应用据此把自己的页面顶栏
   整行让出来（标题 / 保存状态 / 字数挂在原生那一行），界面高度少一层。语义与判据：

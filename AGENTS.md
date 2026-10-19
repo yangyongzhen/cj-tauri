@@ -541,6 +541,24 @@
   同样是 `aarch64`，用它门禁会把有 C 桥的桌面平台一起摘掉），唯一可靠判据是 **`env`**
   （`aarch64-linux-ohos` → `ohos`，桌面 → `gnu`）；框架里一律写 `@When[env == "ohos"]` /
   `@When[env != "ohos"]`。详见 `native/platforms/harmonyos/README.md` 的平台判据小节。
+- **从命令行构建鸿蒙工程（headless）必须自己喂仓颉插件路径，DevEco IDE 里构建不受影响**（2026-10-19 实测，
+  `examples/ohos-probe`）：`hvigorw` 按「`hvigor-config.json5` 的 `dependencies` → `CANGJIE_BUILD_SUPPORT_PATH`
+  → DevEco 安装根 → `DEVECO_CANGJIE_PATH` → **`DEVECO_HVIGOR_CANGJIE_PLUGIN`**」找仓颉构建插件，
+  找到后它自己把 `<工程>/node_modules/@ohos/{hvigor,hvigor-ohos-plugin,cangjie-build-support}` 建成 junction。
+  **只手工 mklink 那三个 junction 没用**（node 会把 junction 真路径化，插件里的裸模块名 `require` 仍解析失败），
+  手工设 `NODE_PATH` 只让 `require` 不报错、schema 依然不认 `cangjieOptions`。表象是
+  `Schema validate failed … property name must be valid: cangjieOptions`——**很像工程配置写错**，
+  实际是插件没被加载；而「同样的工程在 IDE 里编得过」只是因为 IDE 喂了这个变量。
+  同族的第二条：环境里预置的 `DEVECO_SDK_HOME` / `NODE_HOME` 若指向**不存在**的安装（本机有一条
+  `D:\Program Files\Huawei\DevEco Studio\sdk`），hvigor 当场判 `Invalid value of 'DEVECO_SDK_HOME'`；
+  脚本要么校验目录存在再采用、要么让 `DEVECO_WIN` 覆盖（`examples/ohos-probe/build-hap.sh` 是校验后回退）。
+- **hvigor 起的 cjpm 不展开 `path-option` 里的进程环境变量，而空串会让整条 `path-option` 一起失效**
+  （2026-10-19 实测）：`entry/cjpm.toml` 里写 `"${CANGJIE_STDX_OHOS}"` 时，经 hvigor 编到的 cjpm 展开成空串，
+  报错却是 `imports package 'stdx.encoding.json' in its source code, but it is not added as a dependency`
+  ——**看着像 toml 漏配依赖，实为变量没落地**（同一份 toml 直接跑 `cjpm` 时是展开的，别拿它当反证）。
+  判据：把该条换成字面路径即 BUILD SUCCESSFUL；并且 `AARCH64_LIBS` / `AARCH64_MACRO_LIBS` /
+  `AARCH64_KIT_LIBS` 这组 hvigor 注入的路径**不含 stdx**，那条不能省。落法：仓库留占位符，构建脚本
+  构建前替换成本机路径、`trap` 还原（`examples/ohos-probe/build-hap.sh`，替换值用 `cygpath -m` 的正斜杠形式）。
 - CLI 让应用「跑完装配但**不能开窗口**」的场景（`cj-tauri info` 取插件清单）务必防住陈旧产物：旧产物认不出
   新环境变量，会真的创建窗口把命令卡住。守卫 = 「框架源码里有变量名」+「产物 mtime 不比框架源码旧」，
   两者都过才允许跑。

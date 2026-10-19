@@ -615,6 +615,52 @@ probe:log window=main     <- {"kind":"ping-recv","me":"main","from":"second"}
 `cjpm build --target=aarch64-linux-ohos` 用桌面 cjpm 时会回落到 `x86_64-w64-mingw32`——
 不报错，只是编出一份 Windows 产物。判据：产物路径与 `llvm-readobj` 里的机器类型（§5.1）。
 
+### 10.6 换目录重建探针工程：三条「假线索」与真正的开关
+
+把 `TestCj2` 拷成 `examples/ohos-probe` 后 headless 构建连续失败三轮，每轮报错都指向别处。
+按「当天到底发生了什么」记下来，省得下一次再从假线索开始：
+
+| 报错表象 | 看着像 | 实际原因 |
+|---|---|---|
+| `hvigor ERROR: 00303217 / Invalid value of 'DEVECO_SDK_HOME'` | 脚本把 DevEco 路径拼错 | 环境里**预置**着另一份安装的 `DEVECO_SDK_HOME`（`D:\Program Files\Huawei\DevEco Studio\sdk`，本机不存在），脚本的 `${VAR:-默认值}` 因此没生效 |
+| `Cannot find module '@ohos/cangjie-build-support/index'`（`--debug` 才有） | 工程少了 node_modules | 仓颉插件的注册代码从**插件自己的真实路径**发起裸模块名 `require`，node 不会往上找到工程 `node_modules` |
+| `Schema validate failed … property name must be valid: cangjieOptions` | `entry/build-profile.json5` 写错了 | 仓颉插件根本没被加载，schema 里自然没有 `cangjieOptions` 这个键 |
+
+真正的开关在 `hvigorw.js`（`dependencies` 判定之后的那段）：它按
+`CANGJIE_BUILD_SUPPORT_PATH` → DevEco 安装根 → `DEVECO_CANGJIE_PATH` →
+**`DEVECO_HVIGOR_CANGJIE_PLUGIN`** 依次找 `cangjie-build-support`，找到后**自己**把
+`<工程>/node_modules/@ohos/{hvigor,hvigor-ohos-plugin,cangjie-build-support}` 建成 junction。
+所以：
+
+- **手工 `mklink /J` 那三个目录不够**（试过：junction 建好照样解析失败——node 会把 junction
+  真路径化，`require` 的起点仍是 `D:\…\tools\hvigor\hvigor-ohos-plugin`）。
+- **手工 `NODE_PATH` 只治一半**：`require` 不报错了，但 schema 仍不认 `cangjieOptions`
+  （实测 schema 校验照旧失败，且 `--debug` 里那条加载失败行消失——两个信号不一致时要信 schema）。
+- 落法是给 `DEVECO_HVIGOR_CANGJIE_PLUGIN`。**DevEco IDE 里构建没有这个问题**，因为变量由 IDE 喂。
+
+**最贵的一条教训**：这轮中途有两次 `BUILD SUCCESSFUL` 是**假的**——复用了 DevEco IDE 早先起的
+hvigor 常驻 daemon（带着 IDE 的正确环境），`--no-daemon` 一加立刻复现失败。判据：怀疑环境时
+用 `--no-daemon` 再跑一遍；或者先 `--stop-daemon-all`，看结论是否还站得住。
+
+### 10.7 hvigor 起的 `cjpm` 不展开 `path-option` 里的进程环境变量
+
+`entry/cjpm.toml` 写 `"${CANGJIE_STDX_OHOS}"` 时，经 hvigor 编到的 cjpm 把它展开成**空串**，
+而空串会让**整条 `path-option` 一起失效**，报错却是
+`imports package 'stdx.encoding.json' in its source code, but it is not added as a dependency`
+——看起来像 toml 漏配依赖，其实变量压根没落地（同一份 toml 直接跑 `cjpm` 时是展开的，
+所以「我本机直接编得通」不能当作反证）。
+
+三次对照实验定死了这条（都在 `examples/ohos-probe` 上跑）：
+
+1. `"${CANGJIE_STDX_OHOS}"`（导出该变量）→ 失败，报 stdx 未加依赖；
+2. 换成字面路径 `"D:/cangjie-stdx-ohos/…/dynamic/stdx"` → **BUILD SUCCESSFUL**；
+3. 把这一条整个删掉（想验证 `AARCH64_LIBS` 是否已覆盖 stdx）→ 同样失败：
+   `AARCH64_LIBS` / `AARCH64_MACRO_LIBS` / `AARCH64_KIT_LIBS` 这组 hvigor 注入的路径**不含 stdx**。
+
+落法：仓库里保留占位符，由 `build-hap.sh` 在构建前替换成本机路径、`trap` 在退出/中断时还原
+（替换值取 `cygpath -m` 的正斜杠形式：cjpm 认，也能避开 `sed` 替换串里反斜杠的转义）。
+
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

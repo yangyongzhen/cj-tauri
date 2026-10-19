@@ -785,9 +785,11 @@ error: "<SDK>\build-tools\third_party\llvm\bin\opt.exe" "<tmp>\2-cjTauri.bc" "-p
 | 同上，连跑 6 次 | **6/6 全崩**（不是偶发） |
 
 所以触发条件是「**`--cangjie-pipeline` + 真实 bitcode**」两件事同时成立，与 CPU 指令集无关（同一条命令
-喂玩具 IR 就正常）。截至 2026-10-20 **未定位到根因**：可能是 SDK 内置 LLVM 的仓颉流水线在特定 IR 上踩
-`llvm_unreachable`，也可能是两代工具混用（`cjpm` 1.1.3 与 `cjc` 不是同一代时，`cjc` 产出的 IR 版本与
-`opt` 期望的不一致）——后一条**尚无取证**，别当结论。
+喂玩具 IR 就正常）。
+
+> **2026-10-20 结案：真因是「cjc 与 opt 两代混用」，不是 LLVM pass 的问题**（取证与落法见 §10.10）。
+> 当时卡在这里，缺的是两样东西：一份**能对照的最小枚举程序**，和一个**不经过 hvigor daemon** 的
+> 构建入口。教训是通用的：**崩溃点在 `opt`，不等于原因在 `opt`**——它只是第一个发现 IR 不合法的关卡。
 
 **取证陷阱（本轮白跑一次）**：给 `opt.exe` 写 `-o /dev/null` 时，MSYS 会把这条路经交给 Windows 程序，
 退出码变成 `0`，而 stderr 同时还打下 `Illegal instruction`——**同一次调用既「成功」又崩**。
@@ -797,16 +799,60 @@ error: "<SDK>\build-tools\third_party\llvm\bin\opt.exe" "<tmp>\2-cjTauri.bc" "-p
 **一字不差的同一条**——`Failed :entry:default@CompileCangjie` → 同一条 `opt.exe … 3221225501`。
 所以「换 IDE 构建」不是绕法，别把时间花在切换构建入口上；要往下走只能在 `opt` 这一环做归因。
 
-**查到哪一步、还差什么（留给下一轮）**：已排除的见上表；**尚未执行**的下一步是
-① `-debug-pass-manager` 看 trap 落在哪一个 pass（最便宜，一条命令，命令形状：
-`opt.exe <bj> -passes=default<O0> --cangjie-pipeline --mtriple=aarch64-linux-gnu -debug-pass-manager -o out.bc`，
-最后一行打印出来的 pass 就是嫌疑犯）；② 拿 `llvm-reduce` 把 602892 B 的 bitcode 缩成最小复现；
-③ 试 `.cangjie-sdk/5.0` 那套工具链（本机只有 6.1，需另装）；④ `llvm-nm -D --undefined-only`
-查 `opt.exe` 是否还有第三个「按名字加载」的依赖没进 PATH（`0xC0000139` 已证明这类依赖存在）。
-**这四条一条都没跑完，别当成已有结论。**
+**那四条诊断一条都没必要跑**：它们全建立在「pass 有问题」这个错误前提上。真正的分歧不在 `opt` 的处理
+过程，而在**喂给它的 IR 是哪一代 cjc 产出的**——同一份 IR 交给配对的 `opt` 就不崩（§10.10 的对照表）。
 
-**当前状态**：`examples/ohos-probe` 的构建止步于此（headless 与 IDE 同错），**HAP 未产出**
-（AGENTS §1 口径：没有先删再建的产物不算成功）。所以对话框能力位的真机取证仍**未完成**。
+
+### 10.10 同一工程「手动跑 cjpm 成功、hvigor 驱动就崩」：daemon 复用旧环境 + 两代工具混用
+
+§10.9 那条 trap 的真因，是**两个问题叠在一起**才显得无解。单独看任何一个都会得出错误结论。
+
+**问题一：hvigor 的常驻 daemon 复用自己启动时的 env。** 本仓的 `build-hap.sh` 早已把
+`build-tools` 的 `cjc` 钉在 `PATH` 最前（§10.2 那条），但 `CompileCangjie` 实际跑在 **hvigor daemon
+进程里**，env 是 daemon **启动那一刻**的那份——脚本里 `export` 的 `PATH` / `CANGJIE_HOME` 根本进不去。
+于是同一个 entry 工程出现分裂：命令行手动跑 `cjpm build` 成功，`bash build-hap.sh` 就在 `opt` 崩。
+
+判据（都是本轮实测的）：
+
+| 实验 | 结果 |
+|---|---|
+| 框架根直接 `cjpm build --target=aarch64-linux-ohos`（同一套 build-tools 工具链） | **`cjpm build success`** |
+| 同上加 `-g`（等价于 hvigor 的 `--debug`） | **`cjpm build success`**（调试信息不是触发条件） |
+| 在 `entry/` 里直接跑 `cjpm build --target=aarch64-linux-ohos -j10 --debug`（复刻 hvigor 的 env） | **`cjpm build success`** |
+| 由 `hvigorw … assembleHap` 驱动（**daemon 在跑**） | 12 s 后 `Failed :entry:default@CompileCangjie` + 同一条 `opt` 崩溃 |
+| 同上，`--no-daemon` + 先 `taskkill` 掉残留 `node.exe` | **`BUILD SUCCESSFUL in 46 s`**，产出 `entry-default-signed.hap`（1 760 473 B） |
+
+**问题二：`cjc` 与 `opt` 必须来自同一套 SDK，而 `CANGJIE_HOME` 是唯一的开关。** `cjc` **不**去 `PATH`
+找 `opt`，它按 `CANGJIE_HOME` 下去 `third_party/llvm/bin/opt.exe`。交互 shell 里 `CANGJIE_HOME` 常是桌面
+`D:\Program Files (x86)\Cangjie`（1.2.0），而 `PATH` 最前是 build-tools 的 `cjc`（1.1.3）——于是
+「新编译器产出旧校验器不认的 IR」，或反过来。两代枚举反射的 `.ti` 形状不同：
+
+```
+1.1.3 的 CJIRVerifier 只认 v1（6 操作数）：     {名, !"", <节点>, !33, <字段>, !33, !39}
+1.2.0 产出 reflectVersion2 的 7 操作数：        !215 = !{!"cjTauri:MenuItemKind.ti", !216, !"", !33, !33, !221, !222}
+```
+
+对不上就是 `EnumReflection format: operand numbers error!` + `in global value default:XXX.ti` +
+`LLVM ERROR: Broken global value found` + 退出码 `3221225501`（`0xC000001D`）。
+
+最小枚举对照（`.atomcode/tmp/enumrepro/e1.cj`，4 个无载荷构造器，与框架里 `MenuItemKind` 同形）：
+
+| cjc | `CANGJIE_HOME`（决定 opt） | 结果 |
+|---|---|---|
+| build-tools 1.1.3 | build-tools 1.1.3 | **通过**（`e1.opt.bc`、`e1ohos.a` 都产出） |
+| build-tools 1.1.3 | 桌面 1.2.0 | **崩**，同一条 `EnumReflection` 报错 |
+| build-tools 1.1.3 + `--target=aarch64-linux-ohos` | build-tools 1.1.3 | **通过**（7 个批次的 opt 全过） |
+
+所以：**枚举本身、鸿蒙 target、`-g`、多批次编译全都无罪**，只有「谁的 cjc 产出 IR / 谁的 opt 校验它」
+这一件事决定成败。`MenuItemKind` 更是无辜——它是框架根包里唯一的枚举，恰好成了第一个被校验到的。
+
+**落法（已写进 `examples/ohos-probe/build-hap.sh`，三处缺一不可）**：
+① `export CANGJIE_HOME=<SDK>/build-tools`（与 `PATH` 最前的 `cjc` 同一套）；② 把 `cjc` / `opt` 的
+实际路径与版本打进日志当凭证；③ `hvigorw` 加 `--no-daemon`，并在钉 daemon 之前手工清掉残留的
+`node.exe`（旧 daemon 还会被复用）。
+
+**验收判据**：`BUILD SUCCESSFUL` + `entry/build/default/outputs/default/entry-default-signed.hap`
+的 mtime 是本轮、大小非 0——不看 `cjpm build success` 那行字，也不看陈旧 HAP 是否存在（§10 开头那条口径）。
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

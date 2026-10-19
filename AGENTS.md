@@ -532,6 +532,18 @@
   `__CJ_TAURI_LABEL__`）的命令，原生把报文里的 `window`（`IpcContext.window`）打进**同一行** hilog——
   `window == me` 全部成立才算路由正确；定向投递必须**发给对面窗口**（发给自己在错误实现下也能通过，
   等于没测）。
+- **`opt.exe` 报 `EnumReflection format: operand numbers error!` 时先查工具链配对，别去查 LLVM pass**
+  （2026-10-20 定位）：`cjc` **不按 `PATH`** 找 `opt`，它按 `CANGJIE_HOME` 下到
+  `third_party/llvm/bin/opt.exe`；两者差一代时必然崩——1.2.0 的 `cjc` 给枚举写 7 操作数 `.ti`，1.1.3 的
+  `CJIRVerifier` 只认 6 个，IR 被判 `Broken global value`，表象是 `opt` 以 `0xC000001D`（Windows 的 `ud2`
+  内部 trap）退出、栈里只剩一条 `enum … .ti`。**崩溃点在 `opt` 不等于原因在 `opt`**，它是第一个发现 IR
+  不合法的关卡。**同时另一个独立问题会把它伪装成「偶发」**：hvigor 的常驻 daemon 在**它自己启动时的
+  env** 里跑 `CompileCangjie`，构建脚本 `export` 的 `PATH` / `CANGJIE_HOME` 根本进不去，于是出现
+  「命令行手动跑 `cjpm build` 成功、`build-hap.sh` 一跑就崩」的分裂。落法：`hvigorw` 一律
+  `--no-daemon` + 先清残留 `node.exe`，并显式 `export CANGJIE_HOME=<SDK>/build-tools`、把 `cjc` / `opt`
+  的实际路径与版本打进日志当凭证。对照表（最小枚举程序、框架根 / entry 两处直连 `cjpm`）见
+  `docs/鸿蒙ArkWeb接入踩坑.md` §10.9 / §10.10——那四条「`-debug-pass-manager` / `llvm-reduce` / 换 5.0 /
+  查 opt 隐式依赖」的诊断都建立在错误前提上，别再跑。
 - **鸿蒙工程接框架走 cjpm 源码依赖，别手工把 static 产物塞进 `link-option`**（2026-10-18 实测）：
   `entry/cjpm.toml` 写 `[dependencies] cjTauri = { path = "<框架根>" }` 后 `hvigor` 的 `CompileCangjie`
   会按本模块（`output-type = "dynamic"`）需要的形态把框架各包编进来，零额外配置；

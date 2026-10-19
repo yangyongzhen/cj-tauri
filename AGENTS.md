@@ -130,9 +130,11 @@
 - 新增文件按单一职责拆分（例：`src/window.cj` 只放窗口配置模型，`src/capability_loader.cj` 只放清单加载/扫描）。
 - **native/ 目录契约**：`native/core/`（`bridge_core.c/.h` + `bridge_js.h`，跨平台共享层，GTK-free，
   桩平台自检就编它）、`native/platforms/linux|windows|harmonyos/`（平台实现，一个平台一个目录；
-  harmonyos 目前只有契约 README——scaffold 先行、能力位如实报 0、禁假实现；
-  2026-10-18 起「框架核心跑在真机 HAP 里」已验证（探针工程回投 `framework: platform=ohos version=1.0.0`，
-  判据见 §4），但**宿主与 C 桥都还没写**，能力位仍是 0）、`native/tests/`（桩自检）。
+  harmonyos 的宿主**已在仓颉侧落地**（2026-10-19 真机闭环：页面 `system:version` 往返成功、
+  回投 `platform=ohos`、同轮 `SIGSEGV` 0，判据见 §4 与 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1），
+  但 **C 桥（`cj_core_*`）仍未落地**、宿主能力位仍全 0（菜单 / 托盘 / 快捷键 / 拖放 / 对话框
+  一律如实拒绝，`hostCapabilities()` 返回 0）。**`@Component` / `Web` / `javaScriptProxy` 属应用侧**——
+  框架包只要引用 ArkUI，鸿蒙包初始化链就会跳坏地址、启动即 SIGSEGV，详见 §4）、`native/tests/`（桩自检）。
   **FFI/源文件归属判据「谁调用谁包内」**；新平台从照抄 Windows 桩的同名导出开始。构建脚本
   `native/build_linux.sh` / `build_win.bat` 留在 native/ 根作入口（源文件路径已指子目录），
   **产物必须落在 `native/` 根**（`cjpm.toml` 的 `-Lnative -lcjtbridge`、CLI 模板、打包脚本都按这个路径找）。
@@ -481,19 +483,45 @@
   很容易往「ability 生命周期卡死」「运行时模块 init 死锁」「stdx 重复链接」这些方向排查，
   这条路当晚白走了好几轮。
   **判据**：`llvm-nm -D --undefined-only <模块.so> | grep cj_bridge` 必须是 **0 行**——它比任何运行期日志都直接。
-  落法是给 FFI 声明与薄包装**同一口径的 `@When[arch != "aarch64"]`**，并为无桥平台写一份如实降级
+  落法是给 FFI 声明与薄包装**同一口径的 `@When[env != "ohos"]`**，并为无桥平台写一份如实降级
   （`enableLogFile` 返回 false 且留一行 stderr、`currentLogFilePath` 回空串、`writeLogLine` 返回 false），
   **不要**为了让它编过而假装成功。改完判据：同一命令 0 行 + `MyAbilityStage onCreated` 重新出现。
   同族风险面：`src/clipboard_bridge.cj` 与任何「谁调用谁包内」的核心 FFI，新增时先问「这个平台有桥吗」。
   完整过程（判据命令、被数据否定的三条弯路、真机 hilog 取证、hvigor 与签名断点）见
   `docs/鸿蒙ArkWeb接入踩坑.md`——本文只留判据，过程不在 §4 展开。
+- **鸿蒙侧的三条硬约束（2026-10-19 真机闭环，改这块之前先看）**：
+  ① **框架包不得引用 ArkUI**——`@Component` / `Web` / `javaScriptProxy` 一律留在应用侧，
+  框架只导出 ArkUI-free 的桥接函数（`src/arkweb_proxy.cj`）。框架包作为独立编译单元引用
+  `kit.ArkUI` 时，合并进应用动态库后 `_CGP7cjTaurifiHv` 初始化链里的 `bl _CGP9kit.ArkUIiiHv@plt`
+  会跳到坏地址 → **启动即 SIGSEGV**（表象是白屏或秒退）。
+  ② **`javaScriptProxy` 的返回值传不回页面**——把 `poll` 换成无条件返回固定串，页面拿到的仍是 `null`
+  （参数能进、`methodList` 枚举也对）。所以「页面拉、原生答」的同步取数模型在鸿蒙侧**不成立**：
+  回投一律**由原生推**——页面 `setInterval` 发 `{"type":"pull"}` 心跳 → 宿主 `acceptPageMessage`
+  识别后直接 `return`（不进 IPC hub）→ 应用侧 proxy 回调（本来就在 UI 线程）取
+  `takePendingScripts()` 用 `controller.runJavaScript` 推出去。
+  ③ **组件的 `build()` 读不到「宿主落盘后的页面地址」**（那时组件自己的字段还是空串），会在
+  「不建 `Web` → `onPageBegin` 不来 → 地址又只在它里面同步」上**死锁白屏**；在 `aboutToAppear()`
+  里从宿主同步进 `@State`（`@State` 不接受 `private`）。判据：hilog 有 `BindWebTagToWebInstance`
+  却一条 `page begin` 都没有、截图纯白。
+  另：**`eprintln` 在设备上不进 hilog**（框架 stderr 全不可见），鸿蒙侧诊断要写 hilog；
+  hilog 缓冲会滚掉启动瞬间的行，取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用）。
+  过程与可复现命令见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1。
+  ④ **鸿蒙侧「改了没变化」先怀疑产物，别改代码**：hvigor 的 `CompileCangjie` 与框架侧 cjpm
+  **各有一份增量缓存**，只清一边时旧 `libcjTauri.so` 会被喂回来，对照实验当场失真（实测：
+  残留旧包时崩溃链仍指向已移出的框架包）。重编前 `rm -rf entry/build` + 清框架 `target/`，
+  判据看**产物**（`.so` 尺寸 / `llvm-nm` 里 `cjTauri` 符号数，健康值 330），不看 `build success`。
+  同族的两个哑巴失败：`cjpm.exe` 退出码 `0xC0000139` = 桌面 SDK 与鸿蒙 `build-tools` 的运行时冲突
+  （摘掉桌面 SDK 并**重启 hvigor daemon**）；`aa start` 的 `-a` 要用 `module.json5` 的 `EntryAbility`，
+  写成仓颉类名 `MainAbility` 返回 `10104001`。清单见 `docs/鸿蒙ArkWeb接入踩坑.md` §10。
 - **鸿蒙工程接框架走 cjpm 源码依赖，别手工把 static 产物塞进 `link-option`**（2026-10-18 实测）：
   `entry/cjpm.toml` 写 `[dependencies] cjTauri = { path = "<框架根>" }` 后 `hvigor` 的 `CompileCangjie`
   会按本模块（`output-type = "dynamic"`）需要的形态把框架各包编进来，零额外配置；
   手工 `-L… -lcjTauri` 虽然也链得过（框架是单对象 `libcjTauri.a`，一引就整包进来），
   但**包初始化登记链不由 cjpm 负责**，属于没人维护的路径——别再走。
-  顺带一个 `@When` 口径：鸿蒙的 `os` 取值**就是 `"Linux"`**，与桌面 Linux 撞车，分叉只能靠 `arch`
-  （鸿蒙 `arch == "aarch64"`，桌面 `x86_64`）。
+  顺带一个 `@When` 口径：鸿蒙的 `os` 取值**就是 `"Linux"`**、`arch` 也**不能用**（桌面 aarch64 Linux
+  同样是 `aarch64`，用它门禁会把有 C 桥的桌面平台一起摘掉），唯一可靠判据是 **`env`**
+  （`aarch64-linux-ohos` → `ohos`，桌面 → `gnu`）；框架里一律写 `@When[env == "ohos"]` /
+  `@When[env != "ohos"]`。详见 `native/platforms/harmonyos/README.md` 的平台判据小节。
 - CLI 让应用「跑完装配但**不能开窗口**」的场景（`cj-tauri info` 取插件清单）务必防住陈旧产物：旧产物认不出
   新环境变量，会真的创建窗口把命令卡住。守卫 = 「框架源码里有变量名」+「产物 mtime 不比框架源码旧」，
   两者都过才允许跑。

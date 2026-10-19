@@ -435,6 +435,16 @@
   常驻 daemon 复用会被读成「环境正常」、陈旧 `*.hap` 会被读成「构建成功」。
   过程见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.8。
 
+- **鸿蒙 headless 构建的 `cjpm` 起不来（`0xC0000139`）：缺的是 SDK 自带的运行时目录，不是桌面 SDK 冲突**：
+  退出码 `3221225785` = `0xC0000139`，表象是 hvigor 只报 `01101000 Tools execution failed.`
+  而命令 21 ms 就「跑完」。真因是鸿蒙 SDK 的 `cjpm.exe`（1.1.3）硬依赖 `libcangjie-runtime.dll`，
+  这份 DLL 在 `<SDK>/build-tools/runtime/lib/windows_x86_64_cjnative` 里、不在 `cjpm.exe` 旁边，
+  而 `PATH` 上的桌面 SDK 那份是另一代 ABI（往 `PATH` 里加它无效）。`examples/ohos-probe/build-hap.sh`
+  现在把该目录前置进 `PATH`（`CANGJIE_SDK` 可覆盖），修后同一构建从「21 ms 崩」推进到真实编译阶段。
+  **仍未解决**：编译期 `opt.exe --cangjie-pipeline` 在真实 bitcode 上以 `0xC000001D`（trap）退出，
+  6/6 必现，喂玩具 IR 则正常——本轮未定位根因，HAP 因此仍未产出，对话框能力位的真机取证仍未完成。
+  取证细节与「`-o /dev/null` 会让退出码变 0」的坑见踩坑文档 §10.9。
+
 - **测试编译恢复零警告、用例数同步**：`scripts/test.sh` 此前会刷 16 条「未使用变量」+
   1 条 deprecated（`ArrayList.sort`）+ 1 条未使用 import——按 AGENTS §3 就地 `let _ = <参数>` 弃用参数、
   改走 `std.sort.sort` 短名调用、删掉失效 import（`std.sort` 必须显式 `import` 并用短名，本机 cjc

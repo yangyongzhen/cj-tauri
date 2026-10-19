@@ -67,6 +67,19 @@ fi
 export DEVECO_CANGJIE_PLUGIN_ENABLED=true
 export NODE_PATH="$(cygpath -w "$(pwd)/node_modules")"
 
+# 鸿蒙 SDK 自带的 cjpm.exe（1.1.3）**硬依赖 libcangjie-runtime.dll**，而这份 DLL 在
+# <SDK>/build-tools/runtime/lib/windows_x86_64_cjnative 里、不在 cjpm.exe 旁边；缺它时
+# hvigor 只报 `01101000 Tools execution failed.`，底层退出码是 0xC0000139
+# （STATUS_ENTRYPOINT_NOT_FOUND，命令 21ms 就「跑完」），日志里才看得到真命令行。
+# 注意：往 PATH 里塞桌面 SDK 的运行时**不管用**（那是另一代 ABI），必须用 SDK 自带的这份。
+CANGJIE_SDK="${CANGJIE_SDK:-$(ls -d "$HOME"/.cangjie-sdk/*/cangjie 2>/dev/null | sort -V | tail -1)}"
+cjsdk_rt="$CANGJIE_SDK/build-tools/runtime/lib/windows_x86_64_cjnative"
+if [ -d "$cjsdk_rt" ]; then
+    export PATH="$cjsdk_rt:$PATH"
+else
+    echo "[ohos-probe] 找不到仓颉运行库目录（$cjsdk_rt），cjpm 会以 0xC0000139 退出；请 export CANGJIE_SDK=<.cangjie-sdk/<版本>/cangjie>" >&2
+fi
+
 # entry/cjpm.toml 里 stdx 那条写的是相对路径 "../stdx"，指向**工程根上的 stdx 联接**。
 # 为什么不是占位符：hvigor 只替换它自己的模板变量（${AARCH64_LIBS} 那组），写别的 ${...}
 # 会被替换成空串，而空串会让整条 path-option 一起失效，报错却是

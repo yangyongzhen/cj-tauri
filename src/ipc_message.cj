@@ -8,7 +8,7 @@ import stdx.encoding.json.*
  * 与桥 JS 的 `windowLabel` 缺省、`emitToWindow(..., "main")` 是同一个约定：老前端与现有示例
  * 都写死 `"main"`，默认值一错，事件就静默收不到、回执就静默投不回原窗口（见架构文档 §6.4）。
  */
-let DEFAULT_WINDOW_LABEL = "main"
+public let DEFAULT_WINDOW_LABEL = "main"
 
 /**
  * IPC 消息模型（对标 Tauri IPC 协议）

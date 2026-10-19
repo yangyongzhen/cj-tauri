@@ -3,7 +3,7 @@ package cjTauri
 // Linux 侧才用得上（类整体门禁在 Linux）：加同款门禁，免得 Windows 构建把这条当「未使用 import」清掉
 // （host_webview2.cj 是镜像写法。清掉它 Linux 侧当场编炸：`error: undeclared identifier 'std'`，
 // 2026-10-13 实测；48fe433、1747075 已踩过两次——AGENTS §4 同条）
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 import std.collection.*
 
 /**
@@ -15,57 +15,57 @@ import std.collection.*
  * （Windows 上 CRT 与仓颉运行时不是同一个分配器）；生命周期约定见
  * docs/架构演进-多平台与多窗口.md §6.1。
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_create(): CPointer<Unit>
 
 /**
  * 释放宿主编：对空指针安全、幂等；调用后该句柄不可再用
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_destroy(h: CPointer<Unit>): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_init(h: CPointer<Unit>, m: CFunc<(CString) -> Unit>, d: CFunc<(CPointer<Unit>) -> Unit>): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_start(h: CPointer<Unit>, html: CString): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_load_url(h: CPointer<Unit>, url: CString): Unit
 
 /**
  * 注册一段预执行脚本（插件 jsShim 等）：须在 cj_bridge_start 之前调用，桥在 document-start 注入
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_add_init_script(h: CPointer<Unit>, js: CString): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_reload(h: CPointer<Unit>): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_window(h: CPointer<Unit>, title: CString, width: Int32, height: Int32): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_devtools(h: CPointer<Unit>, enabled: Int32): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_icon(h: CPointer<Unit>, path: CString): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_open_devtools(h: CPointer<Unit>): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CPointer<Unit>, CString) -> Unit>): Unit
 
@@ -73,38 +73,38 @@ foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CPointe
  * 原生对话框（阻塞式）：kind 0=打开文件 1=保存文件 2=info 3=warning 4=error 5=confirm。
  * 返回 1 = 用户确认；文件类选中路径经 cj_bridge_set_dialog_callback 注册的回调送回。
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_show_dialog(h: CPointer<Unit>, kind: Int32, title: CString, message: CString,
                                    filter: CString): Int32
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_run_js(h: CPointer<Unit>, js: CString): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_quit(h: CPointer<Unit>): Unit
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_is_ready(h: CPointer<Unit>): Int32
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_should_quit(h: CPointer<Unit>): Int32
 
 /**
  * 菜单栏（RFC-002 §5.4 的线路文本）：空串 = 清空。未就绪时桥只记下，建窗时一次建好。
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_menu(h: CPointer<Unit>, wire: CString): Unit
 
 /**
  * 运行期改单个菜单项的状态（按 id 找；找不到只记日志）
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabled: Int32,
                                            checked: Int32): Unit
@@ -112,12 +112,12 @@ foreign func cj_bridge_set_menu_item_state(h: CPointer<Unit>, id: CString, enabl
 /**
  * 窗口顶部副标题（与菜单栏同一行的右侧）。返回 0 = 已提交、-3 = 宿主未就绪、-4 = 平台没有这块
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_titlebar_subtitle(h: CPointer<Unit>, text: CString): Int32
 
 /** 拖放策略（RFC-002 §5）：enabled=0 平台不注册 drop target（默认关） */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
@@ -125,7 +125,7 @@ foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: I
  * 全局快捷键（RFC-003 第 5 期）：wire 一行一条 `<accel>:<id>`。
  * Linux 走 X11 grab（可选编译：桥没编 X11 支持时打一行 stderr 忽略）。
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Unit
 
@@ -133,28 +133,28 @@ foreign func cj_bridge_set_global_hotkeys(h: CPointer<Unit>, wire: CString): Uni
  * 托盘（RFC-002 §7.C）：wire 见 TrayModel.toWire()，空串 = 移除。
  * Linux 走 libayatana-appindicator3（可选编译：桥没编托盘支持时打一行 stderr 忽略）。
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
 
 /**
  * 窗口可见性（`show()` / `hide()` 的 C 侧落点）：start 之前调只记 pending，就绪后投 GTK 线程执行
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_window_visible(h: CPointer<Unit>, visible: Int32): Unit
 
 /**
  * 最小化到托盘策略位（须在 start 之前调）：GTK 侧据此把 window-state-event 里的 iconify 改写成 hide
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_minimize_to_tray(h: CPointer<Unit>, enabled: Int32): Unit
 
 /**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_set_shell_callback(h: CPointer<Unit>,
                                           cb: CFunc<(CPointer<Unit>, CString) -> Unit>): Unit
@@ -162,21 +162,21 @@ foreign func cj_bridge_set_shell_callback(h: CPointer<Unit>,
 /**
  * 宿主能力位（CJ_CAP_* 的按位或）：未 init 返回 0
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_host_capabilities(h: CPointer<Unit>): Int32
 
 /**
  * 句柄同一性判定（返回 1 = 同一个宿主）：仓颉侧 CPointer 不能比较，判定交回 C 侧
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 foreign func cj_bridge_host_eq(a: CPointer<Unit>, b: CPointer<Unit>): Int32
 
 /**
  * Linux WebKit 宿主实现：通过 C 桥驱动
  */
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 public class WebKitHost <: WebViewHost {
     // 消息回调：GTK 线程（原生 pthread）→ 仓颉
     public var onMessage: (String) -> Unit = { _ => }
@@ -537,7 +537,7 @@ public class WebKitHost <: WebViewHost {
 }
 
 // C 回调中转：C 桥线程 → 仓颉闭包（经全局槽位）
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 @C
 func hostOnMessage(json: CString): Unit {
     try {

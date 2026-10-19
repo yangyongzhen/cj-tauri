@@ -31,9 +31,22 @@
   # 鸿蒙目标（真机 / 鸿蒙 PC）：交叉编译工具链与 sysroot 由 DevEco 仓颉套件提供，
   # 四个路径全部走环境变量展开——hvigor 构建时由插件注入前两个，命令行交叉编译时自行 export 同名变量。
   # 照抄 DevEco 生成的工程（TestCj2）同一串参数，避免两套口径。
-  compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\""
+  # 末尾的 `--dy-std` 不可省：鸿蒙上应用模块（entry）是 `output-type = "dynamic"` 且用动态 std，
+  # 框架包若按默认的静态 std 编，两者混进同一个 .so 就会出现**两套 std 运行时**——表象是
+  # 启动即崩在框架包全局初始化（`cjTauri::package_global_init` → 跨包 `_CGP*` 包初始化符号
+  # 解析到模块内偏移、跳到未映射地址 0x50xxx），窗口起不来且 hilog 只有一行 SIGSEGV。
+  # 只加在鸿蒙段：桌面两平台仍是静态 std，产物形态不变。
+  compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\" --dy-std"
 
 [target.aarch64-linux-ohos.bin-dependencies]
     # stdx 必须用鸿蒙版（官方发布 cangjie-stdx-ohos-aarch64-<cjc 版本>.zip，桌面版 ABI 不通）；
     # CANGJIE_OHOS_LIBS 指 DevEco 套件的 api/lib/linux_ohos_aarch64_cjnative/ohos（仓颉标准库 + ohos API 绑定）。
-    path-option = ["D:/cangjie-stdx-ohos/linux_ohos_aarch64_cjnative/dynamic/stdx", "C:/Users/yang/.cangjie-sdk/6.1/cangjie/api/lib/linux_ohos_aarch64_cjnative/ohos"]
+    #
+    # 后两项是 ArkUI 的**宏库**与 kit 绑定，hvigor 构建时由 cangjie-build-support 注入
+    # （cangjie-path-impl.js 的 getBuildEnvByAbi）：AARCH64_MACRO_LIBS = <sdk>/api/macro/ohos
+    # （`lib-macro_ohos.arkui.state_macro_manage.dll` 就在里面），AARCH64_KIT_LIBS =
+    # .../linux_ohos_aarch64_cjnative/kit。**宏库目录漏挂的症状极具误导性**：`@Component` 的
+    # 声明能解析到（.cjo 在 ohos 目录里），但宏实现库找不到，报的是
+    # `macro evaluation has failed for macro call 'Component'`——看着像「宏不能用在框架包里」。
+    # 命令行交叉编译时这两个变量要自己 export，取值见上。
+    path-option = ["D:/cangjie-stdx-ohos/linux_ohos_aarch64_cjnative/dynamic/stdx", "C:/Users/yang/.cangjie-sdk/6.1/cangjie/api/lib/linux_ohos_aarch64_cjnative/ohos", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}"]

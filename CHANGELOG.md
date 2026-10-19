@@ -11,6 +11,16 @@
 
 ### Added
 
+- **鸿蒙（HarmonyOS）ArkWeb 宿主真机落地**：`cj-tauri` 首次在 HarmonyOS 真机上跑通
+  「仓颉后端 + ArkWeb 前端 + IPC 双向桥」闭环——页面 `system:version` 拿到
+  `{"name":"cj-tauri","version":"1.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}`，
+  应用自注册命令（`probe:log`）同链路可用，同轮 `SIGSEGV` 计数 0。
+  三条硬约定随之确立：**框架包零 ArkUI 依赖**（`@Component` / `Web` 一律留应用侧，
+  框架包引用 ArkUI 会让鸿蒙包初始化链跳坏地址、启动即崩）、**回投改由原生推**
+  （`javaScriptProxy` 的返回值传不回 JS，页面改成发 `{"type":"pull"}` 心跳、
+  原生在 `post` 回调里 `runJavaScript` 推送）、**`aboutToAppear` 同步宿主页面地址**
+  （`build()` 组件字段还是空串，会白屏死锁）。判据与踩坑见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1。
+
 - **`examples/ai-chat` 一轮 UI 大改造（用户实测清单 11 项，全部落地）**：浅色主题下的「黑块」、
   看不见的工作区、停不下来的生成一并收口。改动与判据：
   - **Markdown 渲染修好**：代码块样式原先**写死暗色**（`#0c0e14`），浅色主题下就是一块黑——改走主题

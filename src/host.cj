@@ -516,17 +516,21 @@ func shellOnEvent(host: CPointer<Unit>, json: CString): Unit {
  * 必须是构造参数而不是事后 setter——label 决定页面侧 `window.__CJ_TAURI_LABEL__` 与事件过滤，
  * 启动之后再改就晚了（见 docs/架构演进-多平台与多窗口.md §7.3）。
  */
-// 鸿蒙目标下 `os` 仍取 `Linux`（实测：@When[os == "Linux"] 命中），`os` 维度分不开鸿蒙与 Linux；
-// 唯一可用的编译期判据是 `arch`。桌面 Linux 走 WebKit，ARM64（鸿蒙）没有内置宿主、
-// 只能由应用经 setHostFactory 注入（见 host_factory.cj）。
-@When[os == "Linux" && arch != "aarch64"]
+// 判据为什么是 `env`（2026-10-19 校正）：鸿蒙目标下 `os` 仍取 `Linux`，`arch` 也只有
+// `aarch64`——桌面 aarch64 Linux 同样是 `aarch64`，拿它当判据会把「跑在 GTK 上」误判成
+// 「跑在 ArkWeb 上」，两边的宿主实现会互相打架（编译期就撞名）。官方条件编译映射表给出
+// `aarch64-linux-ohos` → `env == "ohos"`、桌面 Linux → `gnu`，这才是真正互斥的维度。
+// 于是桌面 Linux 侧写 `env != "ohos"`：**桌面 aarch64 Linux 因此重新拿回 WebKit 宿主**
+// （改判据之前它落到「只能注入宿主」的分支，是同一处误判的另一半）。
+@When[os == "Linux" && env != "ohos"]
 func createHost(label: String): WebViewHost {
     return WebKitHost(label)
 }
 
-@When[os == "Linux" && arch == "aarch64"]
+// 鸿蒙：内置 ArkWeb 宿主（应用侧只负责建 ArkUI 组件并把 controller 交给它，见 src/host_arkweb.cj）
+@When[env == "ohos"]
 func createHost(label: String): WebViewHost {
-    return requireInjectedHost(label)
+    return ArkWebHost(label)
 }
 
 @When[os == "Windows"]
@@ -539,8 +543,9 @@ func createHost(label: String): WebViewHost {
  *
  * 桌面两平台走 C 桥 `cj_bridge_host_eq`——仓颉的 `CPointer` 既没有 `==` 也没有 `!=`
  * （实测报 `invalid binary operator '!=' on type 'CPointer<Unit>'`），也没有 `hashCode`，
- * 比较只能交给 C 侧。鸿蒙没有 C 桥：宿主由应用经 `setHostFactory` 注入、回调也由应用自己持有，
- * 框架不按句柄路由，因此恒为 false 并留一行 stderr——**不假装相等**（假装相等会把两扇窗的路由串台）。
+ * 比较只能交给 C 侧。鸿蒙侧没有 C 桥（`native/platforms/harmonyos/` 尚未产出 `cj_bridge_*`），
+ * `ArkWebHost` 的句柄在仓颉侧不参与路由（回调是仓颉闭包，不经 C 中转），因此恒为 false
+ * 并留一行 stderr——**不假装相等**（假装相等会把两扇窗的路由串台）。
  */
 @When[os == "Windows"]
 func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
@@ -549,7 +554,7 @@ func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
     }
 }
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
     unsafe {
         return cj_bridge_host_eq(a, b) != 0
@@ -557,10 +562,10 @@ func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
 }
 
 // 只在无 C 桥的平台用到，声明也放进同一门禁：桌面侧保留会变成 unused variable
-@When[os == "Linux" && arch == "aarch64"]
+@When[env == "ohos"]
 private var HOST_ROUTE_WARNED: Bool = false
 
-@When[os == "Linux" && arch == "aarch64"]
+@When[env == "ohos"]
 func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
     let _ = a
     let _ = b
@@ -589,7 +594,7 @@ func createBareHostHandle(): CPointer<Unit> {
     return h
 }
 
-@When[os == "Linux" && arch != "aarch64"]
+@When[os == "Linux" && env != "ohos"]
 func createBareHostHandle(): CPointer<Unit> {
     var h: CPointer<Unit> = CPointer<Unit>()
     unsafe {

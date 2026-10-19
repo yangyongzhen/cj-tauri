@@ -24,14 +24,16 @@ public let CJ_TAURI_VERSION = "1.0.0"
 public let CJ_IPC_PROTOCOL = "1"
 
 /** 当前宿主平台标识（`system:version` 的 platform 字段） */
-// 鸿蒙目标的 `os` 仍报 Linux（实测），只能靠 `arch` 与桌面 Linux 分开；
-// 两者共用 "linux" 会让前端与证据链分不清「跑在 GTK 上」还是「跑在 ArkWeb 上」。
-@When[os == "Linux" && arch != "aarch64"]
+// 鸿蒙目标的 `os` 仍报 Linux（实测），所以 `os` 维度分不开「GTK 宿主」与「ArkWeb 宿主」。
+// 判据用 `env`：鸿蒙目标（`aarch64-linux-ohos`）是 `ohos`，桌面 Linux 是 `gnu`——两者互斥；
+// 而 `arch` 不行（桌面 aarch64 Linux 同样是 `aarch64`，会被误报成鸿蒙）。
+// 平台标识必须是真实的那一个：`linux` / `ohos` 混用会让前端与证据链分不清跑在哪个宿主上。
+@When[os == "Linux" && env != "ohos"]
 public func currentPlatform(): String {
     return "linux"
 }
 
-@When[os == "Linux" && arch == "aarch64"]
+@When[env == "ohos"]
 public func currentPlatform(): String {
     return "ohos"
 }

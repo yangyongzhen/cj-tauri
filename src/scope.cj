@@ -187,24 +187,33 @@ private func globMatchAt(p: Array<UInt8>, pi: Int64, t: Array<UInt8>, ti: Int64)
 
 /* ===== 路径处理 ===== */
 
-/** 工作目录的缓存（顶层 let 绑定不可变，可变状态装在对象里） */
-class ScopeCwdCache {
-    var value: String = ""
-}
-
-let scopeCwdCache = ScopeCwdCache()
+/**
+ * 工作目录的惰性缓存（顶层只放一个 `None` 常量，真正的解析推迟到首次用到 `$CWD`）
+ *
+ * **为什么不能写成 `let cache = ScopeCwdCache()`**：鸿蒙上框架包由 `InitCJLibrary`
+ * 在动态库加载期执行包全局初始化（`cjTauri::package_global_init`），那一刻仓颉堆还没起来；
+ * 任何在初始化期做分配的顶层构造器都会让应用当场 SEGV——实测 2026-10-19：
+ * 崩溃落在 `[anon:cangjie_heap]`（SEGV_ACCERR / SEGV_MAPERR），调用链是
+ * `InitCJLibrary → cangjie_entry::package_global_init → cjTauri::package_global_init`，
+ * 窗口起不来、hilog 里连一行我方日志都没有。桌面两平台是静态全链、初始化期建对象没事，
+ * 所以这个坑只在鸿蒙的多动态库形态下暴露。
+ */
+var scopeCwdCache: Option<String> = None
 
 /** 进程工作目录（项目根；`canonicalize(".")` 顺带解决绝对化与软链接） */
 public func scopeCwdPath(): String {
-    if (scopeCwdCache.value.size == 0) {
-        try {
-            scopeCwdCache.value = toScopeSlashes(canonicalize(".").toString())
-        } catch (e: Exception) {
-            let _ = e
-            scopeCwdCache.value = "."
-        }
+    match (scopeCwdCache) {
+        case Some(v) => return v
+        case None => ()
     }
-    return scopeCwdCache.value
+    var value = "."
+    try {
+        value = toScopeSlashes(canonicalize(".").toString())
+    } catch (e: Exception) {
+        let _ = e
+    }
+    scopeCwdCache = Some(value)
+    return value
 }
 
 /**

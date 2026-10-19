@@ -391,7 +391,24 @@
   原生菜单 + 副标题（页面顶栏整行让出）+ 三态视图 + AI 流式 + 外部草稿，全部由 `examples/` 之外的应用
   自己走通——AGENTS §2 里「能力位与宿主回调」那套约定在第三方应用身上同样成立。
 
+### Changed
+
+- **鸿蒙侧的 JS 字符串转义下沉到共享层，并被单测锁住**：窗口 label 注入的转义逻辑原先叫
+  `jsonQuote`、住在 `src/arkweb_script.cj` 里且带 `@When[env == "ohos"]` 门禁——**桌面 `cjpm test`
+  根本编不到它**，而它失效是静默的（生成的脚本当场语法错误 → 页面里 `__CJ_TAURI_LABEL__` 停在
+  默认值 `main` → 按 label 过滤的事件全部失灵，宿主与页面两边都不报错）。现下沉为
+  `src/jsutil.cj` 的 `jsStringLiteral`（不带平台门禁、`public` 供跨包单测），
+  `src/tests/jsutil_test.cj` 用 7 条用例钉住反斜杠 / 双引号 / UTF-8 字节 / 空串 / 两者相邻 / 控制字符不加工。
+  **真机复验**（真机 `3QC0124B20000048`，框架改动后重编 HAP）：`page begin label=main`、
+  `probe:log <- {"version":"…\"platform\":\"ohos\"}"`、同轮 `SIGSEGV` 计数 0——闭环未受影响。
+
 ### Fixed
+
+- **测试编译恢复零警告、用例数同步**：`scripts/test.sh` 此前会刷 16 条「未使用变量」+
+  1 条 deprecated（`ArrayList.sort`）+ 1 条未使用 import——按 AGENTS §3 就地 `let _ = <参数>` 弃用参数、
+  改走 `std.sort.sort` 短名调用、删掉失效 import（`std.sort` 必须显式 `import` 并用短名，本机 cjc
+  不支持 `std.xxx` 限定名写法，见 §4）。修后 **287/287 全绿、零警告**；AGENTS §1 里过期的
+  「当前 193 个用例」一并订正为 287。
 
 - **C 桥桩自检（`native/tests/test_bridge_core.c`）在 Windows / llvm-mingw 下编不过**：
   用例按 POSIX 写 `mkdir(dir, 0700)`，而 mingw 的 `<io.h>` 把 `mkdir` 声明成单参（MSVCRT 语义、

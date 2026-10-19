@@ -56,6 +56,8 @@ class DemoPlugin <: Plugin {
 /** 回显命令全名，便于断言「前端调到的到底是哪个名字」 */
 class PluginEchoHandler <: CommandHandler {
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = args
+        let _ = ipc
         return JsonString("pong:${cmd}")
     }
 }

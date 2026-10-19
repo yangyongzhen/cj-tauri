@@ -24,6 +24,7 @@ func clipTextArgs(text: String): JsonObject {
 
 /** 取一条「已装配宿主」的命令处理器：剪贴板命令要先经 attachHost 才有宿主可用 */
 func clipCmdWithHost(short: String, host: FakeHost): CommandHandler {
+    let _ = short
     let c = ClipboardCommands()
     c.attachHost(host)
     return c

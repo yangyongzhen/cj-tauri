@@ -598,6 +598,20 @@ probe:log window=main     <- {"kind":"ping-recv","me":"main","from":"second"}
 处置：把桌面 SDK 从 `PATH` / `CANGJIE_HOME` 里摘掉，并**重启 hvigor daemon**（daemon 会把旧环境一直带着）。
 它不会打印任何有用信息，只有退出码。
 
+**2026-10-20 补的事实（这条此前只有推断，现在有据可查）**：
+
+- hvigor 报的是 `01101000 Tools execution failed.`，命令里那句
+  `Command failed with exit code 3221225785` = `0xC0000139`（3221225785 − 0xC0000000 = 0x139）；
+- 起不来的是 `C:\Users\<user>\.cangjie-sdk\6.1\cangjie\build-tools\tools\bin\cjpm.exe`
+  （DevEco 托管的鸿蒙侧 `cjpm`），**这套 SDK 里根本没有 `libcangjie-runtime.dll`**
+  （`build-tools/tools/bin` 只有 12 个 DLL：LLVM/clang/c++/lsp 等；`tools/lib` 里也没有），
+  它的运行时是**从 `PATH` 上的桌面 SDK 借来的**——本机是
+  `D:\Program Files (x86)\Cangjie\runtime\lib\windows_x86_64_cjnative\libcangjie-runtime.dll`；
+- 把桌面 Cangjie 条目从 `PATH` 里摘掉之后，`cjpm.exe` 直接以 **127** 退出（DLL 加载不到），
+  所以「摘掉桌面 SDK」这个老处置在**两套 SDK 混装**的机器上不是无条件可用的；
+- 因此这条的**正确处置至今仍未验证**：要么找到与 `6.1` 那一代匹配的 `libcangjie-runtime.dll`
+  并前置进 `PATH`，要么让 hvigor 显式用桌面 `cjpm`。**别把「摘掉桌面 SDK」当结论写进脚本。**
+
 ### 10.3 `bash: failed to spawn shell: 拒绝访问 (os error 5)`
 
 本机 Git Bash 的偶发故障：某个时刻起，连 `/usr/bin/rm` 都 `Permission denied`，编译进程起不来。
@@ -669,6 +683,82 @@ Build（以及任何不经过本脚本的构建入口）拿到的仍是占位符
 
 顺带记下 `stdx` 联接的拆法：**`cmd /c rmdir <联接>`**，不要用 `rm -rf`——它可能穿透到目标目录里去删
 真正的 stdx 内容。
+
+
+### 10.8 `cangjieOptions` schema 错：真因是「插件把 schema 删了」，不是工程配置写错
+
+**表象**（2026-10-19/20 一整轮就耗在这里）：
+
+```
+hvigor ERROR: 00303038 Configuration Error
+  instancePath: 'buildOption', keyword: 'propertyNames',
+  params: { propertyName: 'cangjieOptions' },
+  message: 'property name must be valid'
+```
+
+指向 `entry/build-profile.json5:3:19`，而那个文件是**原样从能编的工程拷来的、一个字没改**。
+于是很自然会怀疑「本仓改动把它弄坏了」——错的。同一时刻未改动的源工程 `TestCj2` 报**一字不差**的同一条错。
+
+**真因链**（把 `cangjie-build-support` 的源码读到底才看见）：
+
+```
+CangjieRegisterService.dealCangjieSchema()        // hvigor-ohos-plugin/src/plugin/hooks/cangjie-register.js
+  → require("@ohos/cangjie-build-support/index").handleCangjieSchema()
+      → const on = isPluginEnabled()
+      → on ? GenerateCangjieSchema.replaceSchema() : GenerateCangjieSchema.deleteSchema()
+```
+
+也就是说：**插件没被判定为「已启用」时，它不报错，而是主动把 cangjie 的 schema 删掉**，
+于是校验器眼里 `buildOption` 就没有 `cangjieOptions` 这个合法键。
+
+启用判定是纯环境变量（`cangjie-plugin-factory.js`）：
+
+```js
+isPluginEnabled() {
+  if (isCommandToolLines()) return true;            // DEVECO_CANGJIE_PATH 有效（目录里有 oh-uni-package.json）
+  return process.env.DEVECO_CANGJIE_PLUGIN_ENABLED === "true";
+}
+```
+
+**headless 构建的正确姿势**（本机实测到「schema 关卡通过」）：
+
+```bash
+export DEVECO_CANGJIE_PLUGIN_ENABLED=true        # 或 export DEVECO_CANGJIE_PATH=<SDK根>（有 oh-uni-package.json）
+export NODE_PATH="$(cygpath -w "$PWD/node_modules")"   # 让插件里的裸模块名 require 解析得到
+```
+
+**为什么只设 `NODE_PATH` 没用**：`cangjie-register.js` 的 `require("@ohos/cangjie-build-support/index")`
+解析起点是**hvigor 安装目录**（`D:\oh\…\tools\hvigor\hvigor-ohos-plugin\src\plugin\hooks\`），
+Node 会对工程内 junction 做 realpath，所以工程里的 `node_modules/@ohos/…` 帮不到它。
+喂了 `NODE_PATH` 之后 `require` 确实成功（探针实测导出 `handleCangjieSchema` 等 8 个），
+但**因为启用开关没设，`handleCangjieSchema()` 走的是 `deleteSchema()` 分支**——
+「模块找得到、schema 照样不认」的怪现象就是这么来的。
+
+**四条被数据否掉的解法**（别再走一遍）：
+
+| 尝试 | 结果 |
+|---|---|
+| 手工在 hvigor 安装目录建 `node_modules/@ohos/…` junction | 权限拒绝（需管理员写 `D:\oh\DevEcoStudio\tools\hvigor\node_modules`） |
+| 只设 `NODE_PATH` | `require` 不再报错，**schema 仍被删除**（见上） |
+| `hvigor/hvigor-config.json5` 的 `dependencies` 里声明插件 `file:` 路径 | 报错一模一样 |
+| `--preserve-symlinks` | 撞出两个 hvigor 实例，`00302013 Script Error … root node is not yet available` |
+
+**取证通道只有一个**：桥/CLI 的 stderr 只有 `00303038` 一行，真因在
+`<工程>/.hvigor/outputs/build-logs/build.log` 里，形如
+`[DEBUG] failed to load cangjie to dynamically generate schemas: Error: Cannot find module '@ohos/cangjie-build-support/index'`
+（**debug 级**，`dealCangjieSchema` 的 catch 只留这一行）。查构建问题先 `grep -i cangjie` 这份日志。
+
+**IDE 侧同一条错**：`C:\Users\<user>\AppData\Roaming\Huawei\DevEcoStudio6.1\options\CangjiePluginConfiguration.xml`
+里 `pluginStatus` 为 `DISABLE`（本机是 2026-10-18 20:01 被写进去的，同分钟 `disabled_plugins.txt` 也动过），
+此时 IDE 构建同样失败——**IDE 能编不等于这条链路是好的**，它取决于这个状态 + 插件版本。
+
+**两个把结论带偏的假线索，务必记住**：
+
+1. **daemon 复用会被读成「环境正常」**：同一份工程 23:52–00:08 连续 7 次 `BUILD SUCCESSFUL`，
+   00:15 之后全败，中间没有任何代码改动。分界不是 `--no-daemon`（日志里失败轮也是 `daemon=true`），
+   而是**那个已经装好插件的常驻进程还在不在**——进程一换，新进程又从「插件没启用 → 删 schema」开始。
+2. **陈旧 HAP 会被读成「构建成功」**：判据只看「`*.hap` 存在」时，上一轮（甚至 IDE 那一轮）留下的产物
+   会把失败盖成成功。正确判据是**先删产物、再看 mtime 与大小都变**；本机就因此把失败误报过一次成功。
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

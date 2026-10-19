@@ -424,6 +424,17 @@
 
 ### Fixed
 
+- **鸿蒙示例的 headless 构建被 `cangjieOptions` schema 拦下：真因是仓颉插件「未启用」时主动删 schema**：
+  `examples/ohos-probe/build-hap.sh` 现在会显式给 `DEVECO_CANGJIE_PLUGIN_ENABLED=true` 与
+  `NODE_PATH=<工程>/node_modules`（两者缺一即失败）。查清的形状是：插件里的
+  `handleCangjieSchema()` 在 `isPluginEnabled()` 为假时走 `deleteSchema()`——**不报错地把 cangjie 的
+  schema 删掉**，于是表盘上只剩 `00303038 Configuration Error … propertyName: 'cangjieOptions'`；
+  真因只在 `<工程>/.hvigor/outputs/build-logs/build.log`（debug 级）。同轮否掉四条解法
+  （hvigor 安装目录建 junction 需管理员、单喂 `NODE_PATH`、`hvigor-config.json5` 声明依赖、
+  `--preserve-symlinks` 会撞出两个 hvigor 实例），并记下两个把结论带偏的假线索：
+  常驻 daemon 复用会被读成「环境正常」、陈旧 `*.hap` 会被读成「构建成功」。
+  过程见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.8。
+
 - **测试编译恢复零警告、用例数同步**：`scripts/test.sh` 此前会刷 16 条「未使用变量」+
   1 条 deprecated（`ArrayList.sort`）+ 1 条未使用 import——按 AGENTS §3 就地 `let _ = <参数>` 弃用参数、
   改走 `std.sort.sort` 短名调用、删掉失效 import（`std.sort` 必须显式 `import` 并用短名，本机 cjc

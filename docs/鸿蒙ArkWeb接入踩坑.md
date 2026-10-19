@@ -793,8 +793,20 @@ error: "<SDK>\build-tools\third_party\llvm\bin\opt.exe" "<tmp>\2-cjTauri.bc" "-p
 退出码变成 `0`，而 stderr 同时还打下 `Illegal instruction`——**同一次调用既「成功」又崩**。
 判崩溃只看**真实输出文件**加 `$?`（或 `rc=$?` 立刻记下），别用 `/dev/null` 或管道末端的状态。
 
-**当前状态**：`examples/ohos-probe` 的 headless 构建止步于此，**HAP 未产出**（AGENTS §1 口径：
-没有先删再建的产物不算成功）。所以对话框能力位的真机取证仍**未完成**。
+**它不是 headless 专属（2026-10-20 补充）**：同一工程在 **DevEco IDE 里 Build Hap(s)** 报的是
+**一字不差的同一条**——`Failed :entry:default@CompileCangjie` → 同一条 `opt.exe … 3221225501`。
+所以「换 IDE 构建」不是绕法，别把时间花在切换构建入口上；要往下走只能在 `opt` 这一环做归因。
+
+**查到哪一步、还差什么（留给下一轮）**：已排除的见上表；**尚未执行**的下一步是
+① `-debug-pass-manager` 看 trap 落在哪一个 pass（最便宜，一条命令，命令形状：
+`opt.exe <bj> -passes=default<O0> --cangjie-pipeline --mtriple=aarch64-linux-gnu -debug-pass-manager -o out.bc`，
+最后一行打印出来的 pass 就是嫌疑犯）；② 拿 `llvm-reduce` 把 602892 B 的 bitcode 缩成最小复现；
+③ 试 `.cangjie-sdk/5.0` 那套工具链（本机只有 6.1，需另装）；④ `llvm-nm -D --undefined-only`
+查 `opt.exe` 是否还有第三个「按名字加载」的依赖没进 PATH（`0xC0000139` 已证明这类依赖存在）。
+**这四条一条都没跑完，别当成已有结论。**
+
+**当前状态**：`examples/ohos-probe` 的构建止步于此（headless 与 IDE 同错），**HAP 未产出**
+（AGENTS §1 口径：没有先删再建的产物不算成功）。所以对话框能力位的真机取证仍**未完成**。
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

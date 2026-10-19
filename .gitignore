@@ -32,6 +32,8 @@ dist/
 cjpm.lock
 __pycache__/
 *.stdx.bak
+# 单测宏展开的中间产物（cjpm test 生成在 src/tests/ 下）
+*.macrocall
 # AtomCode 的本地会话产物（skills/ 已在仓库里单独分发，这份目录不入库）
 .atomcode/
 

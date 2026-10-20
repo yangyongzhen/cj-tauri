@@ -91,7 +91,10 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
       put(dlgEl, 'waiting for user...');
       api.invoke('dialog:message', {
         kind: 'confirm',
-        title: 'cj-tauri 原生弹窗',
+        /* 标题里带 label：两扇窗**同时**在场时，哪一半显示哪个 label 就是
+           「每个组件各持一份 @State、overlay 不串台」的肉眼判据；共用一份状态时
+           两半会显示同一个 label（或干脆只画一份）。 */
+        title: 'cj-tauri 弹窗 ' + label,
         message: 'label=' + label + ' 的原生对话框取证'
       }).then(function (ok) {
         put(dlgEl, 'confirmed=' + String(ok));
@@ -120,11 +123,11 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
         return api.invoke('probe:hello', { me: label });
       }).then(function (ack) {
         put(logEl, 'hello ' + JSON.stringify(ack));
-        /* 只让默认窗口自动弹：两扇窗同时弹会让截图分不清是哪个 label 的框，
-           而「按 label 路由」本身已由 probe:ping 那条取证覆盖。 */
-        if (label === 'main') {
-          showDialog();
-        }
+        /* **两扇窗都自动弹**（2026-10-20 多窗口取证）：两框同时在场时，
+           上半屏（main）与下半屏（second）各应显示自己 label 的标题；
+           谁显示成对面的 label、或只画出一份，就是 overlay 共用了静态状态。
+           早先只让 main 自动弹是为了单窗口截图好认，现在要的正是「两框同在」。 */
+        showDialog();
       }).then(null, function (e) {
         fail(logEl, e);
       });

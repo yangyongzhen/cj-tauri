@@ -556,6 +556,16 @@
   `Text` / `Row` / `Column` / `Button` 在 `.cj.d` 里是**按 class 声明**的，查签名要 grep `public init(`，
   grep `func Text(` 什么都得不到。框架侧 `hostCapabilities()` 的对话框位**仍报 0**——通的是应用侧 overlay，
   不是宿主能力，别据此改能力位。证据与命令见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.11。
+- **多窗口下「命令里拿宿主」必须按 `ipc.window` 解析，固定一个宿主就是串台**（2026-10-20 真机实测，
+  `dialog` 插件）：插件在 `setup()` 里只记 `app.webviewHost()`（默认窗那一个）时，**所有窗**的
+  `dialog:*` 都排进默认窗的 `pendingDialogs`——第二扇窗的框在**第一扇窗里画出来**，而第一扇窗自己的
+  那次被覆盖成从未显示；命令 promise 照常 resolve，页面显示 `confirmed=true`，**失败无声**。
+  判据是「两个宿主各自的 `id` 序列是否独立」：`dialog take label=main id=1` 与
+  `dialog take label=second id=1` 才对，共用一个槽时会连号递增。落法：装配时注入
+  `DialogCommands.attachHostResolver({ label => app.hostOf(label) })`，`requireHost(ipc)` 解析器优先，
+  **解析器在场而窗口未登记时如实抛错、别回落到单槽**（回落正是串台来源）；三条命令实现都要多收
+  `ipc`。同形未修的两处：`clipboard` / `notification` 插件仍是固定 `app.webviewHost()`——
+  用之前先问「是否只该在默认窗可用」。取证与修复前后对照见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.12。
 - **`opt.exe` 报 `EnumReflection format: operand numbers error!` 时先查工具链配对，别去查 LLVM pass**
   （2026-10-20 定位）：`cjc` **不按 `PATH`** 找 `opt`，它按 `CANGJIE_HOME` 下到
   `third_party/llvm/bin/opt.exe`；两者差一代时必然崩——1.2.0 的 `cjc` 给枚举写 7 操作数 `.ti`，1.1.3 的

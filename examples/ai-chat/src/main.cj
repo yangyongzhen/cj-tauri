@@ -176,6 +176,7 @@ main(): Int64 {
     let cjhCmds = CjhCommands()
     app.register("cjh:status", cjhCmds)
     app.register("cjh:start", cjhCmds)
+    app.register("cjh:deploy", cjhCmds)
 
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。

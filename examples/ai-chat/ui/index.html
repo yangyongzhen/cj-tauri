@@ -792,21 +792,12 @@ function loadMcp() {
     if (list.length === 0) {
       var none = document.createElement('div');
       none.className = 'hint';
-      none.textContent = 'cjh 侧还没有配 MCP 服务器——点「编辑配置」加一条。';
+      none.textContent = 'cjh 侧还没有配 MCP 服务器——在 cjh 的 settings.json 里配置后重启 cjh。';
       el.appendChild(none);
     }
-    var bar = document.createElement('div');
-    bar.className = 'mcp-bar';
-    var btn = document.createElement('button');
-    btn.className = 'ghost';
-    btn.id = 'mcpEditBtn';
-    btn.textContent = '编辑配置';
-    btn.onclick = function () { toggleMcpEdit(); };
-    var tip = document.createElement('span');
-    tip.className = 'mcp-tip';
-    tip.textContent = '写回 cjh 的 settings.json；新增 / 改动的服务器需重启 cjh 才建立连接';
-    bar.appendChild(btn); bar.appendChild(tip);
-    el.appendChild(bar);
+    // 不放「编辑配置」入口（2026-10-20 用户裁定）：写回走 cjh 的 settings.json 更直接，
+    // 也绕开了 GET 掩码 *** / POST 整体替换那套容易抹掉真实密钥的坑。mcpEditGuard 与
+    // 它的自检保留（纯函数校验逻辑仍有价值）。
     return true;
   }).catch(function (e) {
     el.innerHTML = '<div class="hint">加载失败：' + escHtml(String(e && e.message)) + '</div>';
@@ -836,64 +827,8 @@ function mcpEditGuard(text) {
   return '';
 }
 
-/* 打开 / 收起编辑器：预填取 GET /api/settings 的 mcpServers（带 args 与 env，env 是掩码） */
-function toggleMcpEdit() {
-  var el = $('panelMcp');
-  var box = $('mcpEditor');
-  if (box) { box.parentNode.removeChild(box); return; }
-  cjhGet('/api/settings').then(function (s) {
-    var arr = (s && s.mcpServers) || [];
-    var masked = JSON.stringify(arr).indexOf('"***"') !== -1;
-    box = document.createElement('div');
-    box.className = 'mcp-editor';
-    box.id = 'mcpEditor';
-    var ta = document.createElement('textarea');
-    ta.id = 'mcpText';
-    ta.spellcheck = false;
-    ta.value = JSON.stringify(arr, null, 2);
-    ta.onclick = function (ev) { ev.stopPropagation(); };
-    var row = document.createElement('div');
-    row.className = 'mcp-bar';
-    var save = document.createElement('button');
-    save.className = 'ghost';
-    save.id = 'mcpSaveBtn';
-    save.textContent = '保存到 cjh';
-    save.onclick = function (ev) { ev.stopPropagation(); saveMcpConfig(); };
-    var cancel = document.createElement('button');
-    cancel.className = 'ghost';
-    cancel.id = 'mcpCancelBtn';
-    cancel.textContent = '取消';
-    cancel.onclick = function (ev) { ev.stopPropagation(); toggleMcpEdit(); };
-    row.appendChild(save); row.appendChild(cancel);
-    box.appendChild(ta); box.appendChild(row);
-    if (masked) {
-      var warn = document.createElement('div');
-      warn.className = 'mcp-warn';
-      warn.textContent = '注意：env 里有 cjh 的脱敏掩码 *** ——直接保存会抹掉真实密钥，' +
-        '保存前请把它改成真实值（或这一项先不动，改在 cjh 的 settings.json 里改）。';
-      box.appendChild(warn);
-    }
-    el.appendChild(box);
-  }).catch(function (e) { toast('读取 cjh 配置失败：' + String(e && e.message), true); });
-}
-
-function saveMcpConfig() {
-  var ta = $('mcpText');
-  var text = ta ? ta.value : '';
-  var why = mcpEditGuard(text);
-  if (why) { toast(why, true); cjhTrace('mcp-save rejected: ' + why.slice(0, 100)); return; }
-  var arr = JSON.parse(text);
-  cjhSend('http:post', '/api/settings', { mcpServers: arr }).then(function (r) {
-    var note = (r && r.note) || '需重启 cjh 后建立连接';
-    toast('MCP 配置已写进 cjh 的 settings.json（' + arr.length + ' 条）；' + note);
-    cjhTrace('mcp-saved servers=' + arr.length + ' note=' + note);
-    return loadMcp();
-  }).catch(function (e) {
-    // cjh 的整批拒绝带可读原因（parseMcpServersJson 的 perr），原样透出来
-    toast('cjh 拒绝保存：' + String(e && e.message), true);
-    cjhTrace('mcp-save failed: ' + String(e && e.message).slice(0, 160));
-  });
-}
+/* 「编辑配置」编辑器已删（2026-10-20 用户裁定，见 loadMcp 里的注释）；
+ * mcpEditGuard 保留给自检——校验逻辑（掩码 *** 拒发等）仍有参考价值 */
 
 /* ---- 文件区（cjh 工具区）：/api/fs/list?path=… 目录浏览（点目录进入；写操作仍由 agent 在对话里做）---- */
 var cjhCwd = '';
@@ -1208,6 +1143,14 @@ function refreshCjhSessions() {
     renderConvs();
   }).catch(function (e) { /* 拉不到不致命：本地会话照常用 */ });
 }
+/* cjh 侧会话标题：/api/sessions 拉回来的列表里按 id 找；找不到（离线 / 老探针直调）回 '' */
+function cjhTitleOf(id) {
+  for (var i = 0; i < cjhSessionList.length; i++) {
+    var s = cjhSessionList[i];
+    if (s && s.id === id && s.title) { return String(s.title); }
+  }
+  return '';
+}
 function resumeCjhSession(id) {
   if (streaming) { return; }
   // 本地已有这个 cjh 会话的镜像就**接着它聊**，不再无条件 newConv()：
@@ -1219,13 +1162,24 @@ function resumeCjhSession(id) {
   }
   if (hit) {
     closeCfg();                       // 设置页铺在主区，先让位
-    curId = hit.id;
+    setCurId(hit.id);                 // 走本模式的游标记账（lastConvId），别绕过
+    // 存量修复：早前创建的镜像没带标题（满栏「新会话」，2026-10-20 用户实况），
+    // cjh 侧有真名就补上——replayCjhHistory 不标题，这里不修就一直错着
+    var t0 = cjhTitleOf(id);
+    if (t0 && (hit.title === '新会话' || !hit.title)) { hit.title = t0; }
     renderConvs(); renderMsgs();
   } else {
     newConv();                        // 内部也会 closeCfg()
     // 记住 cjh 会话 id：后续 chat 帧都带它（cjh 侧在该会话里续聊）；历史回放经 history_messages 帧
     var c = cur();
-    if (c) { c.cjhId = id; }
+    if (c) {
+      c.cjhId = id;
+      // 标题必须当场带上：镜像一落地，⟳ 行就被按 cjhId 去重隐藏——
+      // 不带标题的话用户看到的是「点了下会话就消失、多出一排新会话」（实测实况）
+      var t = cjhTitleOf(id);
+      if (t) { c.title = t; }
+      renderConvs();                  // newConv 里那次渲染发生在 cjhId/标题落地前，补一次让镜像行当场顶上
+    }
   }
   cjhTurnPending = false;
   cjhWsSend({ type: 'resume_session', session_id: id }).then(function () {
@@ -1625,11 +1579,13 @@ function cjhShowGuide(state) {
       '<b>cjh</b> 是用仓颉写的 AI agent 后端：会话、技能、MCP、工具调用都在它那一侧，' +
       '而且只监听 127.0.0.1——你的代码与密钥不出本机。它不在，Agent 的面板就没有数据来源。' +
       '<br>只想聊天的话，切回聊天模式即可（直连服务商，不需要 cjh）。</div>' +
-    '<div class="gd-step"><span class="gd-n">1</span><div id="gdStep1">正在确认本平台要拿哪个产物…</div></div>' +
-    '<div class="gd-step"><span class="gd-n">2</span><div>解压得到 <b id="gdExe">cjh</b>（<span id="gdNote"></span>）。</div></div>' +
+    '<div class="gd-step"><span class="gd-n">1</span><div id="gdDeployLine">正在确认本机安装包…</div></div>' +
+    '<div class="gd-step"><span class="gd-n">2</span><div>安装包不可用时手动装：到下载页取本平台（<b id="gdPlat">…</b>）的 <b id="gdFile">…</b>' +
+      '，解压得到 <b id="gdExe">cjh</b>（<span id="gdNote"></span>）。下载地址：<span class="gd-url" id="gdUrl"></span></div></div>' +
     '<div class="gd-step"><span class="gd-n">3</span><div>点「选择 cjh 可执行文件…」选中它——应用会当场启动 cjh 并记住这个路径，' +
       '下次不用再选。也可以手动设 <b>CJ_AICHAT_CJH</b> 后重启应用。</div></div>' +
     '<div class="gd-btns">' +
+      '<button id="gdDeploy">一键部署并启动（推荐）</button>' +
       '<button id="gdPick">选择 cjh 可执行文件…</button>' +
       '<button id="gdRetry" class="ghost">重新检测</button>' +
       '<button id="gdChat" class="ghost">回到聊天模式</button>' +
@@ -1637,22 +1593,64 @@ function cjhShowGuide(state) {
     '<div class="gd-log" id="gdLog"></div>' +
   '</div>';
   el.className = 'show';
+  $('gdDeploy').onclick = cjhDeployAndStart;
   $('gdPick').onclick = cjhPickAndStart;
   $('gdRetry').onclick = function () { cjhEnterAgent(); };
   $('gdChat').onclick = function () { if (appMode === 'agent') { toggleMode(); } };
+  cjhFillGuideDeploy();
   cjhFillGuideDownload();
 }
 
-/* 第 1 步按**真实平台**填：写死一个平台的产物名，Windows 用户会照着去下载 linux 的包 */
+/* 第 2 步按**真实平台**填：写死一个平台的产物名，Windows 用户会照着去下载 linux 的包 */
 function cjhFillGuideDownload() {
   cjhLoadPlatform().then(function (p) {
-    var s1 = $('gdStep1');
-    if (!s1) { return; }                              // 引导已撤（回包晚到）
+    var s = $('gdPlat');
+    if (!s) { return; }                                // 引导已撤（回包晚到）
     var a = cjhArtifactFor(p);
-    s1.innerHTML = '到下载页取本平台（<b>' + escHtml(cjhPlatformLabel(p)) + '</b>）的 <b>' +
-      escHtml(a.file) + '</b>：<span class="gd-url">' + escHtml(CJH_DOWNLOAD_PAGE) + '</span>';
+    $('gdPlat').textContent = cjhPlatformLabel(p);
+    $('gdFile').textContent = a.file;
     $('gdExe').textContent = a.exe;
     $('gdNote').textContent = a.note;
+    $('gdUrl').textContent = CJH_DOWNLOAD_PAGE;
+  });
+}
+
+/* 第 1 步：说明一键部署会做什么（仓库自带安装包，本地校验解包，不走网络） */
+function cjhFillGuideDeploy() {
+  var line = $('gdDeployLine');
+  if (!line) { return; }
+  line.innerHTML = '点上面的按钮即可：<b>应用自带 cjh 安装包</b>（SHA256 校验后解包到 <b>~/.local/share/cj-ai-chat/</b> 并启动），' +
+    '不需要手动下载。启动后 Agent 对话会<b>自动带上你已配置的服务商</b>（地址 / 密钥 / 模型随每轮对话下发给 cjh）。';
+}
+
+/* 一键部署并启动：后端完成「SHA256 校验 → 解包 → chmod → 拉起」。
+ * 成功后记住安装路径（与手动选择同一条 cjhBinSaved 通道，下次进 Agent 直接复用）；
+ * 失败原因进 gdLog——引导卡保留，手动路径（第 2/3 步）原样可用，这就是回落。 */
+function cjhDeployAndStart() {
+  if (cjhGuideBusy) { return; }
+  cjhGuideBusy = true;
+  cjhGuideLog('正在部署并启动 cjh（校验安装包 → 解包 → 启动）…');
+  cjhStateUi(false, 'cjh：部署中…');
+  cjhGuideTrace('deploy begin');
+  window.__CJ_TAURI__.invoke('cjh:deploy', {}).then(function (r) {
+    cjhGuideBusy = false;
+    if (r && r.ok) {
+      if (r.deployed) { cjhBinSaved = String(r.deployed); saveState(); }
+      cjhGuideTrace('deploy ok reused=' + (r.reused ? 'true' : 'false'));
+      cjhGuideLog(r.reused ? 'cjh 已在运行，直接复用' : '部署完成，cjh 已就绪');
+      if (appMode === 'agent') { cjhAdoptEndpoint(r); }
+      return;
+    }
+    var why = (r && r.error) ? r.error : '未知原因';
+    cjhGuideTrace('deploy failed: ' + why);
+    cjhGuideLog('一键部署失败：' + why + ' —— 可改用下面的手动安装（第 2/3 步）。');
+    cjhStateUi(false, 'cjh：部署失败');
+  }).catch(function (e) {
+    cjhGuideBusy = false;
+    var msg = String(e && e.message);
+    cjhGuideTrace('deploy rejected: ' + msg);
+    cjhGuideLog('一键部署失败：' + msg + ' —— 可改用下面的手动安装（第 2/3 步）。');
+    cjhStateUi(false, 'cjh：部署失败');
   });
 }
 
@@ -1697,6 +1695,11 @@ function applyMode() {
     cjhDropWs();                                    // 真断开（早前只藏面板，连接照旧活着，见函数注释）
     hideCjhGuide();                                 // 引导卡只在 Agent 模式有意义（回聊天就撤掉）
     if (curSideTab !== 'convs') { switchTab('convs'); }
+    // 会话分离（2026-10-20 用户裁定）：回聊天模式就回到**聊天的当前会话**——
+    // Agent 那边的会话（含镜像）不进聊天列表，也不顶掉这边的当前会话。
+    // 这里**不新建**（切模式不建会话是 2026-10-16 的裁定，mode-switch-no-new-conv 钉着）；
+    // 没有会话就先空着，send() 里本来就有「cur() 为空才 newConv」的惰性补建
+    pickConvForMode();
     renderConvs();
     return;
   }
@@ -1709,6 +1712,9 @@ function applyMode() {
   // 按钮直接调 cjhEnterAgent，不经过这里，重查的入口不受影响。
   if (applyMode.wasAgent) { return; }
   applyMode.wasAgent = true;
+  // 会话分离：进 Agent 回 Agent 自己的当前会话（没有就空着，发消息时惰性补建，
+  // 不在切模式时建——mode-switch-no-new-conv 探针钉着这条）
+  pickConvForMode();
   cjhEnterAgent();
 }
 applyMode.wasAgent = false;
@@ -1753,8 +1759,32 @@ var cfg = {
 };
 function activeProvider() { return providers[activeIdx] || null; }
 var sysPrompt = '';        // system 提示词（全局，不属于某个服务商）
-var convs = [];            // [{id,title,messages:[{role,content}]}]
+var convs = [];            // [{id,title,messages:[{role,content}],mode?}]
 var curId = null;
+/* 聊天与 Agent 的会话**分开展示、分开记当前会话**（2026-10-20 用户裁定，不再复用）：
+ * - 归属判定：会话带 mode 标签（新建时打上）；存量没标签的按 cjhId 归 Agent（镜像），
+ *   其余归聊天——与「镜像属于 Agent 的面」的既有口径一致。
+ * - curId 只有一个（消息渲染、发送管道都吃它），但**每个模式各自记住自己的当前会话**
+ *   （lastConvId），切换模式时恢复，谁也不再顶掉谁的。 */
+var lastConvId = { chat: null, agent: null };
+function isAgentConv(c) { return !!(c && (c.mode === 'agent' || c.cjhId)); }
+function convsForMode() {
+  return convs.filter(function (c) { return appMode === 'agent' ? isAgentConv(c) : !isAgentConv(c); });
+}
+function setCurId(id) { curId = id; lastConvId[appMode] = id; }
+/* 模式切换 / 启动时把当前会话对齐到本模式：现值属于本模式就保留；否则回本模式记住的那个；
+ * 再不行取本模式第一条；一条都没有就返回 null（调用方决定要不要新建） */
+function pickConvForMode() {
+  var ok = cur() && ((appMode === 'agent') === isAgentConv(cur()));
+  if (ok) { lastConvId[appMode] = curId; return cur(); }
+  var remembered = lastConvId[appMode];
+  var hit = remembered && convs.filter(function (c) { return c.id === remembered; })[0];
+  if (hit && ((appMode === 'agent') === isAgentConv(hit))) { curId = remembered; return hit; }
+  var first = convsForMode()[0];
+  curId = (first && first.id) || null;
+  lastConvId[appMode] = curId;
+  return first || null;
+}
 var streaming = false;
 /* send() 注册的「本端收手」钩子。**命令层没有取消通道**（http 插件的 postStream 一路跑到
  * EOF，ws 侧也只有 abort 帧），所以「停止生成」在本端能做的只有：摘监听、把已到文本落成
@@ -1887,20 +1917,14 @@ function renderConvs() {
       mirrorKeep[c.cjhId] = c;
     }
   });
+  // 聊天与 Agent 的会话**本来就是两份列表**（2026-10-20 用户裁定）：列表按当前模式过滤，
+  // 各自展示各自的（归属判定见 lastConvId 上的说明）。早前「聊天模式隐藏镜像 + 折叠提示」
+  // 那套补偿文案随之撤掉——不再混列，就没有「隐藏了但正文还在」要解释的场面。
   var mirroredOut = 0;   // 被折叠掉的行数（只数真会渲染的那部分）
   var mirrorRendered = function (c) {
     if (!c.cjhId) { return true; }
     if (mirrorKeep[c.cjhId] === c) { return true; }
     mirroredOut++;
-    return false;
-  };
-  // 聊天模式**不列 cjh 镜像**（2026-10-16 用户裁定）：镜像属于 Agent 的面，与「cjh 四面在聊天模式
-  // 整体隐去」同一口径。不挡的话，切到聊天模式后左栏还挂着十来条只跟 cjh 有关的镜像，
-  // 看着就像「会话一直在增加」（本轮用户实况的观感来源）。
-  var mirrorHiddenByMode = 0;
-  var modeRendered = function (c) {
-    if (appMode === 'agent' || !c.cjhId) { return true; }
-    mirrorHiddenByMode++;
     return false;
   };
   var cjhHits = cjhSessionList.filter(function (s) {
@@ -1928,10 +1952,10 @@ function renderConvs() {
     var head2 = document.createElement('div');
     head2.className = 'sub';
     head2.style.cssText = 'padding:4px 6px 2px;font-size:11px';
-    head2.textContent = '本地会话' + (q ? '（' + convs.filter(convHits).length + ' 命中）' : '');
+    head2.textContent = '本地会话' + (q ? '（' + convsForMode().filter(convHits).length + ' 命中）' : '');
     el.appendChild(head2);
   }
-  convs.filter(convHits).filter(modeRendered).filter(mirrorRendered).forEach(function (c) {
+  convsForMode().filter(convHits).filter(mirrorRendered).forEach(function (c) {
     var d = document.createElement('div');
     d.className = 'conv' + (c.id === curId ? ' active' : '');
     if (renamingId === c.id) {
@@ -1967,7 +1991,7 @@ function renderConvs() {
     ed.title = '重命名';
     ed.onclick = function (ev) { ev.stopPropagation(); startRename(c.id); };
     d.appendChild(ed);
-    d.onclick = function () { if (!streaming && renamingId !== c.id) { closeCfg(); curId = c.id; renderConvs(); renderMsgs(); } };
+    d.onclick = function () { if (!streaming && renamingId !== c.id) { closeCfg(); setCurId(c.id); renderConvs(); renderMsgs(); } };
     d.ondblclick = function () { if (!streaming) { startRename(c.id); } };
     el.appendChild(d);
     hits++;
@@ -1980,18 +2004,6 @@ function renderConvs() {
     hfold.title = '同一个 cjh 会话在本地有多条镜像时只列一条（存档里的记录一条没删；要清可以在会话上点 ×）';
     el.appendChild(hfold);
   }
-  // 聊天模式隐藏的镜像行要说出来：不说的话用户会以为这些会话没了（存档一条没动，切回 Agent 就在）。
-  // 当前会话若是镜像，它的正文照常显示（模式只换管道，见 applyMode 的口径）——这点也得写明白，
-  // 否则「列表里没有、正文却是它」看着像 bug。
-  if (mirrorHiddenByMode > 0) {
-    var hmode = document.createElement('div');
-    hmode.className = 'hint';
-    var _curM = cur();
-    hmode.textContent = 'cjh 会话镜像 ' + mirrorHiddenByMode + ' 条只在 Agent 模式列出' +
-      ((_curM && _curM.cjhId) ? '（当前这条也是镜像，正文照常显示）' : '');
-    hmode.title = '镜像只是 cjh 会话的桌面端副本：切到 Agent 模式即可看到并继续（存档未改动）';
-    el.appendChild(hmode);
-  }
   if (q && hits === 0) {
     var none = document.createElement('div');
     none.className = 'hint';
@@ -2002,15 +2014,17 @@ function renderConvs() {
 function newConv() {
   // 侧栏点「新会话」/「恢复 cjh 会话」= 要回对话：设置页铺在主区、不会自己关，先让位
   closeCfg();
-  var c = { id: 'c' + Date.now(), title: '新会话', messages: [] };
+  // 新会话归属当前模式（聊天/Agent 各自的列表只列各自的，见 lastConvId 上的说明）
+  var c = { id: 'c' + Date.now(), title: '新会话', messages: [], mode: appMode };
   convs.unshift(c);
-  curId = c.id;
+  setCurId(c.id);
   renderConvs(); renderMsgs(); saveState();
 }
 function deleteConv(id) {
   convs = convs.filter(function (c) { return c.id !== id; });
-  if (curId === id) { curId = (convs[0] && convs[0].id) || null; }
-  if (!curId && convs.length === 0) { newConv(); return; }
+  if (curId === id) { var list = convsForMode(); setCurId((list[0] && list[0].id) || null); }
+  // 本模式没有会话了（存档里可能还有另一模式的）就当场新建一条，别让正文悬在空上
+  if (!cur()) { newConv(); return; }
   renderConvs(); renderMsgs(); saveState();
 }
 function cur() {
@@ -2186,6 +2200,15 @@ function setBody(el, content, isStreaming) {
     el.innerHTML = renderMd(content) + '<span class="cursor"></span>';
   } else {
     el.innerHTML = renderMd(content);
+  }
+  // 代码块复制按钮的事件绑定必须跟着 innerHTML 走：每次重画按钮都是新元素，
+  // 之前绑的 onclick 随旧 DOM 一起没了（2026-10-20 实测：流式收口后点复制没反应——
+  // cjh 管道收口处补过一次绑定，直连 SSE 管道没有，且流式中的绑定也被逐帧重画冲掉）。
+  // bindCopyButtons 是函数声明（提升可用），收进这里两条管道统一覆盖。
+  bindCopyButtons(el);
+  // 流式自动跟随：只有用户本来就在底部附近才吸底，往回翻阅时不拽人（2026-10-20 实测：流式期间不滚动）
+  if (isStreaming && msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 120) {
+    msgsEl.scrollTop = msgsEl.scrollHeight;
   }
 }
 
@@ -2831,7 +2854,7 @@ function selfcheck() {
   // 原来两条都列，点 ⟳ 还会再开一份本地会话（用户实况：越积越多）。现在 ⟳ 组按 cjhId 过滤、
   // 本地那条打 ⟳ 标记，界面上一眼能看出「这条是 cjh 会话的桌面端镜像」。
   var _cv5 = convs, _cid5 = curId, _csl5 = cjhSessionList, _up5 = CJH.wsUp, _mo5 = appMode;
-  appMode = 'agent';   // 镜像只在 Agent 模式列（见 renderConvs 的 modeRendered）：不指定模式，这条在聊天模式下必假红
+  appMode = 'agent';   // 镜像只在 Agent 列表出现（见 convsForMode 的模式过滤）：不指定模式，这条在聊天模式下必假红
   convs = [{ id: 'c-probe', title: '镜像会话', messages: [], cjhId: 'sid-dup' }];
   curId = 'c-probe';
   cjhSessionList = [{ id: 'sid-dup', title: '重复的那个' }, { id: 'sid-other', title: '没镜像的那个' }];
@@ -2873,17 +2896,20 @@ function selfcheck() {
   var _frows = $('convList').querySelectorAll('.conv'), _ftxt = [];
   for (var _fi = 0; _fi < _frows.length; _fi++) { _ftxt.push(_frows[_fi].textContent); }
   var _fjoin = _ftxt.join('|');
-  ok('cjh-mirror-fold', _frows.length === 2 && _fjoin.indexOf('镜像甲') !== -1 &&
-     _fjoin.indexOf('镜像乙') === -1 && _fjoin.indexOf('纯直连') !== -1);
+  // 会话分离（2026-10-20 用户裁定）：Agent 列表只列 Agent 会话——「纯直连」不该出现在这里，
+  // 折叠逻辑（同 cjhId 只列一条）照旧生效
+  ok('cjh-mirror-fold', _frows.length === 1 && _fjoin.indexOf('镜像甲') !== -1 &&
+     _fjoin.indexOf('镜像乙') === -1 && _fjoin.indexOf('纯直连') === -1);
   ok('cjh-mirror-fold-hint', $('convList').textContent.indexOf('已合并 1 条') !== -1);
-  // 聊天模式**不列 cjh 镜像**（用户裁定：镜像只在 Agent 模式出现，与「cjh 的面在聊天模式整体隐去」
-  // 同一口径）；Agent 模式照旧列，且镜像仍带 ⟳ 标记。两种模式各断一遍，免得过滤器写成单向。
+  // 聊天与 Agent 各自展示各自的（2026-10-20 用户裁定，取代旧的「聊天隐藏镜像 + 补偿提示」）：
+  // 聊天只列纯直连（镜像与折叠提示都不出现），Agent 只列镜像（纯直连不出现）。
   appMode = 'chat'; renderConvs();
   var _htxt = $('convList').textContent;
   var _hideOk = _htxt.indexOf('镜像甲') === -1 && _htxt.indexOf('纯直连') !== -1 &&
-                _htxt.indexOf('只在 Agent 模式列出') !== -1;
+                _htxt.indexOf('只在 Agent 模式列出') === -1;
   appMode = 'agent'; renderConvs();
-  ok('conv-chat-hides-mirrors', _hideOk && $('convList').textContent.indexOf('镜像甲') !== -1);
+  ok('conv-chat-hides-mirrors', _hideOk && $('convList').textContent.indexOf('镜像甲') !== -1 &&
+     $('convList').textContent.indexOf('纯直连') === -1);
   appMode = _moT;
   convs = _cvR; curId = _cidR;            // 三条探针都改过临时 convs，一起还原
   renderConvs();

@@ -1,10 +1,13 @@
 package aiChat
 
 import std.convert.*   // Int64.parse（parsable 扩展）——漏了报 undeclared identifier 'parse'
+import std.crypto.digest.*    // digest<T> 泛型函数（对 InputStream/Array/String 算摘要）在 std 侧
+import stdx.crypto.digest.*   // 具体实现类 SHA256 在 stdx 侧（std.crypto.digest 只有 Digest
+                              // 接口与泛型函数——两个包各出一样东西，都得 import）
 import std.env.*
 import std.fs.*
 import std.process.*
-import cjTauri.*
+import cjTauri.*           // bytesToHex（src/hexutil.cj）：摘要字节转十六进制
 import stdx.encoding.json.*
 import stdx.net.http.*
 
@@ -249,6 +252,166 @@ func terminateCjhProc(p: SubProcess): Unit {
     }
 }
 
+/* ===== 一键部署（cjh:deploy）=====
+ * 仓库里 vendor/cjh/ 自带 cjh 的产物（tar.gz 单文件二进制 + SHA256SUMS），一键部署
+ * 就是「校验 → 解包 → chmod → 拉起」四步本地操作，**不走网络**：下载页直链要登录态、
+ * 版本漂移还得跟着改文案，而 vendor 这份与引导卡文案里的 CJH_VER 同步维护，够稳。
+ *
+ * 安装位置固定在 $HOME/.local/share/cj-ai-chat/cjh：装一次后 cjhBinSaved 会记住路径，
+ * 下次进 Agent 直接复用（cjhEnterAgent 的 bin 优先级），不会重复解包——cjh 正在跑时
+ * tar 原地覆盖会 ETXTBSY，已部署就跳过解包是硬要求不是优化。
+ * Windows 产物是 selfcontained zip（解压还有运行时 DLL 的目录结构），解包那步没有
+ * 仓颉侧现成库，先如实拒绝并回落「手动选择可执行文件」，不假装能装。
+ */
+
+let CJH_BUNDLE_REL = "vendor/cjh/cjh-v1.5.1-linux-x64.tar.gz"
+let CJH_BUNDLE_SHA256 = "5ceb79234f3b8bf666d810eae3861285256074d550a3b25bf13db7496e4d2556"
+let CJH_DEPLOY_DIR_REL = ".local/share/cj-ai-chat"
+// tar 包里的二进制名带版本号（tar tzf 可证）：解包后就叫这个名，不 rename——
+// 部署二进制的名字跟着 bundle 走，改名那步只会多一个失败点（实测 chmod 按裸名找就炸了）。
+// cjhBinSaved 记的是完整路径，名字带不带版本对后续启动无影响。
+let CJH_DEPLOYED_BIN = "cjh-v1.5.1-linux-x64"
+
+/** vendor bundle 的路径：环境变量 CJ_AICHAT_CJH_BUNDLE 可覆写（打包产物里 vendor 不在
+    工作目录旁时，部署者把 bundle 放别处再指过来），缺省按工作目录相对路径找 */
+func cjhBundlePath(): String {
+    match (getVariable("CJ_AICHAT_CJH_BUNDLE")) {
+        case Some(p) => return p
+        case None => return CJH_BUNDLE_REL
+    }
+}
+
+/** 部署后的安装目录：$HOME/.local/share/cj-ai-chat。HOME 拿不到（极端环境）返回空串，
+    调用方据此如实报错 */
+func cjhInstallDir(): String {
+    match (getVariable("HOME")) {
+        case Some(h) =>
+            if (h.size == 0) {
+                return ""
+            }
+            return h + "/" + CJH_DEPLOY_DIR_REL
+        case None => return ""
+    }
+}
+
+/** 对 bundle 做 SHA256 校验：读全量文件算摘要，与入库常量比对。失败给一行 stderr（带两个
+    值方便对账），返回 false——验不过就绝不解包执行，这是部署命令的底线 */
+func cjhBundleVerified(bundle: String): Bool {
+    var bytes: Array<Byte> = []
+    try {
+        bytes = File.readFrom(bundle)
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] cjh bundle 读不到：${bundle}（${e}）")
+        return false
+    }
+    let hex = bytesToHex(digest(SHA256(), bytes))   // 新签名：算法实例 + 输入（旧 digest<T> 已废弃）
+    if (hex != CJH_BUNDLE_SHA256) {
+        eprintln("[cj-ai-chat] cjh bundle SHA256 不符：expected=${CJH_BUNDLE_SHA256} got=${hex}")
+        return false
+    }
+    return true
+}
+
+/** 解包 + chmod（外部 tar/chmod：Linux 上 tar 必在，gzip+tar 的仓颉 API 链路不值得为
+    一个本地操作引入）。任一步失败都带 stderr 留痕并返回 false */
+func cjhExtractBundle(bundle: String, installDir: String): Bool {
+    try {
+        Directory.create(Path(installDir))
+    } catch (e: Exception) {
+        let _ = e   // 已存在会抛？保守处理：能读就继续
+    }
+    try {
+        let f = File(Path(installDir), OpenMode.Read)
+        f.close()
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] 安装目录建不出来：${installDir}（${e}）")
+        return false
+    }
+    var proc: SubProcess
+    try {
+        proc = launch("tar", ["-xzf", bundle, "-C", installDir])
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] 启动 tar 解包失败：${e}")
+        return false
+    }
+    let code = proc.wait()
+    if (code != 0) {
+        eprintln("[cj-ai-chat] tar 解包失败 exit=${code}（bundle=${bundle} -> ${installDir}）")
+        return false
+    }
+    var chmod: SubProcess
+    try {
+        chmod = launch("chmod", ["+x", installDir + "/" + CJH_DEPLOYED_BIN])
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] 启动 chmod 失败：${e}")
+        return false
+    }
+    let ccode = chmod.wait()
+    if (ccode != 0) {
+        eprintln("[cj-ai-chat] chmod +x 失败 exit=${ccode}")
+        return false
+    }
+    return true
+}
+
+/**
+ * 一键部署并启动：返回值形状与 `cjh:start` 对齐（{ok, reused, port, apiUrl, wsUrl}，
+ * 外加 deployed=安装路径）；失败回 {ok:false, error} 一句话——**不抛异常**，理由同
+ * startByPath：页面引导卡需要落点，抛出去只剩 reject 文本。
+ */
+func cjhDeployAndStart(): JsonObject {
+    let obj = JsonObject()
+    let port = cjhPort()
+    // 端口上已有活的 cjh：什么都不装，直接复用（与 cjh:start 同一条优先级）
+    if (cjhHealthy(port)) {
+        obj.put("ok", JsonBool(true))
+        obj.put("reused", JsonBool(true))
+        putEndpoints(obj, port)
+        return obj
+    }
+    // Linux 才做一键部署（见文件头说明）；平台判断用本机实况而不是编译期——
+    // 命令跑在 worker 线程，tar / HOME 判据在这台机器上就是真的
+    let installDir = cjhInstallDir()
+    if (installDir.size == 0) {
+        obj.put("ok", JsonBool(false))
+        obj.put("error", JsonString("拿不到 HOME 环境变量，没法确定安装目录——请用「选择 cjh 可执行文件…」手动指定"))
+        return obj
+    }
+    var bin = installDir + "/" + CJH_DEPLOYED_BIN
+    if (!fileReadable(bin)) {
+        // 还没部署过才动 bundle：已在跑 / 已装过都跳过解包（ETXTBSY + 幂等）
+        let bundle = cjhBundlePath()
+        if (!fileReadable(bundle)) {
+            obj.put("ok", JsonBool(false))
+            obj.put("error", JsonString("找不到 cjh 安装包 ${bundle}——请确认在 examples/ai-chat 目录下启动应用，或设 CJ_AICHAT_CJH_BUNDLE 指向它"))
+            return obj
+        }
+        if (!cjhBundleVerified(bundle)) {
+            obj.put("ok", JsonBool(false))
+            obj.put("error", JsonString("cjh 安装包校验失败（SHA256 不符）——不部署来路不明的二进制，请重新取一份 vendor/cjh/ 的产物"))
+            return obj
+        }
+        if (!cjhExtractBundle(bundle, installDir)) {
+            obj.put("ok", JsonBool(false))
+            obj.put("error", JsonString("解包/授权失败，详见应用日志（tar 或 chmod 那一步）"))
+            return obj
+        }
+        eprintln("[cj-ai-chat] cjh bundle 已部署到 ${bin}")
+    }
+    if (spawnCjhWeb(bin)) {
+        obj.put("ok", JsonBool(true))
+        obj.put("reused", JsonBool(false))
+        obj.put("deployed", JsonString(bin))
+        putEndpoints(obj, port)
+        return obj
+    }
+    obj.put("ok", JsonBool(false))
+    obj.put("error", JsonString("部署完成但 cjh 没在 10 秒内就绪——最常见原因是这份二进制与本机不兼容" +
+        "（例如它要求更新的 glibc），或启动即崩，真实原因见应用日志；" +
+        "可从下载页换本机可用的版本后用「选择 cjh 可执行文件…」手动接上"))
+    return obj
+}
+
 /**
  * `cjh:status` / `cjh:start` 两条应用命令：把「cjh 在不在、能不能起」交给页面问。
  *
@@ -265,6 +428,7 @@ public class CjhCommands <: CommandHandler {
         match (cmd) {
             case "cjh:status" => cjhStatusJson()
             case "cjh:start" => this.startByPath(args)
+            case "cjh:deploy" => cjhDeployAndStart()
             case _ => throw CommandException("unknown cjh command: ${cmd}")
         }
     }

@@ -128,7 +128,7 @@ public class HttpCommands <: CommandHandler {
         builder = this.applyPageHeaders(builder, args)
 
         let client = ClientBuilder()
-            .tlsConfig(TlsClientConfig())
+            .tlsConfig(tlsConfigForHost(host))
             .autoRedirect(false)
             .readTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
             .writeTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
@@ -271,12 +271,12 @@ public class HttpCommands <: CommandHandler {
             case None => throw CommandException("http: host is outside the authorized scope")
         }
         this.checkHostScope(url, host, ipc)
-        return this.doFetch(method, url, args)
+        return this.doFetch(method, url, host, args)
     }
 
     /** 白名单过后的真实请求：与判定分离，让 match 分支保持「单表达式」的形状
      * （仓颉的 match 分支体写 `=> {}` 块会被解析器当成 lambda——实测踩过，分支体一律单语句） */
-    private func doFetch(method: String, url: String, args: JsonObject): JsonValue {
+    private func doFetch(method: String, url: String, host: String, args: JsonObject): JsonValue {
         var builder = HttpRequestBuilder().url(url)
         if (method == "GET") {
             builder = builder.get()
@@ -293,7 +293,7 @@ public class HttpCommands <: CommandHandler {
         builder = this.applyPageHeaders(builder, args)
 
         let client = ClientBuilder()
-            .tlsConfig(TlsClientConfig())
+            .tlsConfig(tlsConfigForHost(host))
             .autoRedirect(false)
             .readTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
             .writeTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
@@ -437,4 +437,23 @@ public func httpHostOf(rawUrl: String): Option<String> {
         return None
     }
     return urlHostOf(rawUrl)
+}
+
+/**
+ * 建 TLS 客户端配置：**域名必须显式写 `serverName`（SNI）**。
+ *
+ * stdx 的 `TlsClientConfig()` 默认不发 SNI，而多租户 HTTPS 边缘（实测 Cloudflare 后面的 api 域名）
+ * 收不到 SNI 就以 `handshake failure`(40) 拒掉握手——表象是「TLS 握手失败」，同一地址
+ * curl / openssl 打起来一切正常，极易误判成对端故障、甚至误判成白名单问题（AGENTS §4 有这条坑）。
+ * IP 字面量**不带** SNI：RFC 6066 不许，且「https 直连 IP」原本可用，不能反被改坏。
+ *
+ * 这七行故意留在插件里而不进核心共享层：核心一引用 `stdx.net.tls`，不用 TLS 的应用也会被拉上
+ * OpenSSL 依赖，单文件打包契约跟着变形（§2 的包粒度纪律）；ws 插件里那份是同样的七行。
+ */
+private func tlsConfigForHost(host: String): TlsClientConfig {
+    var cfg = TlsClientConfig()
+    if (!isIpLiteralHost(host)) {
+        cfg.serverName = host
+    }
+    return cfg
 }

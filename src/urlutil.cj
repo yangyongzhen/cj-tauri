@@ -94,6 +94,57 @@ public func urlHostOf(rawUrl: String): Option<String> {
     return Some(host)
 }
 
+/**
+ * host 是不是 IP 字面量（IPv4 / IPv6，可带方括号）。
+ *
+ * 为什么需要它：建 TLS 客户端时要用 host 当 **SNI**（`serverName`），而 RFC 6066 明确不许 SNI 里放
+ * IP 字面量——stdx 默认不发 SNI，本仓给「域名」补上 SNI 的那一轮必须把 IP 排除在外，否则
+ * 「https 直连 IP」这类原本可用的端点会被对端当场拒掉（修一个坑别踩出另一个）。
+ * 判定只认严格形态：四段十进制且每段 <= 255 的 IPv4，或含冒号 / 带方括号的 IPv6——
+ * 纯十六进制字母的域名（如 `dead.beef`）是域名，不是 IP。
+ */
+public func isIpLiteralHost(host: String): Bool {
+    if (host.size == 0) {
+        return false
+    }
+    let b = host.toArray()
+    // 带方括号 = IPv6 字面量（urlHostOf 会把方括号一起返回）
+    if (b[0] == 91u8 && b[b.size - 1] == 93u8) {
+        return true
+    }
+    for (i in 0..b.size) {
+        if (b[i] == 58u8) {
+            return true    // 含冒号即 IPv6（含 ::1 这类简写）
+        }
+    }
+    var segs = 0
+    var digits = 0
+    var value: Int64 = 0
+    for (i in 0..b.size) {
+        let c = b[i]
+        if (c == 46u8) {
+            if (digits == 0 || value > 255) {
+                return false
+            }
+            segs = segs + 1
+            digits = 0
+            value = 0
+        } else if (c >= 48u8 && c <= 57u8) {
+            digits = digits + 1
+            if (digits > 3) {
+                return false
+            }
+            value = value * 10 + Int64(c - 48u8)
+        } else {
+            return false
+        }
+    }
+    if (digits == 0 || value > 255) {
+        return false
+    }
+    return segs == 3
+}
+
 /** ASCII 字节 → 小写字符串（非 ASCII 原样保留）；host 匹配统一走这里 */
 private func asciiLowerOf(bytes: Array<Byte>): String {
     let out = Array<Byte>(bytes.size, repeat: 0)

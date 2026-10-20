@@ -158,7 +158,7 @@ public class WsCommands <: CommandHandler {
         // stdx 的升级函数**本来就要求 ws/wss scheme**（报错原文 "the scheme must be
         // ws or wss"）——最初把 ws:// 转成 http:// 再传是画蛇添足，反而被库拒（实测踩过）
         let client = ClientBuilder()
-            .tlsConfig(TlsClientConfig())
+            .tlsConfig(tlsConfigForHost(host))
             .build()
         var sockOpt: Option<WebSocket> = None
         try {
@@ -451,4 +451,20 @@ func wsReaderThread(sess: WsSession, sock: WebSocket, client: Client, gen: Int64
     } catch (e: Exception) {
         let _ = e
     }
+}
+
+/**
+ * 建 TLS 客户端配置：**域名必须显式写 `serverName`（SNI）**（与 http 插件里那份同源、同口径）。
+ *
+ * stdx 的 `TlsClientConfig()` 默认不发 SNI，多租户 HTTPS 边缘（实测 Cloudflare 后面的 api 域名）
+ * 收不到 SNI 就以 `handshake failure`(40) 拒掉握手——wss 同样中招（错误发生在 TLS 层，与
+ * WebSocket 升级无关）。IP 字面量不带 SNI（RFC 6066 不许，且直连 IP 原本可用）。
+ * 不放核心共享层的原因见 http 插件里那份的注释（核心一引用 stdx.net.tls 就会给所有应用拉上 OpenSSL）。
+ */
+private func tlsConfigForHost(host: String): TlsClientConfig {
+    var cfg = TlsClientConfig()
+    if (!isIpLiteralHost(host)) {
+        cfg.serverName = host
+    }
+    return cfg
 }

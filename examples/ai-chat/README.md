@@ -95,6 +95,24 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 
 端口可用 `CJ_AICHAT_CJH_PORT` 覆写（默认 8765）。
 
+### 桌面端选的服务商怎么进 cjh
+
+两条路都要，各自管一件事：
+
+- **每回合的 chat 帧**（`agentChatFrame()`）：`model` / `base_url` / `api_key` 随帧下发，按 cjh#3 的契约
+  **只对那一回合生效、不落盘、不粘住**——所以「这一轮用的是你选的模型」并不等于 cjh 自己的配置变了；
+- **同步进 cjh 基线**（`syncProviderToCjh()`）：`POST /api/settings`，触发点是**切到 Agent 模式 / 保存服务商 /
+  切换到某个服务商 / 每次连上 cjh**。cjh 侧立即生效，`base_url` / `model` 落盘 `~/.cjh/settings.json`，
+  于是 cjh 自己发起的调用、后台任务和设置页徽章显示的模型都是同一份值（以前并排放着两套值，界面也说不清）。
+
+载荷只带**非空**字段：cjh 侧 `baseUrl` / `model` 是直接赋值，发空串等于把它的配置清空；`apiKey` 为空或含
+掩码（`GET /api/settings` 返回的是 `sk-e****493a` 这类掩码）一律不发——回写掩码等于把真 Key 换成星星。
+**cjh 侧目前的缺口已提 `cjh#6`**：REST 写进去的 `apiKey` 只进内存（`saveAll()` 只写 `base_url` / `model`，
+而 `/provider` 命令走 `saveApiKey()` 写 auth.json），重启 cjh 后会丢——本应用的兜底正是「每次连上都重推
+一次」，所以 cjh 重启后配置照旧收敛，不用用户再点一遍。自检 / 探针模式（`CJ_AICHAT_PROBE=1`）下**不发**：
+自检会拿假服务商走一遍保存路径，真发出去会污染用户 cjh 的配置；载荷形状由 `cjh-sync-payload` 这条纯函数
+断言守着。
+
 ## 能力清单与 scope
 
 `capabilities/` 里声明了本示例用到的命令与事件，另外两处 scope 值得注意：

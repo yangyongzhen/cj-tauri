@@ -445,6 +445,34 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 运行期给某插件的 scope 追加一条白名单模式（**不落盘**，重启即失效）：插件名如 `"http"`，
+     * 模式写法同 `src/scope.cj`（主机名 / 路径，支持 `*` `**` `?` 与变量）。
+     *
+     * 调用时机是硬约束：**只应在应用已取得用户明确确认之后调**——框架替你做不了确认，它不理解
+     * 你的 UI 语义。典型落法是先在原生确认框里问到「是」
+     * （`host.showMessageDialog("confirm", …, "允许 <主机> 出网？")` 返回 true）再调本方法；
+     * 页面自己点不了原生对话框，所以「确认」这一步天然挡得住被注入的页面自行加白。
+     * 另外，清单 `scopes.<插件>.deny` 命中即拒，这里加白掀不掉 deny（判定顺序仍是先 deny 后 allow）。
+     *
+     * 需要重启仍生效就在启动时把存过的模式重新叠一遍（持久化与存放位置由应用自己决定）。
+     *
+     * 返回 false = 这条模式**没被采纳**（空串、或含 `*` / `?` 与制表/换行这类脏字符）：加白的语义是
+     * 「往白名单里加一条具体值」，带通配透传进来等于全放行，所以注册中心当场拒。调用方应把 false
+     * 当成「没放行」如实回给用户，别写成成功。
+     */
+    public func allowScopePattern(plugin: String, pattern: String): Bool {
+        return this.capabilities.addRuntimeScopeAllow(plugin, pattern)
+    }
+
+    /**
+     * 某插件的 scope 此刻是否放行某个值（口径与判定完全一致：清单 + 运行期叠加，先 deny 后 allow）。
+     * 没写 scope 的插件恒为 true（旧行为：全量放行）。
+     */
+    public func isScopeAllowed(plugin: String, value: String): Bool {
+        return this.capabilities.scopeAllowsValue(plugin, value)
+    }
+
+    /**
      * 直接添加 capability
      */
     public func addCapability(cap: Capability): TauriApp {

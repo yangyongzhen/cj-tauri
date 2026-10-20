@@ -114,6 +114,15 @@
   **没写 scope 的旧清单行为不变**（全量放行 + 启动打一行 stderr 提示，`warnUnscopedPlugins`）；
   越界被拒打 `[cj-tauri] scope denied (<插件名>): <原文> -> <规范化路径>`，回给前端的是业务错误
   `"<插件名>: path is outside the authorized scope"`。
+  **运行期加白**：`TauriApp.allowScopePattern(plugin, pattern)` / `isScopeAllowed(plugin, value)`
+  （`src/capability.cj` 的 `runtimeScopeAllow` 叠加层，`Mutex` 守着——命令分发是异步的，worker 线程在读），
+  给「编译期不知道、用户当场要用」的端点留出口，**只应在取得用户明确确认之后调**（框架不做确认交互，
+  它不理解你的 UI 语义；推荐落法是仓颉侧弹原生确认框——**页面点不了原生对话框**，被注入的脚本也就无法自行加白）。
+  注册中心侧**只收具体值**：模式里出现 `*` / `?` 或制表/换行当场拒并回 `false`（一个通配透传进来就等于全放行，
+  这条不变量由注册中心强制，任何应用绕不过去），应用侧仍该按自己的取值规则再校一遍。叠加只在内存里、重启即空，
+  持久化与启动重放归应用（样板：`examples/ai-chat` 的 `app:allowHost` → 记进
+  `~/.local/share/cj-ai-chat/allowed-hosts.txt`，`run()` 之前重放）。两条口径不破：
+  **先 deny 后 allow**（加白掀不掉 `deny`）、清单没写 `scopes` 的插件不叠加（那时本就全量放行）。
 - **内置命令**统一 `system:` 前缀，集中在 `src/api_system.cj`，并在 `TauriApp.run()` 里注册（`system:version/ping/echo/devtools`）。
 - **CLI 取应用装配结果**（插件清单）：走环境变量 `CJ_TAURI_MANIFEST`（`json` / `text`）——`run()` / `runUrl()`
   在 `prepare()` 之后若见它，就把清单打到 stdout 并**直接返回、不创建窗口**（`src/app.cj` 的模式解析 + 渲染），

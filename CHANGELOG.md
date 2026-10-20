@@ -31,8 +31,17 @@
 - **ai-chat 示例：出网白名单补入实际要用的服务商主机**：`capabilities/app.json` 的
   `scopes.http.allow` 增列 `ai.novacode.top`（第三方聚合端点）。白名单读的是**启动时扫描的静态能力清单**，
   页面侧「添加模型」改不了它——填了名单之外的主机会被 scope 挡住并回业务错误
-  `http: host is outside the authorized scope`；换言之「添加模型时自动加名单」目前**做不到**，
-  要么维护者改清单，要么框架补一个运行期加白 API（尚未做）。
+  `http: host is outside the authorized scope`；名单之外的主机走下面的**运行期加白**（人确认后放行）。
+- **白名单的运行期加白（RFC-003 补充）**：新增 `TauriApp.allowScopePattern(plugin, pattern)` 与
+  `TauriApp.isScopeAllowed(plugin, value)`——应用**取得用户明确确认后**当场放行一个不在清单里的主机 / 路径。
+  判定口径不变（**先 deny 后 allow**，运行期加白掀不掉清单里的 `deny`），叠加项只在内存里、重启即空，
+  持久化由应用自己决定；清单没给该插件写 scope 时不叠加（那种情况本来就是全量放行）。
+  本仓首个消费者是 `examples/ai-chat` 的 `app:allowHost`：保存服务商时用 Base URL 的主机名问一次，
+  弹**原生确认框**（页面调不了原生对话框，被注入的脚本也就无法自行加白）——确认即
+  「本次会话立刻可用 + 追加到 `~/.local/share/cj-ai-chat/allowed-hosts.txt`」，启动时在 `run()` 之前重放。
+  `allowScopePattern` 返回 `Bool`，**注册中心只收具体值**：空串或含 `*` / `?` 与制表/换行的模式当场拒并回
+  `false`（一个通配透传进来就等于全放行——这条不变量由注册中心强制，应用绕不过去），应用侧再按主机名字符集校一遍；
+  端口与路径不进名单（判定按主机名）。被 scope 挡住时页面会直接把确认框推到人面前，不必自己去找清单。
 - **鸿蒙（HarmonyOS）ArkWeb 宿主真机落地**：`cj-tauri` 首次在 HarmonyOS 真机上跑通
   「仓颉后端 + ArkWeb 前端 + IPC 双向桥」闭环——页面 `system:version` 拿到
   `{"name":"cj-tauri","version":"1.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}`，

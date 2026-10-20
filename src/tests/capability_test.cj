@@ -188,3 +188,56 @@ func testPlainNameAndPermissionSetCoexist(): Unit {
     @Expect(reg.canInvoke("fs:readText"), true)
     @Expect(reg.canInvoke("fs:writeText"), false)
 }
+
+/*
+ * 白名单的**运行期加白**（D-021）：与清单同权、先 deny 后 allow、只收具体值。
+ * 这三条正是它敢开「运行期」这个口子的前提——缺一条就等于把防线交给页面。
+ */
+
+@Test
+func testRuntimeAllowExtendsManifestScope(): Unit {
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"scopes\":{\"http\":{\"allow\":[\"api.a.com\"]}}}"))
+    @Expect(reg.scopeAllowsValue("http", "api.a.com"), true)
+    @Expect(reg.scopeAllowsValue("http", "api.b.com"), false)
+    // 叠加一条后：新旧都在，没加的照旧拒
+    @Expect(reg.addRuntimeScopeAllow("http", "api.b.com"), true)
+    @Expect(reg.scopeAllowsValue("http", "api.b.com"), true)
+    @Expect(reg.scopeAllowsValue("http", "api.a.com"), true)
+    @Expect(reg.scopeAllowsValue("http", "api.evil.com"), false)
+}
+
+@Test
+func testRuntimeAllowCannotBeatDeny(): Unit {
+    // deny 命中即拒：加白掀不掉它（运行期条目走的仍是「先 deny 后 allow」同一条判定）
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr(
+        "{\"identifier\":\"d\",\"scopes\":{\"http\":{\"allow\":[\"api.a.com\"],\"deny\":[\"api.a.com\"]}}}"))
+    @Expect(reg.scopeAllowsValue("http", "api.a.com"), false)
+    @Expect(reg.addRuntimeScopeAllow("http", "api.a.com"), true)
+    @Expect(reg.scopeAllowsValue("http", "api.a.com"), false)
+}
+
+@Test
+func testRuntimeAllowRefusesGlobPattern(): Unit {
+    // 页面可控字符串里带一个通配就等于全放行：注册中心必须当场拒，且名单一条都不多
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\",\"scopes\":{\"http\":{\"allow\":[\"api.a.com\"]}}}"))
+    @Expect(reg.addRuntimeScopeAllow("http", "*"), false)
+    @Expect(reg.addRuntimeScopeAllow("http", "api.*.com"), false)
+    @Expect(reg.addRuntimeScopeAllow("http", "api.a.com\n"), false)
+    @Expect(reg.addRuntimeScopeAllow("http", ""), false)
+    @Expect(reg.scopeAllowsValue("http", "api.evil.com"), false)
+    @Expect(reg.scopeForPlugin("http").getOrThrow().allow.size, 1)
+}
+
+@Test
+func testRuntimeAllowIgnoredWhenManifestHasNoScope(): Unit {
+    // 清单没给该插件写 scope：调用方按旧行为全量放行，叠加项不得把它收窄成「只放行这一条」
+    let reg = CapabilityRegistry()
+    reg.addFromJson(JsonValue.fromStr("{\"identifier\":\"d\"}"))
+    @Expect(reg.scopeAllowsValue("http", "anything.at.all"), true)
+    @Expect(reg.addRuntimeScopeAllow("http", "api.b.com"), true)
+    @Expect(reg.scopeForPlugin("http").isNone(), true)
+    @Expect(reg.scopeAllowsValue("http", "anything.at.all"), true)
+}

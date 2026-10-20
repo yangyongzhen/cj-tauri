@@ -14,7 +14,8 @@ cj-tauri 的 AI 客户端示例——**同一个界面，两条管道，一键�
 
 ![Agent 模式](../../docs/images/example-ai-chat-agent.png)
 
-*"Agent"模式：侧栏改口成 `cjh 客户端`、显示 `cjh: 已连接`，四个面板就位——管道换了，界面还在原地。*
+*"Agent"模式：侧栏改口成 `cjh 客户端`、显示 `cjh: 已连接`，四个面板就位；会话列表按模式分家——
+上半是 cjh 的会话历史（带它的标题与时间），下半是「本地会话」，各认各的，互不污染。*
 
 ## 有什么
 
@@ -22,7 +23,8 @@ cj-tauri 的 AI 客户端示例——**同一个界面，两条管道，一键�
 API Key / 模型 / system 提示词）、浅色与深色主题、紧凑模式、侧栏收起（`Ctrl+B`）、`Ctrl+K` 搜会话、
 `Ctrl+Shift+N` 新会话、托盘常驻 + 全局快捷键 `Ctrl+Alt+A` + 最小化到托盘、日志落盘。
 
-**Agent 模式独有**：cjh 的会话 / 技能 / MCP / 文件四个面板（MCP 面板可改配置，改完需重启 cjh）、
+**Agent 模式独有**：cjh 的会话 / 技能 / MCP / 文件四个面板（MCP 面板**只读**——写回走 cjh 自己的
+`settings.json` 更直接，也绕开 GET 掩码 `***` / POST 整体替换那套容易抹掉真实密钥的坑）、
 工作区切换（「浏览…」走**原生目录框**，也能手输绝对路径）、工具调用的
 running / done / error 状态、**危险操作审批**（cjh 要跑危险工具时弹一张待批准卡片：工具名 / 入参 /
 命中规则 + 与 `expires_in_ms` 同步的倒计时，「批准 / 拒绝」经同一条 WS 回 `approval_response`——
@@ -38,8 +40,9 @@ API Key 存本机 `store.json`（**不入库**，见根 `.gitignore`），不进
 ```bash
 cd examples/ai-chat
 cjpm build
-# Agent 模式要 cjh。可以不设：首次切 Agent 会弹一张引导卡，按「选择 cjh 可执行文件…」挑一次即可
-# ——它当场拉起 cjh 并记住这条路径（下次直接进）。已经知道路径也可以直接配环境变量：
+# Agent 模式要 cjh。可以不设：首次切 Agent 会弹一张引导卡——按「一键部署并启动（推荐）」
+# 用仓库自带的安装包解出 cjh（本地 SHA256 校验后解包、chmod、拉起，不走网络）；失败则按第 2/3 步
+# 手动下载再选路径。已经知道路径也可以直接配环境变量：
 export CJ_AICHAT_CJH=/path/to/cjh
 ./target/release/bin/main        # 工作目录必须是本示例根（capabilities/ 与 ui/ 都按相对路径读）
 ```
@@ -66,6 +69,14 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 第三个按钮背后的 `cjh:start` 是**运行期**指定路径：`__CJH_API__` 只在 document-start 注入一次，
 启动那刻 cjh 不在就永远拿不到端点（Windows 双击的 GUI 连设环境变量的地方都没有），所以安装结果必须由
 应用自己接住，不能只提示一句「未连接」。挑过的路径记进存档，下次进 Agent 不再问。
+
+引导卡上排第一个的是「**一键部署并启动（推荐）**」，走 `cjh:deploy`：从仓库自带的
+`vendor/cjh/cjh-v<版本>-linux-x64.tar.gz` 解出 cjh（**先按同目录的 `SHA256SUMS` 校验，对不上就不部署**，
+全程不走网络），chmod 后当场拉起并接上，返回形状与 `cjh:start` 对齐
+（`{ok, reused, port, apiUrl, wsUrl}`）。失败时**说清楚卡在哪一步**——安装包找不到 / 校验失败 /
+部署完 10 秒没就绪（这时连"最常见原因是这份二进制与本机不兼容（例如要更新的 glibc）"一起讲），
+并按引导卡第 2/3 步回落手动安装。第 2 步里就带着下载页地址与**按当前平台**给的产物名，
+用户不用自己猜该下哪个包。这条路只在 Linux 落地，其他平台如实拒绝、仍走「选择 cjh 可执行文件…」。
 
 `src/cjh_host.cj` 只管**生命周期**，不参与数据面：
 
@@ -94,8 +105,9 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 ## 自检
 
 设 `CJ_AICHAT_PROBE=1` 启动即注入页内自检，断言经 `report` 回投到 stderr（明细行序不保证，
-按**计数**对账：聚合行的 `passed` = PASS 明细条数、`failed` = 0）。当前 **71/71 断言、FAIL 0**
-（Linux，隔离副本 + 已配好技能 / MCP 的 cjh），另有三条独立探针行（都不进自检计数）：
+按**计数**对账：PASS 明细条数对上断言总数、`failed` = 0）。源码里目前共 **73 处断言**；
+本机隔离副本实跑（cjh 空配置）是 **65 条明细 PASS、SELFCHECK 侧 0 FAIL**——差额是条件分支
+（依赖已配置 cjh / 已配技能那几条）没走到，不是漏跑。另有三条独立探针行（都不进自检计数）：
 `CJH-GUIDE`（引导三态：缺 cjh 出卡、产物名按平台、**不得**假装端点已就绪；给了路径则当场拉起并接上）、
 `CJH-PANELS`、`CJH-CHAT`——本轮实机是 `CJH-PANELS 4/4`、`CJH-CHAT deltas=1 done=1 err=0`。
 **接上空配置的 cjh 时后两条会掉**（那时如实报 2/4、无 delta，不当成通过）：`CJH-CHAT` 的判据是
@@ -106,8 +118,9 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 - **Windows 未实机验证**（如实说明）；
 - 引导卡上「选择 cjh 可执行文件…」那一步走的是**原生文件框**（阻塞模态）：无人值守的实机脚本点不了它，
   自动化取证走的是它背后同一个 `cjhStartWith()`（命令链一致），对话框本身留人点验；
-- MCP 面板**可编辑但需重启 cjh**才建连接（cjh 只在启动时 `loadMcpServers`）；且 GET 回来的 `env`
-  值是掩码 `***`，格式里含掩码的文本**拒发**——POST 是整体替换，回写会把真实密钥抹成三个星号；
+- MCP 面板**只读**（2026-10-20 起撤掉「编辑配置」入口）：要改配置直接改 cjh 自己的 `settings.json`，
+  改完需重启 cjh 才建连接（cjh 只在启动时 `loadMcpServers`）；
 - 「停止生成」只置中断标记并把已到的文本落地：cjh **没有** WS 中断消息，除断连外没有真叫停服务端
   那一轮的办法，页面就这么写，不假装能停；
-- CLI 侧 `cjh 会话历史` 那组不给改名删——`/api/sessions` 目前只读。
+- cjh 会话历史**前端暂不给改名 / 删除**：cjh 的 a3e1e6e 已补 `PATCH` / `DELETE /api/sessions/{id}`
+  （含路径穿越防护），本示例还没接线。

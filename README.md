@@ -47,7 +47,8 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 
 ![ai-chat 缺 cjh 引导](docs/images/ai-chat-guide.gif)
 
-*缺 cjh 时切 Agent 出引导卡：按平台给下载产物，选一次可执行文件当场拉起并记住路径。*
+*缺 cjh 时切 Agent 出引导卡：一键部署（用仓库自带安装包，本地 SHA256 校验后解包启动，不走网络）；
+失败回落第 2/3 步的手动安装——按平台给产物名与下载地址，选一次可执行文件当场拉起并记住路径。*
 
 用 cj-tauri 实现的 **Modbus 调试工具**（`examples/modbus-poll`，对标 Modbus Poll 并补齐其痛点）：
 

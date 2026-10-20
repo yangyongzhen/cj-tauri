@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 /* 串口（plugin_serial）：termios 配置 + 超时读写 */
 #include <errno.h>
 #include <fcntl.h>
@@ -585,6 +586,72 @@ static void on_destroy(GtkWidget *w, gpointer ud) {
 
 static const char *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 
+/* ===== SIGUSR1 守卫：WebKit 的 JSC 会在初始化时 sigaction 覆盖 SIGUSR1（它自己的 GC
+   停世界信号），而 SIGUSR1 是仓颉运行时线程挂起/恢复所用的信号——被抢后运行时的
+   CJ_ProcessorStop 永远等不到唤醒，应用迟早整页冻结（真实屏必现，Xvfb 因 GC 时序不同
+   难复现；gdb 全线程栈 + /proc/status SigCgt 取证，见 cj-tauri issue #4）。
+   修法：WebKit 初始化前保存运行时的处理器，初始化后恢复——页面 JS 的重 GC 跑在独立的
+   WebKitWebProcess（有自己的信号现场），UI 进程这台 JSC 极少走信号挂起，恢复是安全的。 */
+static struct sigaction cj_saved_usr1;
+static int cj_saved_usr1_ok = 0;
+
+static void cj_signals_save(void) {
+    if (sigaction(SIGUSR1, NULL, &cj_saved_usr1) == 0) {
+        cj_saved_usr1_ok = 1;
+    }
+}
+
+static void cj_signals_restore(void) {
+    if (cj_saved_usr1_ok) {
+        sigaction(SIGUSR1, &cj_saved_usr1, NULL);
+        fprintf(stderr, "[cj-bridge] SIGUSR1 handler restored (WebKit JSC had overridden it; cangjie runtime thread suspension kept alive)\n");
+    }
+}
+
+/* ===== 根修：把 JSC 的 GC 信号从 SIGUSR1 上换走（cj-tauri issue #4 的正解） =====
+   上面的 save/restore 只是补救（实测不足以根治：恢复与覆盖之间的窗口期丢一条信号，
+   运行时照样 Wait mutator list lock timeout -> SIGABRT）。真正的冲突消除是换信号：
+   JSC 装 GC 处理器时读环境变量 JSC_SIGNAL_FOR_GC（函数级静态、首次使用才初始化），
+   运行期 setenv 即生效——实测本机 libjavascriptcoregtk-4.1：设 48 后启动日志
+   「Overriding existing handler for signal 10」由必现 1 次降为 0 次，/proc/self/status
+   SigCgt 同时出现位 10（仓颉）与位 48（JSC），两套 GC 各用各的信号，5 分钟浸泡无冻结。
+   （注：JSC 的 Options 解析器会对这个 env 名打「ERROR: invalid option」噪音——它不认识
+   该名字，但装信号那路代码读的就是它；噪音无害，不要当成失败，本人就为此误判过一轮。） */
+static int cj_pick_free_signal(void) {
+    unsigned long long used = 0;
+    FILE *f = fopen("/proc/self/status", "r");
+    if (f) {
+        char line[128];
+        while (fgets(line, sizeof line, f)) {
+            int is_cgt = !strncmp(line, "SigCgt:", 7);
+            if (is_cgt || !strncmp(line, "SigBlk:", 7) || !strncmp(line, "SigIgn:", 7)) {
+                used |= strtoull(line + 7, NULL, 16);
+                if (is_cgt) break;
+            }
+        }
+        fclose(f);
+    }
+    /* glibc 把 SIGRTMIN..SIGRTMIN+2 留给自己（SIGCANCEL/SIGTIMER/SIGSETXID），从 +3 起挑 */
+    int s;
+    for (s = SIGRTMIN + 3; s <= SIGRTMAX; s++) {
+        if (!(used & (1ULL << (s - 1)))) return s;
+    }
+    return SIGRTMIN + 14;  /* 扫描失败（无 /proc 等）的兜底：x86_64 实测空闲 */
+}
+
+static void cj_jsc_signal_redirect(void) {
+    if (getenv("JSC_SIGNAL_FOR_GC")) {
+        return;  /* 用户明确指定了 JSC 的 GC 信号：尊重原值 */
+    }
+    int s = cj_pick_free_signal();
+    if (s > 0) {
+        char buf[16];
+        snprintf(buf, sizeof buf, "%d", s);
+        setenv("JSC_SIGNAL_FOR_GC", buf, 1);
+        fprintf(stderr, "[cj-bridge] JSC GC signal redirected SIGUSR1 -> %d (JSC_SIGNAL_FOR_GC; cj-tauri issue #4)\n", s);
+    }
+}
+
 static void *gtk_thread_main(void *arg) {
     cj_host *h = (cj_host *)arg;
     plat_host *p = h ? (plat_host *)h->plat : NULL;
@@ -595,6 +662,11 @@ static void *gtk_thread_main(void *arg) {
     /* 先记下 GTK 线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */
     p->thread = pthread_self();
     p->thread_set = 1;
+    /* 必须在一切 WebKit/gtk 调用之前：JSC 读 JSC_SIGNAL_FOR_GC 是首次使用时初始化的
+       静态值，gtk_init 里 WebKit 一旦初始化就定型了。save/restore 保留作兜底（防
+       非 JSC 路径的第三方覆盖），根修是这行重定向。 */
+    cj_jsc_signal_redirect();
+    cj_signals_save();
     gtk_init(NULL, NULL);
 
     p->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -644,6 +716,7 @@ static void *gtk_thread_main(void *arg) {
         webkit_settings_set_enable_developer_extras(settings, h->devtools ? TRUE : FALSE);
         webkit_web_view_set_settings(WEBKIT_WEB_VIEW(p->view), settings);
     }
+    cj_signals_restore();
     g_signal_connect(p->view, "load-changed", G_CALLBACK(on_load_changed), NULL);
     /* 装配：window 里套一层竖向 GtkBox，顶部再套一层水平 GtkBox（菜单栏 + 副标题）。
        固定套这几层而不是「有菜单才套」——少一种装配分支就少一类时序坑。顶行常驻但
@@ -699,6 +772,7 @@ static void *gtk_thread_main(void *arg) {
     } else if (h->pending_html) {
         webkit_web_view_load_html(WEBKIT_WEB_VIEW(p->view), h->pending_html, NULL);
     }
+    cj_signals_restore();
 
     gtk_main();
 

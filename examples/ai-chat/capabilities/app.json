@@ -22,6 +22,7 @@
     "quit",
     "cjh:status",
     "cjh:start",
+    "cjh:deploy",
     "system:version",
     "system:host"
   ],

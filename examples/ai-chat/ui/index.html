@@ -264,6 +264,7 @@
   @media (max-width:720px) { .row2 { grid-template-columns:1fr; } }
   .hint { font-size:12px; color:var(--dim); margin:10px 0; }
   .hint.err { color:var(--err); }
+  .hint.ok { color:var(--ok); }              /* 「测试连通」通过（结果行在设置页） */
   /* 顶部横幅：连上 cjh 时如实说明「本面板这次不参与」——比改完没反应再去猜强 */
   .banner { border:1px solid var(--acc); border-radius:9px; padding:9px 12px; margin:0 0 12px;
             font-size:12px; line-height:1.6; background:rgba(108,140,255,.08); color:var(--fg); }
@@ -458,11 +459,14 @@
           <h2>设置服务商</h2>
           <button id="cfgClose" class="ghost tb-btn" title="返回对话（Esc 也行）">← 返回对话</button>
         </div>
-        <!-- 连上 cjh 时的诚实横幅：这些字段这次对话根本不参与，写在最上面比让人改完等反应强。
-             钉在滚动体之外——放进 .cfg-body 的话，一滚到表单就看不见它了。 -->
+        <!-- Agent 模式的诚实横幅：说清「这些字段在 Agent 模式下到底怎么参与」。
+             2026-10-20 用户问过「切 Agent 会不会同步到 cjh」——原文案写「改了不会影响这一轮对话」，
+             与实际相反（保存 / 切换服务商 / 切进 Agent 都会 POST /api/settings 同步进 cjh 基线，
+             每回合的 chat 帧还会再带一次）。钉在滚动体之外——放进 .cfg-body 一滚就看不见了。 -->
         <div class="banner" id="cfgMode" style="display:none;margin:12px 22px 0">
-          当前是 <b>Agent 模式</b>：对话由 cjh 侧执行，Key 与模型来自 cjh 自己的配置——
-          下面这些字段<b>只在「聊天」模式（直连）下生效</b>，Agent 模式下改了不会影响这一轮对话。
+          当前是 <b>Agent 模式</b>：对话由 cjh 侧执行。这里选中的服务商会在<b>切到 Agent / 保存 / 切换到它 /
+          连上 cjh</b> 时同步进 cjh（写进它自己的 settings.json 并立即生效），每回合的 chat 帧也会带上这份配置——
+          所以<b>改了当回合就生效</b>，不再是「只在聊天模式管用」。
         </div>
         <div class="cfg-body">
           <div class="hint">内置主流服务商预设（点卡片套用，Key 自己填）；「自定义」可接任意 OpenAI 兼容端点。
@@ -475,8 +479,15 @@
           <div id="provForm" style="display:none">
             <div class="row2">
               <div class="row"><label>名称</label><input id="fName" placeholder="如 DeepSeek"></div>
-              <div class="row"><label>模型</label><input id="fModel" placeholder="deepseek-chat"></div>
+              <div class="row"><label>模型</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input id="fModel" placeholder="deepseek-chat" style="flex:1 1 auto;min-width:0">
+                  <button id="btnTestModel" class="ghost" style="flex:0 0 auto"
+                          title="按表单里当前的值发一次最小请求，并逐类说明能不能连通（白名单 / TLS 握手 / 鉴权 / 端点路径）">测试连通</button>
+                </div></div>
             </div>
+            <!-- 测试结果行：紧贴按钮，长文本要换行显示（分诊说明不止一行） -->
+            <div class="hint" id="fTestMsg" style="display:none;white-space:pre-wrap"></div>
             <div class="row"><label>Base URL（完整 chat/completions 端点）</label>
               <input id="fBase" placeholder="https://api.deepseek.com/chat/completions"></div>
             <div class="row"><label>API Key（只存本机存档，不外传）</label><input id="fKey" type="password"></div>
@@ -712,6 +723,67 @@ var CJH = { api: window.__CJH_API__ || '', ws: window.__CJH_WS__ || '', wsUp: fa
 function cjhGet(path) {
   return window.__CJ_TAURI__.invoke('http:get', { url: CJH.api + path }).then(function (r) {
     return JSON.parse(r.body);
+  });
+}
+
+/* POST JSON 到 cjh（与 cjhGet 同一条 http 桥；cjh 绑回环、无 token 时不带鉴权头）。
+ * Content-Type 必须显式给：cjh 的 handlePostSettings 按 JSON 解析 body。 */
+function cjhPost(path, obj) {
+  return window.__CJ_TAURI__.invoke('http:post', {
+    url: CJH.api + path,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(obj || {})
+  }).then(function (r) {
+    var st = (r && r.status) ? Number(r.status) : 0;
+    var txt = (r && r.body) ? String(r.body) : '';
+    var o = null;
+    try { o = JSON.parse(txt); } catch (e) { o = null; }
+    if (st < 200 || st >= 300) { throw new Error('cjh HTTP ' + st + (txt ? '：' + txt.slice(0, 120) : '')); }
+    // 非 JSON 响应按「没接受」交回：调用方只看 ok 字段，别把一段 HTML 当成功
+    return (o && typeof o === 'object') ? o : { ok: false, raw: txt.slice(0, 160) };
+  });
+}
+
+/* 同步给 cjh 的 provider 载荷（纯函数，自检直接调，不依赖 cjh 在线）。
+ * 字段名与 cjh 侧 applySettingsUpdate 的键一一对应（驼峰），口径按它的实现
+ * （/tmp/cjh-src 的 src/web/rest_api.cj:516-522，2026-10-20 读源码定死）：
+ *   · baseUrl / model 是**直接赋值**——发空串等于把 cjh 的配置清空，所以只在非空时才带；
+ *   · apiKey 空串或含 `***` 时 cjh 自己会跳过，但这边也不发：GET /api/settings 把 Key
+ *     掩成 `***`，万一把掩码回写就把真 Key 换成三个星号，这条守卫不押 cjh 侧的实现。 */
+function cjhProviderSyncBody(ap) {
+  var b = {};
+  if (!ap) { return b; }
+  var base = String(ap.baseUrl || '').trim();
+  var model = String(ap.model || '').trim();
+  var key = String(ap.apiKey || '').trim();
+  if (base) { b.baseUrl = base; }
+  if (model) { b.model = model; }
+  if (key && key.indexOf('***') === -1) { b.apiKey = key; }
+  return b;
+}
+
+/* 把当前选中服务商同步进 cjh 的**基线配置**（POST /api/settings：cjh 侧立即生效并落盘）。
+ * 为什么不能只靠每回合的帧覆盖：帧只作用于桌面端发出的那一回合，cjh 自己发起的调用
+ * （后台任务、工具链里的补充请求）用的还是它 settings.json 里那份，Agent 徽章显示的也是那份
+ * （用户 2026-10-20 的期望就是「切 Agent 后配置对 cjh 生效」）。
+ * 失败必须留痕：静默失败会让徽章与桌面端各显示一套值而没人知道。 */
+function syncProviderToCjh(reason) {
+  if (!CJH.api) { return; }
+  // 探针/自检模式下一律**不真写**：自检会拿假服务商走一遍保存路径，切模式的探针也在其中，
+  // 真发出去就把用户 cjh 的 settings.json 改成假值（cjh 侧 baseUrl/model 是直接赋值）。
+  // 载荷形状另由纯函数断言守着（cjh-sync-payload），这里只挡副作用。
+  if (window.__CJ_TAURI_SELF_CHECK__) { return; }
+  var body = cjhProviderSyncBody(activeProvider());
+  if (!body.baseUrl && !body.model && !body.apiKey) { return; }   // 全空＝没什么可同步的
+  return cjhPost('/api/settings', body).then(function (r) {
+    if (!r || r.ok !== true) {
+      toast('同步给 cjh 未被接受（' + reason + '）：' + JSON.stringify(r).slice(0, 100), true);
+      return;
+    }
+    loadCjhSettings();          // 徽章显示 cjh 真实在用的模型，同步完立刻刷新，别停在旧值
+    toast('已同步到 cjh（' + reason + '）：' + (body.model || body.baseUrl));
+  }).catch(function (e) {
+    toast('同步给 cjh 失败（' + reason + '）：' + String(e && e.message).slice(0, 160), true);
   });
 }
 
@@ -1109,6 +1181,9 @@ function cjhConnectWs() {
     CJH.wsUp = true;
     cjhStateUi(true, 'cjh：已连接');
     refreshCjhSessions();
+    // 连上就同步一次：重启后桌面端选的配置要能收敛到 cjh，而不是「上次点过才有效」。
+    // 只在 agent 模式发（聊天模式不该悄悄改 cjh 的配置）；载荷非空才真发。
+    if (appMode === 'agent') { syncProviderToCjh('连接 cjh'); }
   }).catch(function (e) {
     cjhStateUi(false, 'cjh：未连接（' + String(e && e.message).slice(0, 60) + '）');
   });
@@ -1725,6 +1800,10 @@ function toggleMode() {
   // 停留在旧模式的口径就会反过来误导（原来只有 openCfg 那一刻会设）
   if ($('mask').classList.contains('show')) { $('cfgMode').style.display = appMode === 'agent' ? '' : 'none'; }
   saveState();
+  // 切到 Agent 就把当前选中服务商同步进 cjh 基线：用户对「切模式后配置对 cjh 生效」的期望
+  // 落点在这里（帧覆盖只管桌面端发出的回合，管不了 cjh 自己发起的调用）。
+  // 只在切**进** agent 时发——聊天模式不该悄悄改 cjh 的配置。
+  if (appMode === 'agent') { syncProviderToCjh('切换模式'); }
 }
 // 探针计数：系统主题变化事件被接住的次数（只读，不参与逻辑）。自检要证明「变化真会走到
 // applyTheme」——合成事件合不出系统翻面，但走的就是这条回调；不计数就只能断类名，等于没验接线。
@@ -2349,7 +2428,7 @@ function send(text, skipPush) {
     var msg = '请求失败：' + (e && e.message ? e.message : String(e));
     c.messages.push({ role: 'assistant', content: msg, ts: Date.now() });
     setBody(body, msg, false);
-    appendNote('若提示 scope/白名单，请到 设置 里确认 Base URL 在白名单内');
+    appendNote(failureHint(msg));   // 按真实原因分诊（TLS 握手失败与白名单无关，别再一律引去查白名单）
     // 被 scope 挡住时直接把确认框推到人面前（编译期猜不出用户会用哪家端点，运行期问一次最省事）
     if (String(msg).indexOf('outside the authorized scope') >= 0) { allowProviderHost(cfg.base); }
     streaming = false; setStreamingUi(false);
@@ -2434,6 +2513,7 @@ function renderProvMenu() {
       activeIdx = i;
       hideProvMenu();
       renderConvs(); renderProvList(); saveState();
+      if (appMode === 'agent') { syncProviderToCjh('切换服务商'); }
     };
     m.appendChild(d);
   });
@@ -2468,7 +2548,10 @@ function renderProvList() {
       var use = document.createElement('button');
       use.className = 'ghost tb-btn';
       use.textContent = '使用';
-      use.onclick = function (ev) { ev.stopPropagation(); activeIdx = i; renderProvList(); saveState(); };
+      use.onclick = function (ev) {
+        ev.stopPropagation(); activeIdx = i; renderProvList(); saveState();
+        if (appMode === 'agent') { syncProviderToCjh('切换服务商'); }
+      };
       acts.appendChild(use);
     }
     var edit = document.createElement('button');
@@ -2507,6 +2590,80 @@ function cfgErr(msg) {
   if (!msg) { el.textContent = ''; el.style.display = 'none'; return; }
   el.textContent = msg;
   el.style.display = '';
+}
+
+/* 失败原因分诊：把「一句 exception」翻成能立刻动作的话。
+ * 为什么要分：出网失败有好几类形状（白名单 scope / TLS 握手 / 鉴权 / 端点路径），而曾经一律提示
+ * 「去查白名单」——用户拿着一句 TLS 握手失败去翻能力清单，被引到了错误方向（2026-10-20 实况）。
+ * 判据取报文里的稳定子串：scope 是高层业务错误 `outside the authorized scope`；
+ * TLS 是 stdx 的 `TlsException` / `handshake`（两者形状完全不同，见 AGENTS §4 的 TLS 坑）。 */
+function failureHint(raw) {
+  var s = String(raw || '');
+  if (s.indexOf('outside the authorized scope') >= 0) {
+    return '请求被出网白名单（scope）拦住：上面的原生确认框点「确定」即可加白，或把 Base URL 换成名单内的服务商';
+  }
+  if (s.indexOf('TlsException') >= 0 || s.indexOf('handshake') >= 0) {
+    return '对端在 TLS 握手阶段就拒了连接，与本机出网白名单无关（请求已经出网、到达对端）：先核对 Base URL 的域名与端口' +
+      '（https 默认 443，别写成 http）；自建 / 代理端点还要看证书链是否完整、是否要求 SNI';
+  }
+  return '若提示 scope / 白名单，请到 设置 里确认 Base URL 在白名单内';
+}
+
+/* 测试结果行：颜色只用 class（.hint / .hint.err / .hint.ok），别在 JS 里拼样式 */
+function testMsg(level, text) {
+  var el = $('fTestMsg');
+  if (!el) { return; }
+  el.className = 'hint' + (level ? ' ' + level : '');
+  el.textContent = text;
+  el.style.display = '';
+}
+
+/* 「测试连通」（设置页 · 模型旁）：按表单里**当前**的值发一次最小请求，把结果分类说清。
+ * 为什么按表单值：要测的正是「现在填的这组」能不能通，而不是上次存下来那组（不要求先保存）。
+ * 为什么打 chat/completions 而不是 GET /models：很多 OpenAI 兼容端点不提供 /models，而真正会在
+ * 发送时被调用的是这个端点——测它就等于测真实链路；max_tokens=1 只为连通性，也把费用压到最小。
+ * http 桥的读超时是固定的 60 秒（plugin_http 的 CJ_HTTP_TIMEOUT_SECONDS），不传 timeoutMs。 */
+function testProvider() {
+  var base = ($('fBase').value || '').trim();
+  var key = ($('fKey').value || '').trim();
+  var model = ($('fModel').value || '').trim();
+  if (!base) { testMsg('err', '先填 Base URL（要指到 chat/completions 这一层）'); return; }
+  if (!key) { testMsg('err', '先填 API Key'); return; }
+  var br = window.__CJ_TAURI__;
+  if (!br || !br.invoke) { testMsg('err', '桥还没就绪，稍后再点'); return; }
+  testMsg('', '正在测试…（联通性差时会等满 http 桥的 60 秒读超时）');
+  var t0 = Date.now();
+  var payload = JSON.stringify({
+    model: model || 'test',
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 1,
+    stream: false
+  });
+  br.invoke('http:post', {
+    url: base,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: payload
+  }).then(function (r) {
+    var code = (r && r.status) ? r.status : 0;
+    var head = 'HTTP ' + code + '（' + Math.max(1, Math.round((Date.now() - t0) / 1000)) + ' 秒）';
+    if (code >= 200 && code < 300) {
+      testMsg('ok', '✓ 连通正常：' + head + (model ? '，模型 ' + model + ' 可用' : ''));
+      return;
+    }
+    if (code === 401 || code === 403) { testMsg('err', '✗ 能连通，但鉴权失败：' + head + '——检查 API Key'); return; }
+    if (code === 404) {
+      testMsg('err', '✗ 能连通，但地址不对：' + head +
+        '——Base URL 要填到 chat/completions 这一层（如 https://api.deepseek.com/chat/completions）');
+      return;
+    }
+    if (code === 429) { testMsg('err', '✗ 能连通，但被限流：' + head + '——Key 有效，稍后重试'); return; }
+    var b = (r && r.body) ? String(r.body) : '';
+    testMsg('err', '✗ 能连通，但服务端拒绝了请求：' + head + (b ? '\n' + b.slice(0, 200) : ''));
+  }).catch(function (e) {
+    var s = (e && e.message) ? e.message : String(e);
+    if (s.indexOf('outside the authorized scope') >= 0) { allowProviderHost(base); }
+    testMsg('err', '✗ 连不上：' + s.slice(0, 220) + '\n' + failureHint(s));
+  });
 }
 
 /* 出网白名单的运行期加白：名单是启动时读的静态能力清单，页面改不了它——这是出网防线。
@@ -2561,11 +2718,13 @@ function saveProv() {
   // 保存要给回执：设置页一关就什么提示都没有，用户无从判断「存上了没有」（同 §4 那条
   // 「失败/成功都要有凭证」的口径——成功也一样，静默的成功和失败长得一样）
   toast(appMode === 'agent'
-    ? ('已保存：' + p.name + '（Agent 模式下由 cjh 侧模型执行，这份配置在聊天模式生效）')
+    ? ('已保存：' + p.name + '（Agent 模式：这份配置会同步给 cjh，并随每回合生效）')
     : ('已保存：' + p.name + ' · ' + (p.model || '未填模型')));
 
   // 端点不在内置名单里 → 立刻弹原生确认框问一次；已在名单里则静默（不打扰）
   allowProviderHost(p.baseUrl);
+  // Agent 模式下这份就是 cjh 在用的那份：同步进它的基线，别让两处各留一套值
+  if (appMode === 'agent') { syncProviderToCjh('保存服务商'); }
 }
 
 function openCfg() {
@@ -2663,6 +2822,23 @@ function selfcheck() {
   // 底栏与滚动体分离：动作条、错误行都不在 .cfg-body 里（放滚动体内就又得往下拉才够得着「保存」）
   ok('cfg-acts-outside-scroll', $('btnCfgSave').closest('.cfg-body') === null &&
      $('cfgErr').closest('.cfg-foot') !== null);
+  // 「测试连通」按钮就挂在「模型」那一行的同一格（旁边），且带一句 hover 说明
+  ok('cfg-test-btn-beside-model', $('btnTestModel') !== null && $('fModel') !== null &&
+     $('btnTestModel').closest('.row') === $('fModel').closest('.row') &&
+     $('btnTestModel').getAttribute('title').length > 4);
+  // 分诊：TLS/握手类失败**不许**再引导去查白名单（用户上一轮就是被这句引偏的）
+  ok('cfg-failure-triage', failureHint('TlsException: TLS handshake failed (client)').indexOf('请到 设置 里确认') < 0 &&
+     failureHint('http:post: path is outside the authorized scope').indexOf('原生确认框') > 0);
+  // 同步给 cjh 的载荷（用户 2026-10-20 的期望：切 Agent 后配置对 cjh 生效）——只带非空字段：
+  // cjh 侧 baseUrl/model 是直接赋值，空串会把它自己那份配置清空；apiKey 空或带掩码一律不发
+  // （GET /api/settings 会把 Key 掩码成三颗星，回写等于把真 Key 换掉）。
+  var _b1 = cjhProviderSyncBody({ baseUrl: 'https://a/v1/chat/completions', model: 'm1', apiKey: 'sk-x' });
+  var _b2 = cjhProviderSyncBody({ baseUrl: 'https://b', model: 'm2', apiKey: '' });
+  var _b3 = cjhProviderSyncBody({ baseUrl: '', model: '', apiKey: '***' });
+  ok('cjh-sync-payload', _b1.baseUrl === 'https://a/v1/chat/completions' && _b1.model === 'm1' &&
+     _b1.apiKey === 'sk-x' && _b2.apiKey === undefined && _b2.model === 'm2' &&
+     _b3.baseUrl === undefined && _b3.model === undefined && _b3.apiKey === undefined &&
+     Object.keys(cjhProviderSyncBody(null)).length === 0);
   // 宽面板下「名称/模型」两列排开，窄于 720px 自动回单列（媒体查询按窗口宽度，不看设备）
   var _cols = getComputedStyle(document.querySelector('.row2')).gridTemplateColumns.split(' ').length;
   ok('cfg-two-col', window.innerWidth <= 720 ? _cols === 1 : _cols === 2);
@@ -2967,8 +3143,10 @@ function selfcheck() {
   // 改名要落进 convs 且去掉首尾空白。**断言完恢复现场并落盘**——不然后面整轮都用假会话，
   // 探针还会把假数据写进 store（实测教训同 prov-* 那组）。
   var _cs = convs, _ci = curId, _cq = convQuery, _cr = renamingId;
-  convs = [{ id: 'x1', title: '买咖啡', messages: [] },
-           { id: 'x2', title: '新会话', messages: [{ role: 'user', content: '谈谈 zeta 协议' }] }];
+  // 夹具会话必须带**当前模式的标签**：侧栏按模式分组（convsForMode），不带标签的会被滤掉，
+  // 断言就从「1 行」变成「0 行」——会话分离改动落地后第一轮自检就是这么红的（2026-10-20）。
+  convs = [{ id: 'x1', title: '买咖啡', mode: appMode, messages: [] },
+           { id: 'x2', title: '新会话', mode: appMode, messages: [{ role: 'user', content: '谈谈 zeta 协议' }] }];
   curId = 'x1';
   convQuery = 'zeta'; renderConvs();
   var _rows = $('convList').querySelectorAll('.conv');
@@ -3344,6 +3522,7 @@ waitForBridge().then(function () {
   $('cfgClose').onclick = closeCfg;
   $('mask').onclick = function (ev) { if (ev.target === $('mask')) { closeCfg(); } };
   $('btnCfgSave').onclick = saveProv;
+  $('btnTestModel').onclick = testProvider;   // 模型旁的「测试连通」：按表单当前值发一次最小请求
   $('btnMode').onclick = toggleMode;
   applyMode();   // 先按默认值渲染一次（loadState 里还会按存档再应用一次）
   // cjh：侧栏 Tabs、ws 帧监听（先于连接挂上，帧不会漏）

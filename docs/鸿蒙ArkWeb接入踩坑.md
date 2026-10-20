@@ -855,6 +855,73 @@ error: "<SDK>\build-tools\third_party\llvm\bin\opt.exe" "<tmp>\2-cjTauri.bc" "-p
 的 mtime 是本轮、大小非 0——不看 `cjpm build success` 那行字，也不看陈旧 HAP 是否存在（§10 开头那条口径）。
 
 
+### 10.11 对话框：命令式 overlay 在 JS 桥接回调里被静默丢弃，必须改声明式
+
+**结论**：页面触发（走 `javaScriptProxy` 回调）的原生弹窗，**不要**用
+`UIContext.showAlertDialog` 或 `PromptAction.showDialog` 这类命令式 API——真机上不抛异常、
+立即返回、窗口不画、回调也不来。用 `@State` + 在 `build()` 里按状态渲染的**声明式 overlay**，
+同一台机器当场就能画出来并回填。
+
+**四轮对照（同一台真机 3QC0124B20000048，每轮都是清 `entry/build` 重建新 HAP 再装机）**：
+
+| 落法 | 触发来源 | 结果 |
+|---|---|---|
+| `UIContext.showAlertDialog` | 页面按钮 → proxy 回调 | 静默无效：无异常、无窗、无回填 |
+| `PromptAction.showDialog`（`workerthread: true` + 结果回调） | 页面按钮 → proxy 回调 | **仍然**静默无效 |
+| 同上 | **原生** `Button.onClick`（对照） | **正常弹出**，回调 `index=none`（点「知道了」） |
+| 同上，`spawn` 投递到工作线程 | 页面按钮 → proxy 回调 | 仍然静默无效（`dialog show returned` 是从 spawn 块里打出来的，证明 spawn 确实执行了） |
+| **`@State` 声明式 overlay** | 页面按钮 → proxy 回调 | **弹出 + 回填，全链路通** |
+
+**关键判据（把「线程不对」这条解释否掉）**：proxy 回调与原生 `onClick` 的 **tid 完全相同**
+（都是 UI 主线程 `6549`，与 `aboutToAppear` / `page begin` 同一个 tid）。所以被丢的不是线程，
+而是「在 JS 桥接回调的同步栈上启动命令式 overlay」这件事本身；而 `showDialog` 的
+`workerthread: true` 只解决「能不能在别的线程调」，换线程后照样不画。
+
+**取证命令与凭证**（本轮实际产出，均可复现）：
+
+```bash
+# 1) 日志：声明式版应当出现完整四行链（页面回执另有 confirmed=true）
+hdc shell hilog > .buildlog/hilog-decl.log 2>&1 &
+grep -aoE "dialog (take|present) label=[a-z]+ id=[0-9]+|declarative dialog answer id=[0-9]+ confirmed=[a-z]+" \
+  .buildlog/hilog-decl.log
+# → dialog take label=main id=5 / dialog present label=main id=5 /
+#   declarative dialog answer id=5 confirmed=true
+# 2) 画面：overlay 必须真的在屏（卡片 + 取消/确定）
+hdc shell "snapshot_display -f /data/local/tmp/dlg8.jpeg" && hdc file recv /data/local/tmp/dlg8.jpeg .
+# 3) 页面回执：dumpLayout 里应有 confirmed=true
+hdc shell "uitest dumpLayout -p /data/local/tmp/l5.json" && hdc file recv /data/local/tmp/l5.json .
+grep -ao "confirmed=[a-z]*" .buildlog/l5.json | sort | uniq -c   # → 4 confirmed=true
+```
+
+本轮产物与截图：`entry-default-signed.hap` 1 809 738 字节 / `2026-10-20 08:06:55`（声明式版；
+上一版 spawn 版是 1 738 291 字节 / `08:03`）；`.buildlog/dlg8.jpeg` 625 190 字节（overlay 在屏）、
+`.buildlog/dlg7.jpeg` 645 942 字节（原生对照弹窗，同会话 A/B 用）。
+
+**落法（`examples/ohos-probe/entry/src/main/cangjie/index.cj`）**：
+
+1. 组件加 `@State`：`dialogActive` / `dialogTitle` / `dialogMessage` / `dialogIsConfirm` / `dialogRequestId`。
+   **`@State` 不能与 `private` 同用**——宏会直接拒绝。
+2. proxy 回调里只**置状态**（`arkWebTakeDialog` 取到请求后填字段、`dialogActive = true`），
+   不碰任何命令式弹窗 API；重绘由 ArkUI 正常渲染通道完成。
+3. `build()` 里按 `dialogActive` 渲染 overlay：根 `Stack` 的**最后一个**子节点，
+   `.width(100.percent).height(100.percent).justifyContent(FlexAlign.Center)` 覆盖整窗并居中。
+4. 按钮回填走**普通 `onClick`**（不在桥接栈上）：先 `dialogActive = false` 再
+   `answerArkWebDialog(label, id, confirmed)`——先收起，避免连点时第二下还压在同一个 id 上。
+5. 单键框（info / warning / error）语义不变：弹出即成立，任何结束都回填 `true`；
+   双键框取消 / 点遮罩 / 返回键回填 `false`。
+
+**两个 API 形状坑（写 overlay 时当场会撞）**：
+
+- `padding(top: n)` 这类**四参形式没有默认值**，只写一个参数编不过；要局部内边距就用
+  `Column(space: n)` 拉开子项间距 + `padding(n)` 单参形式。
+- `Text` / `Row` / `Column` / `Button` 在 `.cj.d` 里是**按 class 声明**的（`public init(...)`），
+  不是自由函数——查签名要 grep `public init(`，grep `func Text(` 什么都不会得到（会误以为组件不存在）。
+
+**未取证的残留（别当成已验证）**：① 多窗口下每个 label 各有一份 `@State`，
+overlay 是否会误画到别的窗口**尚未单独取证**（本轮日志全部 `label=main`）；
+② 双键框的「取消」路径未单独跑一轮（本轮页面上人工点「确定」，`confirmed=true`）。
+
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

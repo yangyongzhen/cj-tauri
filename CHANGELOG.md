@@ -29,6 +29,18 @@
   宿主能力位**仍全 0**（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知都还没有实机证据）。
   过程与两条新踩的坑见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.2。
 
+- **鸿蒙对话框落法定稿：命令式 API 全部不可用，改用声明式 overlay**：真机实测确认
+  `UIContext.showAlertDialog` 与 `PromptAction.showDialog`（含 `workerthread: true`）在
+  `javaScriptProxy` 回调的同步栈上调用时**静默丢弃**——不抛异常、立即返回、不画窗、回调不来；
+  同一个 `showDialog` 从原生 `Button.onClick` 调却正常弹出（同 tid `6549`，故与线程无关），
+  把调用 `spawn` 到工作线程也无效。最终落法为 **`@State` + `build()` 条件渲染的声明式 overlay**
+  （`examples/ohos-probe/entry/src/main/cangjie/index.cj`），同一台机器当场走通：
+  hilog 出现 `dialog take` → `dialog present` → `declarative dialog answer` → `dialog answer` 完整链，
+  页面回执 `confirmed=true`，`.buildlog/dlg8.jpeg` 实拍卡片在屏。
+  框架侧 `hostCapabilities()` 的对话框能力位**仍报 0**（本轮通的是应用侧 overlay，不是宿主能力）。
+  判据与两处 API 形状坑（`padding` 四参无默认值、`Text`/`Button` 按 class 声明）见
+  `docs/鸿蒙ArkWeb接入踩坑.md` §10.11。
+
 - **`examples/ai-chat` 一轮 UI 大改造（用户实测清单 11 项，全部落地）**：浅色主题下的「黑块」、
   看不见的工作区、停不下来的生成一并收口。改动与判据：
   - **Markdown 渲染修好**：代码块样式原先**写死暗色**（`#0c0e14`），浅色主题下就是一块黑——改走主题

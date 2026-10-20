@@ -265,7 +265,9 @@ func terminateCjhProc(p: SubProcess): Unit {
  */
 
 let CJH_BUNDLE_REL = "vendor/cjh/cjh-v1.5.1-linux-x64.tar.gz"
-let CJH_BUNDLE_SHA256 = "5ceb79234f3b8bf666d810eae3861285256074d550a3b25bf13db7496e4d2556"
+// 摘要跟着包换：vendor 那份由 cjh a3e1e6e 的产物重建（原包内的二进制要 GLIBC_2.38，
+// 本机 2.35 跑不起来——① 换包 ② 这里同步，漏一处就是「校验失败，不部署」）
+let CJH_BUNDLE_SHA256 = "b38ae0fcc4f5b5e673a0105291d11b769b875751cd05e1244a590d0f7f377dde"
 let CJH_DEPLOY_DIR_REL = ".local/share/cj-ai-chat"
 // tar 包里的二进制名带版本号（tar tzf 可证）：解包后就叫这个名，不 rename——
 // 部署二进制的名字跟着 bundle 走，改名那步只会多一个失败点（实测 chmod 按裸名找就炸了）。

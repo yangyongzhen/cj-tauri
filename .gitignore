@@ -21,7 +21,10 @@ dist/
 **/dist-single/*.WebView2/
 
 # Linux 目录式便携包（scripts/pack-linux.sh 产物：main + lib/ + ui/ + capabilities/ + 可选 bin/cjh）
-**/dist-linux/
+# 注意这里必须写 /*（写 **/dist-linux/ 会把目录整个排除，后面的 ! 对目录内的文件不生效）——
+# ai-chat 那份 tar.gz 随仓分发，与 dist-single 的 exe 同理：不装 SDK 的人解包即用。
+**/dist-linux/*
+!examples/ai-chat/dist-linux/*.tar.gz
 
 # ai-chat 自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
 # 连同 SHA256SUMS 一起换）。上面第 13 行的 *.zip 会连它一起吃掉，这里按目录放行。

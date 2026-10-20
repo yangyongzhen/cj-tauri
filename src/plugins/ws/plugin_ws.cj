@@ -8,6 +8,10 @@ import stdx.encoding.json.*
 import stdx.encoding.url.*
 import stdx.net.http.*
 import stdx.net.tls.*
+// 缺它 TLS 握手时拿不到默认实现：连 ws:// 也会报
+// "Global crypto kit is not set. If you want to use the default implementation,
+//  make sure that package `stdx.crypto.kit` is imported."（2026-10-20 cjh 接线实测）
+import stdx.crypto.kit.*
 
 /** 单帧（含分帧重组累计）上限：8 MiB——一条超长帧直接断连，防内存被撑爆 */
 public let CJ_WS_MAX_FRAME: Int64 = 8 * 1024 * 1024
@@ -40,6 +44,9 @@ public class WsPlugin <: Plugin {
     // 单活动连接：cjh 客户端同一时刻只连一个后端；重连须先 close（确定性优先，
     // 不在命令里做隐式替换——旧读线程还没退出时隐式重连会制造两套 gen 竞态）
     private let sess: WsSession = WsSession()
+    // 引用一下 DefaultCryptoKit：stdx.crypto.kit 的**包初始化**负责注册全局加密套件，
+    // 但零警告门禁要求 import 必须有符号使用——这个字段就是干这个的（不参与逻辑）
+    private let kitMarker = DefaultCryptoKit()
 
     public func name(): String {
         return "ws"

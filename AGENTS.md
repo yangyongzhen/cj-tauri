@@ -532,6 +532,21 @@
   `__CJ_TAURI_LABEL__`）的命令，原生把报文里的 `window`（`IpcContext.window`）打进**同一行** hilog——
   `window == me` 全部成立才算路由正确；定向投递必须**发给对面窗口**（发给自己在错误实现下也能通过，
   等于没测）。
+- **鸿蒙侧「页面触发的弹窗」只能用声明式 overlay，别调命令式弹窗 API**（2026-10-20 真机四轮对照）：
+  `UIContext.showAlertDialog` 与 `getPromptAction().showDialog`（**含 `workerthread: true`**）在
+  `javaScriptProxy` 的 `post` 回调**同步栈**上调用时一律**静默丢弃**——不抛异常、立即返回、窗口不画、
+  回调不来；同一个 `showDialog` 从原生 `Button.onClick` 调却正常弹出，且两者 tid 相同（都是 UI 主线程，
+  实测 `6549`），所以**不是线程问题**；把调用 `spawn` 到工作线程也不能救（`returned` 从 spawn 块内打出，
+  证明 spawn 确实执行了）。落法：组件加 `@State`（**不能与 `private` 同用**，宏会拒），proxy 回调里只
+  **置状态**，`build()` 里按状态把 overlay 渲染成根 `Stack` 的最后一个子节点
+  （`.width(100.percent).height(100.percent).justifyContent(FlexAlign.Center)`），按钮回填走**普通
+  `onClick`**（先 `dialogActive = false` 再回填，避免连点压在同一个 id 上）。
+  **判据是四段齐全**：`dialog take` → `dialog present` → `declarative dialog answer` → 页面回执
+  `confirmed=true`；只有 `present` 那段是「画出来了但没回填」，别混为一谈。
+  两处 API 形状坑：`padding(top: n)` 这类**四参形式没有默认值**（用单参 + `Column(space:)` 拉开间距）；
+  `Text` / `Row` / `Column` / `Button` 在 `.cj.d` 里是**按 class 声明**的，查签名要 grep `public init(`，
+  grep `func Text(` 什么都得不到。框架侧 `hostCapabilities()` 的对话框位**仍报 0**——通的是应用侧 overlay，
+  不是宿主能力，别据此改能力位。证据与命令见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.11。
 - **`opt.exe` 报 `EnumReflection format: operand numbers error!` 时先查工具链配对，别去查 LLVM pass**
   （2026-10-20 定位）：`cjc` **不按 `PATH`** 找 `opt`，它按 `CANGJIE_HOME` 下到
   `third_party/llvm/bin/opt.exe`；两者差一代时必然崩——1.2.0 的 `cjc` 给枚举写 7 操作数 `.ti`，1.1.3 的

@@ -5,6 +5,9 @@ import kit.ArkWeb.*
 import kit.PerformanceAnalysisKit.Hilog
 import ohos.arkui.component.web.Web
 import ohos.arkui.state_macro_manage.*
+/* `PromptAction` / `ShowDialogOptions` / `ButtonInfo` 只在 ui_context 包里，
+   `kit.ArkUI` 没有重导出它（2026-10-20 核对 kit.ArkUI.cj.d 的 public import 清单确认）。 */
+import ohos.arkui.ui_context.*
 import cjTauri.*
 
 /*
@@ -46,7 +49,7 @@ func onProxyPost(label: String, raw: String, ctrl: WebviewController): String {
  * 取一条待呈现的原生弹窗（**UI 线程**；没有就返回 None）
  *
  * 弹窗的**呈现**必须在组件上下文里做（`getUIContext()` 只在组件内可调），所以这里只把请求
- * 取出来并打日志，真正的 `showAlertDialog` 留在 `build()` 的 proxy 回调里。
+ * 取出来并打日志，真正的 `PromptAction.showDialog` 留在 `build()` 的 proxy 回调里。
  */
 func arkWebTakeDialog(label: String): Option<ArkWebDialogRequest> {
     match (ArkWebRuntime.hostFor(label)) {
@@ -75,42 +78,19 @@ func answerArkWebDialog(label: String, id: Int64, confirmed: Bool): Unit {
     }
 }
 
-/**
- * `kind == confirm` 的双键弹窗（确定 / 取消）
+/*
+ * 历史落法为什么被撤掉（**别再改回命令式弹窗**）
  *
- * 取消、点遮罩、返回键都回填 false——与桌面 C 桥的语义一致（用户没确认就是没确认）。
- * 单键框（info / warning / error）相反：一律 true，那种框弹出即成立，没有「取消」这条路。
+ * 最初的实现走 `UIContext.showAlertDialog`，2026-10-20 真机实测：不抛异常、立即返回、
+ * 窗口不出现、也不给回填。换成 `PromptAction.showDialog`（带 `workerthread: true`
+ * 与结果回调）后，「从页面按钮触发」那条路**依然**静默无效，而原生 `Button.onClick`
+ * 调同一个 API 却能正常弹出（截图 + `native button dialog returned` 为证）。
+ * 两者的 tid 完全相同（都是 UI 主线程 6549），把 `showDialog` 投到工作线程也不画——
+ * 结论是「在这条 JS 桥接回调栈上启动命令式 overlay 会被 ArkUI 丢弃」。
+ * 所以现在只保留声明式 overlay（`@State` + `build()` 里按状态渲染），
+ * 单键框（info / warning / error）语义不变：弹出即成立，任何结束都回填 true；
+ * 双键框取消 / 点遮罩 / 返回键一律回填 false。
  */
-func confirmArkWebDialog(request: ArkWebDialogRequest, label: String): AlertDialogParamWithButtons {
-    return AlertDialogParamWithButtons(
-        message: request.message,
-        title: request.title,
-        autoCancel: true,
-        cancel: { => answerArkWebDialog(label, request.id, false) },
-        primaryButton: AlertDialogButtonOptions(
-            value: "取消",
-            action: { => answerArkWebDialog(label, request.id, false) }
-        ),
-        secondaryButton: AlertDialogButtonOptions(
-            value: "确定",
-            action: { => answerArkWebDialog(label, request.id, true) }
-        )
-    )
-}
-
-/** 单键弹窗（info / warning / error）：只有一个「确定」 */
-func infoArkWebDialog(request: ArkWebDialogRequest, label: String): AlertDialogParamWithConfirm {
-    return AlertDialogParamWithConfirm(
-        message: request.message,
-        title: request.title,
-        autoCancel: true,
-        cancel: { => answerArkWebDialog(label, request.id, true) },
-        confirm: AlertDialogButtonOptions(
-            value: "确定",
-            action: { => answerArkWebDialog(label, request.id, true) }
-        )
-    )
-}
 
 @Component
 class CjTauriWebView {
@@ -130,52 +110,157 @@ class CjTauriWebView {
     @State
     var pageUrl: String = ""
 
+    /* 声明式弹窗的状态（`@State` 不能与 private 同用，宏会拒绝）。
+       为什么不用 `PromptAction.showDialog`：那条命令式路径从 JS 桥接回调里调会被
+       ArkUI 静默丢弃（取证见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.11），而声明式 overlay
+       只是组件树的一部分，重绘走正常渲染通道。 */
+    @State
+    var dialogActive: Bool = false
+
+    @State
+    var dialogTitle: String = ""
+
+    @State
+    var dialogMessage: String = ""
+
+    @State
+    var dialogIsConfirm: Bool = false
+
+    @State
+    var dialogRequestId: Int64 = 0
+
     public func build() {
         // build() 里只能写 UI 组件语法，proxy 方法表只能内联进调用参数
-        Column {
-            if (this.pageUrl.size > 0) {
-                Web(src: this.pageUrl, controller: this.controller)
-                    .width(100.percent)
-                    .height(100.percent)
-                    .fileAccess(true)
-                    .javaScriptProxy(
-                        funcList: [
-                            { raw =>
-                                let ack = onProxyPost(this.windowLabel, raw, this.controller)
-                                /* 原生弹窗的呈现点：这里同时满足两个硬条件——UI 线程、
-                                   且在组件上下文内（`getUIContext()` 只在组件里可用）。
-                                   框架只负责排队（见 host_arkweb.cj 的 showMessageDialog），
-                                   弹不弹、怎么弹由应用说了算。 */
-                                match (arkWebTakeDialog(this.windowLabel)) {
-                                    case Some(request) =>
-                                        /* 取证诊断：`dialog take` 之后到画面之间没有任何日志时，
-                                           分不清是抛异常还是「调了但没画」——两侧各留一行。 */
-                                        Hilog.info(1, "CjTauriProbe", "dialog show begin label=${this.windowLabel} id=${request.id.toString()} title=${request.title} msg=${request.message}")
-                                        try {
-                                            if (request.isConfirm()) {
-                                                getUIContext().showAlertDialog(confirmArkWebDialog(request, this.windowLabel))
-                                            } else {
-                                                getUIContext().showAlertDialog(infoArkWebDialog(request, this.windowLabel))
-                                            }
-                                            Hilog.info(1, "CjTauriProbe", "dialog show returned id=${request.id.toString()}")
-                                        } catch (err: Exception) {
-                                            Hilog.info(1, "CjTauriProbe", "dialog show threw id=${request.id.toString()} err=${err}")
-                                        }
-                                    case None => ()
-                                }
-                                ack
-                            },
-                            /* `poll` 只为兼容页面上可能残留的旧桥脚本：返回值传不回 JS，
-                               真正的脚本推送已在 `onProxyPost` 里完成。 */
-                            { _ => "" }
-                        ],
-                        name: ARKWEB_PROXY_NAME, methodList: ["post", "poll"],
-                        controller: this.controller
-                    )
-                    .onPageBegin({ _ => this.onPageBegin() })
-                    .onPageEnd({ _ => this.onPageEnd() })
+        Stack(alignContent: Alignment.BottomEnd) {
+            Column {
+                if (this.pageUrl.size > 0) {
+                    Web(src: this.pageUrl, controller: this.controller)
+                        .width(100.percent)
+                        .height(100.percent)
+                        .fileAccess(true)
+                        .javaScriptProxy(
+                            funcList: [
+                                { raw =>
+                                    let ack = onProxyPost(this.windowLabel, raw, this.controller)
+                                    /* 原生弹窗的呈现点：这里同时满足两个硬条件——UI 线程、
+                                       且在组件上下文内（`getUIContext()` 只在组件里可用）。
+                                       框架只负责排队（见 host_arkweb.cj 的 showMessageDialog），
+                                       弹不弹、怎么弹由应用说了算。 */
+                                    match (arkWebTakeDialog(this.windowLabel)) {
+                                        case Some(request) =>
+                                            /* 取证诊断：`dialog take` 之后到画面之间没有任何日志时，
+                                               分不清是抛异常还是「调了但没画」——两侧各留一行。 */
+                                            Hilog.info(1, "CjTauriProbe", "dialog show begin label=${this.windowLabel} id=${request.id.toString()} title=${request.title} msg=${request.message}")
+                                            /* 真机取证（2026-10-20）定死了这条路的边界：**同一个** `showDialog`，
+                                               从原生 `Button.onClick` 调能画出窗口，从这条 proxy 回调调则静默丢弃
+                                               （无异常、无窗口、无回调）；两者 tid 完全相同（都是 UI 主线程 6549），
+                                               再投到工作线程（`workerthread: true` 允许）也一样不画。
+                                               所以被丢的不是「线程不对」，而是「在这条 JS 桥接回调栈上启动命令式
+                                               overlay」这件事本身——我们不在那条栈上跟 ArkUI 争，改走声明式：
+                                               这里只置状态，画面由 `build()` 按 `@State` 重绘（overlay 属于组件树，
+                                               不经过命令式 overlay 创建）。 */
+                                            Hilog.info(1, "CjTauriProbe", "dialog present label=${this.windowLabel} id=${request.id.toString()} title=${request.title} confirm=${request.isConfirm().toString()}")
+                                            this.dialogRequestId = request.id
+                                            this.dialogIsConfirm = request.isConfirm()
+                                            this.dialogTitle = request.title
+                                            this.dialogMessage = request.message
+                                            this.dialogActive = true
+                                        case None => ()
+                                    }
+                                    ack
+                                },
+                                /* `poll` 只为兼容页面上可能残留的旧桥脚本：返回值传不回 JS，
+                                   真正的脚本推送已在 `onProxyPost` 里完成。 */
+                                { _ => "" }
+                            ],
+                            name: ARKWEB_PROXY_NAME, methodList: ["post", "poll"],
+                            controller: this.controller
+                        )
+                        .onPageBegin({ _ => this.onPageBegin() })
+                        .onPageEnd({ _ => this.onPageEnd() })
+                }
+            }.width(100.percent).height(100.percent)
+
+            /* 对照按钮：`onClick` 一定跑在 UI 线程上。它若能弹出而 proxy 那条不能，
+               问题就在「proxy 回调的线程/上下文」而不是「本机 ArkUI 弹窗不可用」——
+               刚好把 showAlertDialog 静默无效的两种解释分开（见 docs/鸿蒙ArkWeb接入踩坑.md §10.10）。 */
+            Button("原生对照弹窗")
+                .width(140)
+                .height(40)
+                .onClick({ _ => this.probeNativeDialog() })
+
+            /* 声明式弹窗：`dialogActive` 一变就重绘出一层覆盖整个窗口的卡片。
+               它和 `Web` 同属一棵组件树，所以不需要任何命令式 overlay 调用——
+               这正是它能绕开「桥接回调里 showDialog 被丢弃」的原因。 */
+            if (this.dialogActive) {
+                Column {
+                    Column(space: 10) {
+                        Text(this.dialogTitle).fontSize(20).fontColor(Color.Black)
+                        Text(this.dialogMessage).fontSize(15).fontColor(Color.Black)
+                        Row(space: 12) {
+                            if (this.dialogIsConfirm) {
+                                Button("取消")
+                                    .fontSize(16)
+                                    .onClick({ _ => this.finishDialog(false) })
+                            }
+                            Button("确定")
+                                .fontSize(16)
+                                .onClick({ _ => this.finishDialog(true) })
+                        }
+                    }
+                    .width(76.percent)
+                    .padding(18)
+                    .backgroundColor(Color.White)
+                    .borderRadius(14)
+                }
+                .width(100.percent)
+                .height(100.percent)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(Color.Black)
             }
         }.width(100.percent).height(100.percent)
+    }
+
+    /**
+     * 声明式弹窗的按钮回调（跑在 UI 线程的普通 `onClick` 上，不走 JS 桥接栈）
+     *
+     * 先收起 overlay 再回填：回填会进框架的队列锁，用户连点时第二下不该还压在
+     * 同一个 id 上（框架那侧对同一个 id 的第二次答案会按 `awaitingDialogs` 丢弃）。
+     */
+    private func finishDialog(confirmed: Bool): Unit {
+        let id = this.dialogRequestId
+        this.dialogActive = false
+        Hilog.info(1, "CjTauriProbe", "declarative dialog answer id=${id.toString()} confirmed=${confirmed.toString()}")
+        answerArkWebDialog(this.windowLabel, id, confirmed)
+    }
+
+    /**
+     * 原生按钮的对照弹窗：固定内容、不经过框架的排队通道
+     *
+     * 有意不复用 `arkWebTakeDialog`：这里的目的是把「弹窗 API 本身能不能画」与
+     * 「框架排队 / proxy 回调上下文」两件事分开取证，混用会让结论又糊回去。
+     */
+    private func probeNativeDialog(): Unit {
+        Hilog.info(1, "CjTauriProbe", "native button clicked label=${this.windowLabel}")
+        try {
+            getUIContext().getPromptAction().showDialog(
+                ShowDialogOptions(
+                    title: "原生按钮对照",
+                    message: "onClick 在 UI 线程上；这个框也不出现就说明本机弹窗 API 不可用",
+                    buttons: [ButtonInfo(text: "知道了", color: Color.Blue, primary: true)]
+                ),
+                callback: { _, index =>
+                    let idxText = match (index) {
+                        case Some(i) => i.toString()
+                        case None => "none"
+                    }
+                    Hilog.info(1, "CjTauriProbe", "native button dialog callback index=${idxText}")
+                }
+            )
+            Hilog.info(1, "CjTauriProbe", "native button dialog returned")
+        } catch (err: Exception) {
+            Hilog.info(1, "CjTauriProbe", "native button dialog threw err=${err}")
+        }
     }
 
     /**

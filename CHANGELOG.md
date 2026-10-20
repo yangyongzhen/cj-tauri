@@ -42,6 +42,18 @@
   `allowScopePattern` 返回 `Bool`，**注册中心只收具体值**：空串或含 `*` / `?` 与制表/换行的模式当场拒并回
   `false`（一个通配透传进来就等于全放行——这条不变量由注册中心强制，应用绕不过去），应用侧再按主机名字符集校一遍；
   端口与路径不进名单（判定按主机名）。被 scope 挡住时页面会直接把确认框推到人面前，不必自己去找清单。
+- **ai-chat 示例：Agent 模式下桌面端选中的服务商同步进 cjh 基线**：切到 Agent、保存服务商、
+  切换到某个服务商，以及**每次连上 cjh** 时，都 `POST /api/settings` 把当前的 `baseUrl` / `model` / `apiKey`
+  写进 cjh 自己的配置（cjh 侧立即生效，`base_url` / `model` 落盘 `~/.cjh/settings.json`）。
+  原先只有「每回合 chat 帧带上这份配置」——帧只管桌面端发出的那一回合，cjh 自己发起的调用（后台任务、
+  工具链里的补充请求）与 Agent 徽章显示的模型用的都是它自己那份，于是界面上并排出现「两套值」而没人知道
+  （2026-10-20 用户提问推动：切 Agent 到底有没有同步）。载荷只带**非空**字段——cjh 侧 `baseUrl` / `model`
+  是直接赋值，发空串等于把它的配置清空；`apiKey` 为空或含掩码时一律不发（GET 会把 Key 掩成
+  `sk-e****493a` 这类，回写就等于把真 Key 换成几颗星）。自检 / 探针模式下一律不发（自检会拿假服务商
+  走一遍保存与切模式的路，真发出去会污染用户 cjh 的配置），载荷形状另由纯函数断言守着。
+  **cjh 侧的缺口已提 `cjh#6`**：`POST /api/settings` 的 `apiKey` 只进内存——`saveAll()` 只写
+  `base_url` / `model`，而 `/provider` 命令走的 `saveApiKey()` 写的是 auth.json，两条路都不报错地回 `ok`。
+  桌面端的兜底正是「每次连上都重推一次」，所以 cjh 重启后也自动收敛。
 - **鸿蒙（HarmonyOS）ArkWeb 宿主真机落地**：`cj-tauri` 首次在 HarmonyOS 真机上跑通
   「仓颉后端 + ArkWeb 前端 + IPC 双向桥」闭环——页面 `system:version` 拿到
   `{"name":"cj-tauri","version":"1.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}`，
@@ -472,6 +484,14 @@
 
 ### Fixed
 
+- **ai-chat 设置页的 Agent 横幅把行为说反了**：原文案写「下面这些字段只在聊天模式下生效，Agent 模式下改了
+  不会影响这一轮对话」，而 `agentChatFrame()` 一直把当前服务商的 `model` / `base_url` / `api_key` 带进当回合的
+  chat 帧，**改动当回合就生效**；现在还会同步进 cjh 基线（见 Added 段）。文案已改成实话，并把「连上 cjh」
+  这个时机一并写明。
+- **ai-chat 自检的 `conv-search` 变红是会话分离改动的连带**：侧栏改成按模式分组（`convsForMode()`）之后，
+  探针夹具里的假会话没打 `mode` 标签、当场被滤掉，断言从「1 行」变成「0 行」。夹具补上 `mode: appMode`
+  即恢复；同时新增 `cjh-sync-payload` 一条（锁住同步载荷「只带非空字段、掩码不发」的形状），本轮自检 73/73。
+
 - **鸿蒙 headless 构建的 `opt.exe` 崩溃（`0xC000001D` + `EnumReflection format: operand numbers error!`）已解除，
   HAP 重新产得出来**：根因不是 LLVM pass，而是两件事叠加——① `cjc` 与 `opt` **两代混用**（`cjc` 不按
   `PATH` 找 `opt`，它按 `CANGJIE_HOME` 下到 `third_party/llvm/bin/opt.exe`；1.2.0 的 `cjc` 写 7 操作数的
@@ -521,6 +541,16 @@
   于是 `scripts/test-bridge-core.sh`（以及 `test.sh` / `check-static.sh` 里那一步）在这台机器上
   连着整条门禁一起红。改为统一走 `_WIN32` 分支的 `cj_test_mkdir()` 包装，两边语义都是「建一级目录」；
   修后桩自检 **221/221** 通过。
+
+- **TLS 握手在部分端点上必然失败（`sslv3 alert handshake failure`）：客户端此前不发 SNI**：
+  `http` / `ws` 插件建 TLS 客户端时都没设 `serverName`，而**多租户边缘**（同一 IP 上按 SNI 分流；
+  实测 `ai.novacode.top` 就在 Cloudflare 后面）拿不到 SNI 就选不出证书与套件，直接以 alert 40 拒掉，
+  页面只看到 `TlsException: TLS handshake failed (client): sslv3 alert handshake failure`——**看着像
+  白名单或网络问题，实际请求已经出网到达对端**（scope 层早已放行）。现在按「**域名显式带 SNI、
+  IP 字面量不带**」修（对 IP 发 SNI 不合规范、TLS 本身也不允许）：主机名判定落在核心
+  `src/urlutil.cj` 的 `urlHostOf`（新增 IPv4 / IPv6 字面量识别，IPv6 认 `[…]` 括号形式），
+  `src/plugins/http/plugin_http.cj` 与 `src/plugins/ws/plugin_ws.cj` 在建客户端处按主机名设 SNI。
+  新增 3 条单测锁住口径（域名带、IPv4 与 IPv6 字面量都不带），框架单测 **294/294**。
 
 ## [1.0.0] - 2026-10-17
 

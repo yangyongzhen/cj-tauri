@@ -23,6 +23,7 @@
     "cjh:status",
     "cjh:start",
     "cjh:deploy",
+    "app:allowHost",
     "system:version",
     "system:host"
   ],

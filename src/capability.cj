@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import std.sync.*
 import stdx.encoding.json.*
 
 /**
@@ -182,6 +183,12 @@ public class CapabilityRegistry {
     private var caps: ArrayList<Capability> = ArrayList<Capability>()
     // 命名权限集：集名（"fs:readonly"）→ 成员全名。由插件装配时注册（plugin.cj 的 registerPluginPermissionSets）
     private var permissionSets: HashMap<String, HashSet<String>> = HashMap<String, HashSet<String>>()
+    // 运行期叠加的 scope 白名单（插件名 → 模式）：由应用**取得用户明确确认后**经
+    // TauriApp.allowScopePattern 追加（如原生确认框问到「是」）。只在内存里，重启即失效——
+    // 持久化是应用自己的事（决定权在应用：写哪、写不写）。命令分发是异步的（worker 线程读
+    // scope），所以叠加与读取共用同一把锁。
+    private var runtimeScopeAllow: HashMap<String, ArrayList<String>> = HashMap<String, ArrayList<String>>()
+    private let scopeLock: Mutex = Mutex()
 
     public init() {}
 
@@ -297,7 +304,79 @@ public class CapabilityRegistry {
         if (!found) {
             return None
         }
+        // 运行期叠加的白名单与清单成员同权（放在这里，是为了守住「注册中心是唯一判定口径」——
+        // 各插件的 scope 判定全都经 scopeForPlugin，不必各自再查一遍运行期表）。
+        this.mergeRuntimeAllow(plugin, merged)
         return Some(merged)
+    }
+
+    /**
+     * 运行期给某插件的 scope 追加一条 allow 模式（插件名如 "http"，模式写法同 `scope.cj`）。
+     *
+     * 用途：应用**取得用户明确确认后**（如弹原生确认框）放行一个清单里没有的主机，让本次会话当场可用。
+     * 判定顺序不变：**清单里的 deny 命中即拒，运行期加白掀不掉它**。
+     *
+     * **只收「具体值」，不收通配**：模式里出现 `*` 或 `?` 一律拒绝（返回 false + 一行 stderr）。
+     * 加白的语义是「往已有白名单里加一条」，而模式是页面可控字符串——一个通配透传进来就等价于全放行，
+     * 整条防线当场作废。这条不变量放在注册中心里强制，任何应用都绕不过去（D-021 的代价第 1 条）。
+     */
+    public func addRuntimeScopeAllow(plugin: String, pattern: String): Bool {
+        if (!isConcreteScopeValue(pattern)) {
+            eprintln("[cj-tauri] runtime scope allow refused (${plugin}): pattern must be a concrete value, got '${pattern}'")
+            return false
+        }
+        synchronized(this.scopeLock) {
+            if (!this.runtimeScopeAllow.contains(plugin)) {
+                this.runtimeScopeAllow.add(plugin, ArrayList<String>())
+            }
+            let list = this.runtimeScopeAllow.get(plugin).getOrThrow()
+            if (!list.contains(pattern)) {
+                list.add(pattern)
+            }
+        }
+        return true
+    }
+
+    /**
+     * 运行期加白只收「不含通配的具体值」：`*` / `?` 会让模式退化成「全放行」，制表 / 换行 / 回车
+     * 则几乎总是「从文件或页面读回来时带了脏字符」，两类都拒（口径见 `addRuntimeScopeAllow`）。
+     * 注意 `String` 迭代出来的是 UTF-8 **字节**而不是码点，这里判的正是字节字面量。
+     */
+    private func isConcreteScopeValue(pattern: String): Bool {
+        if (pattern.size == 0) {
+            return false
+        }
+        for (b in pattern) {
+            if (b == 42u8 || b == 63u8 || b == 9u8 || b == 10u8 || b == 13u8) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /** 某插件的 scope 此刻是否放行某个值（清单 + 运行期叠加；没写 scope 的插件恒放行＝旧行为） */
+    public func scopeAllowsValue(plugin: String, value: String): Bool {
+        match (this.scopeForPlugin(plugin)) {
+            case Some(rule) => return scopeAllows(rule, value)
+            case None => return true
+        }
+    }
+
+    /**
+     * 把运行期叠加项并进合并结果。**只有清单已为该插件写过 scope 时才并**：
+     * 没写 scope 的插件本来是全量放行（scopeForPlugin 返 None，调用方走旧行为），
+     * 这时把运行期条目并进去会把它意外收窄成「只放行这一条」。
+     */
+    private func mergeRuntimeAllow(plugin: String, merged: ScopeRule): Unit {
+        synchronized(this.scopeLock) {
+            match (this.runtimeScopeAllow.get(plugin)) {
+                case Some(extra) =>
+                    for (a in extra) {
+                        merged.allow.add(a)
+                    }
+                case None => ()
+            }
+        }
     }
 
     /** 是否有任何清单为某插件声明过 scope（启动提示与判定分支共用这一个口径） */

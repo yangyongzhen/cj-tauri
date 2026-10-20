@@ -2350,6 +2350,8 @@ function send(text, skipPush) {
     c.messages.push({ role: 'assistant', content: msg, ts: Date.now() });
     setBody(body, msg, false);
     appendNote('若提示 scope/白名单，请到 设置 里确认 Base URL 在白名单内');
+    // 被 scope 挡住时直接把确认框推到人面前（编译期猜不出用户会用哪家端点，运行期问一次最省事）
+    if (String(msg).indexOf('outside the authorized scope') >= 0) { allowProviderHost(cfg.base); }
     streaming = false; setStreamingUi(false);
     saveState();
   });
@@ -2507,6 +2509,25 @@ function cfgErr(msg) {
   el.style.display = '';
 }
 
+/* 出网白名单的运行期加白：名单是启动时读的静态能力清单，页面改不了它——这是出网防线。
+ * 所以放行要**人**点一下：app:allowHost 命令会弹原生确认框（页面调不了原生对话框，
+ * 被注入的脚本也就无法自行加白）。确认后本次会话立刻可用，并记进本机清单（重启仍生效）；
+ * 被拒就如实提示，请求依旧会被 scope 挡住。已在名单里（added=false）时全程静默。 */
+function allowProviderHost(baseUrl) {
+  var br = window.__CJ_TAURI__;
+  if (!br || !br.invoke || !baseUrl) { return; }
+  br.invoke('app:allowHost', { url: baseUrl }).then(function (r) {
+    if (r && r.allowed === false) {
+      toast('未放行该地址：' + (r.note || '请求会被出网白名单挡住'));
+    } else if (r && r.added) {
+      toast('已放行出网主机：' + r.host + '（已记入本机清单，重启仍生效）');
+    }
+  }).catch(function (e) {
+    // 命令不在（老框架 / 清单没声明）时说清楚，别静默当成「已放行」
+    toast('加白命令不可用：' + (e && e.message ? e.message : String(e)));
+  });
+}
+
 function saveProv() {
   var p = {
     name: $('fName').value.trim() || '自定义',
@@ -2542,6 +2563,9 @@ function saveProv() {
   toast(appMode === 'agent'
     ? ('已保存：' + p.name + '（Agent 模式下由 cjh 侧模型执行，这份配置在聊天模式生效）')
     : ('已保存：' + p.name + ' · ' + (p.model || '未填模型')));
+
+  // 端点不在内置名单里 → 立刻弹原生确认框问一次；已在名单里则静默（不打扰）
+  allowProviderHost(p.baseUrl);
 }
 
 function openCfg() {

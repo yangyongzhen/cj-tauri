@@ -177,6 +177,7 @@ main(): Int64 {
     app.register("cjh:status", cjhCmds)
     app.register("cjh:start", cjhCmds)
     app.register("cjh:deploy", cjhCmds)
+    app.register("app:allowHost", AllowHostCommand(app))
 
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。
@@ -211,6 +212,12 @@ main(): Int64 {
     // 页面用 run(html) 内联（clipboard-history 同款）：runUrl 的相对路径 WebKit 解析不了
     // （实机踩过：页面显示 The URL can't be shown），file:// 绝对路径可用但内联更省事——
     // 本页面零外部资源（无图片/无 vendor），内联无副作用。
+    // 运行期加白是内存态、重启即空：把本机清单里用户确认过的主机在 run() 前叠回去
+    let persistedHosts = applyPersistedAllowedHosts(app)
+    if (persistedHosts > 0) {
+        eprintln("[cj-ai-chat] 已叠加本机 allow 清单：${persistedHosts} 个主机")
+    }
+
     let html = loadUi()
     app.run(html)
     // run 返回 = 窗口已收尾：只终止**自己拉起的** cjh（复用的不动）

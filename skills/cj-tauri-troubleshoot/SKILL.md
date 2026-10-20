@@ -65,6 +65,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 症状 | 原因与修法 |
 |---|---|
 | 前端收到 `path is outside the authorized scope`，stderr 有 `[cj-tauri] scope denied (fs)` | **不是 bug**：清单给该插件写了 `scopes`，这条路径不在 `allow` 里（或命中了 `deny`）。要么把路径加进 `scopes`，要么改用白名单内的路径；`..` 与软链接都会被规范化拆穿，绕不过去。没写 `scopes` 的旧清单是全量放行的（启动有一行 stderr 提示） |
+| 用户要用名单之外的服务商 / 端点（页面侧就是加不进白名单） | 这是**设计使然**（清单是启动时读的静态文件 = 出网防线，页面改不了）。放行要**人**点一下：框架 `TauriApp.allowScopePattern(plugin, pattern)` 运行期叠加（内存态、重启即空，回 `Bool`）+ `isScopeAllowed(plugin, value)` 查当前口径；持久化与启动重放归应用（样板见 `examples/ai-chat` 的 `app:allowHost`：原生确认框 → 加白 → 写 `~/.local/share/cj-ai-chat/allowed-hosts.txt`）。注册中心**只收具体值**：空串或含 `*` / `?` 与制表换行的模式当场拒并回 `false`（通配一进来就等于全放行），回 `false` 别当成功。口径不变：**先 deny 后 allow**，加白掀不掉 `deny`；插件名传字符串（`"http"` / `"fs"` / `"ws"`） |
 
 ### 多窗口 / 回调
 

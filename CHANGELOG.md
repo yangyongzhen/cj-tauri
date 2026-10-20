@@ -21,8 +21,18 @@
   不走网络、不需要手动下载；失败如实报错（校验不过不落盘，二进制与本机不兼容等
   原因各有一句话）并回落原手动路径（下载页地址在引导第 2 步明示）。服务商配置
   （地址 / 密钥 / 模型）本就随每轮对话帧下发给 cjh，引导文案同步说明。
-  注意：vendor 里的 cjh 产物要求 GLIBC ≥ 2.38——老发行版（如 Ubuntu 22.04 的 2.35）
-  部署能走完但 cjh 起不来，引导会给出明确提示与手动回落。
+  注意：vendor 里的 cjh 产物已按 cjh `a3e1e6e` 的 `dist/cjh-linux-x64` **重建**（cjh 仓当时的
+  tar.gz 没跟着重打，里面还是要求 `GLIBC_2.38` 的旧二进制，Ubuntu 22.04 的 2.35 起不来）——
+  重建后只需 `GLIBC ≤ 2.34`。换包必须同轮更新 `vendor/cjh/SHA256SUMS` 与 `src/cjh_host.cj` 的
+  `CJH_BUNDLE_SHA256`，漏任何一处都是「校验失败，不部署」。
+  另：`examples/ai-chat/dist-linux/ai-chat-linux-x64.tar.gz`（`scripts/pack-linux.sh --tar` 产物）
+  随仓分发——不装 SDK / 不编仓颉的人解包即用，与 `dist-single/` 的 exe 同一约定；目录本体仍不入库
+  （`.gitignore` 为此把 `**/dist-linux/` 改成 `**/dist-linux/*`，否则目录级排除会让 `!` 例外失效）。
+- **ai-chat 示例：出网白名单补入实际要用的服务商主机**：`capabilities/app.json` 的
+  `scopes.http.allow` 增列 `ai.novacode.top`（第三方聚合端点）。白名单读的是**启动时扫描的静态能力清单**，
+  页面侧「添加模型」改不了它——填了名单之外的主机会被 scope 挡住并回业务错误
+  `http: host is outside the authorized scope`；换言之「添加模型时自动加名单」目前**做不到**，
+  要么维护者改清单，要么框架补一个运行期加白 API（尚未做）。
 - **鸿蒙（HarmonyOS）ArkWeb 宿主真机落地**：`cj-tauri` 首次在 HarmonyOS 真机上跑通
   「仓颉后端 + ArkWeb 前端 + IPC 双向桥」闭环——页面 `system:version` 拿到
   `{"name":"cj-tauri","version":"1.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}`，
@@ -436,6 +446,11 @@
   自己走通——AGENTS §2 里「能力位与宿主回调」那套约定在第三方应用身上同样成立。
 
 ### Changed
+
+- **`examples/ai-chat` MCP 面板撤掉「编辑配置」入口，回到只读**（2026-10-20 用户裁定）：要改 MCP
+  配置直接改 cjh 自己的 `settings.json` 更直接，也绕开 GET 掩码 `***` / POST 整体替换那套容易把
+  真实密钥抹成三个星号的坑。`mcpEditGuard()` 留在页内自检里继续钉住「掩码拒发 / 坏 JSON 拒发」，
+  但不再接任何入口——校验逻辑仍有价值，通道撤销。
 
 - **鸿蒙侧的 JS 字符串转义下沉到共享层，并被单测锁住**：窗口 label 注入的转义逻辑原先叫
   `jsonQuote`、住在 `src/arkweb_script.cj` 里且带 `@When[env == "ohos"]` 门禁——**桌面 `cjpm test`

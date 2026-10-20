@@ -484,6 +484,16 @@
 
 ### Fixed
 
+- **多窗口下 `dialog:*` 全排进默认窗的队列（第二扇窗的框在别人窗口里弹出来）**：
+  `DialogCommands.handle` 原先不收 `IpcContext`（第一行就是 `let _ = ipc`），宿主是装配时固定下来的
+  `app.webviewHost()`——所有窗的请求都进同一个 `pendingDialogs`。真机实测（鸿蒙探针两半屏同时弹框）：
+  `dialog take label=main` 连续两次、第二次的 `title` 却是 `second`，main 自己那次被覆盖成从未显示，
+  而命令 promise 照常 resolve，所以页面显示 `confirmed=true`——**失败无声**。
+  现在按报文里的窗口解析宿主（`DialogCommands.attachHostResolver`，`DialogPlugin.setup()` 传
+  `{ label => app.hostOf(label) }`）；解析器在场而窗口未登记时**如实报错**、不回落到单槽。
+  修复后两个宿主各自的 `id` 序列独立（`label=main id=1` 与 `label=second id=1`），
+  取消 / 确定两条回填路径各窗恒等（`window=` 与页面自认 `me=` 同一行相等）。桌面两平台同走此插件，
+  单窗行为不变。两条新单测钉住路由（框架 296 用例全绿）。
 - **ai-chat 设置页的 Agent 横幅把行为说反了**：原文案写「下面这些字段只在聊天模式下生效，Agent 模式下改了
   不会影响这一轮对话」，而 `agentChatFrame()` 一直把当前服务商的 `model` / `base_url` / `api_key` 带进当回合的
   chat 帧，**改动当回合就生效**；现在还会同步进 cjh 基线（见 Added 段）。文案已改成实话，并把「连上 cjh」

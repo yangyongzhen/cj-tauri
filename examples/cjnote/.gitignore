@@ -1,0 +1,15 @@
+target/
+cjpm.lock
+notes/
+*.log
+# store 插件的落盘（界面偏好 / ai.config），属于本机运行期数据
+store.json
+.extract/
+# 本机工具数据与截图草稿，不属于仓库
+.atomcode/
+shots/
+# Cangjie 运行时自动生成的 profile 转储
+item_data.dat
+# 随包分发的 cjh 二进制树（含 Windows 侧按名字加载的 DLL）——根 .gitignore 的 *.dll 是给
+# 构建产物用的，这里的 DLL 是随包分发的运行时依赖，与 ai-chat 的 vendor/cjh 同性质。
+!vendor/cjh/bin/**

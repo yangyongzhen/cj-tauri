@@ -26,10 +26,14 @@ dist/
 **/dist-linux/*
 !examples/ai-chat/dist-linux/*.tar.gz
 
-# ai-chat 自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
+# 示例自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
 # 连同 SHA256SUMS 一起换）。上面第 13 行的 *.zip 会连它一起吃掉，这里按目录放行。
 !examples/ai-chat/vendor/cjh/*.zip
 !examples/ai-chat/vendor/cjh/*.tar.gz
+# cjnote 同款：它按 vendor/cjh/bin/<平台>/ 直接找现成二进制（没有运行期解包），所以除了压缩包
+# 还带一棵 bin/ 树；树里 Windows 侧按名字加载的 DLL 由 examples/cjnote/.gitignore 放行。
+!examples/cjnote/vendor/cjh/*.zip
+!examples/cjnote/vendor/cjh/*.tar.gz
 
 # 本地环境
 cjpm.lock

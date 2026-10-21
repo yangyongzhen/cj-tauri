@@ -1,0 +1,58 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "note:list",
+    "note:search",
+    "note:brief",
+    "note:open",
+    "note:save",
+    "note:create",
+    "note:delete",
+    "note:rename",
+    "note:readExternal",
+    "dialog:open",
+    "store:get",
+    "store:set",
+    "store:delete",
+    "store:keys",
+    "http:get",
+    "http:post",
+    "http:postStream",
+    "ws:connect",
+    "ws:send",
+    "ws:close",
+    "log:write",
+    "clipboard:write",
+    "report",
+    "notes:env",
+    "theme:apply",
+    "linenos:sync",
+    "titlebar:sync",
+    "cjh:status",
+    "cjh:start",
+    "cjh:config",
+    "cjh:saveConfig",
+    "cjh:restart",
+    "system:version"
+  ],
+  "permissions": ["store:default", "http:default", "log:default", "clipboard:default", "ws:default"],
+  "scopes": {
+    "http": {
+      "allow": [
+        "api.deepseek.com",
+        "api.openai.com",
+        "open.bigmodel.cn",
+        "dashscope.aliyuncs.com",
+        "api.moonshot.cn",
+        "*.openai.azure.com",
+        "127.0.0.1",
+        "localhost"
+      ]
+    },
+    "ws": {
+      "allow": ["127.0.0.1", "localhost"]
+    }
+  },
+  "events": ["http:chunk", "ws:frame", "ws:state", "menu:click"]
+}

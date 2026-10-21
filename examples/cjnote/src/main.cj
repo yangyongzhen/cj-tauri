@@ -376,6 +376,10 @@ main(): Int64 {
     let _ = app.register("cjh:saveConfig", cjhCmds)
     let _ = app.register("cjh:restart", cjhCmds)
 
+    // 单文件产物：随包的 cjh 是作为 PE 资源嵌在 exe 里的，运行期先取出来再登记进候选表。
+    // 普通构建没有内嵌资源——releaseEmbeddedCjh() 如实回空串，这一行相当于什么都没做。
+    gCjhAssetBin = releaseEmbeddedCjh()
+
     // 工作区在装配期建好 + 播种欢迎笔记（幂等：目录/文件已存在不重建）。
     // 建目录是应用装配的事，不进 fs 插件命令面（markdown-notes 同款）。
     if (!exists("notes")) {

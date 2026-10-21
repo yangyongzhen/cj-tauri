@@ -52,12 +52,15 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | `command not allowed` | 三处联动漏了第 3 处（capabilities `commands` / `permissions` 声明） |
 | 命令「没反应」、日志里也没有错误行 | handler 抛异常只回 reject 不打日志；把 reject 也回投给页面 `report`，并确认框架已带 `command failed` stderr 行 |
 | 慢命令冻住窗口 | 命令必须在 worker 线程跑（框架已异步分发）；**不要**把 `handler.handle` 挪回调用线程 |
+| 拉起 CLI 后端时桌面上蹦出一个黑窗口（日志里无任何错误） | 应用是 GUI 子系统、没有控制台，`std.process.launch` 起控制台子进程时 Windows 会**给子进程单独配一个控制台窗口**；改走框架 `launchHidden()`（`CreateProcessW` + `DETACHED_PROCESS`，标准句柄指 NUL）。两个不算解法的：`SW_HIDE` 只是先建再藏、会闪；`CREATE_NO_WINDOW` 不显示但子进程仍持有一个**隐藏 console**（conhost 照样挂）。判据要 A/B：数可见 `ConsoleWindowClass` 窗口（1 → 2）+ `MainWindowHandle`（0 对非 0），并先用一个有窗口的进程校准读数 |
 | worker 里直接调 GTK/WebKit abort | 仓颉轻量线程的堆上协程栈会被 JSC 栈边界校验 abort；worker 只经 `jsSink` 回投 |
 | 深色页里 `<select>` 白底浅字不可读 | WebKitGTK 用原生 combo 浅色样式盖掉页面配色；`-webkit-appearance:none` 自绘 + 给 `option` 另写底色文字色 |
 | 3D 画布整幅走样 | WebView2 初建时视口是临时尺寸且变化不触发 `resize` 事件；把 `innerWidth/Height` 自检放进 `requestAnimationFrame` 每帧比 |
 | 防盗链图 `HTTP 200 + 0 字节` | 页面侧无解（只能减 Referer 不能换）；宿主命令带正确 `Referer` 取回转 `data:` URL，地址必须白名单（防 SSRF） |
 | 迭代 String 数汉字错了 3 倍 | 迭代得到 `UInt8` 字节不是码点；按 UTF-8 首字节判 `(b & 0xC0u8) != 0x80u8` |
 | 单文件 exe 28MB 不瘦身 | llvm-mingw 的 `strip.exe` 包装器缺 `llvm-strip` 真身，`strip 2>/dev/null` 吞了报错；回退 SDK 的 `llvm-objcopy --strip-all`（脚本已内置），排查先裸跑 strip 看真实报错 |
+| 单文件包里嵌了外部程序（cjh 这类）却运行期找不到它、exe 体积也没涨 | 资源对象（windres 产出的 `.o`）塞进 `libcjtbridge.a` 后**不会被链接器提取**（静态库按需提取，它没有任何符号引用），产物照旧 `build success`、而 `objdump -h app.exe` 里数 `.rsrc` 一节是 0。落法：把它**当链接输入直接给 ld.lld**（打包器拼进 `link-option`），判据看节表不看构建日志 |
+| rc 里写资源名 `"cjh.exe" RCDATA "…"` 编译失败 | `llvm-rc`（windres 的后端）不认字符串资源名，报 `expected int or identifier`。资源名只能数字 ID，文件名由打包器另生成 `pack_assets_map.h`（ID → 名字，编桥时 `-DCJ_PACK_ASSETS_EMBEDDED` 才包含），桥因此仍不认识应用的任何文件名 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 
 ### 运行期 / 页面

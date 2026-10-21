@@ -154,7 +154,22 @@ AI 后端 cjh 随包放在 `vendor/cjh/bin/<平台>/`：应用启动时先探 `1
 自己拉起的那只。模型与凭证配在 cjh 自己的 `~/.cjh` 里——点 AI 头部的 ⚙ 进设置页改即可，
 不需要装 cjh、不需要找路径、也没有任何 API Key 落在本应用的 `store.json`。
 
+拉起走框架的 `launchHidden()`（`src/cjh_host.cj`），不是 `std.process.launch`：本应用是 GUI 子系统
+（`--subsystem=windows`）、父进程没有控制台，用 `launch` 起控制台程序 cjh 会让 **Windows 给 cjh 单独
+配一个控制台窗口**——桌面上就是「点一下笔记，旁边蹦出一个黑窗口」。改走 C 桥的
+`CreateProcessW` + `DETACHED_PROCESS` 之后，cjh **根本没有控制台**（不是「藏起来」：`CREATE_NO_WINDOW`
+只是不显示，子进程仍持有一个隐藏 console、`conhost.exe` 照样挂在它名下）。Windows 实机 A/B：同一份
+`cjh.exe`，不给创建标志时可见控制台 1 → 2 个，给了之后恒为 0 个，而 cjh 照常 `127.0.0.1:8765`
+LISTENING、页面 ws 连得上（单文件形态同样复核过：`cjh` 的 `MainWindowHandle=0`、可见控制台窗口 0）。
+代价是拿不到 cjh 的 stdout / stderr——本应用不依赖它（健康检查按 HTTP 探端口）。
+
 ## 单文件打包（可选）
+
+> **Windows 已发布的产物**：[`dist-single/cjnote.exe`](dist-single/cjnote.exe)（**34.1 MB**，单文件，
+> 双击即用）——C 桥 / 仓颉运行时 / stdx / 插件包全部静态链进这一个文件，页面与 `capabilities/`
+> 内嵌成 base64，**随包 cjh 与它的 4 个运行时 DLL** 作为 PE 资源（`RT_RCDATA`）一起塞在里面，
+> 首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`。不装仓颉 SDK、不设 `PATH`、不需要 `vendor/` 目录。
+> Linux 单文件产物用 `pack-linux-single.sh`（**不含 cjh**，需与 `vendor/cjh/` 同级摆放）。
 
 想把应用交付成**一个文件**（没有 `lib/`、没有 `ui/`、没有 `capabilities/`），用框架的通用打包脚本：
 
@@ -172,6 +187,7 @@ bash ../../scripts/pack-linux-single.sh examples/cjnote /tmp/out    # 也可指�
 | --- | --- | --- | --- |
 | 开发态（`cjpm build` 直接编出来的） | `target/release/bin/main` | **7.6M** | 只有应用自己的代码。C 桥 `libcjtbridge.so`、仓颉运行时、stdx、各插件包都在文件**外面**，运行时靠 `LD_LIBRARY_PATH` 去找 |
 | 单文件（跑完本节脚本的产物） | `dist-single/cjnote` | **11.2M** | 上表那些**全部静态编进这一个文件**，另外把 `ui/`（页面 + 前端库）与 `capabilities/` 清单内嵌成 base64 |
+| 单文件（Windows，`pack-win-single.sh`） | `dist-single/cjnote.exe` | **32.6M** | 同上一行，另外把**cjh 与它的 4 个运行时 DLL** 嵌进 exe（PE 资源 `RT_RCDATA`，首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`）；子系统是 GUI，双击不弹控制台 |
 
 多出来的 3.6M 就是被静态链进来的运行时与插件包，加上内嵌的页面资源——换来的是「换一台机器只要系统有
 WebKitGTK / GTK 就能直接跑」。
@@ -192,10 +208,13 @@ Linux 侧有个硬天花板：**系统 WebKitGTK / GTK 没有静态库**（发�
 实测启动（刻意摘掉 `LD_LIBRARY_PATH`）：窗口建成、菜单 16 项生效、
 `[cjnote] 能力清单来自内嵌资源（1 份，共 1568 字节 base64）`，stderr 49 行、无 `not found`。
 
-两条注意：① **cjh 不在产物里**——它按 `vendor/cjh/bin/<平台>/` 找现成二进制、运行期不解包，
-所以单文件要和 `vendor/cjh/` **同级摆放**，且**工作目录就是它所在目录**（笔记库 `notes/` 同样按相对路径读）；
+两条注意：① **cjh 的位置两个平台不一样**——Windows 单文件把它**嵌进 exe 里**（PE 资源 `RT_RCDATA`，
+清单是本示例的 `pack-assets.txt`），首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`，之后复用、不重复解包；
+Linux 单文件**仍不含 cjh**——它按 `vendor/cjh/bin/<平台>/` 找现成二进制，所以产物要和 `vendor/cjh/`
+**同级摆放**，且**工作目录就是它所在目录**（笔记库 `notes/` 同样按相对路径读）；
 ② 脚本本身是通用的（示例路径当第一个参数、包名从示例的 `cjpm.toml` 读，脚本内无任何示例专属逻辑），
 示例侧只需备好三件套（`src/packed_assets.cj` 空存根、`src/packed_resources.cj`、至少一份 `capabilities/*.json`），
+要内嵌外部程序就再加一份 `pack-assets.txt`（一行一个文件），
 所以它留在框架的 `scripts/` 里、不必复制进每个示例。
 
 ## 自检
@@ -226,7 +245,7 @@ CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
 | 平台 | 状态 |
 | --- | --- |
 | Linux（WebKitGTK） | **已实机跑通**：菜单、副标题、AI 流式（markdown 气泡、工具行、审批卡）、AI 设置页（改配置即时生效 + 测试连通）、笔记增删改查重命名、最近打开、侧栏可调宽；沙盒自检 **68 PASS / 0 FAIL**、单文件产物启动同样取证过 |
-| Windows（WebView2） | **已实机跑通首验（2026-10-21）**：窗口与页面、`Ctrl+O` 打开笔记、视图菜单三态与行号开关勾选回写、6 个插件装配正常；**随包 cjh 自动拉起**（`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`）、页面 ws 连上（`CJH ws connected ws://127.0.0.1:8765/ws`）、`/api/health` → 200。副标题能力位为 0，按设计回落页面顶栏。**尚缺**：Windows 侧的页面自检（`CJNOTE_SELFCHECK=1`）与单文件打包产物取证 |
+| Windows（WebView2） | **已实机跑通（2026-10-21）**：窗口与页面、`Ctrl+O` 打开笔记、视图菜单三态与行号开关勾选回写、6 个插件装配正常；**随包 cjh 自动拉起**（`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`）、页面 ws 连上（`CJH ws connected ws://127.0.0.1:8765/ws`）、`/api/health` → 200。副标题能力位为 0，按设计回落页面顶栏。**单文件形态同样取证**：`cjnote.exe` 34.1 MB、GUI 子系统、导入表只有系统 DLL；干净目录双击等价启动 → `cjh` 从 `%LOCALAPPDATA%\cjnote\runtime\` 自行释放拉起、`8765` LISTENING、页面 ws 连上，且 `cjh` 无窗口（`MainWindowHandle=0`）、可见控制台窗口 **0** 个。**尚缺**：Windows 侧的页面自检（`CJNOTE_SELFCHECK=1`） |
 
 ## 相关文档
 

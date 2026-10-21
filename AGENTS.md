@@ -26,7 +26,7 @@
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
    当前 294 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，221 项断言，不依赖 SDK / 图形栈），入口是
+   （`native/tests/test_bridge_core.c`，228 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
    实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
@@ -66,6 +66,14 @@
   （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；
   菜单/状态改动走应用层 API（`setMenu(To)` / `setMenuItemState*`），别再直接调宿主——应用层要用
   留存的模型补齐「另一维状态」。
+- **宿主无关的进程工具：后台静默子进程 `launchHidden()`（`src/process_hidden.cj`）**——应用产物是 GUI
+  子系统、父进程没有控制台，用 `std.process.launch` 起**控制台程序**（cjh / ffmpeg 这类 CLI）会让 Windows
+  给子进程配一个控制台窗口；这条走 C 桥（Windows = `CreateProcessW` + `DETACHED_PROCESS` + 三个标准句柄
+  指 NUL；**不要用 `CREATE_NO_WINDOW`**——它只是不显示，子进程仍持有一个隐藏 console、conhost 照样挂，
+  Linux = `posix_spawn` + 自成会话 + `/dev/null`），只留 pid 凭据（`isAlive()` / `stop()` 按 pid 走，
+  Windows 的进程句柄当场关掉不占句柄表）。代价是**拿不到子进程的 stdout / stderr**，要读输出得另走管道。
+  分工照老规矩：导出在 core（`cj_bridge_spawn_hidden` / `cj_bridge_kill_pid` / `cj_bridge_pid_alive`，
+  两平台同名同签名），分叉只在 `cj_plat_*` 原语里（原语清单 24 个）。
 - **插件 JS 的注入通道**：`Plugin.jsShim()` 由 `pluginInitScripts()` 收成「一个插件一段」，
   经 `WebViewHost.addInitScript()` 交给宿主，桥在 document-start 注入（排在 `BRIDGE_JS` 之后）。
   必须在 `start()` / `startUrl()` 之前注册；**不要再往 HTML 字符串里拼 `<script>` 注入 shim**——
@@ -364,6 +372,18 @@
   `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`）。
   打包用 `scripts/pack-win.sh`（已覆盖这两个），别手工抄 DLL 清单（实测 2026-10-06：`examples/movie`
   的便携包第一版就是这么挂的）。
+- **静态库里的资源对象不会被链接器取出来：`.rsrc` 节消失、体积也不涨**（2026-10-21 实测，cjnote 单文件）：
+  `pack_assets.o`（windres 产出的资源对象）没有任何符号被引用，`ar rcs` 进 `libcjtbridge.a` 之后
+  链接器按需提取、根本不会碰它——产物照旧 `build success`、`objdump -h` 里连 `.rsrc` 一节都没有，
+  表象是「资源明明嵌了却没生效」（运行期找不到 cjh，页面照旧「AI 后端未就绪」）。判据就是**看节表**：
+  `objdump -h app.exe | grep -c rsrc` 必须 ≥ 1 且尺寸对得上（cjnote 是 `0x162df20` ≈ 22.2 MB，
+  未 strip 产物 56.3 MB → strip 后 32.6 MB）。落法是**把 .o 当链接输入直接给 ld.lld**——打包器生成
+  `link-option` 时拼上它的盘符路径，别指望静态库替它担保。
+- **`llvm-rc` 不认字符串资源名，只能用数字 ID**：rc 里写 `"cjh.exe" RCDATA "…"` 报
+  `llvm-rc: Error parsing file: expected int or identifier, got "cjh.exe"`（windres 的后端就是 llvm-rc）。
+  于是「资源名即文件名」这条路走不通——桥改由打包器生成的 `pack_assets_map.h`（ID → 文件名）驱动，
+  编桥时带 `-DCJ_PACK_ASSETS_EMBEDDED` 才包含它；桥因此依旧不认识应用的任何文件名，打包器放什么就释放什么。
+  释放目录由应用给（cjnote 是 `%LOCALAPPDATA%\cjnote\runtime`，**不放 `%TEMP%`**：会被清理，等于每次重解几十 MB）。
 - **单文件包（`scripts/pack-win-single.sh`）里 loader 必须内嵌释放，不能静态链**：SDK 的
   `WebView2LoaderStatic.lib` 是 MSVC 编的，要 `/GS` 的 `__security_cookie` 与 C++ 运行时符号
   （`?nothrow@std@@`、`_Init_thread_epoch` …），mingw 实测链接失败
@@ -497,6 +517,17 @@
   与框架代码无关，gdb 里一眼可见）。`onDestroy` 仍由 `destroy` 信号触发一次，收尾里那次是幂等兜底。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
+- **GUI 子系统 + 控制台子进程 = 桌面上那个黑窗口**（2026-10-21 实测，`examples/cjnote` 拉起 cjh）：
+  应用产物是 `--subsystem=windows`、**没有控制台**，用 `std.process.launch` 起一个控制台子系统的程序，
+  Windows 会给**子进程**单独配一个控制台窗口——用户看到的是「点一下按钮，旁边蹦出一个黑窗口」，
+  而 stderr 里一行错误都没有（进程起得好好的，只是多了一扇窗）。`launch` 的签名没有创建标志可传，
+  所以只能走框架的 `launchHidden()`（`CreateProcessW` + `DETACHED_PROCESS`），并且**顺手把三个标准句柄
+  显式指到 NUL**：没有控制台时它们是无效句柄，控制台程序一 println（cjh 启动就打 banner）可能直接死在
+  自己的控制台上。`SW_HIDE` 不算解法——它只是「先建再藏」，窗口会先闪一下。
+  **判据要 A/B 两个读数**：① 数可见的 `ConsoleWindowClass` 窗口（同一份二进制，只差创建标志：
+  不给标志 1 → 2 个，新增那只的 pid 就是子进程）；② `Get-Process <名> | MainWindowHandle`
+  （隐藏那轮 = 0、弹出那轮非 0）。**先拿一个有窗口的进程（应用自己）校准一遍**，否则「读数为 0」
+  完全可能是这个指标本来就恒 0——与「过滤器本身也会骗人」同族。
 - **平台没有 C 桥时，「不带 `@When` 的核心包 `foreign func`」会留成未解析符号，表现是应用一启动就没**
   （2026-10-18 鸿蒙 ArkWeb 首轮实测：白屏三轮、误判成「静态包硬链进动态根包导致 init 卡死」）：
   `src/log_bridge.cj` 原本**故意**不写 `@When`（桌面两平台同名导出、实现只有 `native/core/bridge_core.c` 一份），

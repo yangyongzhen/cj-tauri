@@ -2896,3 +2896,325 @@ int cj_plat_serial_list(char *out, int out_len) {
     out[pos] = '\0';
     return count;
 }
+
+/* ===== 静默子进程（cj_plat_spawn_hidden / kill / alive 的平台层）=====
+   为什么是 DETACHED_PROCESS 而不是 SW_HIDE / CREATE_NO_WINDOW：
+   - SW_HIDE 只是「先建出来再藏起来」，控制台窗口会先闪一下；
+   - CREATE_NO_WINDOW 不显示窗口，但子进程**仍然拥有一个控制台对象**，conhost.exe 照样为它挂一个
+     隐藏的 console 宿主（`GetConsoleWindow` 非空、进程树里多一个 conhost）；
+   - DETACHED_PROCESS 让子进程**根本没有控制台**，连隐藏的都不创建。
+   后台服务进程（cjh 这类）要的就是最后这一种：它不需要 console，也不该让用户看见任何窗口。
+   代价是它的标准 I/O 没有去处——没有控制台时那三个句柄是无效值，而控制台程序（cjh 启动第一件事
+   就是打 banner）一 println 就可能死在自己的控制台上，所以三个句柄显式指到 NUL。诊断仍在父进程
+   的 stderr 上，「诊断输出走 stderr」的约定不受影响（AGENTS §4）。 */
+
+/* 按 CommandLineToArgvW 的规则给一个参数加引号：只在含空格 / 制表 / 引号时才加；加引号时，
+   引号前 n 个反斜杠要变 2n+1 个、结尾 n 个要变 2n 个——否则 `C:\dir\` 这种尾部反斜杠会把收尾
+   引号转义掉、参数被吃掉。UTF-8 逐字节处理是安全的：要判的字符都 < 0x80，多字节序列的每个字节
+   都 ≥ 0x80，不会误判。缓冲容量最坏情况是「每个字节都翻倍 + 两个引号」。 */
+static int append_quoted_arg(char *buf, size_t cap, size_t *len, const char *s, size_t n) {
+    size_t i, k, bs = 0;
+    int need = 0;
+
+    for (i = 0; i < n; i++) {
+        char c = s[i];
+        if (c == ' ' || c == '\t' || c == '"') {
+            need = 1;
+            break;
+        }
+    }
+    if (*len + n * 2 + 4 > cap) return 0;
+    if (!need) {
+        if (n) memcpy(buf + *len, s, n);
+        *len += n;
+        return 1;
+    }
+    buf[(*len)++] = '"';
+    for (i = 0; i < n; i++) {
+        char c = s[i];
+        if (c == '\\') {
+            bs++;
+            continue;
+        }
+        if (c == '"') {
+            for (k = 0; k < bs * 2 + 1; k++) buf[(*len)++] = '\\';
+            buf[(*len)++] = '"';
+        } else {
+            for (k = 0; k < bs; k++) buf[(*len)++] = '\\';
+            buf[(*len)++] = c;
+        }
+        bs = 0;
+    }
+    for (k = 0; k < bs * 2; k++) buf[(*len)++] = '\\'; /* 结尾反斜杠翻倍，别把收尾引号吃了 */
+    buf[(*len)++] = '"';
+    return 1;
+}
+
+/* 拼命令行：argv[0] = 程序路径（带引号），后面是把 \x1f 切开的参数。 */
+static wchar_t *build_cmdline_wide(const char *exe, const char *args) {
+    size_t elen = strlen(exe);
+    size_t alen = args ? strlen(args) : 0;
+    size_t cap = (elen + alen) * 2 + 64;
+    size_t len = 0;
+    char *buf = (char *)malloc(cap);
+    wchar_t *w;
+
+    if (!buf) return NULL;
+    if (!append_quoted_arg(buf, cap, &len, exe, elen)) {
+        free(buf);
+        return NULL;
+    }
+    if (alen > 0) {
+        const char *p = args;
+        while (*p) {
+            const char *q = strchr(p, 0x1f);
+            size_t seg = q ? (size_t)(q - p) : strlen(p);
+            if (len + 1 >= cap) {
+                free(buf);
+                return NULL;
+            }
+            buf[len++] = ' ';
+            if (!append_quoted_arg(buf, cap, &len, p, seg)) {
+                free(buf);
+                return NULL;
+            }
+            if (!q) break;
+            p = q + 1;
+        }
+    }
+    buf[len] = '\0';
+    w = utf8_to_wide(buf);
+    free(buf);
+    return w;
+}
+
+long long cj_plat_spawn_hidden(const char *exe, const char *args, char *err, int err_len) {
+    wchar_t *wexe, *wcmd;
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    SECURITY_ATTRIBUTES sa;
+    HANDLE hNul = INVALID_HANDLE_VALUE;
+    BOOL ok;
+
+    if (!exe || !*exe) {
+        serial_err(err, err_len, "spawn hidden: 程序路径为空");
+        return 0;
+    }
+    wexe = utf8_to_wide(exe);
+    wcmd = build_cmdline_wide(exe, args);
+    if (!wexe || !wcmd) {
+        free(wexe);
+        free(wcmd);
+        serial_err(err, err_len, "spawn hidden: UTF-8 转 UTF-16 / 拼命令行失败");
+        return 0;
+    }
+    ZeroMemory(&sa, sizeof(sa));
+    sa.nLength = (DWORD)sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    hNul = CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       &sa, OPEN_EXISTING, 0, NULL);
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    if (hNul != INVALID_HANDLE_VALUE) {
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = hNul;
+        si.hStdOutput = hNul;
+        si.hStdError = hNul;
+    }
+    ZeroMemory(&pi, sizeof(pi));
+    /* DETACHED_PROCESS：完全不给子进程 console（见本段开头，连隐藏的都不建）；
+       CREATE_NEW_PROCESS_GROUP：让它不受父进程 Ctrl-C 的影响。 */
+    ok = CreateProcessW(wexe, wcmd, NULL, NULL, TRUE,
+                        DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, NULL, NULL, &si, &pi);
+    if (hNul != INVALID_HANDLE_VALUE) CloseHandle(hNul);
+    free(wexe);
+    free(wcmd);
+    if (!ok) {
+        serial_err(err, err_len, "spawn hidden: CreateProcessW 失败（GetLastError=%lu）",
+                   (unsigned long)GetLastError());
+        return 0;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return (long long)pi.dwProcessId;
+}
+
+/* 幂等口径：进程已经不在了算成功（调用方只是想让它结束）。 */
+int cj_plat_kill_pid(long long pid) {
+    HANDLE h;
+    DWORD wr;
+
+    if (pid <= 0) return 0;
+    h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, (DWORD)pid);
+    if (!h) {
+        /* 打不开基本就是已经不在了（或不是我们有权碰的进程）：按「已结束」上报，幂等 */
+        fprintf(stderr, "[cj-bridge] kill pid %lld: OpenProcess 失败（%lu），按已退出处理\n", pid,
+                (unsigned long)GetLastError());
+        return 1;
+    }
+    if (!TerminateProcess(h, 0)) {
+        fprintf(stderr, "[cj-bridge] kill pid %lld: TerminateProcess 失败（%lu）\n", pid,
+                (unsigned long)GetLastError());
+        CloseHandle(h);
+        return 0;
+    }
+    wr = WaitForSingleObject(h, 3000);
+    CloseHandle(h);
+    if (wr == WAIT_TIMEOUT) {
+        fprintf(stderr, "[cj-bridge] kill pid %lld: 3s 内没等到退出\n", pid);
+        return 0;
+    }
+    return 1;
+}
+
+int cj_plat_pid_alive(long long pid) {
+    HANDLE h;
+    DWORD code = 0;
+
+    if (pid <= 0) return 0;
+    /* 打不开＝已经不在了（或不是我们有权碰的进程）：按「不在」上报，调用方据此重新拉起 */
+    h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+    if (!h) return 0;
+    if (!GetExitCodeProcess(h, &code)) {
+        CloseHandle(h);
+        return 0;
+    }
+    CloseHandle(h);
+    return (code == STILL_ACTIVE) ? 1 : 0;
+}
+
+/* ===== 内嵌资源释放（cj_plat_extract_assets 的平台层）=====
+   单文件包（scripts/pack-win-single.sh）把随包的外部程序与它的依赖 DLL 作为 RT_RCDATA 资源嵌进
+   exe，这里运行期取出来写盘——cjh 这种独立程序没法静态链接进来。
+
+   表从哪来：打包器同时生成 `pack_assets_map.h`（资源 ID -> 释放出来的文件名），编桥时带
+   `-DCJ_PACK_ASSETS_EMBEDDED` 才会包含它。普通构建（包括 native/build_win.bat 编的动态桥）
+   没有这个宏、也就没有表，函数如实返回 0 =「这个产物里没有内嵌资源」——不假装释放成功。
+
+   为什么不是「按资源名枚举」：资源名只能用数字 ID，因为 llvm-rc 不认字符串资源名（实测
+   `expected int or identifier, got "cjh.exe"`），而数字 ID 本身说不出文件名。
+
+   幂等：目标已存在且大小与资源一致就跳过。几十 MB 的资源每次启动重写一遍是不可接受的。
+   写文件用宽字符 API（CreateFileW / GetFileAttributesExW），不碰 CRT 的新旧方言。 */
+
+#ifdef CJ_PACK_ASSETS_EMBEDDED
+#include "pack_assets_map.h"
+
+static int cj_asset_size_w(const wchar_t *path, long long *out) {
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fa)) return 0;
+    if (fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return 0;
+    *out = ((long long)fa.nFileSizeHigh << 32) | (long long)fa.nFileSizeLow;
+    return 1;
+}
+
+static int cj_asset_write_w(const wchar_t *path, const void *data, DWORD size) {
+    HANDLE h;
+    const BYTE *p = (const BYTE *)data;
+    DWORD left = size;
+    DWORD done = 0;
+
+    h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    while (left > 0) {
+        if (!WriteFile(h, p, left, &done, NULL) || done == 0) {
+            CloseHandle(h);
+            return 0;
+        }
+        p += done;
+        left -= done;
+    }
+    CloseHandle(h);
+    return 1;
+}
+#endif
+
+int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
+#ifdef CJ_PACK_ASSETS_EMBEDDED
+    wchar_t *wdir;
+    wchar_t dst[1024];
+    size_t i;
+    size_t count = sizeof(CJ_PACK_ASSETS) / sizeof(CJ_PACK_ASSETS[0]);
+    int ready = 0;
+
+    if (err && err_len > 0) err[0] = '\0';
+    if (!dir || !*dir) {
+        serial_err(err, err_len, "extract assets: 目录为空");
+        return -1;
+    }
+    wdir = utf8_to_wide(dir);
+    if (!wdir) {
+        serial_err(err, err_len, "extract assets: UTF-8 转 UTF-16 失败");
+        return -1;
+    }
+    /* 已存在算成功；多级目录由调用方（仓颉侧）先建好——桥不该替应用决定目录层级 */
+    CreateDirectoryW(wdir, NULL);
+    for (i = 0; i < count; i++) {
+        const char *name = CJ_PACK_ASSETS[i].name;
+        HRSRC hres;
+        HGLOBAL hg;
+        DWORD size;
+        const void *data;
+        wchar_t *wname;
+        long long have = 0;
+
+        if (!name || !*name) continue;
+        /* 名字来自编译期生成的表、不是外部输入，这条只是兜底：不含分隔符就不会写到目录外 */
+        if (strchr(name, '\\') || strchr(name, '/') || strchr(name, ':')) {
+            serial_err(err, err_len, "资源名不合法（%s），已跳过", name);
+            continue;
+        }
+        hres = FindResourceW(NULL, MAKEINTRESOURCEW(CJ_PACK_ASSETS[i].id), RT_RCDATA);
+        if (!hres) {
+            serial_err(err, err_len, "找不到内嵌资源（%s）", name);
+            continue;
+        }
+        size = SizeofResource(NULL, hres);
+        hg = LoadResource(NULL, hres);
+        if (!hg) {
+            serial_err(err, err_len, "LoadResource 失败（%s）", name);
+            continue;
+        }
+        data = LockResource(hg);
+        if (!data) {
+            serial_err(err, err_len, "LockResource 失败（%s）", name);
+            continue;
+        }
+        wname = utf8_to_wide(name);
+        if (!wname) {
+            serial_err(err, err_len, "文件名 UTF-8 转 UTF-16 失败（%s）", name);
+            continue;
+        }
+        if (wcslen(wdir) + 1 + wcslen(wname) + 1 > (sizeof(dst) / sizeof(dst[0]))) {
+            serial_err(err, err_len, "目标路径过长（%s）", name);
+            free(wname);
+            continue;
+        }
+        lstrcpyW(dst, wdir);
+        lstrcatW(dst, L"\\");
+        lstrcatW(dst, wname);
+        free(wname);
+        if (cj_asset_size_w(dst, &have) && have == (long long)size) {
+            ready++; /* 已经在盘上且大小一致：不重写 */
+            continue;
+        }
+        if (!cj_asset_write_w(dst, data, size)) {
+            serial_err(err, err_len, "写盘失败（%s，GetLastError=%lu）", name,
+                       (unsigned long)GetLastError());
+            continue;
+        }
+        ready++;
+    }
+    free(wdir);
+    return ready;
+#else
+    (void)dir;
+    (void)err;
+    (void)err_len;
+    return 0; /* 普通构建没有内嵌资源——如实回报，调用方据此走 vendor 目录 */
+#endif
+}
+

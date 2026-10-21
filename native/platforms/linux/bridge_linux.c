@@ -25,6 +25,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
+#include <spawn.h>
 #include <stdarg.h>
 #include <sys/types.h>
 #include <termios.h>
@@ -2359,3 +2361,100 @@ int cj_plat_notification_notify(cj_host *h, const char *title, const char *body,
     g_variant_unref(result);
     return 0;
 }
+
+/* ===== 静默子进程（cj_plat_spawn_hidden / kill / alive 的平台层）=====
+   Linux 没有「控制台窗口」这回事，但同样得脱开终端：自成会话 + 独立进程组之后，终端 Ctrl-C
+   （SIGINT 发给前台进程组）不会连带打死它；标准 I/O 指到 /dev/null——父进程的终端随时可能消失，
+   子进程往一个已经关掉的 pty 写就是 SIGPIPE。
+
+   用 posix_spawn 而不是 fork + exec：它把「exec 失败」**同步**报给父进程（fork 那条只能让子进程
+   自己 _exit，失败原因父进程永远拿不到），正好喂给 err 缓冲。 */
+
+long long cj_plat_spawn_hidden(const char *exe, const char *args, char *err, int err_len) {
+    posix_spawn_file_actions_t fa;
+    posix_spawnattr_t attr;
+    char *copy = NULL;
+    char *argv[64];
+    int n = 0;
+    int rc;
+    pid_t pid = 0;
+    short flags = POSIX_SPAWN_SETPGROUP; /* 自成进程组：终端 Ctrl-C 不连带打死 */
+
+    if (!exe || !*exe) {
+        serial_err(err, err_len, "spawn hidden: 程序路径为空");
+        return 0;
+    }
+    argv[n++] = (char *)exe;
+    if (args && *args) {
+        char *p;
+        copy = strdup(args);
+        if (!copy) {
+            serial_err(err, err_len, "spawn hidden: out of memory");
+            return 0;
+        }
+        p = copy;
+        while (*p && n < 63) {
+            char *q = strchr(p, 0x1f);
+            if (q) *q = '\0';
+            argv[n++] = p;
+            if (!q) break;
+            p = q + 1;
+        }
+    }
+    argv[n] = NULL;
+
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDWR, 0);
+    posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_RDWR, 0);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_RDWR, 0);
+    posix_spawnattr_init(&attr);
+#ifdef POSIX_SPAWN_SETSID
+    flags = (short)(flags | POSIX_SPAWN_SETSID);
+#endif
+    posix_spawnattr_setflags(&attr, flags);
+    rc = posix_spawn(&pid, exe, &fa, &attr, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    posix_spawnattr_destroy(&attr);
+    free(copy);
+    if (rc != 0) {
+        serial_err(err, err_len, "spawn hidden: posix_spawn 失败（%s）", strerror(rc));
+        return 0;
+    }
+    return (long long)pid;
+}
+
+/* 幂等口径：进程已经不在了算成功（调用方只是想让它结束）。 */
+int cj_plat_kill_pid(long long pid) {
+    int i;
+
+    if (pid <= 0) return 0;
+    if (kill((pid_t)pid, SIGTERM) != 0) {
+        if (errno == ESRCH) return 1; /* 已经不在了 */
+        fprintf(stderr, "[cj-bridge] kill pid %lld: SIGTERM 失败（%s）\n", pid, strerror(errno));
+        return 0;
+    }
+    /* 给 3 秒走完收尾（与 Windows 侧同口径），到点还在就补一刀 SIGKILL */
+    for (i = 0; i < 30; i++) {
+        usleep(100 * 1000);
+        if (kill((pid_t)pid, 0) != 0 && errno == ESRCH) return 1;
+    }
+    fprintf(stderr, "[cj-bridge] kill pid %lld: 3s 内没等到退出，补 SIGKILL\n", pid);
+    kill((pid_t)pid, SIGKILL);
+    return 1;
+}
+
+int cj_plat_pid_alive(long long pid) {
+    if (pid <= 0) return 0;
+    return (kill((pid_t)pid, 0) == 0) ? 1 : 0;
+}
+
+/* ===== 内嵌资源释放（cj_plat_extract_assets 的平台层）=====
+   Linux 侧的单文件产物是 ELF、随包资源走打包脚本各自的机制，不在 PE 资源这条路上，所以这里
+   如实返回 0 =「这个产物里没有内嵌资源」。**不要**假装释放成功：调用方据此降级，谎报只会让它
+   去找一个并不存在的文件。 */
+int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
+    (void)dir;
+    if (err && err_len > 0) err[0] = '\0';
+    return 0;
+}
+

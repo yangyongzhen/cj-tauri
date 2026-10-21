@@ -11,7 +11,7 @@
 
 ### Added
 
-- **新增示例 `examples/cjnote`：AI 原生 Markdown 笔记**（从 [cjnote](https://gitcode.com/qq8864/cjnote) 移植进仓，
+- **新增示例 `examples/cjnote`：AI 原生 Markdown 笔记**（从 [cjnote](https://atomgit.com/qq8864/cjnote) 移植进仓，
   随上游 `52c5afd` 同步）：三栏（笔记库 / CodeMirror 编辑 / AI 助手），笔记就是工作区 `notes/` 下的纯 `.md`；
   原生菜单（文件 / 视图 / 帮助）+ `setTitlebarSubtitle` 副标题（平台没这块能力位时回落页面顶栏）、视图三态与
   界面主题**与原生菜单勾选双向同步**、`Ctrl+O` 打开库外文件只进内存（首次保存才落成库里的新笔记，不改写磁盘原文件）、
@@ -532,6 +532,17 @@
 
 ### Fixed
 
+- **修：`examples/cjnote` 在 Windows 上永远拉不起随包 cjh，界面一直显示「AI 后端未就绪」**（2026-10-21 首验抓到）：
+  `cjhBinCandidates()` 是一张**不分平台**的候选表，`vendor/cjh/bin/linux-x64/cjh` 排在 `windows-x64/cjh.exe` 前面，
+  而 Windows 的 `fileReadable` 对 ELF 同样回 true（它只是个「能打开的文件」），于是应用拿 Linux 那份去 `launch`，
+  报 `ProcessException: Created process failed … The system cannot find the file specified`。
+  **真因不是文件不存在**：`CreateProcess` 对**不带扩展名的名字会自动补 `.exe`**，它去找的是 `linux-x64/cjh.exe`；
+  三个「看起来像」的嫌疑已用探针排除——`launch()` 的相对路径写法（console / GUI 子系统各编一份都成功）、
+  以及从 `spawn` 轻量线程里调用（同样成功），所以问题只在候选表的平台顺序。修法是把候选表按平台拆成
+  `cjhPlatformCandidates()` + `@When[os == "Windows"]` / `@When[os != "Windows"]`（AGENTS §2 的平台差异口径），
+  环境变量 `CJNOTE_CJH` 的优先级不变；失败日志补上实际用的 bin（`启动 cjh web 失败（${bin}）：…`），
+  下次同类问题一眼能看出挑的是哪份。Windows 首验取证：`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`、
+  页面 `CJH ws connected ws://127.0.0.1:8765/ws`、`/api/health` → 200。
 - **`examples/cjnote` 设置页在「从没跑过 cjh」的机器上保存必然失败**：那种机器上 `~/.cjh` 整个目录都不存在，
   而 `File.writeTo` 只建文件、不建目录——报的是 `写配置失败 …/.cjh/settings.json：FSException`。
   修法是在写盘前补一次建目录，且**必须带存在性判断**：目录已存在时 `Directory.create` 会抛

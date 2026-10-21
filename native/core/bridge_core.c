@@ -1602,3 +1602,25 @@ CJ_BRIDGE_API int cj_bridge_extract_assets(const char *dir) {
     return n;
 }
 
+/* 预加载动态库：core 只做参数校验与错误出口，LoadLibrary/dlopen 是平台原语。
+   为什么要它见头文件同名段落（2026-10-21：单文件包在别人的机器上连明文 ws:// 都挂在
+   `Can not load openssl library or function RAND_bytes.`——运行时的随机数默认走 OpenSSL，
+   而它按裸名找 DLL，只有开发机的 PATH 恰好有 Git 自带那份）。 */
+CJ_BRIDGE_API int cj_bridge_preload_library(const char *path) {
+    char err[512];
+    int ok;
+
+    err[0] = '\0';
+    if (!path || !*path) {
+        cj_logf("[cj-bridge] preload library: 路径为空\n");
+        return 0;
+    }
+    ok = cj_plat_preload_library(path, err, (int)sizeof(err));
+    if (ok <= 0) {
+        cj_logf("[cj-bridge] preload 失败（%s）：%s\n", path, err[0] ? err : "平台没有给出原因");
+        return 0;
+    }
+    cj_logf("[cj-bridge] preload: %s\n", path);
+    return 1;
+}
+

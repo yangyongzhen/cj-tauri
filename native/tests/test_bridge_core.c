@@ -424,6 +424,17 @@ int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
     return 0; /* 普通产物没有内嵌资源——如实回报 */
 }
 
+/* ===== 动态库预加载桩：桩平台不去真加载库，只让 core 的「空路径拒绝 / 失败出口」可断言。
+   真加载那条路（Windows 的 LoadLibraryW / Linux 的 dlopen）由平台实机验证。 ===== */
+int cj_plat_preload_library(const char *path, char *err, int err_len) {
+    if (err && err_len > 0) err[0] = '\0';
+    if (path && strcmp(path, "stub-broken") == 0) {
+        if (err && err_len > 0) snprintf(err, (size_t)err_len, "桩平台：加载失败");
+        return 0;
+    }
+    return 1; /* 其余一律算加载成功（core 只关心 0 / 非 0 与日志） */
+}
+
 /* ===== 线路解析的回调收集器（菜单是树，桩侧用一张表记录 core 走出来的每一行）===== */
 
 typedef struct row_rec {

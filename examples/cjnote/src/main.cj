@@ -31,7 +31,13 @@ public class ReportCommand <: CommandHandler {
         let _ = ipc
         if (let Some(line) <- args.get("line")) {
             match (line.kind()) {
-                case JsonKind.JsString => eprintln("[frontend] " + line.asString().getValue())
+                case JsonKind.JsString =>
+                    // **一条通道就够**：开了日志文件之后 `cj_bridge_set_log_file` 会 `dup2(fd, 2)`，
+                    // stderr 整体重定向进日志文件，eprintln 自然落盘。2026-10-21 实测同时再调一次
+                    // `writeLogLine` 会让同一行在文件里出现两次，且两条写入路径（fd 2 与桥自己的
+                    // `cj_logf`）没有共用缓冲，行会互相咬在一起（`PASS x[cj-bridge] js -> native`）。
+                    let text = "[frontend] " + line.asString().getValue()
+                    eprintln(text)
                 case _ => ()
             }
         }
@@ -344,6 +350,12 @@ main(): Int64 {
     let noteCmds = NoteCommands(NoteStore("notes"))
 
     let app = TauriApp()
+        // 日志落盘（RFC-003 第 5 期）**越早越好**，且必须早于 run()：产物是 GUI 子系统，
+        // 双击运行时没有控制台，报障时唯一能拿到的凭证就是这份文件——
+        // Windows `%LOCALAPPDATA%\cj-tauri\logs\cjnote.log`（`CJ_TAURI_LOG` 可改路径）。
+        // 落盘靠桥在打开文件时 `dup2(fd, 2)` 接管 stderr，所以仓颉侧 `eprintln` 与 C 桥的行**同进一份文件**；
+        // 别在 eprintln 之后再调 `writeLogLine`（两条写入路径各写一次 → 同一行重复且互相咬行）。
+        .setLogToDefaultFile("cjnote")
         .window(WindowConfig("cjnote — AI 笔记", 1280, 800))
         .plugin(StorePlugin())
         .plugin(HttpPlugin())

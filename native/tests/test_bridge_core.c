@@ -386,6 +386,44 @@ int cj_plat_serial_list(char *out, int out_len) {
     return 0;
 }
 
+/* ===== 静默子进程桩：桩平台建不了真进程，只为让 core 的**参数校验与转发**可调可断言 =====
+   真进程那条路（Windows 的 DETACHED_PROCESS / Linux 的 posix_spawn）由平台实机验证。 */
+long long cj_plat_spawn_hidden(const char *exe, const char *args, char *err, int err_len) {
+    (void)args;
+    if (err && err_len > 0) {
+        err[0] = '\0';
+    }
+    /* 只认一个哨兵：命中就给个假 pid，其余回 0 并留一句原因（两条分支 core 都要覆盖） */
+    if (exe && strcmp(exe, "stub-ok") == 0) {
+        return 4242;
+    }
+    if (err && err_len > 0) {
+        snprintf(err, (size_t)err_len, "stub: 不能建进程");
+    }
+    return 0;
+}
+
+int cj_plat_kill_pid(long long pid) {
+    (void)pid;
+    return 1; /* 幂等口径：桩上一律算「已结束」 */
+}
+
+int cj_plat_pid_alive(long long pid) {
+    (void)pid;
+    return 0; /* 桩平台没有真进程 */
+}
+
+/* ===== 内嵌资源桩：桩平台没有 PE 资源表，如实返回 0 或留一句原因，
+   让 core 的三条分支（参数校验 / 无资源 / 失败）都能在无 SDK 的机器上被断言。 ===== */
+int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
+    if (err && err_len > 0) err[0] = '\0';
+    if (dir && strcmp(dir, "stub-missing") == 0) {
+        if (err && err_len > 0) snprintf(err, (size_t)err_len, "桩平台：没有内嵌资源");
+        return -1;
+    }
+    return 0; /* 普通产物没有内嵌资源——如实回报 */
+}
+
 /* ===== 线路解析的回调收集器（菜单是树，桩侧用一张表记录 core 走出来的每一行）===== */
 
 typedef struct row_rec {
@@ -1140,6 +1178,30 @@ int main(void) {
         fprintf(stderr, "  - [bridge-core] stderr 已还原（日志用例期间的失败行如下，无输出即全过）\n");
         if (g_log_fail_buf[0]) fprintf(stderr, "%s", g_log_fail_buf);
         CHECK(cj_test_read_all(path, buf, sizeof(buf)) > 0, "还原后仍能读日志文件");
+    }
+
+    /* ===== 静默子进程：core 侧的校验与转发（真进程由平台原语负责，实机验证） ===== */
+    {
+        case_begin("spawn hidden");
+        CHECK(cj_bridge_spawn_hidden(NULL, "") == 0, "spawn_hidden(NULL) 被拒");
+        CHECK(cj_bridge_spawn_hidden("", "") == 0, "spawn_hidden 空路径被拒");
+        CHECK(cj_bridge_spawn_hidden("stub-ok", "a\x1f" "b") == 4242,
+              "参数串按 0x1F 分隔转发给平台，pid 原样回给上层");
+        CHECK(cj_bridge_spawn_hidden("stub-no", "") == 0, "平台失败时 core 回 0（绝不谎报 pid）");
+        CHECK(cj_bridge_kill_pid(0) == 0, "kill_pid(0) 被拒");
+        CHECK(cj_bridge_kill_pid(-5) == 0, "kill_pid(负数) 被拒");
+        CHECK(cj_bridge_pid_alive(0) == 0, "pid_alive(0) 恒为 0（不落到平台原语）");
+    }
+
+    /* ===== 内嵌资源释放：单文件包随包资源（core 负责校验与错误出口） ===== */
+    {
+        case_begin("extract assets");
+        CHECK(cj_bridge_extract_assets(NULL) == -1, "extract_assets(NULL) 被拒");
+        CHECK(cj_bridge_extract_assets("") == -1, "extract_assets 空目录被拒");
+        CHECK(cj_bridge_extract_assets("some/runtime/dir") == 0,
+              "没有内嵌资源的产物如实回 0（普通构建就是这样，不是错误）");
+        CHECK(cj_bridge_extract_assets("stub-missing") == -1,
+              "平台报错时 core 回 -1（绝不把失败说成 0 个文件）");
     }
 
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,

@@ -196,7 +196,7 @@ typedef struct cj_host {
 } cj_host;
 
 /* =========================================================================
- *  平台原语清单（每个平台实现一份，共 21 个）
+ *  平台原语清单（每个平台实现一份，共 24 个）
  * ========================================================================= */
 
 /* ---- 同步（Linux: pthread_mutex + pthread_cond / Windows: CS + CONDITION_VARIABLE）---- */
@@ -563,5 +563,44 @@ void cj_core_logf(const char *fmt, ...)
 #endif
     ;
 #define cj_logf(...) cj_core_logf(__VA_ARGS__)
+
+/* =========================================================================
+ *  静默子进程：后台启动控制台程序，与宿主 / 窗口无关（不带 cj_host）
+ *
+ *  为什么必须下沉到 C 桥：cj-tauri 应用都是 GUI 子系统（Windows 的 `--subsystem=windows`），
+ *  父进程**没有控制台**；此时拉起一个控制台子系统的子进程，Windows 会给它**单独配一个控制台
+ *  窗口**——用户看到的就是一个黑窗口。仓颉的 `std.process.launch` 没有创建标志可传，
+ *  所以这条只能在桥里做：Windows 走 `CreateProcessW` + `DETACHED_PROCESS`（连隐藏 console 都不建），
+ *  Linux 走 `fork` + `execv` + `setsid`（脱开终端，Ctrl-C 不连带打死）。
+ *
+ *  三个导出两平台同名同签名（AGENTS §2）：上层因此没有平台分叉的调用点。
+ * ========================================================================= */
+
+/* 静默启动：exe 是程序路径（UTF-8），args 是参数串（UTF-8，**以 0x1F 分隔**，空串 = 无参数）。
+   引号 / 空格由平台按各自规则转义，调用方**不要**自己加引号。
+   返回 pid（> 0）；失败返回 0，原因由平台写进 stderr（core 会再补一行带 exe 的上下文）。 */
+CJ_BRIDGE_API long long cj_bridge_spawn_hidden(const char *exe, const char *args);
+
+/* 终止该 pid（幂等：进程已经不在了也返回 1）。返回 1 = 已结束，0 = 无权 / 失败。 */
+CJ_BRIDGE_API int cj_bridge_kill_pid(long long pid);
+
+/* 该 pid 是否还活着：1 = 活着，0 = 已退出或查不到（**含没权限查**——按「不在」上报，
+   比谎报活着好：调用方据它决定要不要重新拉起）。 */
+CJ_BRIDGE_API int cj_bridge_pid_alive(long long pid);
+
+/* 把产物内嵌的资源释放到 dir（单文件包用：scripts/pack-win-single.sh 把随包的程序与依赖 DLL
+   作为 RT_RCDATA 资源嵌进 exe，资源名就是文件名）。
+   返回值：> 0 = 已就绪的文件数（本次释放的 + 本来就在的），0 = **产物里没有内嵌资源**
+   （普通构建、非单文件包都是这个），-1 = 参数为空或写盘失败（原因在 stderr）。
+   幂等：目标文件已存在且大小与资源一致就跳过——每次启动调它不会重写一份几十 MB 的资源。
+   目录由调用方给（桥不认识应用名）：典型是 %LOCALAPPDATA%\应用名\runtime。 */
+CJ_BRIDGE_API int cj_bridge_extract_assets(const char *dir);
+
+/* 平台原语（err 口径同其余原语：写不进就留空，core 会打「平台没有给出原因」）。
+   没有内嵌资源机制的平台如实返回 0，不假装成功。 */
+long long cj_plat_spawn_hidden(const char *exe, const char *args, char *err, int err_len);
+int cj_plat_kill_pid(long long pid);
+int cj_plat_pid_alive(long long pid);
+int cj_plat_extract_assets(const char *dir, char *err, int err_len);
 
 #endif /* CJ_BRIDGE_CORE_H */

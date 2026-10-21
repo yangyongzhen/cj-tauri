@@ -107,15 +107,63 @@ echo "[pack-single] 内嵌 WebView2Loader.dll（$LOADER_BYTES 字节）"
     printf '};\n'
 } > "$WORK/bridge/webview2_loader_embed.h"
 
+# ---------- ①a 随包资源：把**外部程序**（cjh 这类）作为 PE 资源嵌进 exe ----------
+# 单文件产物没有随行目录，而 cjh 是独立可执行程序 + 4 个运行时 DLL，既并不进静态库、也不在 PE
+# 导入表里，只能作为 RT_RCDATA 资源跟着 exe 走，运行期由桥取出来写盘
+# （native/platforms/windows/bridge_win.c 的 cj_plat_extract_assets）。
+# 清单：$EXAMPLE/pack-assets.txt，一行一个相对示例根的路径；没有这个文件 = 不嵌任何东西。
+# 资源名只能用**数字 ID**：llvm-rc 不认字符串资源名（实测
+# `llvm-rc: Error parsing file: expected int or identifier, got "cjh.exe"`），
+# 所以另生成一份「ID -> 文件名」的表交给桥，桥不认识应用的任何名字。
+PACK_ASSETS_LIST="$EXAMPLE/pack-assets.txt"
+RC_FILE="$WORK/bridge/pack_assets.rc"
+MAP_HDR="$WORK/bridge/pack_assets_map.h"
+ASSET_COUNT=0
+ASSET_NEXT_ID=1001
+: > "$RC_FILE"
+{
+    printf '/* 打包器生成：单文件产物内嵌的随包资源（资源 ID -> 释放出来的文件名）。不要手改。 */\n'
+    printf 'typedef struct {\n    int id;\n    const char *name;\n} CjPackAsset;\n'
+    printf 'static const CjPackAsset CJ_PACK_ASSETS[] = {\n'
+} > "$MAP_HDR"
+if [ -f "$PACK_ASSETS_LIST" ]; then
+    while IFS= read -r line; do
+        line="$(printf '%s' "$line" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        case "$line" in
+            '' | '#'*) continue ;;
+        esac
+        ASSET_SRC="$EXAMPLE/$line"
+        [ -f "$ASSET_SRC" ] || die "pack-assets.txt 里这一行指向的资产不存在: $ASSET_SRC"
+        # 正斜杠盘符形式：windres 是原生 Windows 程序，认 C:/...（cjpm.toml 同口径）
+        printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$(cygpath -m "$ASSET_SRC")" >> "$RC_FILE"
+        printf '    { %d, "%s" },\n' "$ASSET_NEXT_ID" "$(basename "$ASSET_SRC")" >> "$MAP_HDR"
+        ASSET_COUNT=$((ASSET_COUNT + 1))
+        ASSET_NEXT_ID=$((ASSET_NEXT_ID + 1))
+    done < "$PACK_ASSETS_LIST"
+fi
+printf '};\n' >> "$MAP_HDR"
+
+ASSET_OBJ=""
+EMBED_DEF=""
+if [ "$ASSET_COUNT" -gt 0 ]; then
+    command -v windres >/dev/null 2>&1 || die "需要 windres 编内嵌资源（llvm-mingw 自带）"
+    echo "[pack-single] 内嵌随包资源 $ASSET_COUNT 个（外部程序，静态链接进不来）"
+    # 用相对名而不是 $RC_FILE：windres 可能是原生 Windows 程序（llvm-mingw 自带那份），
+    # 它不认识 MSYS 的 /e/... 形式路径，报 "no such file or directory" 后 Preprocessing failed。
+    ( cd "$WORK/bridge" && windres -O coff -i pack_assets.rc -o pack_assets.o ) || die "windres 编译资源失败"
+    ASSET_OBJ="pack_assets.o"
+    EMBED_DEF="-DCJ_PACK_ASSETS_EMBEDDED"
+fi
+
 echo "[pack-single] 编译静态桥 libcjtbridge.a"
-# -I 要同时给两个目录：$WORK/bridge（本脚本刚生成的内嵌 loader 头）与 $NATIVE/core
+# -I 要同时给两个目录：$WORK/bridge（本脚本刚生成的内嵌 loader 头与资源表）与 $NATIVE/core
 # （bridge_core.h / bridge_js.h）。后者不能省——native/ 按平台重整后 bridge_win.c 在
 # platforms/windows/、bridge_core.h 在 core/，不再是同一目录，#include "..." 的同目录
 # 回落也就够不着了（实测报 `bridge_core.h file not found`）；native/build_win.bat 里的
 # `-Icore` 是同一件事。
-( cd "$WORK/bridge" && gcc -c -O2 -fstack-protector-all -DCJ_EMBED_WEBVIEW2_LOADER \
-    -I"$WORK/bridge" -I"$NATIVE/core" -I"$WEBVIEW2_INCLUDE" \
-    "$NATIVE/core/bridge_core.c" "$NATIVE/platforms/windows/bridge_win.c" && \
+( cd "$WORK/bridge" && gcc -c -O2 -fstack-protector-all -DCJ_EMBED_WEBVIEW2_LOADER $EMBED_DEF \
+    -I"$(to_win "$WORK/bridge")" -I"$(to_win "$NATIVE/core")" -I"$(to_win "$WEBVIEW2_INCLUDE")" \
+    "$(to_win "$NATIVE/core/bridge_core.c")" "$(to_win "$NATIVE/platforms/windows/bridge_win.c")" && \
     ar rcs libcjtbridge.a bridge_core.o bridge_win.o )
 BRIDGE_LIB="$WORK/bridge/libcjtbridge.a"
 [ -f "$BRIDGE_LIB" ] || die "静态桥编译失败"
@@ -215,6 +263,13 @@ echo "[pack-single] 生成内嵌资源：页面 ${#UI_B64} / three.js ${#THREE_B
 # 看到 /d/... 会当成「当前盘根目录下的 d 目录」）
 DEP_PATH="$(to_win "$ROOT")"
 BRIDGE_ARG="$(to_win "$BRIDGE_LIB")"
+# 资源对象必须**当链接输入直接给 ld.lld**，不能放进 libcjtbridge.a：静态库按需提取，
+# 资源对象没有任何符号引用，塞进去链接器根本不取——实测那样打出来的 exe 连 `.rsrc` 节
+# 都没有（体积也一点没涨），运行期 findCjhBin 找不到 cjh，页面照旧显示「AI 后端未就绪」。
+ASSET_LINK_ARG=""
+if [ -n "$ASSET_OBJ" ]; then
+    ASSET_LINK_ARG=" $(to_win "$WORK/bridge/pack_assets.o")"
+fi
 STDX_PATH="$(to_win "$STDX_STATIC")"
 
 cat > "$WORK/app/cjpm.toml" <<TOML
@@ -245,7 +300,7 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   # parameter: -mwindows\`），取值也只有 GNU 那套（console/windows/native/posix——写 \`gui\`
   # 会报 \`ld.lld: error: unknown subsystem: gui\`）。
   # 子系统只管「分不分配控制台」：从终端带重定向启动时 stderr 照旧落到文件，取证链路不变。
-  link-option = "$BRIDGE_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 --subsystem=windows"
+  link-option = "$BRIDGE_ARG$ASSET_LINK_ARG -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 --subsystem=windows"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["$STDX_PATH"]
@@ -261,15 +316,19 @@ BUILT="$WORK/app/target/release/bin/main.exe"
 
 SIZE_RAW="$(stat -c%s "$BUILT")"
 cp "$BUILT" "$EXE"
+# 原生 llvm 工具（strip / llvm-objcopy / objdump 都是 Windows 程序）只认 C:/ 形式路径：传 MSYS 的
+# /e/... 会得到 "No such file or directory"，而 strip 那条还被 2>/dev/null 吞掉，表象是「strip 失败
+# 但 exe 好端端的」。所以给它们单独一份转换后的路径（stat / du / cp 仍用 POSIX 形式）。
+EXE_W="$(to_win "$EXE")"
 # strip 失败不是致命问题（只是大一点），保留未 strip 的副本继续。
 # 已知坑：llvm-mingw 的 strip.exe 是包装器，实际调用同目录的 llvm-strip——有的发行包里
 # 这个真身缺失（2026-10-11 实测 C:\tool\llvm-mingw-* 报 "llvm-strip: No such file or directory"），
 # 而 `strip 2>/dev/null` 会把真实报错吞掉，看起来像「strip 对这个 exe 无效」。
 # 所以失败后回退 SDK 自带的 llvm-objcopy --strip-all（同为 llvm 工具链，对 PE 等效）。
-if strip "$EXE" 2>/dev/null; then
+if strip "$EXE_W" 2>/dev/null; then
     echo "[pack-single] strip: $SIZE_RAW → $(stat -c%s "$EXE") 字节"
 elif command -v llvm-objcopy >/dev/null 2>&1 && [ -f "$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe" ] \
-     && "$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe" --strip-all "$EXE" 2>/dev/null; then
+     && "$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe" --strip-all "$EXE_W" 2>/dev/null; then
     echo "[pack-single] strip(llvm-objcopy 回退): $SIZE_RAW → $(stat -c%s "$EXE") 字节"
 else
     echo "[pack-single] 警告: strip 失败，保留未裁剪的 exe（$SIZE_RAW 字节）" >&2
@@ -279,7 +338,7 @@ fi
 FORBIDDEN="libcangjie-runtime.dll libcjtbridge.dll WebView2Loader.dll libboundscheck.dll"
 BAD=""
 for d in $FORBIDDEN; do
-    if objdump -p "$EXE" | awk '/DLL Name:/ {print $3}' | grep -qi "^$d$"; then
+    if objdump -p "$EXE_W" | awk '/DLL Name:/ {print $3}' | grep -qi "^$d$"; then
         BAD="$BAD $d"
     fi
 done
@@ -289,7 +348,7 @@ fi
 
 # 子系统事后复核：必须是 GUI(2)。写成 console(3) 时双击产物会弹 DOS 窗口，
 # 而链接期一切正常、日志也照打——所以不能让这条只靠人眼发现。
-SUBSYS=$(objdump -p "$EXE" | grep -i "^Subsystem" | awk '{print $2}')
+SUBSYS=$(objdump -p "$EXE_W" | grep -i "^Subsystem" | awk '{print $2}')
 if [ "$SUBSYS" != "00000002" ]; then
     die "产物子系统是 $SUBSYS（应为 00000002 / Windows GUI）：link-option 少了 --subsystem=windows，双击会弹 DOS 窗口"
 fi
@@ -298,4 +357,4 @@ echo "[pack-single] 单文件: $EXE（$(du -h "$EXE" | cut -f1)）"
 echo "[pack-single] 子系统: $SUBSYS (Windows GUI，双击不弹控制台)"
 echo "[pack-single] 目录: $OUT_ROOT（应只有这一个文件 + work/）"
 echo "[pack-single] 导入的 DLL（应全是 Windows 系统库）:"
-objdump -p "$EXE" | awk '/DLL Name:/ {print "  " $3}'
+objdump -p "$EXE_W" | awk '/DLL Name:/ {print "  " $3}'

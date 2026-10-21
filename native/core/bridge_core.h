@@ -596,11 +596,23 @@ CJ_BRIDGE_API int cj_bridge_pid_alive(long long pid);
    目录由调用方给（桥不认识应用名）：典型是 %LOCALAPPDATA%\应用名\runtime。 */
 CJ_BRIDGE_API int cj_bridge_extract_assets(const char *dir);
 
-/* 平台原语（err 口径同其余原语：写不进就留空，core 会打「平台没有给出原因」）。
-   没有内嵌资源机制的平台如实返回 0，不假装成功。 */
+/* 按**绝对路径**把一个动态库加载进本进程（单文件包专用：随包释放出来的 OpenSSL 这类
+   「运行期按名字 LoadLibrary」的组件，不预加载就永远找不到）。
+   为什么需要它（2026-10-21 实测，另一台机器）：仓颉运行时的 TLS 加载器按**裸名**找
+   `libssl-3-x64.dll` / `libcrypto-3-x64.dll`，SDK 与 stdx 都不带；开发机上它恰好命中 PATH 里的
+   Git 自带那份，于是「本机全通、别人双击就挂」。症状极具误导性：http 照常 200（cjh 的
+   /api/health 通），**只有 ws 握手失败**——`ws: connect failed: Can not load openssl library or
+   function RAND_bytes.`（RFC6455 升级要算随机 nonce，明文 ws:// 也逃不掉）。
+   做法是进程启动早期先按绝对路径 LoadLibrary/dlopen 一次：之后同类裸名加载会命中已加载模块，
+   不必改系统 PATH、也不必把 DLL 摆到 exe 旁边（单文件承诺不破）。
+   返回 1 = 已加载（含本来就在的），0 = 失败（原因在 stderr）。 */
+CJ_BRIDGE_API int cj_bridge_preload_library(const char *path);
+
+/* 平台原语（err 口径同其余原语：写不进就留空，core 会打「平台没有给出原因」）。 */
 long long cj_plat_spawn_hidden(const char *exe, const char *args, char *err, int err_len);
 int cj_plat_kill_pid(long long pid);
 int cj_plat_pid_alive(long long pid);
 int cj_plat_extract_assets(const char *dir, char *err, int err_len);
+int cj_plat_preload_library(const char *path, char *err, int err_len);
 
 #endif /* CJ_BRIDGE_CORE_H */

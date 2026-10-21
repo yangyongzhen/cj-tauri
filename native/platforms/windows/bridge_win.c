@@ -3218,3 +3218,31 @@ int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
 #endif
 }
 
+/* ===== 动态库预加载（cj_plat_preload_library 的平台层）=====
+   一句话：按**绝对路径**先 LoadLibraryW 一次，之后运行时按裸名去找同名 DLL 时就会命中
+   已加载的那个模块。为什么要这么绕，见 bridge_core.h 同名段落（2026-10-21：单文件包在
+   别人的机器上连明文 ws:// 都挂在 `Can not load openssl library or function RAND_bytes.`）。 */
+int cj_plat_preload_library(const char *path, char *err, int err_len) {
+    wchar_t *wpath;
+    HMODULE h;
+
+    if (err && err_len > 0) err[0] = '\0';
+    if (!path || !*path) {
+        serial_err(err, err_len, "preload: 路径为空");
+        return 0;
+    }
+    wpath = utf8_to_wide(path);
+    if (!wpath) {
+        serial_err(err, err_len, "preload: UTF-8 转 UTF-16 失败");
+        return 0;
+    }
+    h = LoadLibraryW(wpath);
+    free(wpath);
+    if (!h) {
+        serial_err(err, err_len, "LoadLibraryW 失败（GetLastError=%lu）",
+                   (unsigned long)GetLastError());
+        return 0;
+    }
+    return 1;
+}
+

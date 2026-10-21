@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dlfcn.h>
 /* 串口（plugin_serial）：termios 配置 + 超时读写 */
 #include <errno.h>
 #include <fcntl.h>
@@ -2456,5 +2457,26 @@ int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
     (void)dir;
     if (err && err_len > 0) err[0] = '\0';
     return 0;
+}
+
+/* ===== 动态库预加载（cj_plat_preload_library 的平台层）=====
+   Linux 侧通常由系统提供 libssl/libcrypto（发行版包），本来就在 loader 的搜索路径里；
+   这条原语是给「随包释放出来的库」留的出口，与 Windows 同名同签名（AGENTS §2）。
+   RTLD_NOW：符号缺失当场报，不把错误推迟到第一次调用；RTLD_GLOBAL 让后续按名引用可见。 */
+int cj_plat_preload_library(const char *path, char *err, int err_len) {
+    void *h;
+
+    if (err && err_len > 0) err[0] = '\0';
+    if (!path || !*path) {
+        serial_err(err, err_len, "preload: 路径为空");
+        return 0;
+    }
+    h = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
+    if (!h) {
+        const char *e = dlerror();
+        serial_err(err, err_len, "dlopen 失败：%s", e ? e : "没有给出原因");
+        return 0;
+    }
+    return 1;
 }
 

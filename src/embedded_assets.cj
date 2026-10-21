@@ -50,3 +50,49 @@ func extractAssetsBridge(dir: String): Int64 {
     eprintln("[cj-tauri] 本平台没有 C 桥，无内嵌资源可释放")
     return 0
 }
+
+/**
+ * 按**绝对路径**预加载一个随包释放出来的动态库（单文件包专用）。
+ *
+ * 为什么需要它（2026-10-21 实测，另一台机器）：仓颉运行时的随机数默认实现走 OpenSSL，而它按
+ * **裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`——SDK 与 stdx 都不带这两个，开发机上只是
+ * 恰好命中 PATH 里 Git 自带的那份。于是同一条 `ws://` 连接线，本机全通、别人双击就挂：
+ * `ws: connect failed: Can not load openssl library or function RAND_bytes.`
+ * （RFC6455 升级要算 `Sec-WebSocket-Key` 的随机 nonce，**明文 ws 也逃不掉**）。
+ *
+ * 只要进程内先按绝对路径加载一次，之后同类裸名加载就命中已加载模块：不必改 PATH，
+ * 也不必把 DLL 摆到 exe 旁边（单文件承诺不破）。
+ *
+ * `path` 必须是释放后的真实路径；返回 true = 已在进程内（含本来就在的）。
+ * 平台没有 C 桥时如实返回 false（`src/log_bridge.cj` 同款门禁）。
+ */
+public func preloadEmbeddedLibrary(path: String): Bool {
+    if (path.isEmpty()) {
+        eprintln("[cj-tauri] preloadEmbeddedLibrary: 路径为空")
+        return false
+    }
+    let ok = preloadLibraryBridge(path)
+    if (!ok) {
+        eprintln("[cj-tauri] 预加载动态库失败：${path}")
+    }
+    return ok
+}
+
+@When[env != "ohos"]
+@C
+foreign func cj_bridge_preload_library(path: CString): Int32
+
+@When[env != "ohos"]
+func preloadLibraryBridge(path: String): Bool {
+    var ok: Int32 = 0
+    unsafe {
+        ok = cj_bridge_preload_library(LibC.mallocCString(path))
+    }
+    return ok == 1
+}
+
+@When[env == "ohos"]
+func preloadLibraryBridge(path: String): Bool {
+    let _ = path
+    return false
+}

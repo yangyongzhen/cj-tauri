@@ -445,6 +445,21 @@
 
 ### Added
 
+- **新增通用单文件打包脚本 `scripts/pack-linux-single.sh`**（与 `scripts/pack-win-single.sh` 同设计：
+  示例路径与输出目录都可传参，脚本内无任何示例专属逻辑）：静态链仓颉运行时与 std（`--static --static-std`）、
+  框架各包（`--static-libs`），C 桥编成静态归档 `libcjtbridge.a` 直接链进可执行文件，并把页面、`ui/vendor`
+  的前端库与能力清单 base64 编进二进制（生成示例的 `src/packed_assets.cj`）。示例侧前置三件套
+  `src/packed_assets.cj`（空存根）/ `src/packed_resources.cj` / 至少一份 `capabilities/*.json`——缺哪样就 `die` 说明哪样。
+  **判据看产物与启动日志**：`examples/cjnote/dist-single/cjnote` 11 698 576 B；`ldd` 里只剩系统
+  WebKitGTK / GTK 那一套（无 `libcjTauri*`、无 `libcjtbridge.so`、无仓颉运行时 DLL）；刻意
+  `env -u LD_LIBRARY_PATH` 启动照样起窗口——`set window: title=cjnote — AI 笔记 size=1280x800`、
+  `menu applied: items=16 bar=0x… visible=1`、`[cjnote] 能力清单来自内嵌资源（1 份，共 1568 字节 base64）`，
+  stderr 49 行无 `not found`。已在 cjnote 与 typing-poem 两个示例上跑通（后者自带 three.js，
+  走 `PACKED_THREE_B64` 通道）。两条硬约束说清楚：**系统 WebKitGTK / GTK 没有静态库**
+  （发行版里查无 `libwebkit2gtk-4.1.a` / `libgtk-3.a`），所以 Linux 上全静态 ELF 不成立，能静态下来的
+  只是「本框架带来的依赖」；产物**不含 cjh**——cjh 是独立进程，按 `vendor/cjh/bin/<平台>/` 找现成二进制、
+  运行期不解包，须与产物同级摆放且以该目录为工作目录。用法与两种交付形态的对比见
+  `examples/cjnote/README.md` 的「单文件打包（可选）」一节。
 - **鸿蒙（HarmonyOS ArkWeb）接入第一段打通：框架核心能在真机 HAP 里执行**——本轮只做到「框架代码跑起来」，
   宿主（`WebViewHost` 的 ArkWeb 实现）仍未落地，能力位如实报 0。实测证据（真机 `3QC0124B20000048`，
   bundle `com.yang.testcj`）：页面 `file://` 加载完成后经 `javaScriptProxy` 回调鸿蒙侧，仓颉侧调到
@@ -498,6 +513,9 @@
 
 ### Changed
 
+- **`examples/cjnote` 随包 cjh 升到官方 v1.5.3**（Linux 二进制与 Windows 自包含包一起换，
+  `vendor/cjh/SHA256SUMS` 按新件重写 16 行）：隔离 HOME 实测 `{"status":"ok","version":"1.5.3"}`、约 2 秒应答。
+  随包口径不变——应用按 `vendor/cjh/bin/<平台>/` 找现成二进制、运行期不解包，所以 `bin/` 树必须真在盘上。
 - **`examples/ai-chat` MCP 面板撤掉「编辑配置」入口，回到只读**（2026-10-20 用户裁定）：要改 MCP
   配置直接改 cjh 自己的 `settings.json` 更直接，也绕开 GET 掩码 `***` / POST 整体替换那套容易把
   真实密钥抹成三个星号的坑。`mcpEditGuard()` 留在页内自检里继续钉住「掩码拒发 / 坏 JSON 拒发」，
@@ -514,6 +532,25 @@
 
 ### Fixed
 
+- **`examples/cjnote` 设置页在「从没跑过 cjh」的机器上保存必然失败**：那种机器上 `~/.cjh` 整个目录都不存在，
+  而 `File.writeTo` 只建文件、不建目录——报的是 `写配置失败 …/.cjh/settings.json：FSException`。
+  修法是在写盘前补一次建目录，且**必须带存在性判断**：目录已存在时 `Directory.create` 会抛
+  `The input path … is already exists`，而「已存在」才是绝大多数用户的常态（装过 cjh 就有），漏判等于
+  把保存对所有老用户打红（第一版就是这么写的，靠隔离沙盒当场抓住）。写成 `if (!exists(dir))`，
+  与 `main.cj` 建 `notes/` 的既有写法同款。隔离沙盒两种 HOME 各跑一轮：已配过 cjh → **68 PASS / 0 FAIL / 1 SKIP**；
+  全新 HOME → **67 PASS / 1 FAIL**（那唯一一条 FAIL 是「本机 settings.json 里没有 model 可断言」，
+  同轮里 `~/.cjh/settings.json` 被成功建出并写回，保存路径已通）。
+- **`examples/music` 在 main 上编不过**（`error: undeclared type name 'StoreBackend'`，与打包脚本无关）：
+  `88838f1` 把收藏库从手搓 `MusicStore` 迁到 store 插件的 `StoreBackend` 时只改了源码，没补子包导入，
+  也没装配插件——`import cjTauri.*` 只带出核心包，插件子包不会随之可见（AGENTS §2「一个插件一个子包」）；
+  而**仓颉的 import 按文件生效**，所以 `src/main.cj` 与 `src/commands.cj` 两处都要补
+  `import cjTauri.plugins.store.*`，并在 `run()` 之前 `app.plugin(StorePlugin())`（页面前命令表要定稿）。
+  修完 `cjpm build success`、产物 `target/release/bin/main` 7 655 320 B。
+- **`examples/music` 的 29 条编译警告清零**（此前无人可见——基线编不过，警告根本没机会打出来）：
+  23 条「未使用参数」按仓库惯例就地 `let _ = <参数>` 显式弃用（不改接口签名）、`api.cj` 里真未使用的
+  `import std.collection.*` 删掉、4 条 `unsecure character` 出在搜索命令的文档注释里——那是一串
+  **非法 UTF-8 字节**（`EF BF BD`×4 加一对残缺字节，即后台按 GBK 解出的乱码样例），改成文字描述
+  「一串替换字符（U+FFFD）」，顺带把源码里那段无效字节清掉。零警告是 §3 的交付门禁。
 - **`examples/cjnote` 的「引用当前笔记 / 问笔记库」两个勾选框都会静默空转**（用户实测：勾了笔记，AI 回复里
   还是看不到笔记内容）。两条独立成因，都已修：① **库外文件勾了等于没勾**——`Ctrl+O` 打开的库外文件走
   `openExternalPath()`，那里把 `current` 置成空串，而拼上下文的条件是 `current` 非空，于是整篇正文根本没附上、

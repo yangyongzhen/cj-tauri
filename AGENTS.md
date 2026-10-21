@@ -747,6 +747,11 @@
   否则 npm 以 `E422` 拒绝发布）。
 - 不提交：`target/`、`dist-win/`、`**/dist-single/work/`、`**/dist-single/*.WebView2/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
   `dist-single/` 下**打好的 exe 例外**——那份随仓库分发（不装 SDK 的人能直接拿到）。
+  **第二处例外是随包 cjh 的依赖 DLL**（`examples/*/vendor/cjh/bin/**`）：cjh 是仓颉程序，Windows 侧
+  `libcangjie-runtime.dll` / `libboundscheck.dll` / `libssl-3-x64.dll` / `libcrypto-3-x64.dll` 由它
+  **按名字 LoadLibrary**（不在 PE 导入表里，漏了就起不来 / https 全灭），不随包分发等于把 cjh 交成残包。
+  该目录由各示例自己的 `.gitignore` 用 `!vendor/cjh/bin/**` 开口子，`scripts/check-static.sh` 的
+  「构建产物」检查按同一口径放行**这棵树里的** `.dll` 并把放行条数打进日志——**口径不放宽到任意 `*.dll`**。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。

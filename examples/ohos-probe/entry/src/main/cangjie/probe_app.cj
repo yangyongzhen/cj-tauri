@@ -3,6 +3,8 @@ package ohos_app_cangjie_entry
 import kit.PerformanceAnalysisKit.Hilog
 import cjTauri.*
 import cjTauri.plugins.dialog.*
+import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.notification.*
 import stdx.encoding.json.JsonObject
 import stdx.encoding.json.JsonString
 import stdx.encoding.json.JsonValue
@@ -71,6 +73,8 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
   <div class="v" id="log">-</div>
   <div class="k">dialog:message（原生弹窗回执）</div>
   <div class="v" id="dlg">-</div>
+  <div class="k">clipboard / notification（鸿蒙宿主未实现时应如实失败）</div>
+  <div class="v" id="cap">-</div>
   <button id="btn">弹出原生确认框</button>
   <script>
     var bridgeEl = document.getElementById('bridge');
@@ -78,6 +82,7 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
     var echoEl = document.getElementById('echo');
     var logEl = document.getElementById('log');
     var dlgEl = document.getElementById('dlg');
+    var capEl = document.getElementById('cap');
     function put(el, text) { el.textContent = String(text); }
     function fail(el, err) {
       el.className = 'v bad';
@@ -101,6 +106,34 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
         return api.invoke('probe:log', { kind: 'dialog-result', me: label, confirmed: ok });
       }).then(null, function (e) {
         fail(dlgEl, e);
+      });
+    }
+    /* 剪贴板 / 通知：鸿蒙宿主把这两条能力位报成 0（src/host_arkweb.cj），所以**两扇窗都该
+       被如实拒绝**。页面把成功与失败都回投一条 `probe:log`，判据是那行里的 `window=` 与
+       `me=` 相等——报文按 label 路由到了本窗；若第二扇窗的报文被原生记成别的 label，
+       即「插件把所有窗都发给默认窗那一个宿主」的串台（2026-10-20 dialog 的实机结论同源）。 */
+    function showPlatformBits() {
+      put(capEl, 'waiting...');
+      var results = [];
+      function record(kind, ok, text) {
+        results.push(kind + '=' + ok);
+        put(capEl, results.join(' | ') + (text ? ' [' + text + ']' : ''));
+        api.invoke('probe:log', { kind: 'platform-' + kind, me: label, ok: ok, detail: String(text || '') });
+      }
+      api.invoke('clipboard:write', { text: 'cj-tauri ' + label }).then(function () {
+        record('clipboard-write', true, '');
+      }, function (e) {
+        record('clipboard-write', false, (e && e.message) ? e.message : String(e));
+      });
+      api.invoke('clipboard:read', {}).then(function (v) {
+        record('clipboard-read', true, JSON.stringify(v));
+      }, function (e) {
+        record('clipboard-read', false, (e && e.message) ? e.message : String(e));
+      });
+      api.invoke('notification:notify', { title: 'cj-tauri 通知 ' + label, body: 'label=' + label }).then(function () {
+        record('notification', true, '');
+      }, function (e) {
+        record('notification', false, (e && e.message) ? e.message : String(e));
       });
     }
     if (!api) {
@@ -128,6 +161,9 @@ public let PROBE_TAURI_HTML: String = #"<!DOCTYPE html>
            谁显示成对面的 label、或只画出一份，就是 overlay 共用了静态状态。
            早先只让 main 自动弹是为了单窗口截图好认，现在要的正是「两框同在」。 */
         showDialog();
+        /* 接着打两条同族能力位（剪贴板 / 通知）：它们只在 hilog 里留凭证，
+           不影响上面那两框的弹窗取证，所以排在 dialog 之后、不阻塞。 */
+        showPlatformBits();
       }).then(null, function (e) {
         fail(logEl, e);
       });
@@ -196,11 +232,15 @@ public func startTauriProbe(): Unit {
     // 原生弹窗走官方 dialog 插件（`dialog:message`）：插件只校验参数，真正弹窗在宿主层——
     // 鸿蒙的宿主把它退成「入队 + 等 UI 侧回填」（src/host_arkweb.cj）。
     app.plugin(DialogPlugin())
+    /* 同族能力位（剪贴板 / 通知）：鸿蒙宿主当前一律报 0，接进来只为取证「两扇窗各自
+       被如实拒绝、报文没有串到对面」——插件层的解析器口径与 dialog 完全一致。 */
+    app.plugin(ClipboardPlugin())
+    app.plugin(NotificationPlugin())
     // 能力清单：内置命令也要显式声明（默认最小权限），漏写会得到 command not allowed。
     // 两扇窗都要登记在 windows 里，否则第二扇窗发起的命令一律被拒（command not allowed）。
     app.addCapabilityJson(
         JsonValue.fromStr(
-            #"{"identifier":"probe","windows":["main","second"],"commands":["system:version","probe:log","probe:hello","dialog:message"],"events":["probe:ping"]}"#
+            #"{"identifier":"probe","windows":["main","second"],"commands":["system:version","probe:log","probe:hello","dialog:message","clipboard:write","clipboard:read","notification:notify"],"events":["probe:ping"]}"#
         )
     )
     // 第二扇窗：登记 + 装配宿主。必须在 run() 之前——窗口表要赶在页面加载前定稿，

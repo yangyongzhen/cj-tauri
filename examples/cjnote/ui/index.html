@@ -2867,7 +2867,7 @@ waitForBridge(function () {
     });
     // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡
     initCjh().then(function () {
-      if (cjh.up) { aiGreet("写笔记时随时问我；勾「引用当前笔记」我会结合正文回答。"); }
+      if (cjh.up) { aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。"); }
     });
     selfCheck(env);
   }).catch(function (e) {

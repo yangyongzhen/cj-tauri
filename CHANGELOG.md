@@ -596,6 +596,16 @@
 
 ### Fixed
 
+- **多窗口下 `clipboard:*` / `notification:notify` 也全发给默认窗那一个宿主**（与上一条 dialog 同源）：
+  两个插件原先在 `setup()` 里只调 `handler.attachHost(app.webviewHost())`、`handle` 里 `let _ = ipc`，
+  第二扇窗的剪贴板读写与通知一律落到默认窗宿主上。现在装配时注入
+  `attachHostResolver({ label => app.hostOf(label) })`，命令按报文里的窗口解析（`requireHost(ipc)`），
+  解析器在场而窗口未登记时**如实报错**、不回落单槽；单槽只留作单窗 / 单测兜底。桌面单窗行为不变。
+  各补两条 resolver 单测（按窗口路由到对应桩宿主、未登记窗口 `"ghost"` 抛错且两个宿主都没被写过），
+  框架 308 用例全绿。**鸿蒙真机（探针两窗各自动打一遍）**：两窗各自的 `platform-clipboard-write` /
+  `platform-notification` 行里 `window=` 与页面自认 `me=` 相等，能力位为 0 时两窗**如实失败**
+  （`clipboard: 写入失败（宿主未就绪 / 平台拒绝）`）。注意这两个宿主行为相同，**设备侧证据无法
+  证伪串台**（共用单槽会打出同样的行），区分力在单测；详见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.13。
 - **多窗口下 `dialog:*` 全排进默认窗的队列（第二扇窗的框在别人窗口里弹出来）**：
   `DialogCommands.handle` 原先不收 `IpcContext`（第一行就是 `let _ = ipc`），宿主是装配时固定下来的
   `app.webviewHost()`——所有窗的请求都进同一个 `pendingDialogs`。真机实测（鸿蒙探针两半屏同时弹框）：

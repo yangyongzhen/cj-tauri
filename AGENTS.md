@@ -614,8 +614,11 @@
   `dialog take label=second id=1` 才对，共用一个槽时会连号递增。落法：装配时注入
   `DialogCommands.attachHostResolver({ label => app.hostOf(label) })`，`requireHost(ipc)` 解析器优先，
   **解析器在场而窗口未登记时如实抛错、别回落到单槽**（回落正是串台来源）；三条命令实现都要多收
-  `ipc`。同形未修的两处：`clipboard` / `notification` 插件仍是固定 `app.webviewHost()`——
-  用之前先问「是否只该在默认窗可用」。取证与修复前后对照见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.12。
+  `ipc`。**同族两处 2026-10-21 已按同一口径修完**（`clipboard` / `notification` 插件同样
+  `attachHostResolver({ label => app.hostOf(label) })` + `requireHost(ipc)`，并各补两条 resolver 单测）——
+  但**别拿真机日志当这条修复的凭证**：鸿蒙宿主这两条能力位都是 0，两扇窗都会如实拒绝，
+  共用单槽也会打出一模一样的行，区分力只在单测（两个桩宿主行为不同）或宿主落地后的复测。
+  取证与修复前后对照见 `docs/鸿蒙ArkWeb接入踩坑.md` §10.12 / §10.13。
 - **`opt.exe` 报 `EnumReflection format: operand numbers error!` 时先查工具链配对，别去查 LLVM pass**
   （2026-10-20 定位）：`cjc` **不按 `PATH`** 找 `opt`，它按 `CANGJIE_HOME` 下到
   `third_party/llvm/bin/opt.exe`；两者差一代时必然崩——1.2.0 的 `cjc` 给枚举写 7 操作数 `.ti`，1.1.3 的

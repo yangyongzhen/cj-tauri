@@ -72,6 +72,30 @@ public func cjhHealthy(port: Int64): Bool {
     return ok
 }
 
+/**
+ * 本平台的随包 cjh 候选：**vendor 里两平台的二进制是一起分发的**，候选表必须按平台各列一份。
+ *
+ * 不分平台的后果（2026-10-21 Windows 首验实测）：linux-x64 那份排在前面，Windows 上
+ * `fileReadable` 对 ELF 同样回 true（它只是个可读文件），于是被选中；而 CreateProcess 对
+ * **不带扩展名的名字会自动补 `.exe`**，去找 `cjh.exe` 自然没有——报的是
+ * `The system cannot find the file specified`，看着像「文件不存在」，实际是挑错了平台。
+ */
+@When[os == "Windows"]
+func cjhPlatformCandidates(): ArrayList<String> {
+    let list = ArrayList<String>()
+    list.add("vendor/cjh/bin/windows-x64/cjh.exe")
+    list.add("vendor/cjh/.extract/cjh-v1.5.3-windows-x64.exe")
+    return list
+}
+
+@When[os != "Windows"]
+func cjhPlatformCandidates(): ArrayList<String> {
+    let list = ArrayList<String>()
+    list.add("vendor/cjh/bin/linux-x64/cjh")
+    list.add("vendor/cjh/.extract/cjh-v1.5.3-linux-x64")
+    return list
+}
+
 /** cjh 可执行文件候选路径：环境变量优先，其次是打包布局，最后兼容早期解包目录 */
 func cjhBinCandidates(): ArrayList<String> {
     let list = ArrayList<String>()
@@ -80,10 +104,9 @@ func cjhBinCandidates(): ArrayList<String> {
             list.add(p)
         }
     }
-    list.add("vendor/cjh/bin/linux-x64/cjh")
-    list.add("vendor/cjh/bin/windows-x64/cjh.exe")
-    list.add("vendor/cjh/.extract/cjh-v1.5.3-linux-x64")
-    list.add("vendor/cjh/.extract/cjh-v1.5.3-windows-x64.exe")
+    for (p in cjhPlatformCandidates()) {
+        list.add(p)
+    }
     return list
 }
 
@@ -161,7 +184,7 @@ func ensureCjhUp(bin: String): Bool {
     try {
         proc = launch(bin, ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"])
     } catch (e: Exception) {
-        eprintln("[cjnote] 启动 cjh web 失败：${e}")
+        eprintln("[cjnote] 启动 cjh web 失败（${bin}）：${e}")
         return false
     }
     gCjhProc = Some(proc)

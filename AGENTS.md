@@ -293,6 +293,17 @@
   （`@When` 一平台一份，Windows 带 `.exe`）并让**编译 `-o`、缓存路径、shell 调用行三处同源**，
   漏任一处即回归静默失败。**同类风险面**：任何「先自己编译、再执行产物」的链路（脚手架、插件、
   E2E 探针的自建二进制）——Windows 上都要认这个名字后缀，且失败要留 stderr 凭证。
+- **随包分发双平台二进制的应用，候选表必须按平台分**（2026-10-21 实测，`examples/cjnote` 的 Windows 首验）：
+  `vendor/cjh/bin/` 里 linux-x64（ELF）与 windows-x64（PE）两份并排躺着，而发现逻辑只问「这个文件打不打得开」
+  ——`fileReadable` 在 Windows 上对 ELF 同样回 true，于是候选表里排在前面的 Linux 那份被选中。报错是
+  `ProcessException: Created process failed … The system cannot find the file specified`：**`CreateProcess` 对
+  不带扩展名的名字会自动补 `.exe`**，它去找的是 `linux-x64/cjh.exe`，与「文件真的不存在」长得一模一样，
+  极易误判成权限 / 杀软 / 路径问题（与上一条「cmd.exe 不执行无后缀文件」同源）。落法：候选表按
+  `@When[os == …]` 各列一份（平台差异只在条件编译里，§2），并**把实际选中的那个 bin 打进失败日志**——
+  排查时正是 `启动 cjh web 失败（vendor/cjh/bin/linux-x64/cjh）：…` 这一行定死的，原先的日志只打异常。
+  同族风险面：任何「按目录找现成二进制」的发现逻辑（`vendor/`、`.extract/`、插件自带的工具链）。
+  顺带一条排查手法：**先写三个探针把「看起来像」的嫌疑排掉**（同一段代码分别在 console 子系统、
+  GUI 子系统、`spawn` 轻量线程里各跑一次），三个都成功就说明问题不在调用形态、而在挑错了对象。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
 - **`CANGJIE_STDX` 要指 stdx 的 `dynamic/stdx`（DLL 目录），不是 stdx 包根**：`cli/src/resolve.cj`

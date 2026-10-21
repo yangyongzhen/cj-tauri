@@ -133,6 +133,22 @@ export LD_LIBRARY_PATH=$CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_
 
 工作目录就是笔记库根：首次启动会在 `notes/` 下播种一篇 `欢迎.md`。
 
+Windows（WebView2）侧同样是「编桥 → 编应用 → 跑」，区别只在**依赖怎么进 PATH**：仓颉运行时、stdx、
+C 桥与按名字加载的 `WebView2Loader.dll` 四处都得在，缺任何一处都是「进程起来又没了、日志一行没有」。
+
+```bat
+rem 1) 编 C 桥（首次或框架有 C 改动时；产物落在框架根 native\）
+..\..\native\build_win.bat
+rem 2) 编本应用
+cjpm build
+rem 3) 跑：设好四段 PATH，再在当前目录（= 示例根）启动
+set "PATH=%CANGJIE_HOME%\runtime\lib\windows_x86_64_cjnative;%CANGJIE_STDX%;..\..\native;..\..\native\webview2;%PATH%"
+target\release\bin\main.exe
+```
+
+`CANGJIE_STDX` 指的是 stdx 的 `dynamic\stdx`（DLL 目录），不是 stdx 包根；从 Git Bash 起这些路径要写
+POSIX 形式（`/d/...`），盘符形式会被 MSYS 破掉——见框架 `AGENTS.md` §4 同名条目。
+
 AI 后端 cjh 随包放在 `vendor/cjh/bin/<平台>/`：应用启动时先探 `127.0.0.1:8765`，端口上已有活着的 cjh 就
 直接复用（不动别人的进程），没有就用随包二进制自己拉起（`web --port 8765 --bind 127.0.0.1`），退出时只收掉
 自己拉起的那只。模型与凭证配在 cjh 自己的 `~/.cjh` 里——点 AI 头部的 ⚙ 进设置页改即可，
@@ -210,7 +226,7 @@ CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
 | 平台 | 状态 |
 | --- | --- |
 | Linux（WebKitGTK） | **已实机跑通**：菜单、副标题、AI 流式（markdown 气泡、工具行、审批卡）、AI 设置页（改配置即时生效 + 测试连通）、笔记增删改查重命名、最近打开、侧栏可调宽；沙盒自检 **68 PASS / 0 FAIL**、单文件产物启动同样取证过 |
-| Windows（WebView2） | 代码路径与同名导出齐备（`--subsystem=windows`），副标题走能力位降级到页面顶栏；**未实机验证** |
+| Windows（WebView2） | **已实机跑通首验（2026-10-21）**：窗口与页面、`Ctrl+O` 打开笔记、视图菜单三态与行号开关勾选回写、6 个插件装配正常；**随包 cjh 自动拉起**（`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`）、页面 ws 连上（`CJH ws connected ws://127.0.0.1:8765/ws`）、`/api/health` → 200。副标题能力位为 0，按设计回落页面顶栏。**尚缺**：Windows 侧的页面自检（`CJNOTE_SELFCHECK=1`）与单文件打包产物取证 |
 
 ## 相关文档
 

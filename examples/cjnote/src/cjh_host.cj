@@ -25,6 +25,7 @@ import std.collection.*
 import std.convert.*
 import std.env.*
 import std.fs.*
+import std.io.*
 import cjTauri.*
 import stdx.encoding.json.*
 import stdx.net.http.*
@@ -60,23 +61,80 @@ func parsePortEnv(v: String, fallback: Int64): Int64 {
     return fallback
 }
 
-/** cjh web 是否已在目标端口活着：GET /api/health 收到 200 即认为就绪 */
-public func cjhHealthy(port: Int64): Bool {
+/** 随包 cjh 的版本（`vendor/cjh/bin/` 里那份）：端口上答话的实例版本与它不一致，
+ *  就说明「答话的不是随包这只」——这正是「浏览器里能连、页面连不上」的常见成因 */
+public let CJH_BUNDLED_VERSION: String = "1.5.3"
+
+/**
+ * 探测端口上的 cjh：200 → `Some(版本串)`（健康检查正文带 version，取不到给空串），不通 → `None`。
+ *
+ * **这一层只认 HTTP 200，证明不了 `/ws` 能用**（2026-10-21 另一台机器实测：端口上活着，
+ * 健康检查全绿，而页面连它的 WS 直接被拒——状态卡只能说「在跑」，「跑的是谁」得靠版本认）。
+ */
+func cjhProbe(port: Int64): Option<String> {
     let client = ClientBuilder()
         .readTimeout(Duration.second * 1)
         .writeTimeout(Duration.second * 1)
         .build()
-    var ok = false
+    var found: Option<String> = None
     try {
         let req = HttpRequestBuilder().get().url("http://127.0.0.1:${port}/api/health").build()
         let resp = client.send(req)
-        ok = Int64(resp.status) == 200
+        if (Int64(resp.status) == 200) {
+            found = Some(healthVersionOf(readBodyShort(resp.body)))
+        }
         resp.close()
     } catch (e: Exception) {
         let _ = e
     }
     client.close()
-    return ok
+    return found
+}
+
+/** cjh web 是否已在目标端口活着：GET /api/health 收到 200 即认为就绪 */
+public func cjhHealthy(port: Int64): Bool {
+    match (cjhProbe(port)) {
+        case Some(_) => return true
+        case None => return false
+    }
+}
+
+/** 读健康检查正文（极小，读到 8 KiB 就停：版本只是辅助判据，不值得为它把连接读干） */
+func readBodyShort(body: InputStream): String {
+    let buf = ByteBuffer()
+    let chunk = Array<Byte>(2048, repeat: 0)
+    var total: Int64 = 0
+    var n = body.read(chunk)
+    while (n > 0 && total < 8192) {
+        buf.write(chunk[0..n])
+        total = total + n
+        n = body.read(chunk)
+    }
+    return String.fromUtf8(buf.bytes())
+}
+
+/** 从 `/api/health` 正文取 version（`{"status":"ok","version":"1.5.3"}`）；形状不认识就回空串 */
+func healthVersionOf(text: String): String {
+    if (text.size == 0) {
+        return ""
+    }
+    try {
+        let v = JsonValue.fromStr(text)
+        match (v.kind()) {
+            case JsonKind.JsObject =>
+                match (v.asObject().get("version")) {
+                    case Some(ver) => match (ver.kind()) {
+                        case JsonKind.JsString => return ver.asString().getValue()
+                        case _ => return ""
+                    }
+                    case None => return ""
+                }
+            case _ => return ""
+        }
+    } catch (e: Exception) {
+        let _ = e
+    }
+    return ""
 }
 
 /**
@@ -118,6 +176,39 @@ func cjhBinCandidates(): ArrayList<String> {
         list.add(p)
     }
     return list
+}
+
+/**
+ * 把随包释放出来的 OpenSSL 库**预加载**进本进程。
+ *
+ * 为什么需要（2026-10-21 另一台机器实测）：仓颉运行时的随机数默认实现走 OpenSSL 的 `RAND_bytes`，
+ * 而它按**裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`——SDK 与 stdx 都不带这两个。
+ * 开发机上恰好命中 PATH 里 Git 自带的那份，于是「本机全通、别人双击就挂」；症状极具误导性：
+ * cjh 的 `/api/health` 照常 200（页面显示「cjh 在运行」），**只有 ws 握手失败**——
+ * `ws: connect failed: Can not load openssl library or function RAND_bytes.`
+ * （RFC6455 升级要算 `Sec-WebSocket-Key` 的随机 nonce，明文 ws:// 也逃不掉）。
+ *
+ * 这两个 DLL 本来就在单文件包里（随包 cjh 要用它们），所以这是**零新增体积**的修法：
+ * 释放之后按绝对路径加载一次，运行时再按裸名找就命中已加载模块。顺序是 libcrypto 先、libssl 后
+ * （后者依赖前者的符号）。
+ */
+@When[os == "Windows"]
+func preloadTlsLibs(dir: String): Int64 {
+    var n = 0
+    for (name in ["libcrypto-3-x64.dll", "libssl-3-x64.dll"]) {
+        let p = dir + "/" + name
+        if (fileReadable(p) && preloadEmbeddedLibrary(p)) {
+            n++
+        }
+    }
+    return n
+}
+
+/** Linux 侧 openssl 由发行版系统包提供（本仓不随包分发），没有可预加载的库 */
+@When[os != "Windows"]
+func preloadTlsLibs(dir: String): Int64 {
+    let _ = dir
+    return 0
 }
 
 /**
@@ -189,6 +280,12 @@ func releaseEmbeddedCjh(): String {
     if (n <= 0) {
         return ""
     }
+    // 随包 cjh 的依赖 DLL 里有 libssl / libcrypto：**本进程也要用**（ws 握手的随机数走 OpenSSL）。
+    // 不预加载的话，页面那边是「http 200 但 ws 连不上」，见 preloadTlsLibs 的注释。
+    let tls = preloadTlsLibs(dir)
+    if (tls > 0) {
+        eprintln("[cjnote] 随包 OpenSSL 已预加载：${tls} 个")
+    }
     let bin = dir + "/" + cjhBinName()
     if (!fileReadable(bin)) {
         eprintln("[cjnote] 内嵌 cjh 已释放但读不到：${bin}")
@@ -229,6 +326,21 @@ func putEndpoints(obj: JsonObject, port: Int64): Unit {
 }
 
 /**
+ * 把「端口上那只到底是谁」的事实塞进回包
+ *
+ * `healthVersion` 原样给页面（拿不到就不写这个键），`foreign` = 版本认得出且**不是**随包那只。
+ * 页面据此能把「连不上通信通道」指向真正的成因（端口被别的 cjh 占着），而不是只说一句「没连上」。
+ */
+func putHealthFacts(obj: JsonObject, ver: String): Unit {
+    obj.put("owned", JsonBool(gCjhOwned))
+    obj.put("bundledVersion", JsonString(CJH_BUNDLED_VERSION))
+    if (ver.size > 0) {
+        obj.put("healthVersion", JsonString(ver))
+    }
+    obj.put("foreign", JsonBool(ver.size > 0 && ver != CJH_BUNDLED_VERSION))
+}
+
+/**
  * cjh 当前状态（`cjh:status` 命令的正文）：三态 + 可用时的端点。**纯读、无副作用**
  * （不 spawn、不 kill），页面可以随便轮询。
  *
@@ -240,11 +352,13 @@ public func cjhStatusJson(): JsonValue {
     let port = cjhPort()
     let obj = JsonObject()
     obj.put("port", JsonInt(port))
-    if (cjhHealthy(port)) {
-        obj.put("state", JsonString("running"))
-        putEndpoints(obj, port)
-        obj.put("owned", JsonBool(gCjhOwned))
-        return obj
+    match (cjhProbe(port)) {
+        case Some(ver) =>
+            obj.put("state", JsonString("running"))
+            putEndpoints(obj, port)
+            putHealthFacts(obj, ver)
+            return obj
+        case None => ()
     }
     match (findCjhBin()) {
         case Some(p) =>
@@ -792,11 +906,14 @@ public class CjhCommands <: CommandHandler {
         let port = cjhPort()
         let obj = JsonObject()
         // 端口上已经活着就直接复用：用户自己的实例不许被顶掉（gCjhOwned 保持 false）
-        if (cjhHealthy(port)) {
-            obj.put("ok", JsonBool(true))
-            obj.put("reused", JsonBool(true))
-            putEndpoints(obj, port)
-            return obj
+        match (cjhProbe(port)) {
+            case Some(ver) =>
+                obj.put("ok", JsonBool(true))
+                obj.put("reused", JsonBool(true))
+                putEndpoints(obj, port)
+                putHealthFacts(obj, ver)
+                return obj
+            case None => ()
         }
         var bin = stringArgOr(args, "path", "")
         if (bin.size == 0) {

@@ -38,9 +38,55 @@
   不落盘）真发一条最小对话，测的就是「表单里这组值能不能用」且配置一字未动；探针不带 `session_id`
   （cjh 为这一轮另开会话），不污染当前对话、也不顶掉会话 id。前端库（marked / Highlight.js / CodeMirror）
   与已有示例的副本逐字节相同，来源与许可证见 `AGENTS.md` §5。
-  Linux 实机：窗口 1280x800、原生菜单 13 项、页面自检 `SELFCHECK DONE passed=62 failed=0`（PASS 明细 63 条，
-  含真实 cjh 聊天探针与设置页连通探针——探针那条是异步收尾，落在汇总行之后属预期）；
-  Windows 未实机验证。
+  Linux 实机：窗口 1280x800、原生菜单 13 项、页面自检 `SELFCHECK DONE passed=68 failed=0`（另有 1 条 SKIP）；
+  Windows 侧页面自检 2026-10-21 跑通，**最终产物口径为 `passed=84 failed=0`**（明细 84 条 PASS / 0 条 FAIL /
+  1 条 SKIP：真实 cjh 聊天探针那一刻 ws 未连上，不计入失败；取证行见本文件「OpenSSL 预加载」那条）。
+- **cjnote 示例：AI 面板宽度可拖**（与左侧栏同一套交互）：面板左缘加 6px 拖条，拖动改宽
+  （240~640px 夹取，双击复位 320），宽度写进 `--ai-w`、偏好落 store（`ui.aiw`）、下次启动回放。
+  方向与侧栏相反（拖的是右栏左缘，往左拖变宽），上限还要跟窗口走：夹取里扣掉「侧栏 + 编辑区保底 320px」，
+  并在 `resize` 后按新空间重夹一次，免得窄窗口下把编辑区挤成 0。页面自检补 4 条断言
+  （拖条存在且 `col-resize`、往左拖真的变宽、超限夹取、双击复位），最终产物自检口径
+  `SELFCHECK DONE passed=84 failed=0`（取证行见「OpenSSL 预加载」那条）；
+  顺带修掉两条「后端给了绝对路径」断言只认 `/` 的 POSIX 假设——Windows 上后端给的是 `E:/…`，
+  这两条此前在 Windows 恒红（判定写窄，不是后端没给）。
+- **cjnote 示例：AI 后端的提示不再把「没配服务商」说成「cjh 没起来」**。实测随包 cjh 1.5.3 在
+  **没有服务商密钥**时 `/api/health` 照样返回 200、`/ws` 端点也正常（只有 `/api/settings` 的 `apiKey` 是空串），
+  旧实现只按「连没连上」判定，这种情况因此被报成「AI 后端未就绪 / cjh 没起来或连不上」——
+  后端明明起着，用户却找不到原因、也没有任何地方提示他去填密钥。现在拆成两条轴：
+  **cjh 在不在**（离线卡标题按卡点分「没找到 cjh」/「cjh 没能启动」/「连不上它的 WS」，不再一句话糊住），
+  与 **服务商配没配**（连上后复判一次 `cjh:config`：缺密钥时状态胶囊显示「未配置密钥」、消息区给一张
+  「去配置」卡，点一下直达设置页，并说明接入地址与模型名留空时用 cjh 内置默认值；输入框占位同步改成下一步动作；
+  保存配置后复判一次，配置齐了把卡换回正常问候）。顺带修掉一个竞态：启动期的问候 / 未配置 / 离线卡
+  此前会无条件清空消息区，**晚到的异步回调会把刚到的回复整个抹掉**（页面看着像「发出一问没回」，
+  自检现场 `bubbles=0`）——现在三张卡只在空态绘制。空配置目录实机取证：
+  `CJH-WARN 服务商密钥未配置（cjh 已连上 ws://127.0.0.1:8765/ws）`；页面自检 84 PASS / 0 FAIL / 1 SKIP。
+- **cjnote 示例：从 Git Bash 启动时读不到 `~/.cjh`（配置页空白），已修**。Git Bash 的 `HOME`
+  是 POSIX 形式（`/c/Users/yang`），而原生 Win32 API 会把它解释成「当前盘根目录下的
+  `c/Users/yang`」——`cjh:config` 于是拿不到 `settings.json` 里的 model（配置页一片空白），
+  自检里 `cjh:config returns model from settings.json` 恒红。**同一份 exe 从 cmd 里起就正常**
+  （79 PASS / 0 FAIL），清理 `HOME` 后也正常，与构建无关。修法：`cjhConfigDir()` 的三个来源
+  （`CJH_HOME` / `HOME` / `USERPROFILE`）都先过 `nativePathOf()`——只把 `/<盘符>/…` 与
+  `/cygdrive/<盘符>/…` 规范成原生路径，其余原样返回（平台差异走 `@When[os == "Windows"]`，
+  非 Windows 分支是恒等函数）。取证：同一份单文件 exe 在 Git Bash 下自检
+  **84 PASS / 0 FAIL / 1 SKIP**（汇总行 `passed=84`、`SELFCHECK PASS` 明细 84 条、FAIL 0 条；SKIP 那条是
+  真实 cjh 聊天探针当时没连上，不计入失败），空配置目录下仍如实报 `CJH-WARN 服务商密钥未配置`。
+- **单文件产物里的 `ws://` 连不上（`Can not load openssl library or function RAND_bytes.`）已修**：
+  仓颉运行时的随机数默认实现走 OpenSSL，而它按**裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`——
+  SDK 与 stdx 都不带这两个，开发机上只是恰好命中 PATH 里 Git 自带的那份，于是**同一条 `ws://` 连接线
+  本机全通、别人双击就挂**（RFC6455 升级要算 `Sec-WebSocket-Key` 的随机 nonce，明文 ws 也逃不掉；
+  `plugin_ws.cj` 无条件给的 `TlsClientConfig` 还会让 TLS 后端提前实例化）。症状极具误导性：cjh 的
+  `/api/health` 照常 200、页面显示「cjh 在运行」，**只有 ws 握手失败**。修法是**启动早期按绝对路径
+  预加载一次**，之后运行时按裸名加载即命中已加载模块——不改系统 PATH、也不把 DLL 摆到 exe 旁边，
+  单文件承诺不破；这两个 DLL 本来就在包里（随包 cjh 要用它们），**零新增体积**。
+  新增桥导出 `cj_bridge_preload_library(path)`（1 = 已在进程内 / 0 = 失败，原因打 stderr）与仓颉侧
+  `preloadEmbeddedLibrary(path)`（`src/embedded_assets.cj`；没有 C 桥的平台如实返回 false）；平台原语
+  `cj_plat_preload_library` 按 `AGENTS.md` §2 落在 `bridge_win.c`（`LoadLibraryA`）与 `bridge_linux.c`
+  （`dlopen`），`native/tests/test_bridge_core.c` 桩自检 232/232 通过。`examples/cjnote` 首个接入：
+  随包资源释放完成后先加载 `libcrypto` 再 `libssl`（后者依赖前者的符号）。
+  取证：另一台机器那条报错不再出现；最终产物默认日志里 `[cj-bridge] preload: …\cjnote\runtime/libcrypto-3-x64.dll` /
+  `…/libssl-3-x64.dll` 两行之后紧跟 `[cj-tauri] ws: connected ws://127.0.0.1:8765/ws`，页面自检
+  `SELFCHECK DONE passed=84 failed=0`（明细 84 条 PASS / 0 条 FAIL / 1 条 SKIP）。机制另有最小 C 探针
+  单独证明（裸名搜不到 → 绝对路径预加载成功 → 同一裸名立刻命中），不依赖应用日志。
 - **ai-chat 示例：聊天与 Agent 会话分离**：侧栏按当前模式只列本模式的会话
   （聊天 = 直连会话，Agent = cjh 会话及其镜像），各自记住自己的当前会话、切换模式互不顶掉；
   新建会话打上归属标签，存量存档按「有无 cjhId」归类。同步撤掉旧的「聊天模式隐藏镜像」

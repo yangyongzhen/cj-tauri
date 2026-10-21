@@ -58,7 +58,9 @@ public class NotificationPlugin <: Plugin {
     }
 
     public func setup(app: TauriApp): Unit {
-        this.handler.attachHost(app.webviewHost())
+        // 多窗口按报文里的 label 解析宿主（与 dialog 插件同一口径）：固定 `app.webviewHost()`
+        // 会让第二扇窗的通知全部落到默认窗那一个宿主上（2026-10-20 dialog 实机取证同款）。
+        this.handler.attachHostResolver({ label => app.hostOf(label) })
     }
 }
 
@@ -68,20 +70,28 @@ public class NotificationPlugin <: Plugin {
 public class NotificationCommands <: CommandHandler {
     private var host: Option<WebViewHost> = None
 
+    /* 按 label 解析宿主（多窗口的正路）：单槽 `host` 只记着装配时那一个宿主，
+       多窗口下用它就是「所有窗的通知都发给默认窗那一个宿主」。 */
+    private var hostByWindow: Option<(String) -> Option<WebViewHost>> = None
+
     public init() {}
 
-    /** 由 NotificationPlugin.setup() 调用 */
+    /** 由 NotificationPlugin.setup() 调用（单窗口 / 单测用；这个槽不带窗口身份） */
     public func attachHost(h: WebViewHost): Unit {
         this.host = Some(h)
     }
 
+    /** 装配「label → 宿主」解析器；由 NotificationPlugin.setup() 传入 `app.hostOf` */
+    public func attachHostResolver(resolve: (String) -> Option<WebViewHost>): Unit {
+        this.hostByWindow = Some(resolve)
+    }
+
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
-        let _ = ipc
         match (cmd) {
             case "notification:notify" =>
                 let title = this.requireString(args, "title")
                 let body = this.optionalString(args, "body")
-                if (this.requireHost().notify(title, body)) {
+                if (this.requireHost(ipc).notify(title, body)) {
                     return JsonNull()
                 }
                 throw CommandException(
@@ -90,7 +100,21 @@ public class NotificationCommands <: CommandHandler {
         }
     }
 
-    private func requireHost(): WebViewHost {
+    /**
+     * 取**发起这条命令的窗口**的宿主
+     *
+     * 多窗口下必须按 `ipc.window` 解析：用装配时那一个宿主，第二扇窗的通知会落到默认窗的宿主上。
+     * 解析器在场而窗口没登记时**如实报错**，不回落到单槽（与 dialog 插件同一口径）。
+     */
+    private func requireHost(ipc: IpcContext): WebViewHost {
+        match (this.hostByWindow) {
+            case Some(resolve) => match (resolve(ipc.window)) {
+                case Some(h) => return h
+                case None => throw CommandException(
+                    "notification: 窗口 \"${ipc.window}\" 没有登记宿主（addWindow(); 默认窗在 run() 之前也可用）")
+            }
+            case None => ()
+        }
         match (this.host) {
             case Some(h) => h
             case None => throw CommandException(

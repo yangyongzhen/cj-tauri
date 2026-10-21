@@ -160,3 +160,46 @@ func testNotificationBodyIsOptional(): Unit {
     cmd.handle("notification:notify", notifArgs("标题3", JsonString("正文")), IpcContext("main", IpcHub()))
     @Expect(host.notifiedArgs, "标题3|正文")
 }
+
+/** 桩侧「label → 宿主」解析器见 plugin_dialog_test.cj 的 routeProbeHost（同包可见） */
+@Test
+func testNotificationRoutesToTheWindowThatAsked(): Unit {
+    // 与 dialog / clipboard 同一条契约：报文里的 window 决定交给哪个宿主
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = NotificationCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+
+    cmds.handle("notification:notify", notifArgs("second 的通知", JsonString("正文")),
+        IpcContext("second", IpcHub()))
+    @Expect(secondHost.notifiedArgs, "second 的通知|正文")
+    // 关键断言：另一扇窗的宿主一点都没被碰到
+    @Expect(mainHost.notifiedArgs, "")
+
+    // 反向也成立
+    cmds.handle("notification:notify", notifArgs("main 的通知", JsonNull()), IpcContext("main", IpcHub()))
+    @Expect(mainHost.notifiedArgs, "main 的通知|")
+    @Expect(secondHost.notifiedArgs, "second 的通知|正文")
+}
+
+@Test
+func testNotificationReportsUnknownWindowInsteadOfFallingBack(): Unit {
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = NotificationCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+
+    var threw = false
+    try {
+        cmds.handle("notification:notify", notifArgs("谁的", JsonNull()), IpcContext("ghost", IpcHub()))
+    } catch (e: CommandException) {
+        threw = true
+        @Expect(e.message.contains("ghost"), true)
+    }
+    @Expect(threw, true)
+    // 报错之后两个宿主都没被写过：不回落单槽
+    @Expect(mainHost.notifiedArgs, "")
+    @Expect(secondHost.notifiedArgs, "")
+}

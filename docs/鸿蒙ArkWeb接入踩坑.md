@@ -917,9 +917,137 @@ grep -ao "confirmed=[a-z]*" .buildlog/l5.json | sort | uniq -c   # → 4 confirm
 - `Text` / `Row` / `Column` / `Button` 在 `.cj.d` 里是**按 class 声明**的（`public init(...)`），
   不是自由函数——查签名要 grep `public init(`，grep `func Text(` 什么都不会得到（会误以为组件不存在）。
 
-**未取证的残留（别当成已验证）**：① 多窗口下每个 label 各有一份 `@State`，
-overlay 是否会误画到别的窗口**尚未单独取证**（本轮日志全部 `label=main`）；
-② 双键框的「取消」路径未单独跑一轮（本轮页面上人工点「确定」，`confirmed=true`）。
+**未取证的残留（别当成已验证）**：本节单窗口那一轮只验到「一个框能弹能回填」。
+原先列在这里的两条——① 多窗口下 overlay 是否误画到别的窗口；② 双键框的「取消」路径——
+**已在同日下一轮取证完**，前者还顺手挖出一个框架级串台 bug，见 §10.12。
+
+
+### 10.12 多窗口弹窗：`dialog` 插件固定一个宿主 → 第二扇窗的框排进默认窗队列
+
+**结论**：`DialogPlugin.setup()` 原先只调 `handler.attachHost(app.webviewHost())`，
+而 `DialogCommands.handle` 第一行就是 `let _ = ipc`——**报文里的窗口归属被整个丢掉**。
+多窗口下所有窗的 `dialog:*` 命令都落到「装配时那一个宿主」（默认窗）的队列上：
+
+- 第二扇窗的请求排进 `main` 的 `pendingDialogs`，于是 **main 的组件把它取出来画**——
+  画面出现在 main 那一半，标题却是 second 的；
+- main 自己的那次请求（`id=1`）被随后到来的第二次 `take` 覆盖掉 `@State`，**从未显示过**；
+- 页面上看是「我的框没弹出来，别人窗里冒出一个」，而命令 promise **照常 resolve**，
+  所以页面还显示 `confirmed=true`——一切「看起来成功」，只有画面不对。
+
+**判据（一眼能分辨）**：两扇窗同时弹框时，日志里 `dialog take` 行数对不上 label 数。
+修复前的实测序列（`.buildlog/hilog-multiwindow.log`，`2026-10-20 23:04`）：
+
+```
+dialog take label=main id=1 title=cj-tauri 弹窗 main
+dialog take label=main id=2 title=cj-tauri 弹窗 second      ← second 的请求在 main 的队列里
+declarative dialog answer id=2 confirmed=true               ← id=1 那次永远没被 answer
+dialog answer label=main id=2 confirmed=true
+probe:log window=second <- {"kind":"dialog-result","me":"second","confirmed":true}
+```
+
+抓屏 `mw1.jpeg` 佐证：上半屏（main 组件，overlay 底色黑、整幅覆盖）显示 `cj-tauri 弹窗 second`。
+
+**修法（框架侧，`src/plugins/dialog/plugin_dialog.cj`）**：宿主按**发起命令的窗口**解析，
+解析器由装配时注入，不要发明新槽位语义：
+
+```cangjie
+// DialogCommands 增加私有槽（不是公开 API 的主要形态，单测也靠它注入桩宿主）
+private var hostByWindow: Option<(String) -> Option<WebViewHost>> = None
+
+// setup() 两个槽都装：host 留作单窗口兜底，hostOf 才是多窗口正路
+this.handler.attachHost(app.webviewHost())
+this.handler.attachHostResolver({ label => app.hostOf(label) })
+```
+
+`requireHost(ipc)` 先问解析器；**解析器在场而窗口没登记时如实抛错**（`dialog: 窗口 "ghost"
+没有登记宿主…`），**不要回落到单槽**——回落正是串台的来源。三条命令（open / save / pickFolder /
+message）因此都要多收一个 `ipc` 参数。单测补齐两条：`testDialogRoutesToTheWindowThatAsked`
+（second 的框不碰 main）、`testDialogReportsUnknownWindowInsteadOfFallingBack`（未登记窗口报错且
+两个宿主都没被写过）；框架用例 296 个全绿。
+
+**修复后的取证（同一台真机，`hilog-mw2.log`，`2026-10-20 23:12`）**：
+
+```
+dialog take label=main id=1   kind=confirm
+dialog present label=main id=1   title=cj-tauri 弹窗 main   confirm=true
+dialog take label=second id=1 kind=confirm                 ← 两个宿主各自的 id 序列
+dialog present label=second id=1 title=cj-tauri 弹窗 second confirm=true
+```
+
+抓屏 `mw2.jpeg`（598 081 B）：上半屏 `cj-tauri 弹窗 main`、下半屏 `cj-tauri 弹窗 second`，
+两框同屏各在自己的半幅里。**「id 各从 1 起」本身就是 per-host 队列的凭证**（共用一个槽时会连续递增）。
+
+**取消 / 确定两条回填路径（同一轮，`uinput -T -m x y x y 100` 点按）**：上半屏点「取消」、
+下半屏点「确定」，四条日志逐条对账、原生归属与页面自认恒等：
+
+```
+declarative dialog answer id=1 confirmed=false
+dialog answer label=main id=1 confirmed=false
+probe:log window=main   <- {"kind":"dialog-result","me":"main","confirmed":false}
+declarative dialog answer id=1 confirmed=true
+dialog answer label=second id=1 confirmed=true
+probe:log window=second <- {"kind":"dialog-result","me":"second","confirmed":true}
+```
+
+注意 `window=` 与 `me=` 必须**同一行都出现且相等**：只看 `confirmed=` 分不清是哪扇窗答的。
+
+**同族的风险面（同一形状，2026-10-21 已按同一口径修完）**：`clipboard` 与 `notification`
+两个插件原本也在 `setup()` 里固定 `app.webviewHost()`。修法与判据、以及「为什么真机取证证明不了
+串台」的实测数据见下一节 §10.13。
+
+→ 桌面两平台同样走这个插件，所以这条修复同时纠正 Windows / Linux 的多窗口 `dialog:*` 路由
+（桌面单窗行为不变：解析器给出默认窗宿主，与原先那一个相同）。
+
+
+### 10.13 `clipboard` / `notification` 的同一形状：修好之后，真机反而「证明不了」串台
+
+**同一处病**：两个插件原先 `setup()` 只调 `handler.attachHost(app.webviewHost())`，
+`handle` 里 `let _ = ipc`——报文自带的窗口归属被丢掉，第二扇窗的命令全发给默认窗那一个宿主。
+与 §10.12 完全同源，只是受害能力不同（剪贴板会读写错窗的内容、通知会画到错窗的角标/横幅）。
+
+**修法**（`src/plugins/clipboard/plugin_clipboard.cj` / `src/plugins/notification/plugin_notification.cj`）：
+照抄 dialog 的口径，装配时注入解析器、命令按 `ipc.window` 取宿主：
+
+```cangjie
+// setup()
+this.handler.attachHostResolver({ label => app.hostOf(label) })
+
+// requireHost(ipc)：解析器优先；解析器在场而窗口未登记时如实抛错
+//   "clipboard: 窗口 \"ghost\" 没有登记宿主（addWindow(); 默认窗在 run() 之前也可用）"
+// 单槽 host 只留作单窗口 / 单测兜底，**绝不回落**（回落正是串台的来源）
+```
+
+桌面单测各补两条（`src/tests/plugin_clipboard_test.cj` / `plugin_notification_test.cj`），
+直接复用 `plugin_dialog_test.cj` 的 `routeProbeHost` 桩：按窗口路由到对应 FakeHost、
+未登记窗口（`"ghost"`）抛错且**两个宿主都没被写过**。框架用例 **308/308** 全绿。
+
+**真机数据（2026-10-21 23:53，`hilog-cn.log`，pid 20172，探针两窗各自动打一遍）**：
+
+```
+probe:log window=main   <- {"kind":"platform-clipboard-write","me":"main","ok":false,"detail":"clipboard: 写入失败（宿主未就绪 / 平台拒绝）"}
+probe:log window=second <- {"kind":"platform-clipboard-write","me":"second","ok":false,"detail":"clipboard: 写入失败（宿主未就绪 / 平台拒绝）"}
+probe:log window=main   <- {"kind":"platform-clipboard-read","me":"main","ok":true,"detail":"null"}
+probe:log window=second <- {"kind":"platform-clipboard-read","me":"second","ok":true,"detail":"null"}
+probe:log window=main   <- {"kind":"platform-notification","me":"main","ok":false,"detail":"notification: 发送失败（宿主未就绪 / 本平台未实现 / 桌面环境不可用）"}
+probe:log window=second <- {"kind":"platform-notification","me":"second","ok":false,"detail":"notification: 发送失败（宿主未就绪 / 本平台未实现 / 桌面环境不可用）"}
+```
+
+**这段数据能证明什么、不能证明什么**（别读过）：
+- 能证明：报文按 label 归到了**本窗**（每条里 `window=` 与 `me=` 相等），且两个插件在鸿蒙侧
+  **如实失败**（`hostCapabilities()` 为 0，`clipboardWriteText` / `notify` 恒 false）。
+- **不能证明**串台有没有修好——两个宿主的行为完全一样（都 false），所以「共用一个槽」在设备上
+  会打印出与上表**一模一样**的行。区分力只在单测里（两个 FakeHost 行为不同：只该被写的那一个
+  才有痕迹），或者在宿主真落地以后的真机复测。**取证工具与被测能力同归于「都一样」时，
+  这条证据等于零**，别把它写成「串台已证伪」。
+- `clipboard:read` 那个 `ok=true, detail=null` **不是「支持了」**：`None` 在插件语义里是
+  「空 / 非文本」这种**合法结果**，不是错误（`plugin_clipboard.cj` 的 `case None => JsonNull()`）。
+  所以能力位为 0 时「读」看起来是成功的——判断能力是否落地要看 `write` / `notify` 的失败行，
+  别拿 read 的 null 当凭证。
+
+**后续**：鸿蒙侧接 `ohos.pasteboard` 与通知模块之前，能力位一律保持 0；接上之后再复跑本节同一
+探针（`examples/ohos-probe` 的 `showPlatformBits()`），届时两个宿主行为不同，`window=` 才真正有
+区分力。
+
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

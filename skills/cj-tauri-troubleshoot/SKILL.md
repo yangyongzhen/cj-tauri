@@ -77,6 +77,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 症状 | 原因与修法 |
 |---|---|
 | 后装配的窗口收不到自己的事件 | 静态单槽被覆盖；宿主级回调一律**按句柄路由**（报文自带 label 的消息回调才可用单槽） |
+| 第二扇窗的对话框在**别人窗口里弹出来**，自己那个从不出现，页面却显示 `confirmed=true` | 插件在 `setup()` 里固定了 `app.webviewHost()`（只代表默认窗），所有窗的 `dialog:*` 排进同一个队列。判据看 `dialog take` 的 `id` 是否**各宿主独立从 1 起**。落法：`attachHostResolver({ label => app.hostOf(label) })` + 命令实现多收 `ipc`（解析器在场而窗口未登记就抛错，别回落单槽）。`clipboard` / `notification` 仍是固定宿主，用前先问「是否只在默认窗可用」 |
 | 新增宿主回调后 C 侧签名不对 | `cj_on_*_fn` 首参必须 `struct cj_host *`（回调要自带身份） |
 | 改了 C 桥导出后链接炸一串 undefined reference | 桥是本地产物不入库；先 `bash native/build_linux.sh`（或 `native\build_win.bat`）重建再构建/测试 |
 

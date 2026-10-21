@@ -175,3 +175,63 @@ func testDialogRejectsUnknownCommand(): Unit {
     }
     @Expect(threw, true)
 }
+
+/**
+ * 桩侧「label → 宿主」解析器（模拟 `app.hostOf`）
+ *
+ * 用独立函数而不是内联 lambda：多分支要能 return，写成独立函数最稳。
+ */
+func routeProbeHost(label: String, mainHost: FakeHost, secondHost: FakeHost): Option<WebViewHost> {
+    if (label == "second") {
+        return Some(secondHost)
+    }
+    if (label == "main") {
+        return Some(mainHost)
+    }
+    return None
+}
+
+@Test
+func testDialogRoutesToTheWindowThatAsked(): Unit {
+    // 多窗口的核心契约：报文里的 window 决定交给哪个宿主。
+    // 只用单槽（装配时那一个宿主）时，第二扇窗的框会排进 main 的队列——
+    // 2026-10-20 鸿蒙真机实测的串台就是这么来的（docs/鸿蒙ArkWeb接入踩坑.md §10.12）。
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = DialogCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+    let hub = IpcHub()
+
+    cmds.handle("dialog:message", messageArgs("second 的框"), IpcContext("second", hub))
+    @Expect(secondHost.messageDialogArgs.contains("second 的框"), true)
+    @Expect(secondHost.messageDialogArgs.contains("|second 的框"), true)
+    // 关键断言：另一扇窗**一点都没被碰到**
+    @Expect(mainHost.messageDialogArgs, "")
+
+    cmds.handle("dialog:message", messageArgs("main 的框"), IpcContext("main", hub))
+    @Expect(mainHost.messageDialogArgs.contains("main 的框"), true)
+    // 反向也成立：second 那一份不被覆盖（各持一份状态，不是共用一个槽）
+    @Expect(secondHost.messageDialogArgs.contains("second 的框"), true)
+}
+
+@Test
+func testDialogReportsUnknownWindowInsteadOfFallingBack(): Unit {
+    // 解析器在场而窗口没登记时如实报错：悄悄回落到单槽正是串台的来源
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = DialogCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+    var threw = false
+    try {
+        cmds.handle("dialog:message", messageArgs("谁的框"), IpcContext("ghost", IpcHub()))
+    } catch (e: CommandException) {
+        threw = true
+        @Expect(e.message.contains("ghost"), true)
+    }
+    @Expect(threw, true)
+    // 报错之后两个宿主都没被写过：宁可不弹，也不弹到别人窗口里
+    @Expect(mainHost.messageDialogArgs, "")
+    @Expect(secondHost.messageDialogArgs, "")
+}

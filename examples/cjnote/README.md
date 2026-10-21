@@ -147,14 +147,29 @@ bash ../../scripts/pack-linux-single.sh                             # 默认打�
 bash ../../scripts/pack-linux-single.sh examples/cjnote /tmp/out    # 也可指定示例与输出目录
 ```
 
-产物 `dist-single/cjnote` 11 698 576 B（对比 `cjpm build` 那版动态 `main` 7 967 584 B——多出来的是静态链进来的
-仓颉运行时、std/stdx、各插件包与内嵌的页面资源）。它与 `scripts/pack-linux.sh` 打的**目录包**是两种交付形态：
+### 两个体积数字、不是两个程序
+
+最容易读岔的一点先说清：**11.2M 与 7.6M 是同一个应用的两份产物，差别只在「依赖有没有被编进文件里」**
+（体积按 1024 进位，与 `ls -h` 同口径）：
+
+| 形态 | 产物文件 | 体积 | 文件里有什么 |
+| --- | --- | --- | --- |
+| 开发态（`cjpm build` 直接编出来的） | `target/release/bin/main` | **7.6M** | 只有应用自己的代码。C 桥 `libcjtbridge.so`、仓颉运行时、stdx、各插件包都在文件**外面**，运行时靠 `LD_LIBRARY_PATH` 去找 |
+| 单文件（跑完本节脚本的产物） | `dist-single/cjnote` | **11.2M** | 上表那些**全部静态编进这一个文件**，另外把 `ui/`（页面 + 前端库）与 `capabilities/` 清单内嵌成 base64 |
+
+多出来的 3.6M 就是被静态链进来的运行时与插件包，加上内嵌的页面资源——换来的是「换一台机器只要系统有
+WebKitGTK / GTK 就能直接跑」。
+
+### 它和目录包的区别
+
+`pack-linux-single.sh` 打的是**一个文件**，`pack-linux.sh` 打的是**一个目录**：
 
 | | 目录包（`pack-linux.sh`） | 单文件（`pack-linux-single.sh`） |
 | --- | --- | --- |
-| 链接 | 动态（`libcjTauri*.so`、`libcjtbridge.so`） | 静态（`--static --static-std --static-libs` + 静态 C 桥归档） |
-| 运行时依赖 | 仓颉运行时 + stdx + 桥，须随包或设 `LD_LIBRARY_PATH` | **只要系统 WebKitGTK / GTK 那一套**，不再需要 SDK / stdx / `LD_LIBRARY_PATH` |
-| 页面 / 前端库 / 能力清单 | 随包的 `ui/`、`capabilities/` 目录 | 编进二进制，启动日志打「能力清单来自内嵌资源」 |
+| 链接方式 | 动态（`libcjTauri*.so`、`libcjtbridge.so`） | 静态（`--static --static-std --static-libs` + 静态 C 桥归档） |
+| 运行时依赖 | 仓颉运行时 + stdx + 桥，须随包发或让用户设 `LD_LIBRARY_PATH` | **只要系统 WebKitGTK / GTK 那一套**，不再需要 SDK / stdx / `LD_LIBRARY_PATH` |
+| 页面 / 前端库 / 能力清单 | 随包的 `ui/`、`capabilities/` 目录 | 编进二进制（启动日志会打「能力清单来自内嵌资源」） |
+| 适合 | 本机调试、目标机器已装 SDK | 免 SDK、免解压的交付 |
 
 Linux 侧有个硬天花板：**系统 WebKitGTK / GTK 没有静态库**（发行版里查无 `libwebkit2gtk-4.1.a` / `libgtk-3.a`），
 所以「全静态 ELF」在 Linux 上不可得——产物仍动态依赖系统那套图形栈，能静态下来的只是「本框架带来的依赖」。

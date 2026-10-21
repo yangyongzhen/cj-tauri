@@ -348,21 +348,64 @@ public func shutdownCjh(): Unit {
 // （哪怕它不是本应用起的——这正是「保存了却一直不生效」的缺口）。页面没有 fs 权限碰 ~/.cjh，
 // 得由宿主代劳。
 
+/**
+ * 把 Git Bash / MSYS 的 POSIX 路径（`/c/Users/yang`）转成原生 Windows 路径（`C:/Users/yang`）。
+ *
+ * 为什么需要：从 Git Bash 启动时 `HOME=/c/Users/yang`，原生 Win32 API 会把它解释成
+ * 「当前盘根目录下的 c/Users/yang」——`~/.cjh/settings.json` 于是**静默读不到**
+ * （2026-10-21 实测：同一份单文件 exe，从 Git Bash 起页面自检 `cjh:config` 拿不到 model、
+ * 配置页一片空白，从 cmd 起则 79 PASS / 0 FAIL；清空 HOME 再起也正常，故与构建无关）。
+ * 只认 `/<盘符>/…` 与 `/cygdrive/<盘符>/…` 两种明确形态，其余原样返回——
+ * 真 POSIX 语义的路径不该被这里改写。
+ */
+@When[os == "Windows"]
+func nativePathOf(raw: String): String {
+    if (!raw.startsWith("/")) {
+        return raw
+    }
+    let parts = raw.split("/")
+    // parts[0] 恒为空串（开头的 "/"）；cygdrive 形态的盘符在 parts[2]
+    var driveIdx = 1
+    if (parts.size > 2 && parts[1] == "cygdrive") {
+        driveIdx = 2
+    }
+    if (parts.size <= driveIdx) {
+        return raw
+    }
+    let drive = parts[driveIdx]
+    // 单字节 + 大小写转换结果不同 ⇒ ASCII 字母（不必依赖任何字符分类 API）
+    if (drive.size != 1 || drive.toAsciiLower() == drive.toAsciiUpper()) {
+        return raw
+    }
+    var out = drive.toAsciiUpper() + ":"
+    var i = driveIdx + 1
+    while (i < parts.size) {
+        out = out + "/" + parts[i]
+        i += 1
+    }
+    return out
+}
+
+@When[os != "Windows"]
+func nativePathOf(raw: String): String {
+    return raw
+}
+
 /** cjh 配置目录：CJH_HOME 覆写 → HOME/.cjh → USERPROFILE/.cjh（Windows） */
 func cjhConfigDir(): String {
     if (let Some(v) <- getVariable("CJH_HOME")) {
         if (v != "") {
-            return v
+            return nativePathOf(v)
         }
     }
     if (let Some(h) <- getVariable("HOME")) {
         if (h != "") {
-            return "${h}/.cjh"
+            return "${nativePathOf(h)}/.cjh"
         }
     }
     if (let Some(h) <- getVariable("USERPROFILE")) {
         if (h != "") {
-            return "${h}/.cjh"
+            return "${nativePathOf(h)}/.cjh"
         }
     }
     return ".cjh"

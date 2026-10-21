@@ -314,6 +314,14 @@
   GUI 子系统、`spawn` 轻量线程里各跑一次），三个都成功就说明问题不在调用形态、而在挑错了对象。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
+- **反过来：应用自己从 `HOME` 拼路径时，POSIX 形式会被原生 Win32 API 吃掉**（2026-10-21 实测，`cjnote`）。
+  Git Bash 的 `HOME` 是 `/c/Users/yang`，原生 API 把它当「当前盘根目录下的 `c/Users/yang`」——
+  `~/.cjh/settings.json` 于是**静默读不到**：配置页一片空白、自检里 `cjh:config returns model from
+  settings.json` 恒红，而**同一份 exe 从 cmd 里起就正常**（79 PASS / 0 FAIL），清理 `HOME` 后也正常。
+  判据：把环境变量摘掉再跑一次，结果反转 ⇒ 是启动环境而非代码/构建。修法是把 `/<盘符>/…` 与
+  `/cygdrive/<盘符>/…` 规范成原生路径（`examples/cjnote/src/cjh_host.cj` 的 `nativePathOf`，
+  平台差异走 `@When[os == "Windows"]`、非 Windows 分支恒等）。**凡是读 `HOME` / `XDG_*` 拼路径的
+  宿主代码都该过这一层**——`$HOME` 在 Git Bash / MSYS 下与原生进程看到的不是同一个字符串。
 - **`CANGJIE_STDX` 要指 stdx 的 `dynamic/stdx`（DLL 目录），不是 stdx 包根**：`cli/src/resolve.cj`
   把它**逐字**写进生成工程的 `[target.<triple>.bin-dependencies]`，给错了照样 `create` 成功——一直要到
   在那个新工程里 `cjpm build` 才炸：`root package '<名>' imports package 'stdx.encoding.json' in its

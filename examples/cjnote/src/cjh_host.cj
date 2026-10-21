@@ -82,8 +82,8 @@ func cjhBinCandidates(): ArrayList<String> {
     }
     list.add("vendor/cjh/bin/linux-x64/cjh")
     list.add("vendor/cjh/bin/windows-x64/cjh.exe")
-    list.add("vendor/cjh/.extract/cjh-v1.5.1-linux-x64")
-    list.add("vendor/cjh/.extract/cjh-v1.5.1-windows-x64.exe")
+    list.add("vendor/cjh/.extract/cjh-v1.5.3-linux-x64")
+    list.add("vendor/cjh/.extract/cjh-v1.5.3-windows-x64.exe")
     return list
 }
 
@@ -363,7 +363,7 @@ func writeJsonObject(path: String, obj: JsonObject): Bool {
 /**
  * 把设置页字段翻成 cjh REST 侧的字段名（camelCase 白名单），`applied` 记下真正推过去的键。
  *
- * 这份名单是**实证**来的（2026-10-20，随包 1.5.1 + POST /api/settings）：
+ * 这份名单是**实证**来的（2026-10-21，随包 1.5.3 + POST /api/settings）：
  * cjh 的 `applySettingsUpdate` 只认 baseUrl / model / apiKey / temperature / maxTokens /
  * maxIterations / systemPrompt / compactThreshold / mcpServers，其余键**静默忽略**——
  * `provider_protocol` 就是被忽略的那一个，所以协议改动只能靠「写文件 + 重启」（见 saveCjhConfig）。
@@ -526,6 +526,14 @@ public func saveCjhConfig(args: JsonObject): JsonValue {
     }
 
     let obj = JsonObject()
+    // 新机器上 `~/.cjh` 可能整条不存在（从没跑过 cjh 时 cjh 自己不建这个目录），而 `File.writeTo`
+    // 只建文件、不建目录——少了这一步，设置页第一次保存必然以 FSException 告终
+    // （实测：隔离 HOME 下报 `写配置失败 /tmp/…/.cjh/settings.json：FSException`）。
+    // 必须先判存在：目录已在时 `Directory.create` 会抛 `The input path … is already exists`，
+    // 而「已存在」才是绝大多数用户的常态（装过 cjh 就有），漏判等于把保存对所有老用户打红。
+    if (!exists(dir)) {
+        Directory.create(dir, recursive: true)
+    }
     var ok = writeJsonObject(settingsPath, s)
     // 密钥单独一份（auth.json）：只有用户真输了新 key 才写。带 **** 的是脱敏回显，写回去等于把 key 弄坏
     let newKey = jsonStrOf(args, "apiKey")

@@ -4,7 +4,6 @@
   "commands": [
     "note:list",
     "note:search",
-    "note:brief",
     "note:open",
     "note:save",
     "note:create",

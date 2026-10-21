@@ -123,13 +123,46 @@ AI 后端 cjh 随包放在 `vendor/cjh/bin/<平台>/`：应用启动时先探 `1
 顶上显示后端状态与两个端点。保存由宿主写配置文件并把白名单字段即时推给运行中的 cjh；
 「测试连通」用表单里这组值发一条最小对话，只验连通、不改配置。*
 
+## 单文件打包（可选）
+
+想把应用交付成**一个文件**（没有 `lib/`、没有 `ui/`、没有 `capabilities/`），用框架的通用打包脚本：
+
+```bash
+bash ../../scripts/pack-linux-single.sh                             # 默认打本示例 → dist-single/cjnote
+bash ../../scripts/pack-linux-single.sh examples/cjnote /tmp/out    # 也可指定示例与输出目录
+```
+
+产物 `dist-single/cjnote` 11 698 576 B（对比 `cjpm build` 那版动态 `main` 7 655 320 B——多出来的是静态链进来的
+仓颉运行时、std/stdx、各插件包与内嵌的页面资源）。它与 `scripts/pack-linux.sh` 打的**目录包**是两种交付形态：
+
+| | 目录包（`pack-linux.sh`） | 单文件（`pack-linux-single.sh`） |
+| --- | --- | --- |
+| 链接 | 动态（`libcjTauri*.so`、`libcjtbridge.so`） | 静态（`--static --static-std --static-libs` + 静态 C 桥归档） |
+| 运行时依赖 | 仓颉运行时 + stdx + 桥，须随包或设 `LD_LIBRARY_PATH` | **只要系统 WebKitGTK / GTK 那一套**，不再需要 SDK / stdx / `LD_LIBRARY_PATH` |
+| 页面 / 前端库 / 能力清单 | 随包的 `ui/`、`capabilities/` 目录 | 编进二进制，启动日志打「能力清单来自内嵌资源」 |
+
+Linux 侧有个硬天花板：**系统 WebKitGTK / GTK 没有静态库**（发行版里查无 `libwebkit2gtk-4.1.a` / `libgtk-3.a`），
+所以「全静态 ELF」在 Linux 上不可得——产物仍动态依赖系统那套图形栈，能静态下来的只是「本框架带来的依赖」。
+实测启动（刻意摘掉 `LD_LIBRARY_PATH`）：窗口建成、菜单 16 项生效、
+`[cjnote] 能力清单来自内嵌资源（1 份，共 1568 字节 base64）`，stderr 49 行、无 `not found`。
+
+两条注意：① **cjh 不在产物里**——它按 `vendor/cjh/bin/<平台>/` 找现成二进制、运行期不解包，
+所以单文件要和 `vendor/cjh/` **同级摆放**，且**工作目录就是它所在目录**（笔记库 `notes/` 同样按相对路径读）；
+② 脚本本身是通用的（示例路径当第一个参数、包名从示例的 `cjpm.toml` 读，脚本内无任何示例专属逻辑），
+示例侧只需备好三件套（`src/packed_assets.cj` 空存根、`src/packed_resources.cj`、至少一份 `capabilities/*.json`），
+所以它留在框架的 `scripts/` 里、不必复制进每个示例。
+
 ## 自检
 
 无人值守跑一轮页面自检，结论经 `report` 回投 stderr：
 
+> 注意：其中两条涉及 cjh 配置的断言（`cjh:config` / `cjh:saveConfig`）按「本机已装并配置过 cjh」写。
+> 用隔离 HOME 跑沙盒时先放一份 `~/.cjh/settings.json`，否则 `cjh:config` 那条会因读不到 model 而红——
+> 那是「这台机器没配置过 cjh」，不是回归。
+
 ```bash
 CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
-# SELFCHECK DONE passed=62 failed=0
+# SELFCHECK DONE passed=68 failed=0
 ```
 
 （汇总行的 `passed` 与 PASS 明细条数**不保证末行对齐**：`report` 是异步命令，聚合行之后还可能再来明细，

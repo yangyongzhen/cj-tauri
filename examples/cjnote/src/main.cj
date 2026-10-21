@@ -3,7 +3,8 @@
 //
 // 页面是独立 ui/index.html（不内联三引号字符串）：Markdown 渲染必然有正则与反斜杠，
 // 内联会踩 AGENTS §4 的三引号转义坑；独立文件还能 node --check 验语法。
-// run(html) 的页面没有真实来源，vendor 库在装配期读盘内联进占位符（markdown-notes 同款）。
+// run(html) 的页面没有真实来源，vendor 库在装配期读盘内联进占位符（markdown-notes 同款）；
+// 单文件包里页面、vendor 库与能力清单都从二进制里取（见 src/packed_resources.cj），磁盘上不再有 ui/。
 
 package cjnote
 
@@ -218,15 +219,13 @@ func readTextOr(path: String, hint: String): String {
 }
 
 /** 把 vendor 库内联进页面占位符：run(html) 无真实来源，`<script src>` 相对路径取不到。
- *  库缺失不致命——渲染退化为纯文本也不该启动失败，每份只留一行 stderr。 */
+ *  库缺失不致命——渲染退化为纯文本也不该启动失败，每份只留一行 stderr。
+ *  取用序由 vendorSegments() 统一给出：单文件产物走内嵌，仓库内构建按同一顺序读盘。 */
 func inlineVendor(html: String): String {
-    var js = readTextOr("ui/vendor/marked.min.js", "渲染退化为纯文本") + "\n"
-    js += readTextOr("ui/vendor/highlight.min.js", "代码无高亮") + "\n"
-    js += readTextOr("ui/vendor/codemirror.min.js", "编辑器退化为纯 textarea") + "\n"
+    let seg = vendorSegments()
+    let js = segAt(seg, 0) + "\n" + segAt(seg, 1) + "\n" + segAt(seg, 2) + "\n"
     var out = html.replace("/*__VENDOR_JS__*/", js)
-    let cmCss = readTextOr("ui/vendor/codemirror.min.css", "编辑器无样式")
-    let hlCss = readTextOr("ui/vendor/github-dark.min.css", "高亮无配色")
-    out = out.replace("/*__VENDOR_CSS__*/", cmCss + "\n" + hlCss)
+    out = out.replace("/*__VENDOR_CSS__*/", segAt(seg, 3) + "\n" + segAt(seg, 4))
     return out
 }
 
@@ -333,7 +332,7 @@ main(): Int64 {
         }
     }
 
-    let htmlRaw = readTextOr("ui/index.html", "请在工程根目录启动")
+    let htmlRaw = textOrFile(PACKED_UI_B64, "ui/index.html", "请在工程根目录启动")
     if (htmlRaw.size == 0) {
         return 1
     }
@@ -357,7 +356,6 @@ main(): Int64 {
         .register("notes:env", NotesEnvCommand(selfCheck))
         .register("note:list", noteCmds)
         .register("note:search", noteCmds)
-        .register("note:brief", noteCmds)
         .register("note:open", noteCmds)
         .register("note:save", noteCmds)
         .register("note:create", noteCmds)
@@ -415,6 +413,19 @@ main(): Int64 {
             app.setMenuTo("main", buildAppMenu())
             eprintln("[cjnote] menu attached")
         case None => eprintln("[cjnote] 默认窗口未登记，菜单未装")
+    }
+
+    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+    if (PACKED_CAPS_B64.size > 0) {
+        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+        var n: Int64 = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            let _ = app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            n += 1
+        }
+        eprintln("[cjnote] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
     }
 
     app.run(html)

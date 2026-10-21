@@ -285,12 +285,13 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 .msg .md table { border-collapse: collapse; margin: 8px 0; width: 100%; }
 .msg .md th, .msg .md td { border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
 .msg .md img { max-width: 100%; }
-/* 工具条：两个上下文开关，放输入框正上方 */
+/* 工具条：一个上下文开关（问笔记库）+ 一行说明，放输入框正上方 */
 #ai .toolbar {
   flex: 0 0 auto; display: flex; gap: 12px; padding: 6px 12px;
   font-size: 11px; color: var(--fg-dim); border-top: 1px solid var(--border);
 }
 #ai .toolbar label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+#ai .toolbar .ctx-hint { margin-left: auto; opacity: .75; }
 #ai-input-row {
   flex: 0 0 auto; display: flex; gap: 8px; padding: 10px;
   border-top: 1px solid var(--border);
@@ -548,8 +549,8 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
     <div id="ai-chat-view">
       <div id="ai-msgs"></div>
       <div class="toolbar">
-        <label><input type="checkbox" id="ai-ref-note"> 引用当前笔记</label>
         <label><input type="checkbox" id="ai-lib-note"> 问笔记库</label>
+        <span id="ai-ctx-hint" class="ctx-hint" title="每问只带「我正在看哪一篇」的绝对路径，正文由 AI 自己按需读取">上下文：当前笔记</span>
       </div>
       <div id="ai-input-row">
         <textarea id="ai-input" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
@@ -632,6 +633,8 @@ var bridge = null;
 var cm = null;                      // CodeMirror 实例；null = fallback textarea
 var notes = [];                     // [{name, path}]
 var current = "";                   // 当前笔记文件名
+var docPath = "";                   // 当前笔记的绝对路径（note:open 回的 path）——AI 指针要用
+var noteRoot = "";                  // 笔记库根目录的绝对路径（note:list 回的 root）
 var sortBy = "mtime";  // 默认按修改时间：列表的意义是「最近动过什么」；偏好落 store（ui.sortby）
 var noteMtimes = {};   // name → mtime（note:list 给的 ISO 字符串，Date.parse 转数值排序）
 var dirty = false;
@@ -848,8 +851,7 @@ function aiGreet(sub) {
   for (var i = 0; i < chips.length; i++) {
     (function (q) {
       chips[i].onclick = function () {
-        var ref = document.getElementById("ai-ref-note");
-        if (ref) { ref.checked = true; }   // 三个建议都要正文，自动勾上「引用当前笔记」
+        // 三个建议都要「这一篇」的内容：不用再勾选——指针每问都带，正文由 AI 按需 read_file
         $("ai-input").value = q;
         aiSend();
       };
@@ -1132,74 +1134,58 @@ function testCjhConnectivity() {
   // 未连接：先按一次连接再来，与聊天发送同一策略（不给用户「先自己连一下」的负担）
   cjhBoot(true).then(run).catch(run);
 }
-// 发一条提问：把「引用当前笔记 / 问笔记库」拼进消息本身（cjh 是 agent，system 由它自己管，
-// 页面不再自己组织 messages——上下文只能以「随消息附上的资料」出现）
-// 上下文拼装独立成函数：aiSend 只管取问题与发送，「勾了什么就附什么」这条规则要能被自检
-// 直接断言——勾了却静默空转是用户实测报上来的 bug，不能只靠人眼看回复。
-var DOC_CTX_MAX = 20000;   // 当前文档正文上限：超了截断并如实标注（不静默砍）
-function aiCtxDocLabel() {
-  // 当前文档的身份：库内笔记有 current；Ctrl+O 打开的库外文件 current 是空串
-  //（openExternalPath 里就写着 current = ""）。早先只认 current → 库外文件勾了
-  //「引用当前笔记」等于什么都没附，用户看到的就是「明明勾了，AI 回复里却没有」。
-  if (current) { return { kind: "笔记", label: current }; }
-  if (externalPath) { return { kind: "文件", label: externalPath.replace(/^.*[\/\\]/, "") }; }
-  return { kind: "笔记", label: "" };
-}
-function buildAiContext(text, notice) {
-  var ctx = "";
+// 发一条提问：上下文（我现在在看哪一篇）拼进消息本身（cjh 是 agent，system 由它自己管，
+// 页面不再自己组织 messages——上下文只能以「随消息附上的指针」出现）
+// 上下文拼装独立成函数：aiSend 只管取问题与发送，「附了什么」这条规则要能被自检直接断言——
+// 勾了却静默空转是用户实测报上来的 bug，不能只靠人眼看回复。
+//
+// 形态是**指针**不是正文（2026-10-21 用户裁定）：每问只带「我正在看哪一篇」的绝对路径，正文由
+// AI 自己 read_file 取。原先把全文塞进消息、勾选框又不复位，于是每轮各附一份全文（跨轮累加，
+// 用户实测报上来的）。绝对路径是硬前提：cjh 的 read_file 对相对路径是按**它当时的工作区**解析的，
+// 而那个工作区可能是别的应用设的（实测 ai-chat 先起的 cjh 指向 examples/ai-chat/target），
+// 相对路径会静默指到别的目录去。
+function aiCtxPointer() {
+  var lines = [];
   var attached = [];   // 实际附上了什么：写进 stderr 当凭证（回复不对时先分「没附上」还是「附了没用」）
-  var ref = document.getElementById("ai-ref-note");
-  if (ref && ref.checked) {
-    var doc = getDoc();
-    if (doc.length > 0) {
-      var d = aiCtxDocLabel();
-      var cut = doc.length > DOC_CTX_MAX;
-      ctx += "【当前" + d.kind + "《" + (d.label || "未命名") + "》全文" + (cut ? "（已截断）" : "") + "】\n\n" +
-             (cut ? doc.slice(0, DOC_CTX_MAX) : doc) + "\n\n";
-      attached.push(d.kind + "正文 " + (cut ? DOC_CTX_MAX : doc.length) + " 字");
-    } else if (typeof notice === "function") {
-      notice("勾了「引用当前笔记」，但当前文档是空的——这一问没有附带正文。");
-    }
+  if (current && docPath) {
+    lines.push("【当前笔记】" + current);
+    lines.push("绝对路径：" + docPath);
+    attached.push("当前笔记指针 " + current);
+  } else if (externalPath) {
+    lines.push("【当前文件】" + externalPath + "（笔记库之外的普通文件）");
+    attached.push("库外文件指针");
+  } else if (current) {
+    lines.push("【当前笔记】" + current + "（页面还没拿到它的绝对路径：要看内容请先保存一次）");
+    attached.push("当前笔记指针（缺路径）");
+  } else {
+    lines.push("【当前文档】我现在没有打开任何笔记或文件。");
+    attached.push("无当前文档");
   }
+  if (noteRoot) {
+    lines.push("笔记库根目录：" + noteRoot);
+    attached.push("库根目录");
+  }
+  lines.push("（要原文就用 read_file 读上面的绝对路径；要在库里找别的笔记，用 grep / list_dir " +
+             "在库根目录下查——不要凭文件名猜内容。）");
+  return { text: lines.join("\n"), attached: attached };
+}
+function buildAiContext(notice) {
+  var p = aiCtxPointer();
+  var ctx = p.text + "\n\n";
+  var attached = p.attached.slice();
   var lib = document.getElementById("ai-lib-note");
-  if (!(lib && lib.checked)) {
-    return Promise.resolve({ ctx: ctx, attached: attached });
+  if (lib && lib.checked) {
+    // 「问笔记库」= 显式要求这一轮做全库检索：页面不再替 AI 预取（预取走的是朴素 contains，
+    // 自然语言提问必然 0 命中，附一堆没用的片段只白烧令牌），改成把要求直接写进上下文。
+    ctx += "【本轮要求】先在笔记库（根目录见上）里自己检索再回答：用 grep 找关键词，必要时 " +
+           "read_file 读原文，想看库里有什么就用 list_dir；不要只凭印象作答。\n\n";
+    attached.push("库内检索指令");
   }
-  aiSetState("检索中…", "busy");
-  // 「问笔记库」两条都给：检索（精确关键词才命中）+ 概况（最近几篇的正文开头）。
-  // 缺一不可——note:search 是朴素 contains，自然语言提问（实测「总结下笔记的内容」）0 命中，
-  // 只给检索就等于勾了没勾；反过来只给概况，精确关键词问题又拿不到原文片段。
-  return invoke("note:search", { query: text }).then(function (r) {
-    var notes = (r && r.notes) || [];
-    var s = "";
-    for (var i = 0; i < notes.length; i++) {
-      s += "《" + notes[i].title + "》（" + notes[i].name + "）\n" + notes[i].snippet + "\n\n";
-    }
-    if (s) { attached.push("库内检索命中 " + notes.length + " 篇"); }
-    return invoke("note:brief", {}).then(function (b) {
-      var bn = (b && b.notes) || [];
-      var bs = "";
-      for (var k = 0; k < bn.length; k++) {
-        bs += "《" + bn[k].title + "》（" + bn[k].name + (bn[k].truncated ? "，仅开头" : "") + "）\n" + bn[k].body + "\n\n";
-      }
-      if (bs) { attached.push("库内最近 " + bn.length + " 篇正文"); }
-      if (!s && !bs && typeof notice === "function") {
-        notice("勾了「问笔记库」，但笔记库里没有可附的正文。");
-      }
-      return {
-        ctx: ctx + (s ? "【笔记库检索命中】\n\n" + s : "") +
-             (bs ? "【笔记库概况（最近改动的 " + bn.length + " 篇）】\n\n" + bs : ""),
-        attached: attached
-      };
-    }).catch(function (e) {
-      report("AI-CTX note:brief 失败: " + (e && e.message ? e.message : e));
-      return { ctx: ctx + (s ? "【笔记库检索命中】\n\n" + s : ""), attached: attached };
-    });
-  }).catch(function (e) {
-    // 检索失败不该让这一问发不出去（cjh 那边还有它自己的工具兜着）
-    report("AI-CTX note:search 失败: " + (e && e.message ? e.message : e));
-    return { ctx: ctx, attached: attached };
-  });
+  // 指针对应的是磁盘上那份文件：编辑器里还有未保存改动时，得让用户知道 AI 看到的是旧内容
+  if (dirty && current && typeof notice === "function") {
+    notice("这篇笔记有未保存的改动，AI 读到的是磁盘版本——先 Ctrl+S 再问更准。");
+  }
+  return Promise.resolve({ ctx: ctx, attached: attached });
 }
 // 一行系统提示：勾了勾选框却什么都没附上这类「静默空转」必须让人当场看见（同时进 stderr 日志）
 function aiNotice(text) {
@@ -1226,7 +1212,7 @@ function aiSend() {
     });
     return;
   }
-  buildAiContext(text, aiNotice).then(function (r) {
+  buildAiContext(aiNotice).then(function (r) {
     report("AI-CTX 附带：" + (r.attached.length ? r.attached.join("、") : "无"));
     aiAskCjh(text, r.ctx);
   }).catch(function (e) {
@@ -1639,6 +1625,7 @@ function refreshList() {
         if (items[i].mtime) { noteMtimes[items[i].name] = items[i].mtime; }
       }
     }
+    if (r && typeof r.root === "string" && r.root) { noteRoot = r.root; }
     renderList();
     return notes;
   }).catch(function (e) { report("SELFCHECK FAIL list: " + e); });
@@ -1790,6 +1777,7 @@ function openNote(name) {
     if (seq !== openSeq) { report("UI open stale " + name + " skipped"); return r; }
     var text = (r && typeof r.body === "string") ? r.body : "";
     current = (r && r.name) ? r.name : name;
+    docPath = (r && typeof r.path === "string") ? r.path : "";
     externalPath = "";  // 打开库内笔记即当前文档：清外部草稿标记，否则列表里外部行与库内行同时高亮
     dirty = false;
     $("doc-title").textContent = current;
@@ -1846,6 +1834,7 @@ function openExternalPath(p) {
     if (!r || typeof r.body !== "string") { return null; }
     externalPath = String(r.path || p);
     current = "";
+    docPath = "";   // 库外文件没有库内路径；指针走 externalPath 那条分支
     var label = String(r.name || externalPath.replace(/^.*[\/\\]/, ""));
     $("doc-title").textContent = label + "（外部）";
     setDoc(r.body);
@@ -2459,50 +2448,70 @@ function selfCheck(env) {
               report("SELFCHECK SKIP cjh chat: 未连接 (state=" + cjh.state + ")");
               ctxProbe(renameProbe);
             }
-            // 上下文拼装断言：用户实测报过「明明勾了笔记，AI 回复里却没有」。
-            // 两条静默空转（库外文件不附正文 / 整句检索 0 命中）各钉一条，别让它们再静默复发。
+            // 上下文拼装断言：用户实测报过「明明勾了笔记，AI 回复里却没有」，也报过反复勾选导致
+            // 跨轮累加。改造后上下文是**指针**（绝对路径 + 库根），正文由 AI 自取——每条都钉住。
             function ctxProbe(next) {
-              var ref = document.getElementById("ai-ref-note");
               var lib = document.getElementById("ai-lib-note");
-              var saved = { doc: getDoc(), cur: current, ext: externalPath, ref: ref.checked, lib: lib.checked };
+              var saved = { cur: current, ext: externalPath, lib: lib.checked, root: noteRoot, path: docPath };
               var restore = function () {
-                ref.checked = saved.ref;
                 lib.checked = saved.lib;
                 current = saved.cur;
                 externalPath = saved.ext;
-                setDoc(saved.doc);
+                noteRoot = saved.root;
+                docPath = saved.path;
               };
-              // ① 库外文件（Ctrl+O 打开的那种，current 是空串）：勾了就必须真把正文附上
-              setDoc("# 自检探针\n\nmarker-CTX-1\n");
-              current = "";
-              externalPath = "/selfcheck/probe-external.md";
-              ref.checked = true;
-              lib.checked = false;
-              return buildAiContext("总结下这篇笔记", null).then(function (r1) {
-                ok(r1.ctx.indexOf("marker-CTX-1") >= 0 && r1.ctx.indexOf("《probe-external.md》") >= 0,
-                  "ref checkbox attaches the externally opened file body");
-                // ② 勾了却没有正文：必须出一条可见提示，不能静默空转
-                var noticed = "";
-                setDoc("");
-                return buildAiContext("总结下这篇笔记", function (m) { noticed = m; }).then(function (r2) {
-                  ok(noticed.length > 0 && r2.ctx.length === 0, "empty doc yields a visible notice");
-                });
+              var probeName = "";
+              // ① 后端必须给绝对路径：相对路径会被 cjh 按它自己的工作区解析，静默读错目录
+              return invoke("note:list", {}).then(function (lr) {
+                noteRoot = (lr && lr.root) ? String(lr.root) : "";
+                ok(noteRoot.charAt(0) === "/", "note:list returns an absolute library root");
+                return invoke("note:create", { title: "自检-上下文" });
+              }).then(function (cr) {
+                probeName = (cr && cr.name) ? String(cr.name) : "";
+                if (!probeName) { throw new Error("ctx probe: note:create 未返回名字"); }
+                return invoke("note:save", { name: probeName, body: "marker-CTX-1\n" });
               }).then(function () {
-                // ③ 「问笔记库」+ 自然语言提问：检索是朴素 contains（整句必然 0 命中），概况要兜住
-                setDoc("# 自检探针\n\nmarker-CTX-1\n");
-                ref.checked = false;
-                lib.checked = true;
-                return buildAiContext("总结下笔记的内容", null);
+                return invoke("note:open", { name: probeName });
+              }).then(function (or) {
+                docPath = (or && or.path) ? String(or.path) : "";
+                ok(docPath.charAt(0) === "/" && docPath.indexOf(probeName) >= 0,
+                  "note:open returns the note's absolute path");
+                current = probeName;
+                externalPath = "";
+                lib.checked = false;
+                return buildAiContext(null);
+              }).then(function (r1) {
+                // ② 库内笔记：指针里有绝对路径与库根，且**不含正文**（正文由 AI 自己读）
+                ok(r1.ctx.indexOf("【当前笔记】" + probeName) >= 0 &&
+                   r1.ctx.indexOf("绝对路径：" + docPath) >= 0 &&
+                   r1.ctx.indexOf("笔记库根目录：" + noteRoot) >= 0,
+                  "in-library note yields an absolute-path pointer");
+                ok(r1.ctx.indexOf("marker-CTX-1") < 0,
+                  "pointer carries no note body (no cross-turn duplication)");
+                // ③ 库外文件（Ctrl+O 打开的那种，current 是空串）：走自己的分支，同样只给路径
+                current = "";
+                docPath = "";
+                externalPath = "/selfcheck/probe-external.md";
+                return buildAiContext(null);
+              }).then(function (r2) {
+                ok(r2.ctx.indexOf("/selfcheck/probe-external.md") >= 0 &&
+                   r2.ctx.indexOf("（笔记库之外的普通文件）") >= 0,
+                  "externally opened file yields its own absolute path");
+                // ④ 什么都没打开：必须明说，不能给一段空上下文
+                externalPath = "";
+                return buildAiContext(null);
               }).then(function (r3) {
-                ok(r3.ctx.indexOf("【笔记库概况") >= 0 && r3.ctx.length > 40,
-                  "lib checkbox falls back to the library brief");
-                // ④ 概况取自盘上笔记：形状齐全且正文已剥掉 front-matter
-                return invoke("note:brief", {}).then(function (b) {
-                  var bn = (b && b.notes) || [];
-                  ok(bn.length >= 1 && typeof bn[0].name === "string" && typeof bn[0].title === "string" &&
-                     typeof bn[0].body === "string" && bn[0].body.length > 0 &&
-                     bn[0].body.indexOf("---\n") !== 0,
-                    "note:brief returns name/title/body (front-matter stripped)");
+                ok(r3.ctx.indexOf("没有打开任何笔记或文件") >= 0,
+                  "no-document pointer says so explicitly");
+                // ⑤ 勾「问笔记库」= 显式要求这一轮自己检索（页面不再替 AI 预取）
+                lib.checked = true;
+                var before = r3.ctx.length;
+                return buildAiContext(null).then(function (r4) {
+                  ok(r4.ctx.length > before && r4.ctx.indexOf("本轮要求") >= 0 && r4.ctx.indexOf("grep") >= 0,
+                    "lib checkbox asks the model to search the library itself");
+                  ok(r4.ctx.indexOf("【笔记库概况") < 0 && r4.ctx.indexOf("检索命中") < 0,
+                    "no page-side pre-fetch in the context");
+                  return invoke("note:delete", { name: probeName });
                 });
               }).then(function () {
                 restore();

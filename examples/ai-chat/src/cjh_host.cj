@@ -264,15 +264,16 @@ func terminateCjhProc(p: SubProcess): Unit {
  * 仓颉侧现成库，先如实拒绝并回落「手动选择可执行文件」，不假装能装。
  */
 
-let CJH_BUNDLE_REL = "vendor/cjh/cjh-v1.5.1-linux-x64.tar.gz"
-// 摘要跟着包换：vendor 那份由 cjh a3e1e6e 的产物重建（原包内的二进制要 GLIBC_2.38，
-// 本机 2.35 跑不起来——① 换包 ② 这里同步，漏一处就是「校验失败，不部署」）
-let CJH_BUNDLE_SHA256 = "b38ae0fcc4f5b5e673a0105291d11b769b875751cd05e1244a590d0f7f377dde"
+let CJH_BUNDLE_REL = "vendor/cjh/cjh-v1.5.3-linux-x64.tar.gz"
+// 摘要跟着包换：vendor 那份就是官方 v1.5.3 的产物（二进制最高只要 GLIBC_2.34，本机 2.35 直接跑得起来；
+// 上一版那个官方包要 GLIBC_2.38、本机跑不起来才不得不本地重建）——① 换包 ② 这里同步，
+// 漏一处就是「校验失败，不部署」）
+let CJH_BUNDLE_SHA256 = "604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e"
 let CJH_DEPLOY_DIR_REL = ".local/share/cj-ai-chat"
 // tar 包里的二进制名带版本号（tar tzf 可证）：解包后就叫这个名，不 rename——
 // 部署二进制的名字跟着 bundle 走，改名那步只会多一个失败点（实测 chmod 按裸名找就炸了）。
 // cjhBinSaved 记的是完整路径，名字带不带版本对后续启动无影响。
-let CJH_DEPLOYED_BIN = "cjh-v1.5.1-linux-x64"
+let CJH_DEPLOYED_BIN = "cjh-v1.5.3-linux-x64"
 
 /** vendor bundle 的路径：环境变量 CJ_AICHAT_CJH_BUNDLE 可覆写（打包产物里 vendor 不在
     工作目录旁时，部署者把 bundle 放别处再指过来），缺省按工作目录相对路径找 */

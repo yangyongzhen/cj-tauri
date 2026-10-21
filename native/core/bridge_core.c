@@ -1367,14 +1367,28 @@ static void cj_log_prefix(void) {
     if (n > 0) fwrite(buf, 1, n, stderr);
 }
 
-/* 真实大小以文件为准（不自己记数：平台与仓颉侧也在往同一个文件写）。 */
+/* 真实大小以文件为准（不自己记数：平台与仓颉侧也在往同一个文件写）。
+ *
+ * 为什么不用 stat()：单文件包（scripts/pack-win-single.sh）里桥由 llvm-mingw(ucrt) 编译、
+ * 却由 SDK 自带 mingw 的 CRT 链接——ucrt 把 stat 映射成 stat64i32，而那边的导入库只认
+ * _stat，于是链接期报 `undefined symbol: stat64i32`（2026-10-21 实测，只有静态单文件包会炸，
+ * 平时的动态构建不受影响）。fopen/fseek/ftell 在 ucrt、msvcrt 与 mingw 三套 CRT 里符号名
+ * 一致，绕开这层方言差异；语义相同（文件不存在 → 0）。 */
 static long cj_log_size(void) {
-    struct stat st;
+    FILE *f;
+    long size;
 
     if (!g_log_path[0]) return 0;
     fflush(stderr);
-    if (stat(g_log_path, &st) != 0) return 0;
-    return (long)st.st_size;
+    f = fopen(g_log_path, "rb");
+    if (!f) return 0;
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return 0;
+    }
+    size = ftell(f);
+    fclose(f);
+    return size > 0 ? size : 0;
 }
 
 /* 当前文件整份拷进 `<path>.<n>`（Windows 上不能 rename 打开中的文件，只能拷贝）。 */
@@ -1528,3 +1542,85 @@ CJ_BRIDGE_API int cj_bridge_log_write(const char *line) {
     cj_logf("%s\n", line);
     return 0;
 }
+
+/* =========================================================================
+ *  静默子进程（为什么下沉到 C 桥见头文件同名段落）
+ *
+ *  core 只做参数校验、错误出口与日志；创建 / 终止 / 探活是平台原语。这样两平台导出名与
+ *  签名逐字一致，仓颉侧没有平台分叉的调用点（AGENTS §2 的分工铁律）。
+ * ========================================================================= */
+
+CJ_BRIDGE_API long long cj_bridge_spawn_hidden(const char *exe, const char *args) {
+    char err[512];
+    long long pid;
+
+    err[0] = '\0';
+    if (!exe || !*exe) {
+        cj_logf("[cj-bridge] spawn hidden: 程序路径为空\n");
+        return 0;
+    }
+    pid = cj_plat_spawn_hidden(exe, args ? args : "", err, (int)sizeof(err));
+    if (pid <= 0) {
+        cj_logf("[cj-bridge] spawn hidden 失败（%s）：%s\n", exe,
+                err[0] ? err : "平台没有给出原因");
+        return 0;
+    }
+    cj_logf("[cj-bridge] spawn hidden: %s -> pid=%lld\n", exe, pid);
+    return pid;
+}
+
+CJ_BRIDGE_API int cj_bridge_kill_pid(long long pid) {
+    if (pid <= 0) {
+        cj_logf("[cj-bridge] kill pid: 非法 pid=%lld\n", pid);
+        return 0;
+    }
+    return cj_plat_kill_pid(pid);
+}
+
+CJ_BRIDGE_API int cj_bridge_pid_alive(long long pid) {
+    if (pid <= 0) return 0;
+    return cj_plat_pid_alive(pid);
+}
+
+/* 内嵌资源释放：core 只做参数校验与错误出口，取资源写盘是平台原语
+   （为什么用字符串资源名、为什么幂等，见头文件同名段落与平台实现）。 */
+CJ_BRIDGE_API int cj_bridge_extract_assets(const char *dir) {
+    char err[512];
+    int n;
+
+    err[0] = '\0';
+    if (!dir || !*dir) {
+        cj_logf("[cj-bridge] extract assets: 目录为空\n");
+        return -1;
+    }
+    n = cj_plat_extract_assets(dir, err, (int)sizeof(err));
+    if (n < 0) {
+        cj_logf("[cj-bridge] extract assets 失败（%s）：%s\n", dir, err[0] ? err : "平台没有给出原因");
+        return -1;
+    }
+    if (n > 0) cj_logf("[cj-bridge] extract assets: %d 个文件就绪（%s）\n", n, dir);
+    return n;
+}
+
+/* 预加载动态库：core 只做参数校验与错误出口，LoadLibrary/dlopen 是平台原语。
+   为什么要它见头文件同名段落（2026-10-21：单文件包在别人的机器上连明文 ws:// 都挂在
+   `Can not load openssl library or function RAND_bytes.`——运行时的随机数默认走 OpenSSL，
+   而它按裸名找 DLL，只有开发机的 PATH 恰好有 Git 自带那份）。 */
+CJ_BRIDGE_API int cj_bridge_preload_library(const char *path) {
+    char err[512];
+    int ok;
+
+    err[0] = '\0';
+    if (!path || !*path) {
+        cj_logf("[cj-bridge] preload library: 路径为空\n");
+        return 0;
+    }
+    ok = cj_plat_preload_library(path, err, (int)sizeof(err));
+    if (ok <= 0) {
+        cj_logf("[cj-bridge] preload 失败（%s）：%s\n", path, err[0] ? err : "平台没有给出原因");
+        return 0;
+    }
+    cj_logf("[cj-bridge] preload: %s\n", path);
+    return 1;
+}
+

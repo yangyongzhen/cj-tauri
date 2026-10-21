@@ -10,7 +10,7 @@
 [![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
 
 前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
-26 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
+28 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
 
 > 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、19 屏实机截图与文档入口。
 
@@ -85,7 +85,7 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 
 ### 方式二：直接下载单文件工具（免安装、免 SDK）
 
-仓库随版本分发静态链接的单文件 Windows 工具（点击下载，八份产物全部实测过导入表）：
+仓库随版本分发静态链接的单文件 Windows 工具（点击下载，九份产物全部实测过导入表）：
 
 **调试与工具类**：
 
@@ -109,8 +109,10 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 | [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
 | [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
 | [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
+| [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（34.1MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（随包 release 到 `%LOCALAPPDATA%`、静默拉起、退出收尾）；体积大是因为 cjh 与 4 个运行时 DLL 一起嵌进了 exe，[中文说明](examples/cjnote/README.md) |
 
-体积、依赖与冷启动都是**实测**的：八份产物 4.69–9.79 MB，PE 导入表里只有 Windows 系统 DLL
+体积、依赖与冷启动都是**实测**的：九份产物 4.69–34.1 MB（`cjnote` 那份含内嵌 AI 后端，其余 4.69–9.79 MB），
+PE 导入表里只有 Windows 系统 DLL
 （没有任何第三方运行时，非系统 DLL 一列全是 0），双击不弹控制台
 （`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，
 一条命令复核：`bash scripts/dist-report.sh`。
@@ -136,7 +138,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下二十六个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
+`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：
@@ -147,6 +149,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [mqtt-client](examples/mqtt-client) | **MQTT 调试台**：连 broker / 订阅 / 发布 / 报文流时间线（按 `seq` 去重、可过滤暂停），协议由框架插件 `mqtt` 纯仓颉实现；示例自带 mock broker 对端，Linux 实机 E2E 27 条断言两侧对账 |
 | [redis-client](examples/redis-client) | **Redis 调试台**：连接 / 键空间浏览（SCAN 游标分页 + MATCH + TYPE 过滤、每行带类型与 TTL）/ 类型化取值与写值 / 发布订阅消息流 / INFO·DBSIZE·SLOWLOG，协议由框架插件 `redis` 纯仓颉实现（RESP2 双 socket）；示例自带 mock redis 对端，Linux 实机 E2E 47 条断言两侧对账 |
 | [markdown-notes](examples/markdown-notes) | **Markdown 笔记**：左文件树 / 中编辑 / 右实时预览（marked + Highlight.js 渲染，代码高亮三种主题勾选切换），工作区 = `notes/` 目录；视图三态（仅编辑 / 分屏 / 仅预览，`Ctrl+1/2/3`）与文件操作全走原生菜单；**路径 scope 的真实用法**——清单把 `fs` 钉在工作区内，越界与 `..` 绕行都由共享层拒，Linux 实机 E2E 25 条断言两侧对账 |
+| [cjnote](examples/cjnote) | **AI 原生 Markdown 笔记**：三栏（笔记库 / CodeMirror 编辑 / AI 助手），笔记是 `notes/` 下的纯 `.md`——存取走自研 `NoteStore`（**不引 fs 插件**，路径穿越在入口挡掉）；原生菜单（文件 / 视图 / 帮助）+ `setTitlebarSubtitle` 副标题（平台没这块能力位时自动退回页面顶栏）；视图三态与界面主题**与原生菜单勾选双向同步**；`Ctrl+O` 打开库外文件只进内存、首次保存才落成库里的新笔记，**绝不静默改写磁盘原文件**；**AI 后端只有 cjh 一条路**——⚙ 整页设置把地址 / 密钥 / 模型 / 协议写进 cjh，白名单字段**即时推给运行中的实例**（端口上是别人拉起的 cjh 也照样生效，协议改动才需重启；密钥框留空即不修改），设置页带「测试连通」按钮（用表单里的值发一条帧级覆盖的最小对话，只验连通、不改配置）；随包 cjh 预编译产物让 AI 开箱可用；页面零 `fetch`，网络只走 cjh 的 ws；页面自检 68 项 |
 | [http-client](examples/http-client) | **HTTP API 客户端**（Postman 那一类）：左拼请求 / 中看响应（原文 · JSON 树 · 响应头）/ 右管集合与历史，**网络请求全由仓颉侧直发**（页面零 `fetch`，TLS 走系统证书库不关校验）；白名单与响应体上限在仓颉侧兜底，越界读由路径 scope 拒；示例自带 mock 对端，Linux 实机 E2E 55 条断言两侧对账（含截断三侧对账） |
 | [sqlite-browser](examples/sqlite-browser) | **SQLite 数据库浏览器**：库对象 / 数据分页网格（排序、类型上色、超长单元格截断标记）/ SQL 调试台（只读与可写两个按钮）；**仓颉 FFI 直连系统 `libsqlite3`**（仓库首例，不经 C 桥），命令放行与路径 scope 两层、只读走内核级连接、`ATTACH` 由 authorizer 按语句拒；示例自带夹具对端，Linux 实机 E2E 49 条断言（含**进程外**只读复查页面写入的那一行） |
 | [serial-assistant](examples/serial-assistant) | **串口调试助手**：参数面板、TX/RX 分色收发日志、定时发送、探针自检 |
@@ -181,7 +184,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 | 项目 | 一句话 |
 |---|---|
-| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI 原生 Markdown 笔记**：三栏（笔记库 / 编辑区 / AI 助手）+ 三态视图（编辑/分屏/预览，`Ctrl+1/2/3`）；**原生菜单栏 + 副标题**——文件 / 视图 / 帮助 三个顶层菜单，标题·保存状态·字数推进系统菜单行右侧（能力位不给就退回页面顶栏）；侧栏「大纲」页签抽 1~3 级标题点击跳行；勾「引用当前笔记」把全文注入 AI 上下文、勾「问笔记库」先 `note:search` 再喂命中片段，选区改写 / 续写 / 翻译走 **diff 确认**；`Ctrl+O` 打开库外 `.md` 只进内存作草稿（首次 `Ctrl+S` 才落库，绝不静默改写原文件）、`Ctrl+P` 页内快速打开；请求全由仓颉侧直发（页面零 `fetch`），域名白名单兜底；Linux 实机页面自检 **31 项全绿** |
+| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI 原生 Markdown 笔记**：三栏（笔记库 / 编辑区 / AI 助手）+ 三态视图（编辑/分屏/预览，`Ctrl+1/2/3`）；**原生菜单栏 + 副标题**——文件 / 视图 / 帮助 三个顶层菜单，标题·保存状态·字数推进系统菜单行右侧（能力位不给就退回页面顶栏）；侧栏「大纲」页签抽 1~3 级标题点击跳行；AI 上下文只给**指针**——默认只带当前笔记的**绝对路径**（正文由 AI 自己按需读取，保证读到的永远是盘上最新内容），勾「问笔记库」才要求这一轮做全库检索，选区改写 / 续写 / 翻译走 **diff 确认**；`Ctrl+O` 打开库外 `.md` 只进内存作草稿（首次 `Ctrl+S` 才落库，绝不静默改写原文件）、`Ctrl+P` 页内快速打开；**AI 全走 cjh**（随包预编译产物 + 整页设置可改地址/密钥/模型并即时生效，自带「测试连通」），页面零 `fetch`；Linux 实机页面自检 **68 项全绿**（含真实 cjh 聊天探针与设置页连通探针） |
 
 部分示例截图（全部为实机截图，完整集见各示例 README）：
 
@@ -290,7 +293,7 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 - ✅ 宿主能力位：菜单 / **托盘** / **全局快捷键** / 文件拖入 / 通知——Windows（WebView2）与
   Linux（WebKitGTK）双实现、`system:host` 如实上报；「最小化到托盘」是宿主基元（`minimizeToTray`，
   没装托盘就如实降级为普通最小化）
-- ✅ 工程化：189 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
+- ✅ 工程化：294 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
 - 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件
 
 ## 仓库与推送

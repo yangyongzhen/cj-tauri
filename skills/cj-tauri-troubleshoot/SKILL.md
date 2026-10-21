@@ -52,12 +52,15 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | `command not allowed` | 三处联动漏了第 3 处（capabilities `commands` / `permissions` 声明） |
 | 命令「没反应」、日志里也没有错误行 | handler 抛异常只回 reject 不打日志；把 reject 也回投给页面 `report`，并确认框架已带 `command failed` stderr 行 |
 | 慢命令冻住窗口 | 命令必须在 worker 线程跑（框架已异步分发）；**不要**把 `handler.handle` 挪回调用线程 |
+| 拉起 CLI 后端时桌面上蹦出一个黑窗口（日志里无任何错误） | 应用是 GUI 子系统、没有控制台，`std.process.launch` 起控制台子进程时 Windows 会**给子进程单独配一个控制台窗口**；改走框架 `launchHidden()`（`CreateProcessW` + `DETACHED_PROCESS`，标准句柄指 NUL）。两个不算解法的：`SW_HIDE` 只是先建再藏、会闪；`CREATE_NO_WINDOW` 不显示但子进程仍持有一个**隐藏 console**（conhost 照样挂）。判据要 A/B：数可见 `ConsoleWindowClass` 窗口（1 → 2）+ `MainWindowHandle`（0 对非 0），并先用一个有窗口的进程校准读数 |
 | worker 里直接调 GTK/WebKit abort | 仓颉轻量线程的堆上协程栈会被 JSC 栈边界校验 abort；worker 只经 `jsSink` 回投 |
 | 深色页里 `<select>` 白底浅字不可读 | WebKitGTK 用原生 combo 浅色样式盖掉页面配色；`-webkit-appearance:none` 自绘 + 给 `option` 另写底色文字色 |
 | 3D 画布整幅走样 | WebView2 初建时视口是临时尺寸且变化不触发 `resize` 事件；把 `innerWidth/Height` 自检放进 `requestAnimationFrame` 每帧比 |
 | 防盗链图 `HTTP 200 + 0 字节` | 页面侧无解（只能减 Referer 不能换）；宿主命令带正确 `Referer` 取回转 `data:` URL，地址必须白名单（防 SSRF） |
 | 迭代 String 数汉字错了 3 倍 | 迭代得到 `UInt8` 字节不是码点；按 UTF-8 首字节判 `(b & 0xC0u8) != 0x80u8` |
 | 单文件 exe 28MB 不瘦身 | llvm-mingw 的 `strip.exe` 包装器缺 `llvm-strip` 真身，`strip 2>/dev/null` 吞了报错；回退 SDK 的 `llvm-objcopy --strip-all`（脚本已内置），排查先裸跑 strip 看真实报错 |
+| 单文件包里嵌了外部程序（cjh 这类）却运行期找不到它、exe 体积也没涨 | 资源对象（windres 产出的 `.o`）塞进 `libcjtbridge.a` 后**不会被链接器提取**（静态库按需提取，它没有任何符号引用），产物照旧 `build success`、而 `objdump -h app.exe` 里数 `.rsrc` 一节是 0。落法：把它**当链接输入直接给 ld.lld**（打包器拼进 `link-option`），判据看节表不看构建日志 |
+| rc 里写资源名 `"cjh.exe" RCDATA "…"` 编译失败 | `llvm-rc`（windres 的后端）不认字符串资源名，报 `expected int or identifier`。资源名只能数字 ID，文件名由打包器另生成 `pack_assets_map.h`（ID → 名字，编桥时 `-DCJ_PACK_ASSETS_EMBEDDED` 才包含），桥因此仍不认识应用的任何文件名 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 
 ### 运行期 / 页面
@@ -66,6 +69,8 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 |---|---|
 | 前端收到 `path is outside the authorized scope`，stderr 有 `[cj-tauri] scope denied (fs)` | **不是 bug**：清单给该插件写了 `scopes`，这条路径不在 `allow` 里（或命中了 `deny`）。要么把路径加进 `scopes`，要么改用白名单内的路径；`..` 与软链接都会被规范化拆穿，绕不过去。没写 `scopes` 的旧清单是全量放行的（启动有一行 stderr 提示） |
 | 用户要用名单之外的服务商 / 端点（页面侧就是加不进白名单） | 这是**设计使然**（清单是启动时读的静态文件 = 出网防线，页面改不了）。放行要**人**点一下：框架 `TauriApp.allowScopePattern(plugin, pattern)` 运行期叠加（内存态、重启即空，回 `Bool`）+ `isScopeAllowed(plugin, value)` 查当前口径；持久化与启动重放归应用（样板见 `examples/ai-chat` 的 `app:allowHost`：原生确认框 → 加白 → 写 `~/.local/share/cj-ai-chat/allowed-hosts.txt`）。注册中心**只收具体值**：空串或含 `*` / `?` 与制表换行的模式当场拒并回 `false`（通配一进来就等于全放行），回 `false` 别当成功。口径不变：**先 deny 后 allow**，加白掀不掉 `deny`；插件名传字符串（`"http"` / `"fs"` / `"ws"`） |
+| 随包 cjh 拉不起来 / 界面「AI 后端未就绪」，日志却是 `Created process failed … cannot find the file specified`（2026-10-21 实测） | **文件其实在**：`vendor/<工具>/bin/` 里 linux-x64（ELF）与 windows-x64（PE）并排躺，发现逻辑只问「打得开吗」——Windows 的 `fileReadable` 对 ELF 同样 true，于是选中 Linux 那份；而 `CreateProcess` 对**不带扩展名的名字自动补 `.exe`**，它去找 `linux-x64/cjh.exe` → 报「找不到文件」（与 cmd 不执行无后缀文件同源）。落法：候选表按 `@When[os == "Windows"]` / `@When[os != "Windows"]` 各列一份，**并把实际选中的 bin 打进失败日志**。先别怀疑 `launch()` 写法 / 子系统 / 线程——三个探针（console、GUI 子系统、`spawn` 里各跑一次）都成功就说明挑错了对象 |
+| 应用改完 cjh 配置「保存了却不生效」（cjh 后端，2026-10-20 实测） | 三条都实测过：① `POST /api/settings` 是**字段白名单**——`baseUrl` / `model` / `apiKey` / `temperature` / `maxTokens` / `maxIterations` 能改**且改内存即生效**（GET 立刻回新值），`provider_protocol` 传进去**静默忽略**（GET 也不回显），它只能靠「写文件 + 重启」；② 「重启 cjh」的那条命令通常**只重启本应用 spawn 的实例**，端口上是别人拉起的 cjh（如 ai-chat 先起、另一个应用后连）时只回一句「需手动重启」——所以别把「配置生效」建在重启上；③ `chat` 帧支持**帧级 `model` / `baseUrl` / `apiKey` 覆盖**（单次生效、不落盘、不粘连），做「测试连通」按钮就用它：拿表单里的值真发一条最小对话，配一个故意错的 key 会被服务商拒（`provider_auth_error`）证明确实生效；探针别带 `session_id`，否则要么污染用户当前会话、要么多出一个会话（cjh 会用帧里的 id 回投，盘上的文件名却不是它回的 id，按 id 删不掉） |
 
 ### 多窗口 / 回调
 

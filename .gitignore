@@ -19,6 +19,12 @@ dist/
 **/dist-single/store.json
 **/dist-single/notes/
 **/dist-single/*.WebView2/
+# Linux 单文件包（scripts/pack-linux-single.sh：静态链接 + 内嵌页面/清单的**一个**可执行文件）：
+# 与上面的 exe 同理——随仓分发的只有明确列出的那几份（cjnote 那份是一份交付物，见它的 README），
+# 换台机器重打的属本机产物。这里必须写 /*（写 **/dist-single/ 会把整个目录排除、后面的 ! 不生效）。
+**/dist-single/*
+!**/dist-single/*.exe
+!examples/cjnote/dist-single/cjnote
 
 # Linux 目录式便携包（scripts/pack-linux.sh 产物：main + lib/ + ui/ + capabilities/ + 可选 bin/cjh）
 # 注意这里必须写 /*（写 **/dist-linux/ 会把目录整个排除，后面的 ! 对目录内的文件不生效）——
@@ -26,10 +32,14 @@ dist/
 **/dist-linux/*
 !examples/ai-chat/dist-linux/*.tar.gz
 
-# ai-chat 自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
+# 示例自带的 cjh 预编译包随仓分发（更新方式：把 cjh 仓 dist/ 里的新版本包拷进 vendor/cjh/，
 # 连同 SHA256SUMS 一起换）。上面第 13 行的 *.zip 会连它一起吃掉，这里按目录放行。
 !examples/ai-chat/vendor/cjh/*.zip
 !examples/ai-chat/vendor/cjh/*.tar.gz
+# cjnote 同款：它按 vendor/cjh/bin/<平台>/ 直接找现成二进制（没有运行期解包），所以除了压缩包
+# 还带一棵 bin/ 树；树里 Windows 侧按名字加载的 DLL 由 examples/cjnote/.gitignore 放行。
+!examples/cjnote/vendor/cjh/*.zip
+!examples/cjnote/vendor/cjh/*.tar.gz
 
 # 本地环境
 cjpm.lock

@@ -102,7 +102,7 @@
             <svg class="btn__ico" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M11 2 4 11h4l-1 7 7-9h-4l1-7Z"/></svg>
             <span data-en="Get started in 5 minutes">5 分钟上手</span>
           </a>
-          <a class="btn btn--ghost" href="#examples" data-en="See 26 examples">看 26 个示例</a>
+          <a class="btn btn--ghost" href="#examples" data-en="See 28 examples">看 28 个示例</a>
           <a class="btn btn--ghost" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/markdown-notes/dist-single/markdown-notes.exe" target="_blank" rel="noopener" data-en="Download a .exe">下载单文件 exe</a>
           <a class="btn btn--ghost" href="#footer" title="QQ 技术交流群：92381027" data-en-title="QQ group: 92381027">
             <svg class="btn__ico" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-1 5h2v5H9V7Zm0 6h2v2H9v-2Z"/></svg>
@@ -447,7 +447,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
     <div class="wrap">
       <div class="sec-head">
         <span class="kicker" data-en="Examples">示例</span>
-        <h2 class="sec-title" data-en="26 runnable examples, plus ecosystem apps — 20 shots below, all on-device">26 个可直接运行的示例<br>下面 20 屏全是实机截图</h2>
+        <h2 class="sec-title" data-en="28 runnable examples, plus ecosystem apps — 21 shots below, all on-device">28 个可直接运行的示例<br>下面 21 屏全是实机截图</h2>
         <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console, an AI chat client. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence. The strip below scrolls sideways — drag it, swipe it, or use the arrows.">
           不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台、AI 对话客户端……
           每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。下面是一条横向轮播，左右拖动、滚轮横滚或箭头都能翻。
@@ -652,6 +652,16 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                 </a>
               </li>
               <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/cjnote" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/cjnote-menu.png" width="1280" height="800" loading="lazy" alt="examples/cjnote：三栏笔记 + 原生菜单栏，随包 cjh AI 后端首次运行自行释放并静默拉起" data-en-alt="examples/cjnote: three-pane notes with the native menu bar; the bundled cjh AI backend unpacks on first run and starts silently"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="cjnote (examples/) — the AI backend rides inside the 34 MB exe">examples/cjnote：AI 后端随 exe 一起走</h3>
+                    <p class="slide__desc" data-en="A 34.1 MB single-file Windows exe that carries its own AI backend: cjh and its four runtime DLLs are RT_RCDATA resources, unpacked to %LOCALAPPDATA%\\cjnote\\runtime on first run and started with DETACHED_PROCESS (no console, no visible window). No SDK, no PATH, no vendor/ directory — double-click and the notes window comes up with the AI already listening on 127.0.0.1:8765.">34.1 MB 的单文件 Windows exe，把 AI 后端一起带走：cjh 与它 4 个运行时 DLL 作为 RT_RCDATA 资源嵌在 PE 里，首次运行释放到 %LOCALAPPDATA%\\cjnote\\runtime，用 DETACHED_PROCESS 拉起（无控制台、无可见窗口）。不装 SDK、不设 PATH、不要 vendor/ 目录——双击就出笔记窗口，AI 已在 127.0.0.1:8765 上听着。</p>
+                    <span class="slide__tag" data-en="examples/cjnote · 34.1 MB exe · 6 plugins · bundled cjh">examples/cjnote · 34.1 MB 单文件 · 6 个插件 · cjh 内嵌</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
                 <a class="slide__link" href="https://atomgit.com/qq8864/cjnote" target="_blank" rel="noopener">
                   <div class="slide__shot"><img src="assets/screenshots/cjnote.png" width="1280" height="800" loading="lazy" alt="cjnote：分屏编辑 + AI 助手，标题与状态并入原生菜单行" data-en-alt="cjnote: split editor with the AI assistant, title and state pushed into the native menu row"></div>
                   <div class="slide__body">
@@ -665,7 +675,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
           </div>
         </div>
         <div class="carousel__foot">
-          <p class="carousel__hint" data-en="Swipe or scroll sideways — 20 on-device shots, picked from 26 examples plus one ecosystem app">左右拖动或滚动查看——20 屏实机截图，从 26 个示例与 1 个生态项目里挑的</p>
+          <p class="carousel__hint" data-en="Swipe or scroll sideways — 21 on-device shots, picked from 28 examples plus one ecosystem app">左右拖动或滚动查看——21 屏实机截图，从 28 个示例与 1 个生态项目里挑的</p>
         </div>
       </div>
 
@@ -689,8 +699,8 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
       </div>
       <div class="stats reveal">
         <div class="stat">
-          <p class="stat__n">5.50<span class="stat__u" data-en="–9.50 MB">–9.50 MB</span></p>
-          <p class="stat__l" data-en="Four shipped single-file .exe artifacts (typing-poem / modbus-poll / movie / music)">四份随仓库分发的单文件 exe（typing-poem / modbus-poll / movie / music）</p>
+          <p class="stat__n">4.69<span class="stat__u" data-en="–9.79 MB">–9.79 MB</span></p>
+          <p class="stat__l" data-en="Single-file .exe artifacts shipped with the repo — four of them drawn in the chart below; plus cjnote at 34.1 MB, which carries an AI backend inside">随仓库分发的单文件 exe：多数 4.69–9.79 MB（下图画了其中四份），另有一份把 AI 后端一起带走的 cjnote 为 34.1 MB</p>
         </div>
         <div class="stat">
           <p class="stat__n">0<span class="stat__u" data-en=" third-party DLLs"> 个第三方 DLL</span></p>

@@ -1,0 +1,3222 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="apptheme-system">
+<head>
+<meta charset="UTF-8">
+<title>cjnote — AI 笔记</title>
+<style>
+/*__VENDOR_CSS__*/
+</style>
+<style>
+:root {
+  --bg: #1e2229; --bg2: #262b34; --bg3: #2d3340;
+  --fg: #d8dee6; --fg-dim: #8b93a3; --accent: #4f9cf9;
+  --border: #363d4a; --ok: #58c288; --warn: #e0b25a; --err: #f85149; --accent-soft: #2e415e;
+}
+/* 界面主题：html 根类换一套 CSS 变量（默认 apptheme-system）。
+   :root 的深色值就是 system 在「系统深色」下的落点；浅色两处共用同一套变量，
+   改浅色配色只改一份，别在媒体查询里另抄一遍。 */
+html.apptheme-light {
+  --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
+  --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
+  --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c; --err: #c74a33; --accent-soft: #d9e6fb;
+}
+@media (prefers-color-scheme: light) {
+  html.apptheme-system {
+    --bg: #f7f8fa; --bg2: #eef1f6; --bg3: #e3e8f0;
+    --fg: #232833; --fg-dim: #66707f; --accent: #2f6fd0;
+    --border: #d5dbe6; --ok: #2f8f5b; --warn: #b57d1c; --err: #c74a33; --accent-soft: #d9e6fb;
+  }
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--fg); font-size: 14px;
+  display: flex; flex-direction: column;
+}
+/* ── 顶栏 ── */
+#topbar {
+  flex: 0 0 auto; height: 44px; display: flex; align-items: center; gap: 10px;
+  padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+#topbar .logo { font-weight: 600; color: var(--accent); }
+/* 顶栏只剩 logo / 标题 / 一个工具按钮三层：logo 前加一枚实心小方块定住视觉起点，
+   标题前一条斜杠做分隔，右侧按钮才不会显得孤零零地吊在行尾 */
+#topbar .logo::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 2px;
+  background: var(--accent); margin-right: 7px; vertical-align: 2px;
+}
+#topbar .doc-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#topbar .doc-title::before { content: "/"; color: var(--border); margin: 0 9px 0 1px; }
+/* 文档状态：圆点跟上 dirty（强调色=有改动，淡灰=已保存），右侧给字数留位。
+   两者都是 12px 次级信息，视线仍落在标题上 */
+#topbar .doc-state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--accent); }
+#topbar .doc-state i { display: block; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+#topbar .doc-state b { font-weight: 400; }
+#topbar .doc-state.saved { color: var(--fg-dim); opacity: .8; }
+#topbar .doc-stat { font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+#topbar .spacer { flex: 1 1 auto; }
+#topbar button {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 13px;
+}
+#topbar button:hover { border-color: var(--accent); }
+/* 主题切换：低存在感的圆形图标按钮。顶栏右侧只有它一个控件，写成长条文字按钮
+   （原「跟随系统」）会把整行的视觉重量压到右边。图标用纯 CSS 画圆——字体里的
+   ☀/☾ 在 Linux 上常缺字，靠字符会变成豆腐块。 */
+#btn-theme {
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border-color: transparent; color: var(--fg-dim);
+}
+#btn-theme:hover { color: var(--accent); background: var(--bg3); border-color: var(--border); }
+#btn-theme .ic {
+  display: block; width: 13px; height: 13px; border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+/* 三种状态一眼可分：半亮=跟随系统、空=浅色、实心=深色 */
+#btn-theme.theme-system .ic { background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+#btn-theme.theme-light .ic { background: transparent; }
+#btn-theme.theme-dark .ic { background: currentColor; }
+/* 主题选择弹层：挂在按钮下沿右对齐。自绘（不走原生菜单）是为了贴住按钮位置，
+   选中后还要回调仓颉侧把原生「视图→界面主题」的勾选同步过去（theme:apply） */
+.theme-wrap { position: relative; display: inline-flex; }
+.popmenu {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 132px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px; z-index: 60;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .18);
+}
+.popmenu[hidden] { display: none !important; }
+/* 覆盖 #topbar button 的长条内边距：弹层里是列表项不是按钮 */
+#topbar .popmenu button {
+  width: 100%; text-align: left; padding: 6px 10px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--fg); font-size: 13px;
+}
+#topbar .popmenu button:hover { background: var(--bg3); }
+#topbar .popmenu button.on { color: var(--accent); font-weight: 600; }
+#topbar .popmenu button.on::after { content: "✓"; float: right; }
+/* 宿主支持原生标题行（Linux：与菜单栏同排的副标题）时整条页面顶栏让出来，
+   标题/状态/字数改由宿主那行显示——省掉一整行高度。不支持的平台（Windows）
+   保持原样，别删了顶栏却没有替代。 */
+body.native-titlebar #topbar { display: none; }
+/* 视图三态分段按钮（编辑 / 预览 / 分屏）：连体按钮组，选中段用强调色描边。
+   位置在编辑区最上方的 #work-head 左侧——放顶栏离笔记内容太远，放栏内则「预览」时随栏一起消失 */
+.seg { display: inline-flex; }
+.segbtn {
+  background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 0; border-right-width: 0; padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.segbtn:first-child { border-radius: 5px 0 0 5px; }
+.segbtn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
+.segbtn:hover { border-color: var(--accent); }
+.segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--bg); font-weight: 600; }
+/* ── 三栏 ── */
+#main { flex: 1 1 auto; display: flex; min-height: 0; }
+#sidebar {
+  /* 宽度走 --sidebar-w（拖右缘拖条调整，160~480px 夹取，双击复位 220）。
+     min/max-width 必须写死值、不能用 auto：flex 自动最小值坑——min-width:auto 会解析成
+     内容 min-content，大纲里长 nowrap 标题曾把侧栏整体撑宽（用户实测报过） */
+  flex: 0 0 var(--sidebar-w, 220px); min-width: 160px; max-width: 480px;
+  display: flex; flex-direction: column;
+  background: var(--bg2); border-right: 1px solid var(--border); min-height: 0;
+}
+/* 宽度拖条：左侧栏右缘（#resizer）与 AI 面板左缘（#ai-resizer）共用一套样式；
+   悬停/拖动时 accent 提示可拖，body.resizing 让拖动期间光标与选区全局一致 */
+#resizer, #ai-resizer { flex: 0 0 6px; cursor: col-resize; background: transparent; }
+#resizer:hover, #ai-resizer:hover { background: var(--accent); opacity: 0.35; }
+#resizer.dragging, #ai-resizer.dragging { background: var(--accent); opacity: 0.7; }
+body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
+#sidebar .head {
+  flex: 0 0 auto; padding: 10px 12px 6px; color: var(--fg-dim);
+  font-size: 12px; letter-spacing: 1px; display: flex; align-items: center; justify-content: space-between;
+}
+/* 排序行：只占一行高，大纲页签激活时随刷新钮一起隐藏（showSide 切 display） */
+#sidebar .sortrow { padding: 0 6px 4px; }
+#sortby {
+  width: 100%; font-size: 11px; padding: 2px 4px; border-radius: 4px;
+  background: var(--bg3); color: var(--fg-dim); border: 1px solid var(--border);
+}
+/* head 里唯一的动作钮是刷新钮；不能写通用 button——通用钮规则特异性 (1,1,1) 高于
+   .side-tab (1,1,0)，会把非激活 tab 染成 accent 蓝，tab 高亮看起来就是「反了」（用户实测报过） */
+#sidebar .head #btn-refresh { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 16px; }
+#note-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 6px; }
+/* 侧栏两页签：笔记列表 / 大纲（同一块区域切内容，形态对齐 markdown-notes） */
+#sidebar .side-tabs { display: flex; gap: 4px; }
+/* 底部 2px 恒为透明底线占位：防止切换激活态时文字上下跳 2px。
+   激活换成 accent 色——用户要的醒目选中标识（2026-10-19：原来只有淡色底片，选中态不明显） */
+#sidebar .side-tab {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 2px 8px; border-radius: 5px; cursor: pointer;
+  font-size: 12px; letter-spacing: 0; color: var(--fg-dim);
+}
+#sidebar .side-tab.active { background: var(--bg3); border-bottom-color: var(--accent); color: var(--fg); }
+#sidebar .side-body { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 4px 6px; }
+#outline .out {
+  padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
+}
+#outline .out:hover { background: var(--bg3); }
+#outline .out.lv2 { padding-left: 22px; }
+#outline .out.lv3 { padding-left: 34px; }
+#outline .empty { padding: 10px; font-size: 12px; color: var(--fg-dim); }
+.note-item {
+  padding: 7px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim);
+}
+.note-item:hover { background: var(--bg3); }
+.note-item.active { background: var(--bg3); color: var(--fg); border-left: 2px solid var(--accent); }
+/* 中栏：顶部一条工具条（视图三态切换）+ 下方的编辑 / 预览两栏。
+   工具条必须独立于两栏：它要撑住三态——「预览」时编辑栏是 display:none，
+   切换器若长在编辑栏里就跟着没了，用户回不到编辑态 */
+#work { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#work-head {
+  flex: 0 0 auto; height: 32px; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+#work-head .work-tip { font-size: 11px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#work-body { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+#editor-pane, #preview-pane { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
+#preview-pane { border-left: 1px solid var(--border); }
+/* 视图三态：#work 上的 mode-* 类决定哪一栏可见；单栏时铺满并去掉分隔线 */
+#work.mode-edit #preview-pane, #work.mode-preview #editor-pane { display: none; }
+#work.mode-edit #editor-pane, #work.mode-preview #preview-pane { flex-basis: 100%; }
+#work.mode-preview #preview-pane { border-left: 0; }
+#editor-wrap { flex: 1 1 auto; min-height: 0; }
+#editor-wrap .CodeMirror { height: 100%; }
+/* CodeMirror 只内联了默认（浅色）主题：深色界面下按变量覆盖一遍，
+   否则深色 UI 中间嵌一块白板，「跟随系统」就不成立。dark-ui 由 JS 按生效主题加在 html 上。 */
+html.dark-ui #editor-wrap .CodeMirror,
+html.dark-ui #editor-wrap .CodeMirror-gutters { background: var(--bg); color: var(--fg); }
+html.dark-ui #editor-wrap .CodeMirror-gutters { border-right: 1px solid var(--border); }
+html.dark-ui #editor-wrap .CodeMirror-linenumber { color: var(--fg-dim); }
+html.dark-ui #editor-wrap .CodeMirror-cursor { border-left: 2px solid var(--accent); }
+html.dark-ui #editor-wrap .CodeMirror-selected,
+html.dark-ui #editor-wrap .CodeMirror-focused .CodeMirror-selected { background: var(--bg3); }
+html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--bg2); }
+#editor-fallback {
+  width: 100%; height: 100%; border: none; resize: none; outline: none;
+  background: var(--bg); color: var(--fg); padding: 12px; font: 14px/1.6 monospace; display: none;
+}
+#preview { flex: 1 1 auto; overflow-y: auto; padding: 16px 22px; line-height: 1.7; }
+#preview h1, #preview h2, #preview h3 { margin: 14px 0 8px; color: var(--fg); }
+#preview p { margin: 8px 0; }
+#preview pre { background: var(--bg3); padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+#preview code { font-family: Consolas, monospace; font-size: 13px; }
+#preview p code, #preview li code { background: var(--bg3); padding: 1px 5px; border-radius: 4px; }
+#preview ul, #preview ol { padding-left: 24px; margin: 8px 0; }
+#preview blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--fg-dim); margin: 8px 0; }
+#preview a { color: var(--accent); }
+#preview table { border-collapse: collapse; margin: 10px 0; }
+#preview th, #preview td { border: 1px solid var(--border); padding: 5px 10px; }
+#preview img { max-width: 100%; }
+/* ── AI 侧栏（2026-10-19 视觉重做：状态胶囊 / markdown 气泡 / 空态引导 / 打字动效） ── */
+#ai {
+  /* 宽度走 --ai-w（拖左缘拖条调整，240~640px 夹取，双击复位 320）；
+     min/max-width 同侧栏：必须写死值，min-width:auto 会被内容 min-content 撑宽 */
+  flex: 0 0 var(--ai-w, 320px); min-width: 240px; max-width: 640px;
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg2); border-left: 1px solid var(--border);
+}
+/* 头部：标题 + 状态胶囊（点色：缺省=黄 / 就绪=绿 / 出错=红 / 忙=蓝呼吸） */
+#ai .head {
+  flex: 0 0 auto; padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+#ai .head .title { font-size: 13px; color: var(--fg); }
+#ai .head .title .ico { color: var(--accent); margin-right: 5px; }
+#ai .head .state {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; padding: 2px 9px; border-radius: 10px;
+  background: var(--bg3); color: var(--fg-dim);
+}
+#ai .head .right { display: flex; align-items: center; gap: 6px; }
+#ai-cfg-btn {
+  background: none; border: none; color: var(--fg-dim); cursor: pointer;
+  font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px;
+}
+#ai-cfg-btn:hover { color: var(--fg); background: var(--bg3); }
+#ai .head .state i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+#ai .head .state.ok i { background: var(--ok); }
+#ai .head .state.bad i { background: var(--err); }
+#ai .head .state.busy i { background: var(--accent); animation: aiPulse 1.2s infinite ease-in-out; }
+@keyframes aiPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+#ai-msgs { flex: 1 1 auto; overflow-y: auto; padding: 12px; }
+/* 空态引导卡：图标 + 说明 + 建议按钮（点一下直接把问题发出去） */
+.ai-greet { padding: 18px 6px 8px; text-align: center; color: var(--fg-dim); }
+.ai-greet .g-ico { font-size: 30px; color: var(--accent); margin-bottom: 8px; }
+.ai-greet .g-title { font-size: 14px; color: var(--fg); margin-bottom: 6px; }
+.ai-greet .g-sub { font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+.ai-greet .g-log {
+  font-size: 11px; line-height: 1.5; margin: -8px 0 12px; color: var(--fg-dim);
+  opacity: .75; word-break: break-all; user-select: text;
+}
+.ai-greet .g-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.ai-greet .g-chips button {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--fg-dim);
+  font-size: 12px; padding: 5px 10px; border-radius: 12px; cursor: pointer;
+}
+.ai-greet .g-chips button:hover { border-color: var(--accent); color: var(--accent); }
+/* 气泡：用户 = accent 浅色右对齐；AI = 深色卡左对齐、正文渲染 markdown；时间戳靠右 */
+.msg { margin-bottom: 12px; padding: 8px 10px; border-radius: 10px; font-size: 13px; }
+.msg .who { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
+.msg .who .ico { font-size: 12px; }
+.msg .who .time { margin-left: auto; font-size: 10px; opacity: 0.7; }
+.msg .body { line-height: 1.65; word-break: break-word; }
+.msg.user { background: var(--accent-soft); margin-left: 16px; border-top-right-radius: 3px; }
+.msg.user .who { justify-content: flex-end; }
+.msg.user .body { white-space: pre-wrap; }
+.msg.assistant { background: var(--bg3); border-top-left-radius: 3px; }
+.msg.assistant .who .ico { color: var(--accent); }
+.msg.err { box-shadow: inset 0 0 0 1px var(--err); }
+/* 系统提示行：勾了勾选框却什么都没附上这类「静默空转」要当场可见，不占消息气泡 */
+.msg.sys { background: transparent; padding: 2px 10px; color: var(--fg-dim); font-size: 12px;
+  border-left: 2px solid var(--border); border-radius: 0; margin-left: 4px; }
+/* 流式打字动效：三点跳动；首个 chunk 到达后 aiSetBody 换成正文 */
+.typing { display: inline-flex; gap: 4px; padding: 6px 2px; }
+.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-dim); animation: aiTyping 1.2s infinite ease-in-out; }
+.typing i:nth-child(2) { animation-delay: 0.2s; }
+.typing i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes aiTyping { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+/* AI 回复的 markdown：与预览同一渲染源（marked + hljs），.md 域内样式防止撑破气泡 */
+.msg .md > :first-child { margin-top: 0; }
+.msg .md > :last-child { margin-bottom: 0; }
+.msg .md p { margin: 7px 0; }
+.msg .md h1, .msg .md h2, .msg .md h3 { margin: 10px 0 6px; font-size: 13.5px; }
+.msg .md ul, .msg .md ol { padding-left: 20px; margin: 7px 0; }
+.msg .md pre { background: var(--bg); border: 1px solid var(--border); padding: 8px 10px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+.msg .md code { font-family: Consolas, monospace; font-size: 12px; }
+.msg .md p code, .msg .md li code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.msg .md blockquote { border-left: 3px solid var(--accent); padding-left: 10px; color: var(--fg-dim); margin: 7px 0; }
+.msg .md a { color: var(--accent); }
+.msg .md table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+.msg .md th, .msg .md td { border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; }
+.msg .md img { max-width: 100%; }
+/* 工具条：一个上下文开关（问笔记库）+ 一行说明，放输入框正上方 */
+#ai .toolbar {
+  flex: 0 0 auto; display: flex; gap: 12px; padding: 6px 12px;
+  font-size: 11px; color: var(--fg-dim); border-top: 1px solid var(--border);
+}
+#ai .toolbar label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+#ai .toolbar .ctx-hint { margin-left: auto; opacity: .75; }
+#ai-input-row {
+  flex: 0 0 auto; display: flex; gap: 8px; padding: 10px;
+  border-top: 1px solid var(--border);
+}
+#ai-input {
+  flex: 1 1 auto; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--fg); padding: 8px 10px; font-size: 13px; outline: none; resize: none;
+  height: 40px; max-height: 120px; overflow-y: auto;
+}
+#ai-input:focus { border-color: var(--accent); }
+#ai-send {
+  flex: 0 0 auto; background: var(--accent); color: #fff; border: none; border-radius: 8px;
+  padding: 0 14px; cursor: pointer; font-size: 13px; transition: filter 0.15s;
+}
+#ai-send:hover { filter: brightness(1.15); }
+#ai-send:disabled { opacity: 0.4; cursor: default; filter: none; }
+.ai-hint { font-size: 12px; color: var(--fg-dim); padding: 4px 8px; }
+/* 危险操作审批卡（cjh 的 approval_request）：可点的批准 / 拒绝 + 倒计时 */
+.approval {
+  margin: 10px 0; padding: 10px 12px; border-radius: 8px;
+  background: rgba(220, 160, 60, 0.08); border: 1px solid rgba(220, 160, 60, 0.45);
+  font-size: 12px;
+}
+.approval .ahead { color: #e0b060; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.approval .atime { color: var(--fg-dim); font-weight: 400; font-size: 11px; }
+.approval .areason { color: var(--fg-dim); margin-top: 6px; line-height: 1.6; }
+.approval .aargs {
+  margin: 8px 0 0; padding: 8px; max-height: 180px; overflow: auto;
+  background: var(--bg1, #1a1a1a); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg); font-size: 11px; white-space: pre-wrap; word-break: break-all;
+}
+.approval .abtns { display: flex; gap: 8px; margin-top: 10px; }
+.approval .abtn {
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+  border-radius: 5px; padding: 5px 16px; cursor: pointer; font-size: 12px;
+}
+.approval .abtn.ok { border-color: #4c9; color: #4c9; }
+.approval .abtn.no { border-color: #c66; color: #c66; }
+.approval .abtn:hover { filter: brightness(1.2); }
+.approval .abtn:disabled { opacity: 0.4; cursor: default; filter: none; }
+.approval.decided { opacity: 0.75; }
+/* 工具活动单行（tool_start / tool_result）：挂在 AI 气泡下方 */
+.ai-tools { font-size: 11px; color: var(--fg-dim); margin-top: 6px; word-break: break-all; }
+.ai-greet.off .g-ico { color: #e0b060; }
+/* 未配置服务商：同一个琥珀警示位，但按钮是「去配置」——这类不是故障，是缺一步配置 */
+.ai-greet.cfg .g-ico, .ai-greet.cfg .g-title { color: #e0b060; }
+/* ── 对话 / 设置 两个视图：同一时刻只显示一个（#ai.settings 切换） ── */
+#ai-chat-view { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+#ai-settings-view { flex: 1 1 auto; display: none; flex-direction: column; min-height: 0; }
+#ai.settings #ai-chat-view { display: none; }
+#ai.settings #ai-settings-view { display: flex; }
+#ai-settings-view .sethead {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--fg-dim);
+}
+#ai-set-back {
+  background: none; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--fg-dim); cursor: pointer; font-size: 12px; padding: 1px 8px;
+}
+#ai-set-back:hover { color: var(--fg); border-color: var(--accent); }
+#ai-settings-view .setbody { flex: 1 1 auto; overflow-y: auto; padding: 10px 12px 18px; font-size: 12px; }
+#ai-settings-view .setgroup {
+  color: var(--fg-dim); font-size: 11px; letter-spacing: 0.04em;
+  margin: 16px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+#ai-settings-view .setgroup:first-child { margin-top: 0; }
+#ai-settings-view .setlabel { display: block; color: var(--fg-dim); margin: 10px 0 4px; }
+#ai-settings-view input, #ai-settings-view select {
+  width: 100%; box-sizing: border-box; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 5px; color: var(--fg);
+  padding: 6px 8px; font-size: 12px; outline: none;
+}
+#ai-settings-view input:focus, #ai-settings-view select:focus { border-color: var(--accent); }
+#ai-settings-view .sethint { color: var(--fg-dim); font-size: 11px; margin-top: 4px; }
+#ai-settings-view .setstatus { display: flex; gap: 8px; padding: 2px 0; line-height: 1.6; }
+#ai-settings-view .setstatus .bk { color: var(--fg-dim); flex: 0 0 30px; }
+#ai-settings-view .setstatus .bv { color: var(--fg); word-break: break-all; }
+#ai-settings-view .setstatus .bv.good { color: #4c9; }
+#ai-settings-view .setstatus .bv.bad { color: #c66; }
+#ai-settings-view .setactions { display: flex; gap: 8px; margin-top: 16px; }
+#ai-settings-view .setactions button {
+  flex: 1; background: var(--bg3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+}
+#ai-settings-view .setactions button:hover { border-color: var(--accent); }
+#set-save { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; }
+#set-save:hover { filter: brightness(1.1); }
+/* 测试连通：与「保存并生效」并列的主动作，但用描边区分——它不改配置，只跑一次真实请求 */
+#set-test { border-color: var(--accent) !important; color: var(--accent) !important; }
+#set-test:hover { background: var(--bg4, var(--bg3)) !important; }
+#set-test:disabled { opacity: 0.6; cursor: default; }
+#ai-settings-view .setnote { color: var(--fg-dim); font-size: 11px; line-height: 1.7; margin-top: 14px; }
+/* L2 选区动作：浮层工具条 + diff 确认条 */
+#sel-bar {
+  position: absolute; display: none; z-index: 50;
+  background: var(--bg3); border: 1px solid var(--accent); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4); padding: 3px; gap: 2px;
+}
+#sel-bar button {
+  background: none; border: none; color: var(--fg); cursor: pointer;
+  font-size: 12px; padding: 4px 9px; border-radius: 4px;
+}
+#sel-bar button:hover { background: var(--accent); color: #fff; }
+#diff-bar {
+  display: none; flex: 0 0 auto; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--bg3); border-top: 1px solid var(--accent);
+  font-size: 12px;
+}
+#diff-bar .diff-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; }
+#diff-bar button {
+  border: none; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px;
+}
+#diff-bar .accept { background: var(--ok); color: #06281a; }
+#diff-bar .reject { background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--border); }
+/* ── 「关于」浮层（帮助菜单 → 关于 cjnote…）：轻量自绘，不走原生对话框
+   （本工程没接 dialog 插件；一个静态说明也不该为它引一份宿主能力） ── */
+#about-card {
+  /* 四边显式写，不用 `inset: 0`：本机 WebKitGTK 不认这个简写，浮层会被压成 0×0
+     ——display 照样是 flex（自检绿）、画面上什么都没有（只能抓图看出来） */
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.45);
+}
+#about-card.on { display: flex; }
+#about-card .about-box {
+  width: 380px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 20px 22px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+#about-card .about-title { font-size: 17px; font-weight: 600; margin-bottom: 10px; }
+#about-card .about-line { font-size: 12.5px; color: var(--fg); line-height: 1.7; }
+#about-card .about-dim { color: var(--fg-dim); }
+#about-card button {
+  margin-top: 16px; width: 100%; padding: 7px 0; cursor: pointer;
+  background: var(--accent); color: #fff; border: none; border-radius: 6px;
+}
+/* ── 通用小弹窗：重命名（带输入框）/ 删除确认（纯文本）。与关于浮层同源：
+   四边显式写（本机 WebKitGTK 不认 inset）、.on 切 display、z-index 压在关于之上 ── */
+#modal {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 300; display: none;
+  align-items: center; justify-content: center; background: rgba(0,0,0,0.45);
+}
+#modal.on { display: flex; }
+.modal-card {
+  width: 340px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+.modal-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+#modal-input {
+  width: 100%; padding: 6px 8px; font-size: 13px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+}
+#modal-input:focus { outline: none; border-color: var(--accent); }
+.modal-text { font-size: 12.5px; color: var(--fg); line-height: 1.6; }
+.modal-btns { margin-top: 14px; display: flex; gap: 8px; }
+.modal-btns button {
+  flex: 1; padding: 7px 0; cursor: pointer; border-radius: 6px; font-size: 12.5px;
+  border: 1px solid var(--border); background: var(--bg3); color: var(--fg);
+}
+.modal-btns #modal-ok { background: var(--accent); border: none; color: #fff; }
+/* ── 「快速打开」浮层（Ctrl+P / 文件菜单 → 快速打开…）：页内搜索笔记库，不起原生对话框。
+   定位同样四边显式写（`inset` 在本机 WebKitGTK 不生效，见上面关于浮层那条注释） ── */
+#quick-open {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 210; display: none;
+  align-items: flex-start; justify-content: center; background: rgba(0,0,0,0.35);
+}
+#quick-open.on { display: flex; }
+#quick-open .quick-box {
+  margin-top: 90px; width: 460px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+}
+#quick-input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--fg); font-size: 13px;
+}
+#quick-list { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+#quick-list .quick-item {
+  padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--fg-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#quick-list .quick-item:hover, #quick-list .quick-item.sel { background: var(--bg3); color: var(--fg); }
+#quick-list .empty { padding: 10px; font-size: 12px; color: var(--fg-dim); }
+/* 顶栏右侧缩放补偿（AGENTS §4 zoom 坑：本页不缩放，占位说明） */
+</style>
+</head>
+<body>
+<div id="topbar">
+  <span class="logo">cjnote</span>
+  <span class="doc-title" id="doc-title">（未打开）</span>
+  <span class="doc-state saved" id="doc-state" title="已保存"><i></i><b>已保存</b></span>
+  <span class="spacer"></span>
+  <span class="doc-stat" id="doc-stat"></span>
+  <div class="theme-wrap">
+    <button id="btn-theme" class="theme-system" title="界面主题：跟随系统（点击选择）" aria-label="选择界面主题"><span class="ic"></span></button>
+    <div class="popmenu" id="theme-menu" hidden>
+      <button type="button" data-theme="system">跟随系统</button>
+      <button type="button" data-theme="light">浅色</button>
+      <button type="button" data-theme="dark">深色</button>
+    </div>
+  </div>
+</div>
+<div id="main">
+  <div id="sel-bar">
+    <button data-act="rewrite">改写</button>
+    <button data-act="continue">续写</button>
+    <button data-act="translate">翻译</button>
+  </div>
+  <div id="sidebar">
+    <div class="head">
+      <span class="side-tabs">
+        <button id="tab-notes" class="side-tab active">笔记</button>
+        <button id="tab-outline" class="side-tab">大纲</button>
+      </span>
+      <button id="btn-refresh" title="刷新列表">⟳</button>
+    </div>
+    <div class="sortrow" id="sortrow">
+      <select id="sortby" title="列表排序方式">
+        <option value="mtime">按修改时间</option>
+        <option value="name">按名称</option>
+      </select>
+    </div>
+    <div id="note-list" class="side-body"></div>
+    <div id="outline" class="side-body" style="display:none"></div>
+  </div>
+  <div id="resizer" title="拖动调整侧栏宽度；双击恢复默认"></div>
+  <div id="work">
+    <div id="work-head">
+      <span class="seg" id="mode-seg">
+        <button id="mode-edit" class="segbtn" title="只看编辑（Ctrl+1）">编辑</button>
+        <button id="mode-preview" class="segbtn" title="只看预览（Ctrl+2）">预览</button>
+        <button id="mode-split" class="segbtn active" title="编辑 + 预览左右分屏（Ctrl+3）">分屏</button>
+      </span>
+      <span class="work-tip" id="work-tip">编辑 + 预览</span>
+    </div>
+    <div id="work-body">
+      <div id="editor-pane">
+        <div id="editor-wrap"></div>
+        <textarea id="editor-fallback" spellcheck="false"></textarea>
+        <div id="diff-bar">
+          <span class="diff-title" id="diff-title"></span>
+          <button class="accept" id="diff-accept">接受</button>
+          <button class="reject" id="diff-reject">丢弃</button>
+        </div>
+      </div>
+      <div id="preview-pane">
+        <div id="preview"></div>
+      </div>
+    </div>
+  </div>
+  <div id="ai-resizer" title="拖动调整 AI 面板宽度；双击恢复默认"></div>
+  <div id="ai">
+    <div class="head">
+      <span class="title"><span class="ico">✦</span>AI 助手</span>
+      <span class="right">
+        <button id="ai-cfg-btn" title="设置">⚙</button>
+        <span class="state" id="ai-state"><i></i>连接中…</span>
+      </span>
+    </div>
+    <div id="ai-chat-view">
+      <div id="ai-msgs"></div>
+      <div class="toolbar">
+        <label><input type="checkbox" id="ai-lib-note"> 问笔记库</label>
+        <span id="ai-ctx-hint" class="ctx-hint" title="每问只带「我正在看哪一篇」的绝对路径，正文由 AI 自己按需读取">上下文：当前笔记</span>
+      </div>
+      <div id="ai-input-row">
+        <textarea id="ai-input" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button id="ai-send">发送</button>
+      </div>
+    </div>
+    <div id="ai-settings-view">
+      <div class="sethead">
+        <button id="ai-set-back" title="返回对话">←</button>
+        <span>设置</span>
+      </div>
+      <div class="setbody">
+        <div class="setgroup">AI 后端（cjh）</div>
+        <div class="setstatus">
+          <span class="bk">状态</span><span class="bv" id="set-state">查询中…</span>
+        </div>
+        <div class="setstatus">
+          <span class="bk">端点</span><span class="bv" id="set-endpoint">-</span>
+        </div>
+        <label class="setlabel" for="set-base">接入地址（Base URL）</label>
+        <input id="set-base" placeholder="https://api.example.com/v1">
+        <label class="setlabel" for="set-key">API Key</label>
+        <input id="set-key" type="password" placeholder="留空＝不修改">
+        <div class="sethint" id="set-key-hint">当前：未设置</div>
+        <label class="setlabel" for="set-model">模型名</label>
+        <input id="set-model" placeholder="glm-5.3-flash">
+        <label class="setlabel" for="set-proto">接入协议</label>
+        <select id="set-proto">
+          <option value="openai">OpenAI 兼容（chat/completions）</option>
+          <option value="anthropic">Anthropic（messages）</option>
+        </select>
+        <div class="setgroup">生成参数</div>
+        <label class="setlabel" for="set-temp">温度 temperature</label>
+        <input id="set-temp" type="number" step="0.05" min="0" max="2" placeholder="0.7">
+        <label class="setlabel" for="set-maxtok">单轮最大 tokens</label>
+        <input id="set-maxtok" type="number" min="1" placeholder="16384">
+        <label class="setlabel" for="set-maxiter">最大工具轮数</label>
+        <input id="set-maxiter" type="number" min="1" placeholder="50">
+        <div class="setactions">
+          <button id="set-save">保存并生效</button>
+          <button id="set-test">测试连通</button>
+          <button id="set-refresh">重新读取</button>
+        </div>
+        <div class="setnote" id="set-note">配置写在 cjh 自己的配置目录（settings.json / auth.json），本应用不另存密钥；
+          「保存并生效」会写文件，并把地址/模型/密钥即时推给正在运行的 cjh（外部实例也生效、不必等重启），
+          只有接入协议只认配置文件、改动后需重启 cjh；「测试连通」用当前表单里这组值发一条最小对话，
+          只验证连通、不改动任何配置。</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="quick-open">
+  <div class="quick-box">
+    <input id="quick-input" placeholder="输入笔记名过滤…（Enter 打开，Esc 取消）">
+    <div id="quick-list"></div>
+  </div>
+</div>
+<div id="about-card">
+  <div class="about-box">
+    <div class="about-title">cjnote</div>
+    <div class="about-line">本地优先的 AI 笔记 —— 笔记是磁盘上的纯 .md 文件，AI 长在编辑工作流里。</div>
+    <div class="about-line about-dim" id="about-ver">仓颉 + cj-tauri</div>
+    <div class="about-line about-dim">菜单：文件（Ctrl+N / Ctrl+S）/ 视图（Ctrl+1·2·3）/ 帮助</div>
+    <button id="about-close">知道了</button>
+  </div>
+</div>
+<script>
+/*__VENDOR_JS__*/
+</script>
+<script>
+"use strict";
+// ── 桥等待（模板惯例）：内联页面初始化不抢在桥注入之前 ──
+function waitForBridge(cb, tries) {
+  if (window.__CJ_TAURI__ && typeof window.__CJ_TAURI__.invoke === "function") { cb(); return; }
+  if (tries <= 0) { document.getElementById("doc-title").textContent = "桥未就绪（重启应用）"; return; }
+  setTimeout(function () { waitForBridge(cb, tries - 1); }, 100);
+}
+
+var bridge = null;
+var cm = null;                      // CodeMirror 实例；null = fallback textarea
+var notes = [];                     // [{name, path}]
+var current = "";                   // 当前笔记文件名
+var docPath = "";                   // 当前笔记的绝对路径（note:open 回的 path）——AI 指针要用
+var noteRoot = "";                  // 笔记库根目录的绝对路径（note:list 回的 root）
+var sortBy = "mtime";  // 默认按修改时间：列表的意义是「最近动过什么」；偏好落 store（ui.sortby）
+var noteMtimes = {};   // name → mtime（note:list 给的 ISO 字符串，Date.parse 转数值排序）
+var dirty = false;
+
+function $(id) { return document.getElementById(id); }
+
+// ── 编辑器：CodeMirror 优先，缺失退化 textarea（vendor 内联失败不致命） ──
+function initEditor() {
+  var wrap = $("editor-wrap");
+  if (window.CodeMirror) {
+    cm = window.CodeMirror(wrap, {
+      value: "", lineNumbers: false, lineWrapping: true,
+      mode: "text/x-markdown", theme: "default",
+      extraKeys: {
+        "Ctrl-S": function () { saveCurrent(); },
+        // 编辑器内也各留一份：键盘焦点在 CodeMirror 里时 document 上的监听收不到
+        "Ctrl-O": function () { openViaDialog(); },
+        "Ctrl-P": function () { showQuickOpen(true); }
+      }
+    });
+    cm.on("change", function () {
+      dirty = true; renderPreview(cm.getValue()); updateDocMeta();
+      if (sideTab === "outline") { renderOutline(); }
+    });
+  } else {
+    var ta = $("editor-fallback");
+    ta.style.display = "block";
+    wrap.style.display = "none";
+    ta.addEventListener("input", function () {
+      dirty = true; renderPreview(ta.value); updateDocMeta();
+      if (sideTab === "outline") { renderOutline(); }
+    });
+    document.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); saveCurrent(); }
+    });
+  }
+}
+function getDoc() { return cm ? cm.getValue() : $("editor-fallback").value; }
+// ── 顶栏文档状态：圆点表示有无未保存改动，右侧显示字数（按非空白字符算）──
+function docWordCount(text) { return String(text == null ? "" : text).replace(/\s+/g, "").length; }
+function updateDocMeta() {
+  var st = $("doc-state"), stat = $("doc-stat");
+  if (st) {
+    st.className = "doc-state" + (dirty ? "" : " saved");
+    st.title = dirty ? "有未保存的改动（Ctrl+S 保存）" : "已保存";
+    var b = st.getElementsByTagName("b")[0];
+    if (b) { b.textContent = dirty ? "未保存" : "已保存"; }
+  }
+  if (stat) { stat.textContent = docWordCount(getDoc()) + " 字"; }
+  // 同一份信息再上一行进原生标题栏（宿主不支持时这个调用什么也不显示）
+  if (!titlebarProbed) { syncNativeTitle(true); } else { syncNativeTitle(); }
+}
+
+// ── 原生标题行（与菜单栏同排的副标题）──
+// 能力探测就用第一次同步的返回值：supported=false 即本平台没这块（Windows 系统菜单没有
+// 自绘区），这时页面顶栏必须保留——删掉顶栏却没有替代会连文档名一起不见了。
+var titlebarSupported = false;
+var titlebarProbed = false;
+var titlebarTimer = 0;
+var lastTitlebarText = "";
+
+function nativeTitlebarText() {
+  var name = $("doc-title") ? $("doc-title").textContent : "";
+  return name + "  ·  " + (dirty ? "未保存" : "已保存") + "  ·  " + docWordCount(getDoc()) + " 字";
+}
+
+/** 把标题行推给宿主；编辑期高频调用，非首次一律 250ms 防抖（每键一次 FFI 没必要） */
+function syncNativeTitle(immediate) {
+  var text = nativeTitlebarText();
+  function send() {
+    titlebarTimer = 0;
+    if (titlebarProbed && titlebarSupported && text === lastTitlebarText) { return; }
+    invoke("titlebar:sync", { text: text }).then(function (r) {
+      var ok = !!(r && r.supported);
+      titlebarProbed = true;
+      if (ok !== titlebarSupported) {
+        titlebarSupported = ok;
+        if (ok) { document.body.classList.add("native-titlebar"); }
+        else { document.body.classList.remove("native-titlebar"); }
+        report("UI native titlebar " + (ok ? "on" : "off"));
+      }
+      lastTitlebarText = text;
+    }).catch(function (e) {
+      report("SELFCHECK FAIL native titlebar: " + e);
+    });
+  }
+  if (titlebarTimer) { clearTimeout(titlebarTimer); titlebarTimer = 0; }
+  if (immediate) { send(); return; }
+  titlebarTimer = setTimeout(send, 250);
+}
+function setDoc(text) {
+  if (cm) { cm.setValue(text); } else { $("editor-fallback").value = text; }
+  renderPreview(text); dirty = false; updateDocMeta();
+  if (sideTab === "outline") { renderOutline(); }
+}
+
+// ── 预览：marked 优先，缺失退化为纯文本 ──
+function renderPreview(md) {
+  var out = $("preview");
+  if (window.marked) {
+    try { out.innerHTML = window.marked.parse(md); }
+    catch (e) { out.textContent = md; }
+  } else { out.textContent = md; }
+  if (window.hljs) {
+    var blocks = out.querySelectorAll("pre code");
+    for (var i = 0; i < blocks.length; i++) { try { window.hljs.highlightElement(blocks[i]); } catch (err) {} }
+  }
+}
+
+// ── IPC 封装 ──
+function invoke(cmd, args) {
+  return bridge.invoke(cmd, args || {});
+}
+function report(line) {
+  eprintlnShim(line);
+  try { invoke("report", { line: line }); } catch (e) {}
+}
+function eprintlnShim(line) { console.log(line); }
+// 绝对路径判定：POSIX 以 "/" 开头，Windows 是 "E:/…" 或 "E:\…"（后端给的正是这两种）。
+// 只认 "/" 会让 Windows 上的自检断言恒红——那是判定写窄了，不是后端没给绝对路径。
+function isAbsPath(p) {
+  var s = String(p || "");
+  return s.charAt(0) === "/" || /^[A-Za-z]:[\\/]/.test(s);
+}
+
+// ── AI 侧栏：后端只有 cjh（宿主拉起 vendor 里那份），页面经 ws 插件直连它的聊天流 ──
+// cjh 是 agent：system / 工具 / 会话都由它管，页面只发一问、收一答的帧流。
+// wsErr / owned / foreign / healthVersion / bundledVersion：端口上那只到底是谁 + 上一次连不上的原文，
+// 由 cjhFacts() 与 cjhConnect() 的 catch 填（离线卡靠它们把成因说清楚）
+var cjh = { state: "missing", api: "", ws: "", up: false, session: "", checking: false,
+  wsErr: "", owned: false, foreign: false, healthVersion: "", bundledVersion: "",
+  probe: { on: false } };
+var aiStreaming = false;
+var aiTurn = null;        // 本轮流式：{ kind: "chat"|"l2", body, acc, tools }
+var curApproval = null;   // 未决的审批卡（cjh 工具串行调，同时只会有一个）
+
+// 状态胶囊：文案 + 点色（ok=绿 / bad=红 / busy=蓝呼吸 / 缺省=黄）
+function aiSetState(text, kind) {
+  var st = $("ai-state");
+  st.innerHTML = "<i></i>" + text;   // 文案都是内部串，无用户内容
+  st.className = "state" + (kind ? " " + kind : "");
+}
+function aiNow() {
+  var d = new Date();
+  return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+}
+// AI 回复的 markdown 渲染：与预览同一渲染源（marked + hljs），缺失退化为纯文本
+function aiRenderMd(container, text) {
+  if (!text || !text.trim()) { container.textContent = "（服务返回了空回复，重试一下）"; return; }
+  if (window.marked) {
+    try {
+      container.innerHTML = window.marked.parse(text);
+      if (window.hljs) {
+        var blocks = container.querySelectorAll("pre code");
+        for (var i = 0; i < blocks.length; i++) { try { window.hljs.highlightElement(blocks[i]); } catch (err) {} }
+      }
+      return;
+    } catch (e) { /* 退化为纯文本 */ }
+  }
+  container.textContent = text;
+}
+function aiMsgEl(role, text, streaming) {
+  var box = $("ai-msgs");
+  var greet = box.querySelector(".ai-greet");
+  if (greet) { box.removeChild(greet); }   // 第一条消息顶掉空态卡
+  var el = document.createElement("div");
+  var isErr = role === "assistant" && text.indexOf("**[错误]**") === 0;
+  el.className = "msg " + role + (isErr ? " err" : "");
+  var who = document.createElement("div");
+  who.className = "who";
+  if (role === "assistant") {
+    var ico = document.createElement("span");
+    ico.className = "ico"; ico.textContent = "✦";
+    who.appendChild(ico);
+  }
+  var nm = document.createElement("span");
+  nm.textContent = role === "user" ? "你" : "AI 助手";
+  who.appendChild(nm);
+  var tm = document.createElement("span");
+  tm.className = "time"; tm.textContent = aiNow();
+  who.appendChild(tm);
+  var bodyEl = document.createElement("div");
+  bodyEl.className = "body" + (role === "assistant" ? " md" : "");
+  if (role === "assistant") {
+    if (streaming) {
+      bodyEl.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    } else if (text) {
+      aiRenderMd(bodyEl, text);
+    }
+  } else if (text) {
+    bodyEl.textContent = text;
+  }
+  el.appendChild(who);
+  el.appendChild(bodyEl);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+function aiSetBody(el, text) {
+  var b = el.querySelector(".body");
+  if (b) { aiRenderMd(b, text); }
+  el.className = "msg assistant" + (text.indexOf("**[错误]**") === 0 ? " err" : "");
+  var box = $("ai-msgs");
+  box.scrollTop = box.scrollHeight;
+}
+// 空态引导卡：图标 + 说明 + 建议按钮（点一下直接把问题发出去）
+// 启动期卡片（问候 / 未配置 / 离线）都只负责空态：**已经有人开始聊了就不能清空消息区**。
+// 2026-10-21 自检抓到：连上之后还要一次 cjh:config 复判，这个异步回调可能晚于用户的第一问，
+// 于是「画问候卡」把刚到的回复整个抹掉（断言现场 bubbles=0、页面看着像没回）。
+function aiGreetIdle() {
+  var box = $("ai-msgs");
+  if (!box) { return false; }
+  return box.children.length === 0 || !!box.querySelector(".ai-greet");
+}
+function aiGreet(sub) {
+  var box = $("ai-msgs");
+  if (!aiGreetIdle()) { return; }
+  box.innerHTML = "";
+  var card = document.createElement("div");
+  card.className = "ai-greet";
+  card.innerHTML =
+    '<div class="g-ico">✦</div>' +
+    '<div class="g-title">AI 助手</div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-chips">' +
+    "<button>总结当前笔记</button>" +
+    "<button>检查错别字</button>" +
+    "<button>列一个大纲</button>" +
+    "</div>";
+  card.querySelector(".g-sub").textContent = sub || "写笔记时随时问我。";
+  var chips = card.querySelectorAll(".g-chips button");
+  var prompts = ["帮我总结当前笔记", "检查这篇笔记的错别字和语句问题", "给这篇笔记列一个大纲"];
+  for (var i = 0; i < chips.length; i++) {
+    (function (q) {
+      chips[i].onclick = function () {
+        // 三个建议都要「这一篇」的内容：不用再勾选——指针每问都带，正文由 AI 按需 read_file
+        $("ai-input").value = q;
+        aiSend();
+      };
+    })(prompts[i]);
+  }
+  box.appendChild(card);
+}
+// ── cjh 连接：状态 → 端点 → WS ──
+// 宿主在后台拉起 cjh web（vendor/cjh/bin/ 里的随包二进制），页面只连它的 WS 聊天流。
+// 三态来自 cjh:status：running（已就绪）/ configured（有二进制没起）/ missing（找不到）
+// 端口上那只到底是谁：`cjh:status` 与 `cjh:start` 都带这几项。
+// HTTP 200 只证明「有 cjh 在答话」，证明不了它就是随包那只、也证明不了 /ws 能连
+// （2026-10-21 另一台机器：netstat 显示 8765 上有 LISTENING，页面却连不上 WS——两条事实要能对上）。
+function cjhFacts(st) {
+  st = st || {};
+  cjh.owned = (st.owned === true);
+  cjh.healthVersion = st.healthVersion || "";
+  cjh.foreign = (st.foreign === true);
+  cjh.bundledVersion = st.bundledVersion || "";
+}
+function cjhBoot(force) {
+  if (cjh.checking && !force) { return Promise.resolve(); }
+  cjh.checking = true;
+  aiSetState("连接中…", "busy");
+  return invoke("cjh:status").then(function (st) {
+    st = st || {};
+    cjh.state = st.state || "missing";
+    cjhFacts(st);
+    report("CJH status=" + cjh.state + " ws=" + (st.wsUrl || "-")
+      + " owned=" + cjh.owned + " version=" + (cjh.healthVersion || "-") + " foreign=" + cjh.foreign);
+    if (cjh.state === "running") {
+      cjh.api = st.apiUrl || ""; cjh.ws = st.wsUrl || "";
+      cjh.checking = false;
+      return cjhConnect();
+    }
+    if (cjh.state === "configured") {
+      // 有二进制没起来：让宿主拉一次（cjh:start 会复用已在跑的实例，不顶掉用户的）
+      aiSetState("启动 cjh…", "busy");
+      return invoke("cjh:start", {}).then(function (r) {
+        cjh.checking = false;
+        if (r && r.ok) {
+          cjh.api = r.apiUrl || ""; cjh.ws = r.wsUrl || ""; cjh.state = "running";
+          cjhFacts(r);
+          return cjhConnect();
+        }
+        aiSetState("未就绪", "bad");
+        aiGreetOffline(cjh.state);
+        report("CJH-WARN 启动失败: " + ((r && r.error) || "unknown"));
+      });
+    }
+    cjh.checking = false;
+    aiSetState("未连接", "bad");
+    aiGreetOffline(cjh.state);
+  }).catch(function (e) {
+    cjh.checking = false;
+    aiSetState("检查失败", "bad");
+    report("CJH-WARN 状态检查失败: " + (e && e.message ? e.message : e));
+  });
+}
+function cjhConnect() {
+  if (!cjh.ws) { return Promise.resolve(); }
+  if (cjh.up) { aiSetState("就绪", "ok"); updateAiCfgTip(); return Promise.resolve(); }
+  return invoke("ws:connect", { url: cjh.ws }).then(function () {
+    cjh.up = true;
+    aiSetState("就绪", "ok");
+    report("CJH ws connected " + cjh.ws);
+    // 连上只是第一步：再判「服务商配置齐不齐」——没配密钥时状态必须说「未配置密钥」，
+    // 别让用户以为后端没起来（这两种情况的下一步完全不同）
+    return cjhCfgCheck().then(function (cfg) {
+      updateAiCfgTip();
+      if (!cfg.ok) {
+        aiSetState("未配置密钥", "");
+        aiGreetNeedConfig();
+        report("CJH-WARN 服务商密钥未配置（cjh 已连上 " + cjh.ws + "）");
+      }
+      // 续聊：会话内容在 cjh 侧，页面只留着 id
+      if (cjh.session) { cjhWsSend({ type: "resume_session", session_id: cjh.session }).catch(function () {}); }
+    });
+  }).catch(function (e) {
+    cjh.up = false;
+    // 真实报错必须留下来：w 插件回的是 `ws: url must start with ws://…` /
+    // `ws: host is outside the authorized scope` / `ws: connect failed: <细节>` 这些**能定位**的话，
+    // 只写一句「连不上」等于让人自己去猜（实测那台机器就卡在这一步）
+    cjh.wsErr = (e && e.message ? e.message : String(e));
+    aiSetState("未连接", "bad");
+    aiGreetOffline(cjh.state);
+    report("CJH-WARN 连接失败: " + cjh.wsErr);
+  });
+}
+function cjhWsSend(obj) { return invoke("ws:send", { text: JSON.stringify(obj) }); }
+function updateAiCfgTip() {
+  var btn = $("ai-cfg-btn");
+  if (!btn) { return; }
+  var needCfg = cjhCfg.checked && !cjhCfg.ok;
+  btn.title = needCfg
+    ? "AI 后端：cjh 已连接，但服务商密钥未配置（点这里填）"
+    : (cjh.up ? ("AI 后端：cjh 已连接 " + cjh.ws + "（点击查看）") : "AI 后端：cjh 未连接（点击查看）");
+  // 输入框占位是最容易被看到的一行：未配置时直接把它变成下一步动作
+  var inp = $("ai-input");
+  if (inp) {
+    inp.placeholder = needCfg
+      ? "还没配置服务商密钥——点右上角 ⚙ 填上再问"
+      : "问点什么…（Enter 发送，Shift+Enter 换行）";
+  }
+}
+// ── 设置页：点 ⚙ 切到设置视图（不是一个只会转圈的状态卡） ──
+// 配置读写交给宿主（cjh:config / cjh:saveConfig / cjh:restart）：页面没有 fs 权限碰 ~/.cjh，
+// 而 cjh 的 /api/settings 是字段白名单——接入协议 provider_protocol 根本写不进去（实测），
+// 所以只能「改配置文件 + 重启 cjh」。密钥读回来是脱敏的，留空即不修改。
+function aiSettingsOpen() {
+  var ai = $("ai");
+  return !!(ai && ai.classList.contains("settings"));
+}
+function aiView(which) {
+  var ai = $("ai");
+  if (!ai) { return; }
+  if (which === "settings") {
+    ai.classList.add("settings");
+  } else {
+    ai.classList.remove("settings");
+  }
+  updateAiCfgTip();
+}
+function openAiSettings() {
+  aiView("settings");
+  loadCjhConfigForm();
+  refreshCjhStatusLine();
+}
+function refreshCjhStatusLine() {
+  var st = $("set-state");
+  var ep = $("set-endpoint");
+  if (!st) { return; }
+  invoke("cjh:status").then(function (s) {
+    s = s || {};
+    var names = { running: "运行中", configured: "有二进制，未启动", missing: "未找到随包二进制" };
+    st.textContent = names[s.state] || (s.state || "未知");
+    st.className = "bv " + (s.state === "running" ? "good" : "bad");
+    if (ep) { ep.textContent = s.wsUrl ? (s.wsUrl + "　" + (s.apiUrl || "")) : "（未就绪）"; }
+  }).catch(function (e) {
+    st.textContent = "查询失败：" + (e && e.message ? e.message : e);
+    st.className = "bv bad";
+  });
+}
+// 回填表单：密钥只有脱敏回显，输入框永远留空（留空＝不修改，避免把 **** 写回去）
+function loadCjhConfigForm() {
+  var hint = $("set-key-hint");
+  invoke("cjh:config").then(function (c) {
+    c = c || {};
+    $("set-base").value = c.baseUrl || "";
+    $("set-model").value = c.model || "";
+    $("set-proto").value = c.protocol || "openai";
+    $("set-temp").value = (typeof c.temperature === "number" && c.temperature > 0) ? c.temperature : "";
+    $("set-maxtok").value = c.maxTokens || "";
+    $("set-maxiter").value = c.maxIterations || "";
+    $("set-key").value = "";
+    if (hint) {
+      hint.textContent = c.hasKey
+        ? ("当前已保存：" + (c.apiKey || "****") + "（留空则不修改）")
+        : "当前：未设置";
+    }
+  }).catch(function (e) {
+    if (hint) { hint.textContent = "读取配置失败：" + (e && e.message ? e.message : e); }
+  });
+}
+// 保存 → 重启 cjh 让新配置真正生效（外部实例则如实说明需手动重启，不假装成功）
+function saveCjhConfigForm() {
+  var note = $("set-note");
+  var btn = $("set-save");
+  var payload = {
+    baseUrl: $("set-base").value.trim(),
+    model: $("set-model").value.trim(),
+    protocol: $("set-proto").value,
+    apiKey: $("set-key").value.trim()
+  };
+  var temp = parseFloat($("set-temp").value);
+  if (!isNaN(temp)) { payload.temperature = temp; }
+  var mt = parseInt($("set-maxtok").value, 10);
+  if (!isNaN(mt) && mt > 0) { payload.maxTokens = mt; }
+  var mi = parseInt($("set-maxiter").value, 10);
+  if (!isNaN(mi) && mi > 0) { payload.maxIterations = mi; }
+  btn.disabled = true;
+  btn.textContent = "保存中…";
+  invoke("cjh:saveConfig", payload).then(function (r) {
+    r = r || {};
+    if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = "保存并生效";
+      if (note) { note.textContent = "保存失败：配置目录不可写（详情见应用日志）。"; }
+      return;
+    }
+    var wrote = (r.wrote || []).join("、") || "无变更";
+    var live = r.liveApplied || "";
+    var tail = "";
+    if (live) { tail += "已即时推给运行中的 cjh：" + live + "。"; }
+    if (r.protocolChanged) { tail += "接入协议只认配置文件，重启 cjh 后才生效。"; }
+    if (r.cjhAlive === false) { tail += "cjh 当前没在跑，配置会在下次拉起时生效。"; }
+    return invoke("cjh:restart").then(function (rr) {
+      rr = rr || {};
+      btn.disabled = false;
+      btn.textContent = "保存并生效";
+      if (rr.ok) {
+        // 重启后旧连接已断：重置连接标记再连一次，状态胶囊与设置页都跟着刷新
+        cjh.up = false;
+        cjhBoot(true).then(function () { refreshCjhStatusLine(); });
+        if (note) { note.textContent = "已保存并重启 cjh（写入：" + wrote + "）。"; }
+      } else if (live) {
+        // 写盘管「下次拉起」，REST 白名单管「正在跑的那只」——推成功就是已经在用新值了
+        if (note) { note.textContent = "已写入配置：" + wrote + "；" + tail + "（" + (rr.error || "未重启") + "）"; }
+      } else {
+        if (note) {
+          note.textContent = "已写入配置：" + wrote + "。" + (rr.error || "需手动重启 cjh 后生效。");
+        }
+      }
+      refreshCjhStatusLine();
+      // 配置刚改过：复判一次（重启失败而配置走了 REST 白名单即时生效时，这条是唯一的回正路径）
+      cjhCfgCheck().then(function (cfg) {
+        updateAiCfgTip();
+        var box = $("ai-msgs");
+        if (cfg.ok) {
+          if (cjh.up) { aiSetState("就绪", "ok"); }
+          if (box && box.querySelector(".ai-greet.cfg")) {
+            aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。");
+          }
+        } else if (box && box.querySelector(".ai-greet.cfg")) {
+          aiGreetNeedConfig();
+        }
+      });
+    });
+  }).catch(function (e) {
+    btn.disabled = false;
+    btn.textContent = "保存并生效";
+    if (note) { note.textContent = "保存失败：" + (e && e.message ? e.message : e); }
+  });
+}
+// ── 测试连通（设置页）：用**表单里这组值**真发一条最小对话 ──
+// 为什么能「不改配置就测这组值」：cjh 的 chat 帧自带 model / baseUrl / apiKey 单次覆盖
+//（明确不落盘、不粘连；2026-10-20 实测：塞一个故意错的 key，服务商当场拒绝，证明覆盖生效）。
+// 所以探针不 POST、不写文件，只把表单值随帧带过去，测完配置一字未动。
+// 为什么不带 session_id：让 cjh 为这一轮另开会话，既不污染用户当前对话，也不顶掉会话 id
+//（这是个隐形收益：cjh 的会话 id 只经帧回投，探针期间不许它改写 cjh.session）。
+var PROBE_PROMPT = "连通测试：请只回复一个词 ok";
+var PROBE_TIMEOUT_MS = 45000;
+function probeNote(text) {
+  var note = $("set-note");
+  if (note) { note.textContent = text; }
+}
+function probeBusy(on) {
+  var btn = $("set-test");
+  if (!btn) { return; }
+  btn.disabled = !!on;
+  btn.textContent = on ? "测试中…" : "测试连通";
+}
+function probeFinish(err, ms) {
+  var p = cjh.probe || {};
+  if (p.timer) { clearTimeout(p.timer); }
+  cjh.probe = { on: false };
+  probeBusy(false);
+  var cost = (typeof ms === "number") ? ms : (Date.now() - (p.t0 || Date.now()));
+  var got = String(p.acc || "").replace(/[\r\n]+/g, " ").trim();
+  // 自检钩子：无人值守管道靠它知道「探针真的收尾了」（不挂在正常路径上，没设就是空操作）
+  if (typeof window.__cjnoteProbeDone === "function") {
+    window.__cjnoteProbeDone(got, err || "", cost);
+  }
+  if (err) {
+    probeNote("❌ 不通：" + err + "（用时 " + cost + " ms）");
+    report("PROBE-FAIL " + String(err).slice(0, 160));
+    return;
+  }
+  if (!got) {
+    probeNote("⚠ 接口通了、模型没吐字（用时 " + cost + " ms）：多半是模型名在当前服务商上不可用。");
+    report("PROBE-EMPTY ms=" + cost);
+    return;
+  }
+  probeNote("✅ 连通：模型回了「" + got.slice(0, 40) + "」，用时 " + cost + " ms。本次只做一次单轮覆盖，未改动配置。");
+  report("PROBE-OK reply=" + got.slice(0, 40) + " ms=" + cost);
+}
+// 探针期的帧：只归拢到设置页，不进聊天面板、不接会话 id
+function handleProbeFrame(m) {
+  var type = m.type || "";
+  if (type === "delta") { cjh.probe.acc += (m.text || ""); return true; }
+  if (type === "tool_start" || type === "tool_result" || type === "tasks" || type === "history_messages") { return true; }
+  if (type === "error") { probeFinish(cjhErrText(m)); return true; }
+  if (type === "cancelled") { probeFinish("被取消"); return true; }
+  if (type === "done") {
+    if (m.finish_reason === "error") { probeFinish("cjh 以异常收尾（细节见 cjh 日志）"); }
+    else { probeFinish(""); }
+    return true;
+  }
+  if (type === "approval_request") {
+    probeFinish("这一轮还要审批（探针不调工具，说明 cjh 侧状态异常）");
+    return true;
+  }
+  return false;
+}
+function testCjhConnectivity() {
+  if (cjh.probe && cjh.probe.on) { return; }
+  if (aiStreaming) { probeNote("正在回复中，等这一轮跑完再测。"); return; }
+  var frame = { type: "chat", message: PROBE_PROMPT };
+  var used = [];
+  var base = $("set-base").value.trim();
+  if (base) { frame.baseUrl = base; used.push("地址"); }
+  var model = $("set-model").value.trim();
+  if (model) { frame.model = model; used.push("模型"); }
+  var key = $("set-key").value.trim();
+  if (key && key.indexOf("****") < 0) { frame.apiKey = key; used.push("密钥"); }
+  probeBusy(true);
+  probeNote("测试中…（" + (used.length > 0 ? "覆盖表单里的 " + used.join("、") : "表单没填，用 cjh 已保存的配置") +
+    "；最多等 " + Math.round(PROBE_TIMEOUT_MS / 1000) + " 秒）");
+  var run = function () {
+    if (!cjh.up) {
+      probeFinish("cjh 未连接（" + (cjh.state || "未知") + "），先在聊天页点一下重新连接");
+      return;
+    }
+    cjh.probe = { on: true, t0: Date.now(), acc: "", timer: null };
+    report("PROBE start override=" + (used.join("+") || "none"));
+    cjh.probe.timer = setTimeout(function () {
+      if (cjh.probe && cjh.probe.on) {
+        // 超时也要收尾：否则探针标记永远挂着，后续帧全被它吞掉
+        probeFinish("超时（" + Math.round(PROBE_TIMEOUT_MS / 1000) + " 秒内没有收尾帧）", PROBE_TIMEOUT_MS);
+      }
+    }, PROBE_TIMEOUT_MS);
+    try {
+      cjhWsSend(frame);
+    } catch (e) {
+      probeFinish("发送失败：" + (e && e.message ? e.message : e), 0);
+    }
+  };
+  if (cjh.up) { run(); return; }
+  // 未连接：先按一次连接再来，与聊天发送同一策略（不给用户「先自己连一下」的负担）
+  cjhBoot(true).then(run).catch(run);
+}
+// 发一条提问：上下文（我现在在看哪一篇）拼进消息本身（cjh 是 agent，system 由它自己管，
+// 页面不再自己组织 messages——上下文只能以「随消息附上的指针」出现）
+// 上下文拼装独立成函数：aiSend 只管取问题与发送，「附了什么」这条规则要能被自检直接断言——
+// 勾了却静默空转是用户实测报上来的 bug，不能只靠人眼看回复。
+//
+// 形态是**指针**不是正文（2026-10-21 用户裁定）：每问只带「我正在看哪一篇」的绝对路径，正文由
+// AI 自己 read_file 取。原先把全文塞进消息、勾选框又不复位，于是每轮各附一份全文（跨轮累加，
+// 用户实测报上来的）。绝对路径是硬前提：cjh 的 read_file 对相对路径是按**它当时的工作区**解析的，
+// 而那个工作区可能是别的应用设的（实测 ai-chat 先起的 cjh 指向 examples/ai-chat/target），
+// 相对路径会静默指到别的目录去。
+function aiCtxPointer() {
+  var lines = [];
+  var attached = [];   // 实际附上了什么：写进 stderr 当凭证（回复不对时先分「没附上」还是「附了没用」）
+  if (current && docPath) {
+    lines.push("【当前笔记】" + current);
+    lines.push("绝对路径：" + docPath);
+    attached.push("当前笔记指针 " + current);
+  } else if (externalPath) {
+    lines.push("【当前文件】" + externalPath + "（笔记库之外的普通文件）");
+    attached.push("库外文件指针");
+  } else if (current) {
+    lines.push("【当前笔记】" + current + "（页面还没拿到它的绝对路径：要看内容请先保存一次）");
+    attached.push("当前笔记指针（缺路径）");
+  } else {
+    lines.push("【当前文档】我现在没有打开任何笔记或文件。");
+    attached.push("无当前文档");
+  }
+  if (noteRoot) {
+    lines.push("笔记库根目录：" + noteRoot);
+    attached.push("库根目录");
+  }
+  lines.push("（要原文就用 read_file 读上面的绝对路径；要在库里找别的笔记，用 grep / list_dir " +
+             "在库根目录下查——不要凭文件名猜内容。）");
+  return { text: lines.join("\n"), attached: attached };
+}
+function buildAiContext(notice) {
+  var p = aiCtxPointer();
+  var ctx = p.text + "\n\n";
+  var attached = p.attached.slice();
+  var lib = document.getElementById("ai-lib-note");
+  if (lib && lib.checked) {
+    // 「问笔记库」= 显式要求这一轮做全库检索：页面不再替 AI 预取（预取走的是朴素 contains，
+    // 自然语言提问必然 0 命中，附一堆没用的片段只白烧令牌），改成把要求直接写进上下文。
+    ctx += "【本轮要求】先在笔记库（根目录见上）里自己检索再回答：用 grep 找关键词，必要时 " +
+           "read_file 读原文，想看库里有什么就用 list_dir；不要只凭印象作答。\n\n";
+    attached.push("库内检索指令");
+  }
+  // 指针对应的是磁盘上那份文件：编辑器里还有未保存改动时，得让用户知道 AI 看到的是旧内容
+  if (dirty && current && typeof notice === "function") {
+    notice("这篇笔记有未保存的改动，AI 读到的是磁盘版本——先 Ctrl+S 再问更准。");
+  }
+  return Promise.resolve({ ctx: ctx, attached: attached });
+}
+// 一行系统提示：勾了勾选框却什么都没附上这类「静默空转」必须让人当场看见（同时进 stderr 日志）
+function aiNotice(text) {
+  var box = $("ai-msgs");
+  var greet = box.querySelector(".ai-greet");
+  if (greet) { box.removeChild(greet); }
+  var el = document.createElement("div");
+  el.className = "msg sys";
+  el.textContent = " " + text;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  report("AI-CTX notice: " + text);
+}
+function aiSend() {
+  if (aiStreaming) { return; }
+  var input = $("ai-input");
+  var text = input.value.trim();
+  if (!text) { return; }
+  if (!cjh.up) {
+    // 未连接：先按一次重连，连上后再发（用户不该为「后端刚起来」重敲一遍）
+    report("CJH-WARN 未连接，先重连再发");
+    cjhBoot(true).then(function () {
+      if (cjh.up) { aiSend(); }
+    });
+    return;
+  }
+  buildAiContext(aiNotice).then(function (r) {
+    report("AI-CTX 附带：" + (r.attached.length ? r.attached.join("、") : "无"));
+    aiAskCjh(text, r.ctx);
+  }).catch(function (e) {
+    report("AI-CTX 拼装失败: " + (e && e.message ? e.message : e));
+    aiAskCjh(text, "");
+  });
+}
+function aiAskCjh(text, ctx) {
+  $("ai-input").value = "";
+  aiMsgEl("user", text);
+  aiStreaming = true;
+  $("ai-send").textContent = "…";
+  $("ai-send").disabled = true;
+  aiSetState("回复中", "busy");
+  aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] };
+  var frame = { type: "chat", message: ctx ? (ctx + "【我的问题】\n" + text) : text };
+  if (cjh.session) { frame.session_id = cjh.session; }
+  cjhWsSend(frame).catch(function (e) {
+    var msg = "**[错误]** 发送失败：" + (e && e.message ? e.message : String(e));
+    aiStreaming = false;
+    $("ai-send").textContent = "发送";
+    $("ai-send").disabled = false;
+    aiSetState("出错", "bad");
+    if (aiTurn && aiTurn.body) { aiSetBody(aiTurn.body, msg); }
+    aiTurn = null;
+  });
+}
+// ── 后端状态有两条轴，必须分开说 ──
+// ① cjh 进程在不在、页面连不连得上它的 WS；② 服务商配置齐不齐。
+// 实测（随包 cjh 1.5.3，空 HOME 起一只）：没配密钥时 `/api/health` **照样返回 200**、
+// `/ws` 端点也正常，只有 `/api/settings` 的 apiKey 是空串。旧实现把这两种情况糊成一句
+// 「cjh 没起来或连不上」，于是一个明明起着、只是没填密钥的后端被报成「未就绪」，
+// 用户既找不到原因、也没人提示他去填密钥。下面把判定拆成两套。
+var cjhCfg = { checked: false, ok: true, needKey: false, usesDefaults: false, raw: null };
+/** 纯函数：从 `cjh:config` 的返回判「服务商配齐了没」。
+ *  只有 **API 密钥**是硬门槛；接入地址 / 模型名留空时 cjh 用内置默认值（实测 /api/settings 有值）。 */
+function cjhCfgMissing(c) {
+  c = c || {};
+  var hasKey = !!c.hasKey;
+  var hasBase = String(c.baseUrl || "").trim() !== "";
+  var hasModel = String(c.model || "").trim() !== "";
+  return { ok: hasKey, needKey: !hasKey, usesDefaults: !hasBase || !hasModel };
+}
+function cjhCfgCheck() {
+  return invoke("cjh:config").then(function (c) {
+    var v = cjhCfgMissing(c);
+    cjhCfg = { checked: true, ok: v.ok, needKey: v.needKey, usesDefaults: v.usesDefaults, raw: c || null };
+    return cjhCfg;
+  }).catch(function () {
+    // 读不到配置 ≠ 没配置：判成「未知/就绪」，不制造假告警
+    cjhCfg = { checked: true, ok: true, needKey: false, usesDefaults: false, raw: null };
+    return cjhCfg;
+  });
+}
+/** 纯函数：离线卡的标题按「卡在哪一步」分支，不再一句话糊住三种情况 */
+function cjhOfflineTitle(state) {
+  if (state === "missing") { return "没找到 AI 后端 cjh"; }
+  if (state === "running") { return "连不上 cjh 的通信通道"; }
+  return "cjh 没能启动";
+}
+/**
+ * 纯函数：离线卡的副标题。
+ *
+ * `extra` = { err, owned, foreign, version, bundled }——「连不上」时把**真实报错**与
+ * 「端口上那只到底是谁」一并写出来。这两项缺任何一个，用户都只能自己猜
+ * （实测另一台机器：8765 上确实有 LISTENING，卡上却只有一句「连不上」，无从下手）。
+ */
+function cjhOfflineSub(state, wsUrl, extra) {
+  var x = extra || {};
+  if (state === "missing") {
+    return "没找到随包 cjh（vendor/cjh/bin/）。确认打包时把对应平台的二进制带上了，然后点「重新连接」。";
+  }
+  if (state === "running") {
+    var s = "cjh 进程在运行（" + (wsUrl || "端口上的实例") + "），但页面没连上它的 WS";
+    s += x.err ? ("：" + x.err) : "。";
+    if (x.foreign) {
+      s += "端口上答话的是 cjh " + x.version + "，随包的是 " + x.bundled
+        + "——很可能是另一份 cjh 占着这个端口。";
+    } else if (x.owned === false) {
+      s += "这只不是本应用拉起的实例（端口上原本就有 cjh），它的 WS 未必对页面开放。";
+    }
+    return s + "点「重新连接」再试一次；细节看应用日志（搜索 [frontend] / [cjnote] 前缀）。";
+  }
+  return "找到了 cjh 可执行文件，但没能把它拉起来（进程没起来 / 端口没响应）。"
+    + "点「重新连接」再试一次；启动失败的原因在应用日志（搜索 [frontend] / [cjnote] 前缀）。";
+}
+// 后端没连上时的引导卡：说清是哪一种「没连上」，并给一个能点的下一步
+function aiGreetOffline(state) {
+  var box = $("ai-msgs");
+  if (!aiGreetIdle()) { return; }
+  box.innerHTML = "";
+  var card = document.createElement("div");
+  card.className = "ai-greet off";
+  card.innerHTML =
+    '<div class="g-ico">⚠</div>' +
+    '<div class="g-title"></div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-log"></div>' +
+    '<div class="g-chips"><button>重新连接</button></div>';
+  card.querySelector(".g-title").textContent = cjhOfflineTitle(state);
+  card.querySelector(".g-sub").textContent = cjhOfflineSub(state, cjh.ws, {
+    err: cjh.wsErr,
+    owned: cjh.owned,
+    foreign: cjh.foreign,
+    version: cjh.healthVersion,
+    bundled: cjh.bundledVersion
+  });
+  // 日志路径**当场问出来**（log:path）：产物是 GUI 子系统、双击没有控制台，
+  // 只说「看应用日志」等于让人去猜文件在哪——那正是上一轮被吐槽的空指引
+  var logEl = card.querySelector(".g-log");
+  invoke("log:path").then(function (p) {
+    logEl.textContent = p ? ("应用日志：" + p)
+      : "应用日志未开启（设 CJ_TAURI_LOG=<文件路径> 再启动即可落盘）";
+  }).catch(function () {});
+  box.appendChild(card);
+  card.querySelector(".g-chips button").onclick = function () { cjhBoot(true); };
+}
+/** 纯函数：未配置卡的说明（端点是活的、缺的是密钥——这两句都不能省，否则又回到「未就绪」） */
+function cjhCfgCardSub(wsUrl, usesDefaults) {
+  var ep = wsUrl || "ws://127.0.0.1:8765/ws";
+  var s = "cjh 已在运行（" + ep + "），但还没配置服务商密钥——这一项不填，问什么都只会被服务商拒绝。";
+  if (usesDefaults) {
+    s += "接入地址与模型名留空时用 cjh 内置默认值（https://api.openai.com/v1/chat/completions / gpt-4o-mini）。";
+  }
+  return s + "点「去配置」填好保存即可生效。";
+}
+// 连上了、只是服务商没配：给一张带「去配置」的卡（点一下直达设置页，不是让人自己找 ⚙）
+function aiGreetNeedConfig() {
+  var box = $("ai-msgs");
+  if (!box) { return; }
+  // 已经聊过就不覆盖（那轮对话本身有意义）；只有空态或已经是一张引导卡时才换掉
+  if (box.children.length > 0 && !box.querySelector(".ai-greet")) { return; }
+  box.innerHTML = "";
+  var card = document.createElement("div");
+  card.className = "ai-greet off cfg";
+  card.innerHTML =
+    '<div class="g-ico">⚙</div>' +
+    '<div class="g-title">还没配置服务商密钥</div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-chips"><button class="to-cfg">去配置</button><button class="to-retry">重新连接</button></div>';
+  card.querySelector(".g-sub").textContent = cjhCfgCardSub(cjh.ws, cjhCfg.usesDefaults);
+  box.appendChild(card);
+  card.querySelector(".to-cfg").onclick = function () {
+    aiView("settings");
+    loadCjhConfigForm();
+    refreshCjhStatusLine();
+  };
+  card.querySelector(".to-retry").onclick = function () { cjhBoot(true); };
+}
+// 会话 id 落 store：重启后 resume_session 接着聊（聊天记录在 cjh 侧，页面不镜像）
+function saveCjhSession(id) {
+  cjh.session = id || "";
+  invoke("store:set", { key: "ai.cjhsession", value: cjh.session }).catch(function (e) {
+    report("STORE-WARN 记不住 cjh 会话: " + e);
+  });
+}
+function loadCjhSession() {
+  return invoke("store:get", { key: "ai.cjhsession" }).then(function (v) {
+    if (typeof v === "string" && v) { cjh.session = v; }
+  }).catch(function () {});
+}
+// 本轮收尾：把累积文本落进气泡（cjh 的 done / error / cancelled 都走这里）
+function cjhFinishTurn(errText, stopped) {
+  var t = aiTurn;
+  aiTurn = null;
+  // 未决审批卡就地收口：回合都结束了，按钮留着只会让人以为还能答
+  if (curApproval) { settleApproval("回合已结束（未回执，cjh 按「拒绝」收场）"); }
+  aiStreaming = false;
+  $("ai-send").textContent = "发送";
+  $("ai-send").disabled = false;
+  if (t && t.kind === "l2") { l2Finish(t.acc, errText, stopped); return; }
+  var full = t ? t.acc : "";
+  if (errText) { full = (full ? full + "\n\n" : "") + errText; }
+  if (stopped) { full = (full ? full + "\n\n" : "") + "（已停止生成）"; }
+  if (!full) { full = "（空回复）"; }
+  if (!t || !t.body) {
+    // 一个 delta / tool 帧都没有就收口（空回复、或只回了个 done）时，此前页面会什么都不画：
+    // 只剩用户那条消息，看着像「发出去了没反应」。这里补一个气泡把结论显示出来。
+    t = { body: aiMsgEl("assistant", "", true), acc: full };
+  }
+  aiSetBody(t.body, full);
+  if (errText) { aiSetState("出错", "bad"); } else { aiSetState("就绪", "ok"); }
+  // 自检钩子：无人值守管道靠它知道「这一轮真收尾了」（不挂在正常路径上，没设就是空操作）
+  if (typeof window.__cjnoteAiDone === "function") {
+    var cb = window.__cjnoteAiDone;
+    window.__cjnoteAiDone = null;
+    cb(full, errText || "");
+  }
+}
+// 工具活动的单行渲染（cjh 的 tool_start / tool_result）：挂在 AI 气泡下方，不混进正文
+function cjhRenderTools() {
+  if (!aiTurn || !aiTurn.body) { return; }
+  var host = aiTurn.body;
+  var el = host.querySelector(".ai-tools");
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "ai-tools";
+    host.appendChild(el);
+  }
+  var s = "";
+  for (var i = 0; i < aiTurn.tools.length; i++) {
+    var t = aiTurn.tools[i];
+    var mark = t.status === "running" ? "⟳" : (t.status === "error" ? "✗" : (t.status === "stopped" ? "⏹" : "✓"));
+    s += mark + " " + t.name + "　";
+  }
+  el.textContent = s;
+}
+// cjh 的 error 帧带 code（旧服务端可能没有）：按 code 给能照着做的话，不把内部词甩给用户
+function cjhErrText(m) {
+  var code = m.code || "internal";
+  var t = "**[cjh " + code + "]** " + (m.message || "unknown");
+  if (code === "model_unavailable") {
+    t += "\n\ncjh 侧建不出所选模型：多半是模型名或 base_url 不对——在 cjh 配置里换回可用的服务商再发一次。";
+  } else if (code === "provider_error") {
+    t += "\n\n上游服务商报错（网络 / Key / 限流都可能），可以重试。";
+  } else if (code === "approval_timeout") {
+    t += "\n\n危险操作审批超时，按「拒绝」收场——回合已继续。";
+  }
+  if (m.retryable === true) { t += "\n（服务端标了可重试）"; }
+  return t;
+}
+// ── 危险操作审批 ──
+// cjh 侧**阻塞**在这条回执上（默认 5 分钟），超时 / 断连一律按「拒绝」收场并让回合继续。
+// 所以这里必须给一张真能点的卡：只有一行说明、没有入口，用户就只能干等超时。
+//   {"type":"approval_response","request_id":…,"approved":bool}
+function settleApproval(state) {
+  if (!curApproval) { return; }
+  var a = curApproval;
+  curApproval = null;
+  if (a.timer) { clearInterval(a.timer); a.timer = null; }
+  a.el.classList.add("decided");
+  a.stateEl.textContent = state;
+  a.ok.disabled = true;
+  a.no.disabled = true;
+}
+function sendApproval(rid, approved) {
+  if (!curApproval || curApproval.rid !== rid) { return; }   // 已决 / 已换一轮：不重发
+  var tool = curApproval.tool;
+  settleApproval(approved ? "已批准" : "已拒绝");
+  report("CJH approval_response request_id=" + rid + " approved=" + (approved === true ? "true" : "false"));
+  cjhWsSend({ type: "approval_response", request_id: rid, approved: approved }).catch(function (e) {
+    report("CJH-WARN 审批回执发送失败: " + (e && e.message ? e.message : e));
+  });
+  // 卡片是 DOM、刷新即失：把结论留进聊天记录，刷新后仍看得见这轮批过什么
+  aiMsgEl("assistant", "**[审批]** 工具 `" + tool + "`：" + (approved ? "已批准" : "已拒绝"));
+}
+function appendApprovalCard(m) {
+  var rid = m.request_id || "";
+  var tool = m.tool || "?";
+  var waitS = Math.round((m.expires_in_ms || 0) / 1000);
+  var box = $("ai-msgs");
+  var greet = box.querySelector(".ai-greet");
+  if (greet) { box.removeChild(greet); }
+  var el = document.createElement("div");
+  el.className = "approval";
+  var head = document.createElement("div");
+  head.className = "ahead";
+  head.textContent = "⚠ 危险操作待批准：" + tool;
+  var time = document.createElement("span");
+  time.className = "atime";
+  head.appendChild(time);
+  el.appendChild(head);
+  if (m.reason) {
+    var rs = document.createElement("div");
+    rs.className = "areason";
+    rs.textContent = "命中规则：" + m.reason;
+    el.appendChild(rs);
+  }
+  if (m.args !== undefined && m.args !== null) {
+    var ar = document.createElement("pre");
+    ar.className = "aargs";
+    ar.textContent = (typeof m.args === "string") ? m.args : JSON.stringify(m.args, null, 2);
+    el.appendChild(ar);
+  }
+  var btns = document.createElement("div");
+  btns.className = "abtns";
+  var okb = document.createElement("button");
+  okb.className = "abtn ok";
+  okb.textContent = "批准";
+  var nob = document.createElement("button");
+  nob.className = "abtn no";
+  nob.textContent = "拒绝";
+  btns.appendChild(okb);
+  btns.appendChild(nob);
+  el.appendChild(btns);
+  var state = document.createElement("div");
+  state.className = "areason";
+  el.appendChild(state);
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  var a = { rid: rid, tool: tool, el: el, stateEl: state, ok: okb, no: nob, timer: null };
+  curApproval = a;
+  okb.onclick = function () { sendApproval(rid, true); };
+  nob.onclick = function () { sendApproval(rid, false); };
+  // 倒计时与 cjh 的 expires_in_ms 同步：归零就地标超时（cjh 那边按「拒绝」收场，回合继续）
+  if (waitS > 0) {
+    var left = waitS;
+    var tick = function () {
+      if (left <= 0) {
+        if (a.timer) { clearInterval(a.timer); a.timer = null; }
+        if (curApproval === a) { settleApproval("已超时（cjh 按「拒绝」收场，回合继续）"); }
+        return;
+      }
+      time.textContent = left + " 秒后按「拒绝」收场";
+      left -= 1;
+    };
+    tick();
+    a.timer = setInterval(tick, 1000);
+  } else {
+    time.textContent = "等待回执中";
+  }
+  report("CJH approval_request tool=" + tool + " request_id=" + rid + " expires_in_ms=" + (m.expires_in_ms || 0));
+  return el;
+}
+// ── 帧分发：delta / tool_start / tool_result / done / error / cancelled / approval_request ──
+// 流式渲染节流：delta 帧可能每秒几十条，逐帧 marked.parse + hljs 全量重排会把主线程
+// 打满（实测：AI 回复期间点列表/菜单完全无响应）。这里只累积、按 ~120ms 合并重绘；
+// 收尾（cjhFinishTurn → aiSetBody）无条件全量渲染，末态不缺字。
+var aiStreamPaint = { pending: false, last: 0 };
+function aiStreamSchedule() {
+  if (aiStreamPaint.pending) { return; }
+  var wait = Math.max(0, 120 - (Date.now() - aiStreamPaint.last));
+  aiStreamPaint.pending = true;
+  setTimeout(function () {
+    aiStreamPaint.pending = false;
+    aiStreamPaint.last = Date.now();
+    if (aiTurn && aiTurn.kind === "chat" && aiTurn.body) { aiSetBody(aiTurn.body, aiTurn.acc); }
+  }, wait);
+}
+function handleCjhFrame(m) {
+  var type = m.type || "";
+  // 设置页的连通探针：它不带 session_id（cjh 为这一轮另开会话），所以这些帧既不属于
+  // 聊天面板、也不该顶掉用户当前会话——先归拢给探针，认领了就到此为止。
+  if (cjh.probe && cjh.probe.on && handleProbeFrame(m)) { return; }
+  if (type === "delta") {
+    if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
+    aiTurn.acc += m.text || "";
+    if (aiTurn.kind === "l2") { l2Stream(aiTurn.acc); }
+    else if (aiTurn.body) { aiStreamSchedule(); }
+  } else if (type === "tool_start") {
+    if (!aiTurn) { aiTurn = { kind: "chat", body: aiMsgEl("assistant", "", true), acc: "", tools: [] }; }
+    aiTurn.tools.push({ name: m.name || "tool", status: "running" });
+    cjhRenderTools();
+  } else if (type === "tool_result") {
+    if (aiTurn) {
+      var hit = null;
+      for (var i = aiTurn.tools.length - 1; i >= 0; i--) {
+        if (aiTurn.tools[i].name === (m.name || "tool") && aiTurn.tools[i].status === "running") { hit = aiTurn.tools[i]; break; }
+      }
+      if (hit) { hit.status = m.is_error ? "error" : "done"; }
+      else { aiTurn.tools.push({ name: m.name || "tool", status: m.is_error ? "error" : "done" }); }
+      cjhRenderTools();
+    }
+  } else if (type === "done") {
+    var fr = m.finish_reason || "stop";
+    if (fr === "cancelled") { cjhFinishTurn("", true); }
+    else if (fr === "error") { cjhFinishTurn("（本回合异常收尾：细节见上面的工具结果与 cjh 日志）"); }
+    else { cjhFinishTurn(""); }
+  } else if (type === "error") {
+    cjhFinishTurn(cjhErrText(m));
+  } else if (type === "cancelled") {
+    // 停止后 cjh 必回这一帧。页面点「停止」时已本地收口，这里通常只留痕；
+    // was_running=false 是**事实**（那一帧到达时没有在跑的回合），不是错误，别当失败报
+    if (aiTurn) { cjhFinishTurn("", true); }
+    report("CJH cancelled session=" + (m.session_id || "-") + " was_running=" + (m.was_running === true ? "true" : "false"));
+  } else if (type === "approval_request") {
+    appendApprovalCard(m);
+  } else if (type === "history_messages") {
+    // 帧里带 session_id：新建会话的第一轮之后 cjh 会开新会话，从这里把 id 接住
+    if (m.session_id && m.session_id !== cjh.session) { saveCjhSession(m.session_id); }
+  } else if (m.session_id && m.session_id !== cjh.session) {
+    // 其它帧也可能捎来 session_id：一律接住，省得重连后另起一个会话
+    saveCjhSession(m.session_id);
+  }
+}
+// WS 事件挂载（启动时调一次）：帧与连接状态都从桥上进来
+function initCjh() {
+  bridge.listen("ws:frame", function (p) {
+    var m = null;
+    if (typeof p === "string") {
+      try { m = JSON.parse(p); } catch (e) { return; }
+    } else if (p && typeof p === "object") {
+      // 插件把 cjh 的帧**原样透传**（就是帧对象本身），所以先认 type。
+      // 不能先探 p.text：delta 帧自带 text 字段，按「包装体」去 JSON.parse 会抛异常，
+      // 帧被整条吞掉——表现是页面一直等到 done，然后显示「空回复」。
+      if (typeof p.type === "string") {
+        m = p;
+      } else if (typeof p.text === "string") {
+        try { m = JSON.parse(p.text); } catch (e) { return; }
+      } else if (typeof p.data === "string") {
+        try { m = JSON.parse(p.data); } catch (e) { return; }
+      }
+    }
+    if (!m) { return; }
+    try { handleCjhFrame(m); } catch (e) { report("CJH-WARN 帧处理出错: " + (e && e.message ? e.message : e)); }
+  });
+  bridge.listen("ws:state", function (p) {
+    var st = p && p.state ? p.state : "";
+    if (st === "closed") {
+      cjh.up = false;
+      updateAiCfgTip();
+      aiSetState("已断开", "bad");
+      if (aiTurn) { cjhFinishTurn("（连接已断开——回复可能不完整）"); }
+    }
+  });
+  return loadCjhSession().then(function () { return cjhBoot(true); });
+}
+
+// ── 笔记列表（M2：走自研 NoteStore，note:list/open/save/create/delete） ──
+var LAST_KEY = "last-open";  // store 里记最近打开的笔记，重启还在（对齐 markdown-notes）
+function rememberLast(name) {
+  if (!name) { return; }
+  invoke("store:set", { key: LAST_KEY, value: name }).catch(function (e) {
+    report("STORE-WARN 记不住 last-open: " + e);
+  });
+}
+
+// ── 左侧单列表：库内笔记 + Ctrl+O 打开的库外文件（形态对齐 markdown-notes 示例）。
+//    外部文件条目直接进同一个列表，不再单开「最近打开」区块（用户实测反馈：两段式里
+//    同一文件出现两行、很乱）；显示只给文件名、完整路径放 title 悬停（长路径不好看）；
+//    markdown-notes 实测踩过：必须按 path 去重再入列，否则重复行、点重复行还会拼出
+//    notes/notes/x.md。这里库内条目是裸名、外部条目是完整路径，天然不撞，外部按 path 去重 ──
+var RECENT_KEY = "recent.docs";
+var extFiles = [];       // 外部文件条目，最近在前，最多 8 条：[{path, label, ts}]
+var extLoaded = false;   // 迟到应答护栏：本地已先改动就忽略迟到的 store:get 回复（自检实测竞态）
+function persistExt() {
+  extLoaded = true;
+  invoke("store:set", { key: RECENT_KEY, value: JSON.stringify(extFiles) }).catch(function () {});
+}
+function addExtFile(p, label) {
+  for (var i = 0; i < extFiles.length; i++) { if (extFiles[i].path === p) { return; } }
+  extFiles.unshift({ path: p, label: label || p, ts: Date.now() });
+  if (extFiles.length > 8) { extFiles.length = 8; }
+  renderList();
+  persistExt();
+}
+function removeExtFile(p) {
+  var n = extFiles.length;
+  extFiles = extFiles.filter(function (d) { return d.path !== p; });
+  if (extFiles.length !== n) { renderList(); persistExt(); }
+}
+function loadExtFiles() {
+  invoke("store:get", { key: RECENT_KEY }).then(function (v) {
+    if (!extLoaded) {
+      if (typeof v === "string" && v) {
+        try {
+          var arr = JSON.parse(v);
+          if (Array.isArray(arr)) {
+            extFiles = arr.filter(function (d) { return d && typeof d.path === "string"; });
+          }
+        } catch (e) { extFiles = []; }
+      }
+      extLoaded = true;
+    }
+    renderList();
+  }).catch(function () { extLoaded = true; });
+}
+
+// ── 侧栏宽度拖动：侧栏右缘的 resizer 窄条（#sidebar 与 #work 之间）。
+//    宽度写进 --sidebar-w（160~480px 夹取），双击复位 220；偏好落 store（ui.sidebarw）。
+//    内容保护不变：.out/.note-item 有 ellipsis，#sidebar 有显式 min/max-width ──
+var SIDEBAR_W_KEY = "ui.sidebarw";
+var SIDEBAR_MIN = 160, SIDEBAR_MAX = 480, SIDEBAR_DEFAULT = 220;
+function clampSidebarW(w) {
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(Number(w) || SIDEBAR_DEFAULT)));
+}
+function applySidebarW(w) {
+  document.documentElement.style.setProperty("--sidebar-w", clampSidebarW(w) + "px");
+}
+function persistSidebarW() {
+  invoke("store:set", { key: SIDEBAR_W_KEY, value: String(Math.round($("sidebar").getBoundingClientRect().width)) }).catch(function () {});
+}
+function initSidebarDrag() {
+  var rz = $("resizer");
+  if (!rz) { return; }
+  rz.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    var startX = e.clientX;
+    var startW = $("sidebar").getBoundingClientRect().width;
+    rz.classList.add("dragging");
+    document.body.classList.add("resizing");
+    function onMove(ev) { applySidebarW(startW + (ev.clientX - startX)); }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      rz.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      persistSidebarW();
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  rz.addEventListener("dblclick", function () {
+    applySidebarW(SIDEBAR_DEFAULT);
+    invoke("store:set", { key: SIDEBAR_W_KEY, value: String(SIDEBAR_DEFAULT) }).catch(function () {});
+  });
+}
+function loadSidebarW() {
+  invoke("store:get", { key: SIDEBAR_W_KEY }).then(function (v) {
+    if (typeof v === "string" && v) {
+      var w = parseInt(v, 10);
+      if (!isNaN(w)) { applySidebarW(w); }
+    }
+  }).catch(function () {});
+}
+// ── AI 面板宽度拖动：面板左缘的 resizer 窄条（#work 与 #ai 之间）。
+//    方向与侧栏相反：右缘不动、拖的是左缘，往左拖变宽，所以增量取负。
+//    宽度写进 --ai-w（240~640px 夹取），双击复位 320；偏好落 store（ui.aiw）。
+//    上限还要跟窗口走：窗口窄时「拖到 640」会把编辑区挤成 0，那不是用户想要的最宽，
+//    所以夹取里再扣掉「侧栏 + 编辑区保底」，并在窗口 resize 后按新空间重夹一次。
+var AI_W_KEY = "ui.aiw";
+var AI_MIN = 240, AI_MAX = 640, AI_DEFAULT = 320, WORK_MIN = 320;
+function availableAiW() {
+  var sbW = $("sidebar") ? $("sidebar").getBoundingClientRect().width : 0;
+  // 两条拖条各 6px：这里不去查 DOM，拖条宽度是 CSS 常量，写死更好读
+  return Math.max(AI_MIN, window.innerWidth - sbW - 12 - WORK_MIN);
+}
+function clampAiW(w) {
+  var max = Math.min(AI_MAX, availableAiW());
+  return Math.max(AI_MIN, Math.min(max, Math.round(Number(w) || AI_DEFAULT)));
+}
+function applyAiW(w) {
+  document.documentElement.style.setProperty("--ai-w", clampAiW(w) + "px");
+}
+function persistAiW() {
+  invoke("store:set", { key: AI_W_KEY, value: String(Math.round($("ai").getBoundingClientRect().width)) }).catch(function () {});
+}
+function initAiDrag() {
+  var rz = $("ai-resizer");
+  if (!rz) { return; }
+  rz.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    var startX = e.clientX;
+    var startW = $("ai").getBoundingClientRect().width;
+    rz.classList.add("dragging");
+    document.body.classList.add("resizing");
+    function onMove(ev) { applyAiW(startW - (ev.clientX - startX)); }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      rz.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      persistAiW();
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  rz.addEventListener("dblclick", function () {
+    applyAiW(AI_DEFAULT);
+    invoke("store:set", { key: AI_W_KEY, value: String(AI_DEFAULT) }).catch(function () {});
+  });
+  // 窗口变窄后旧宽度可能已超出可给的空间：resize 时按新空间重夹（只在拖动/复位时落盘）
+  window.addEventListener("resize", function () {
+    applyAiW($("ai").getBoundingClientRect().width);
+  });
+}
+function loadAiW() {
+  invoke("store:get", { key: AI_W_KEY }).then(function (v) {
+    if (typeof v === "string" && v) {
+      var w = parseInt(v, 10);
+      if (!isNaN(w)) { applyAiW(w); }
+    }
+  }).catch(function () {});
+}
+function refreshList() {
+  return invoke("note:list", {}).then(function (r) {
+    var items = (r && r.notes) ? r.notes : [];
+    notes = [];
+    noteMtimes = {};
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] && items[i].name) {
+        notes.push(items[i].name);
+        if (items[i].mtime) { noteMtimes[items[i].name] = items[i].mtime; }
+      }
+    }
+    if (r && typeof r.root === "string" && r.root) { noteRoot = r.root; }
+    renderList();
+    return notes;
+  }).catch(function (e) { report("SELFCHECK FAIL list: " + e); });
+}
+function renderList() {
+  var box = $("note-list");
+  box.innerHTML = "";
+  // 合并行：库内（裸名）+ 外部（完整路径），两类天然不重；排序跟随侧栏偏好。
+  // 修改时间模式比 ts：库内 = mtime，外部 = 打开时刻（刚打开的自然在最上）
+  var rows = [];
+  var i;
+  for (i = 0; i < extFiles.length; i++) {
+    rows.push({ ext: true, path: extFiles[i].path, label: extFiles[i].label, ts: extFiles[i].ts || 0 });
+  }
+  var list = sortedNotes();
+  for (i = 0; i < list.length; i++) {
+    rows.push({ ext: false, name: list[i], label: list[i], ts: mtimeTs(list[i]) });
+  }
+  if (sortBy === "name") {
+    rows.sort(function (a, b) { return String(a.label) < String(b.label) ? -1 : 1; });
+  } else {
+    rows.sort(function (a, b) { return b.ts - a.ts; });
+  }
+  if (rows.length === 0) {
+    var tip = document.createElement("div");
+    tip.className = "note-item"; tip.textContent = "（暂无笔记或外部文件）";
+    box.appendChild(tip); return;
+  }
+  for (i = 0; i < rows.length; i++) {
+    (function (row) {
+      var el = document.createElement("div");
+      var isActive = row.ext ? (row.path === externalPath) : (row.name === current);
+      el.className = "note-item" + (isActive ? " active" : "");
+      el.textContent = row.label;
+      el.title = row.ext ? row.path
+        : (noteMtimes[row.name] ? "修改于 " + String(noteMtimes[row.name]).replace("T", " ") : "");
+      el.onclick = function () {
+        if (row.ext) {
+          // 外部文件：点击重开；读不到（文件被删/移动）就把条目清掉
+          openExternalPath(row.path).then(function (r) {
+            if (!r) { removeExtFile(row.path); }
+          });
+          return;
+        }
+        openNote(row.name);
+      };
+      box.appendChild(el);
+    })(rows[i]);
+  }
+}
+// mtime ISO 串 → 纪元毫秒；长小数秒实测会绊 WebKitGTK 的解析，先剔掉；解析失败记 0（排最下）
+function mtimeTs(name) {
+  var s = noteMtimes[name];
+  if (!s) { return 0; }
+  var t = Date.parse(String(s).replace(/\.\d+/, ""));
+  return isNaN(t) ? 0 : t;
+}
+// 排序是纯函数：mtime 降序（最近动过的在最上），名称升序兜底
+function sortedNotes() {
+  var arr = notes.slice();
+  if (sortBy === "name") {
+    arr.sort(function (a, b) { return String(a) < String(b) ? -1 : 1; });
+  } else {
+    arr.sort(function (a, b) {
+      return (Date.parse(noteMtimes[b] || "") || 0) - (Date.parse(noteMtimes[a] || "") || 0);
+    });
+  }
+  return arr;
+}
+// ── 侧栏页签：笔记列表 / 大纲 ──
+var sideTab = "notes";
+function showSide(which) {
+  sideTab = (which === "outline") ? "outline" : "notes";
+  $("note-list").style.display = sideTab === "notes" ? "" : "none";
+  $("outline").style.display = sideTab === "outline" ? "" : "none";
+  $("tab-notes").className = "side-tab" + (sideTab === "notes" ? " active" : "");
+  $("tab-outline").className = "side-tab" + (sideTab === "outline" ? " active" : "");
+  $("btn-refresh").style.display = sideTab === "notes" ? "" : "none";
+  $("sortrow").style.display = sideTab === "notes" ? "" : "none";
+  report("UI side " + sideTab);
+  if (sideTab === "outline") { renderOutline(); }
+}
+// 抽 1~3 级标题：围栏代码块里的 # 不算标题——与预览渲染器口径一致，
+// 否则代码块里的注释会把大纲撑歪（markdown-notes 同一坑已对齐）
+function outlineItems(md) {
+  var lines = String(md || "").split(/\r?\n/);
+  var out = [], inFence = false;
+  for (var i = 0; i < lines.length; i++) {
+    var ln = lines[i];
+    if (/^\s*(```|~~~)/.test(ln)) { inFence = !inFence; continue; }
+    if (inFence) { continue; }
+    var m = /^(#{1,3})\s+(.+?)\s*$/.exec(ln);
+    if (m) { out.push({ level: m[1].length, text: m[2], line: i }); }
+  }
+  return out;
+}
+function renderOutline() {
+  var box = $("outline");
+  while (box.firstChild) { box.removeChild(box.firstChild); }
+  var items = outlineItems(getDoc());
+  if (items.length === 0) {
+    var e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "（当前笔记没有 1~3 级标题）";
+    box.appendChild(e);
+    return;
+  }
+  for (var i = 0; i < items.length; i++) {
+    (function (it, idx) {
+      var row = document.createElement("div");
+      row.className = "out" + (it.level >= 3 ? " lv3" : (it.level === 2 ? " lv2" : ""));
+      row.textContent = it.text;
+      row.title = it.text + "（第 " + (it.line + 1) + " 行）";  // 标题被 ellipsis 截断时，悬停可看全文
+      row.onclick = function () {
+        jumpToLine(it.line);
+        // 序号锁定：大纲与预览的标题一一对应（渲染器把围栏内的 # 当代码，两边都不算标题），
+        // 点击时按第 idx 个标题同步定位预览——分屏/预览模式下用户盯着预览，
+        // 只滚编辑器的话看不到任何动静（markdown-notes 同款坑）
+        var hs = $("preview").querySelectorAll("h1, h2, h3");
+        if (idx < hs.length) { hs[idx].scrollIntoView({ block: "start", behavior: "smooth" }); }
+      };
+      box.appendChild(row);
+    })(items[i], i);
+  }
+}
+function jumpToLine(line) {
+  if (cm) {
+    cm.setCursor({ line: line, ch: 0 });
+    cm.scrollIntoView({ line: line, ch: 0 }, 60);
+    cm.focus();
+    return;
+  }
+  // 退化编辑器：按行偏移折算字符位置；textarea 不会自己滚到光标，按行高估个位置
+  var ta = $("editor-fallback");
+  var parts = ta.value.split(/\r?\n/);
+  var off = 0;
+  for (var i = 0; i < line && i < parts.length; i++) { off += parts[i].length + 1; }
+  ta.focus();
+  ta.setSelectionRange(off, off);
+  var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+  ta.scrollTop = Math.max(0, line * lh - ta.clientHeight / 2);
+}
+// 打开序号守卫：并发 openNote 时只有最新一次落页。启动「恢复上次打开」与用户/自检的
+// 快速点击是并发竞态（实测：恢复晚到覆盖 current，自检探针存进了错误笔记）——旧请求丢弃
+var openSeq = 0;
+function openNote(name) {
+  var seq = ++openSeq;
+  return invoke("note:open", { name: name }).then(function (r) {
+    if (seq !== openSeq) { report("UI open stale " + name + " skipped"); return r; }
+    var text = (r && typeof r.body === "string") ? r.body : "";
+    current = (r && r.name) ? r.name : name;
+    docPath = (r && typeof r.path === "string") ? r.path : "";
+    externalPath = "";  // 打开库内笔记即当前文档：清外部草稿标记，否则列表里外部行与库内行同时高亮
+    dirty = false;
+    $("doc-title").textContent = current;
+    setDoc(text);
+    renderList();
+    rememberLast(current);
+    report("UI open " + current + " bytes=" + text.length);
+    return r;
+  }).catch(function (e) { report("SELFCHECK FAIL read " + name + ": " + e); });
+}
+function saveCurrent() {
+  // 当前编辑的是笔记库外的文件（Ctrl+O 打开的草稿）：首次保存落成库里的新笔记
+  if (externalPath) { return saveExternalDraft(); }
+  if (!current) { newNote(); return; }
+  return invoke("note:save", { name: current, body: getDoc() }).then(function (r) {
+    dirty = false;
+    if (r && r.name) { current = r.name; }
+    $("doc-title").textContent = current;
+    updateDocMeta();
+    report("UI save " + current);
+  }).catch(function (e) { report("SELFCHECK FAIL save: " + e); });
+}
+function newNote() {
+  return invoke("note:create", {}).then(function (r) {
+    var name = (r && r.name) ? r.name : "";
+    if (!name) { report("SELFCHECK FAIL create: no name"); return; }
+    current = name;
+    externalPath = "";  // 新建后当前文档就是库内新笔记：不先清外部标记，saveCurrent 会误走外部落库
+    $("doc-title").textContent = name;
+    setDoc("");
+    return saveCurrent().then(refreshList).then(function () { openNote(name); });
+  }).catch(function (e) { report("SELFCHECK FAIL create: " + e); });
+}
+
+// ── 打开：Ctrl+O 走原生文件对话框（库外草稿），Ctrl+P 走页内快速打开 ──
+// 两种语义分开：库内笔记用快速打开（快、无副作用）；库外的 .md 用对话框读进来，
+// **首次保存才落成新笔记**——不静默改写用户磁盘上的原文件。
+var externalPath = "";   // 非空 = 当前编辑的是笔记库外的文件
+
+function openViaDialog() {
+  // 两家「打开」共用一条入口线索：对话框是模态的，浮层留着会挡在它下面
+  showQuickOpen(false);
+  invoke("dialog:open", { title: "打开 Markdown 文件", filter: "Markdown|*.md|文本|*.txt|全部文件|*.*" })
+    .then(function (picked) {
+      if (!picked || typeof picked !== "string") { report("UI open canceled"); return null; }
+      return openExternalPath(picked);
+    })
+    .catch(function (e) { report("UI open failed: " + (e && e.message ? e.message : e)); });
+}
+
+// 两个入口共用：Ctrl+O 对话框 + 列表行点击。成功即把条目并进左侧列表；读失败回 null
+function openExternalPath(p) {
+  return invoke("note:readExternal", { path: p }).then(function (r) {
+    if (!r || typeof r.body !== "string") { return null; }
+    externalPath = String(r.path || p);
+    current = "";
+    docPath = "";   // 库外文件没有库内路径；指针走 externalPath 那条分支
+    var label = String(r.name || externalPath.replace(/^.*[\/\\]/, ""));
+    $("doc-title").textContent = label + "（外部）";
+    setDoc(r.body);
+    addExtFile(externalPath, label);
+    report("UI opened external " + externalPath);
+    return r;
+  });
+}
+
+function saveExternalDraft() {
+  var base = externalPath.replace(/^.*[\/\\]/, "").replace(/\.(md|markdown|txt)$/i, "");
+  return invoke("note:create", { title: base }).then(function (r) {
+    var name = (r && r.name) ? String(r.name) : "";
+    if (!name) { throw new Error("note:create 未返回笔记名"); }
+    return invoke("note:save", { name: name, body: getDoc() }).then(function (r2) {
+      var gonePath = externalPath;
+      externalPath = "";
+      current = (r2 && r2.name) ? String(r2.name) : name;
+      $("doc-title").textContent = current;
+      dirty = false;
+      updateDocMeta();
+      removeExtFile(gonePath);  // 外部条目已落库，库内条目本来就在列表里
+      report("SELFCHECK PASS save external as " + current);
+      return refreshList();
+    });
+  }).catch(function (e) { report("SELFCHECK FAIL save external: " + (e && e.message ? e.message : e)); });
+}
+
+// 快速打开的过滤：大小写不敏感、空串列全部（纯函数，自检直接打它）
+function filterNotes(names, q) {
+  var s = String(q == null ? "" : q).trim().toLowerCase();
+  var out = [];
+  for (var i = 0; i < names.length; i++) {
+    if (s === "" || String(names[i]).toLowerCase().indexOf(s) >= 0) { out.push(names[i]); }
+  }
+  return out;
+}
+
+var quickItems = [], quickSel = 0;
+function showQuickOpen(on) {
+  var box = $("quick-open");
+  if (!box) { return; }
+  if (on === false) { box.classList.remove("on"); return; }
+  box.classList.add("on");
+  $("quick-input").value = "";
+  quickSel = 0;
+  renderQuickList("");
+  $("quick-input").focus();
+  report("UI quick open shown");
+}
+function renderQuickList(q) {
+  quickItems = filterNotes(notes, q);
+  var box = $("quick-list");
+  while (box.firstChild) { box.removeChild(box.firstChild); }
+  if (quickItems.length === 0) {
+    var e = document.createElement("div");
+    e.className = "empty";
+    e.textContent = "（没有匹配的笔记）";
+    box.appendChild(e);
+    return;
+  }
+  for (var i = 0; i < quickItems.length; i++) {
+    (function (name, idx) {
+      var el = document.createElement("div");
+      el.className = "quick-item" + (idx === quickSel ? " sel" : "");
+      el.textContent = name;
+      el.onclick = function () { openQuickPick(idx); };
+      box.appendChild(el);
+    })(quickItems[i], i);
+  }
+}
+function openQuickPick(idx) {
+  var name = quickItems[idx];
+  if (!name) { return; }
+  showQuickOpen(false);
+  openNote(name);
+}
+function quickKey(e) {
+  if (e.key === "Escape") { e.preventDefault(); showQuickOpen(false); return; }
+  if (e.key === "Enter") { e.preventDefault(); openQuickPick(quickSel); return; }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (quickItems.length === 0) { return; }
+    quickSel = (quickSel + (e.key === "ArrowDown" ? 1 : quickItems.length - 1)) % quickItems.length;
+    renderQuickList($("quick-input").value);
+  }
+}
+
+// ── 视图三态（编辑 / 预览 / 分屏）──
+// 页面结构固定为两栏，「哪一栏可见」交给 #work 上的 mode-* 类（布局是 CSS 的事，JS 只切类）。
+// 选择存 store：重启恢复上次；store 往返失败不影响当次（只少一条记忆）。
+var VIEW_KEY = "ui.viewmode";
+var viewNames = { edit: "mode-edit", split: "mode-split", preview: "mode-preview" };
+
+function applyViewMode(mode, remember) {
+  if (!viewNames[mode]) { mode = "split"; }
+  $("work").className = "mode-" + mode;
+  for (var k in viewNames) {
+    var b = $(viewNames[k]);
+    if (b) { b.className = "segbtn" + (k === mode ? " active" : ""); }
+  }
+  // 工具条右侧的说明跟着三态走（原先是两栏各自的 pane-tip；现在合并成一条，省一行高度）
+  var tip = $("work-tip");
+  if (tip) { tip.textContent = { edit: "编辑（Markdown）", preview: "预览（实时）", split: "分屏：编辑 + 预览" }[mode]; }
+  // 编辑器被隐藏期间 CodeMirror 量不到尺寸，回到可见态必须重新量一次，否则光标/滚动错位
+  if (cm && mode !== "preview") { try { cm.refresh(); } catch (e) {} }
+  if (remember !== false) {
+    invoke("store:set", { key: VIEW_KEY, value: mode }).catch(function (e) {
+      report("SELFCHECK FAIL view persist: " + e);
+    });
+  }
+  report("UI view " + mode);
+}
+
+function loadUiPrefs() {
+  // store:get 返回的是裸值（缺失回 JSON null），不是 {value} 包装——按 typeof 判，别取 .value
+  invoke("store:get", { key: VIEW_KEY }).then(function (v) {
+    if (typeof v === "string") { applyViewMode(v, false); }
+  }).catch(function () {});
+  invoke("store:get", { key: THEME_KEY }).then(function (v) {
+    if (typeof v === "string") { applyAppTheme(v, false); }
+  }).catch(function () {});
+  invoke("store:get", { key: "ui.sortby" }).then(function (v) {
+    if (typeof v === "string" && (v === "mtime" || v === "name")) {
+      sortBy = v;
+      var sel = $("sortby");
+      if (sel) { sel.value = v; }
+      renderList();
+    }
+  }).catch(function () {});
+  // 行号偏好恢复（默认关）：remember=false 不回写，但要同步原生菜单勾选
+  invoke("store:get", { key: "ui.linenos" }).then(function (v) {
+    applyLineNumbers(v === "1", false);
+  }).catch(function () {});
+}
+
+// ── 界面主题（默认跟随系统，可手动覆盖）──
+// system = 交给 prefers-color-scheme（浅色/深色两套变量已在 CSS 里写好），
+// light/dark = 强制某一套。按钮按 system → light → dark 循环，当前值写在按钮文字上。
+var THEME_KEY = "ui.apptheme";
+var themeOrder = ["system", "light", "dark"];
+var themeNames = { system: "跟随系统", light: "浅色", dark: "深色" };
+var curTheme = "system";
+
+function applyAppTheme(name, remember) {
+  if (themeOrder.indexOf(name) < 0) { name = "system"; }
+  curTheme = name;
+  document.documentElement.className = "apptheme-" + name;
+  syncDarkUi();
+  var b = $("btn-theme");
+  if (b) {
+    // 图标按钮只切状态类：半亮 / 空 / 实心由 CSS 画，文字进 title 与 aria-label
+    b.className = "theme-" + name;
+    b.title = "界面主题：" + themeNames[name] + "（点击切换）";
+    b.setAttribute("aria-label", "界面主题：" + themeNames[name]);
+  }
+  if (remember !== false) {
+    invoke("store:set", { key: THEME_KEY, value: name }).catch(function (e) {
+      report("SELFCHECK FAIL theme persist: " + e);
+    });
+  }
+  // 弹层里就地标勾（菜单开着时不必关掉重开），并把原生「视图→界面主题」同步过去
+  var themeItemsAll = $("theme-menu") ? $("theme-menu").getElementsByTagName("button") : [];
+  for (var tii = 0; tii < themeItemsAll.length; tii++) {
+    themeItemsAll[tii].className = (themeItemsAll[tii].getAttribute("data-theme") === name) ? "on" : "";
+  }
+  invoke("theme:apply", { name: name }).catch(function () {});
+  report("UI apptheme " + name);
+}
+
+// ── 显示行号：独立开关（视图菜单勾选项），默认关，偏好落 store（ui.linenos）──
+// CodeMirror 的行号开销在大文档下不小，默认不显示；勾选态经 linenos:sync 回写原生菜单，
+// 否则两条入口只改一条（页面显示了、菜单还空着），用户下次从菜单里找不到状态
+function applyLineNumbers(on, remember) {
+  if (cm) { cm.setOption("lineNumbers", !!on); }
+  if (remember) {
+    invoke("store:set", { key: "ui.linenos", value: on ? "1" : "0" }).catch(function () {});
+  }
+  invoke("linenos:sync", { on: !!on }).catch(function () {});
+  report("UI linenos " + (on ? "on" : "off"));
+}
+
+/** 「最终是不是深色」单独算：system 要问系统，light/dark 直接定。
+ *  CodeMirror 覆盖样式挂 dark-ui 上，避免在 CSS 里把 system 的媒体查询抄两遍。 */
+function syncDarkUi() {
+  var dark = curTheme === "dark";
+  if (curTheme === "system" && window.matchMedia) {
+    dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  document.documentElement.classList.toggle("dark-ui", dark);
+}
+if (window.matchMedia) {
+  try {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+      if (curTheme === "system") { syncDarkUi(); }
+    });
+  } catch (e) { /* 老引擎只支持 addListener：跟随系统在本次会话内不即时切换，不影响正确性 */ }
+}
+
+function cycleAppTheme() {
+  applyAppTheme(themeOrder[(themeOrder.indexOf(curTheme) + 1) % themeOrder.length]);
+}
+
+/** 主题弹层的开关（三项自绘菜单；原生菜单那条入口由 theme:apply 保持同步） */
+function themePopOpen(on) {
+  var m = $("theme-menu");
+  if (!m) { return; }
+  if (on) { m.removeAttribute("hidden"); } else { m.setAttribute("hidden", "hidden"); }
+}
+
+// ── 原生菜单（文件 / 视图 / 帮助）──
+// 框架把点击投成 `menu:click`（信封即载荷：{kind,id,enabled,checked}），这里只做分发：
+// 每个 id 都指向顶栏按钮/快捷键用的同一个动作函数，三条入口行为天然一致。
+// 勾选态不归页面管：单选组的整组回写与「被点项的 checked」由仓颉侧 MenuRouter + 框架模型同步。
+var appVersion = "";
+
+function showAbout(on) {
+  var card = $("about-card");
+  if (!card) { return; }
+  card.classList.toggle("on", on !== false);
+  if (on !== false) {
+    var v = $("about-ver");
+    if (v) {
+      v.textContent = "仓颉 + cj-tauri" + (appVersion ? " " + appVersion : "") + " ｜ 工作区 notes/";
+    }
+    report("UI about shown");
+  }
+}
+
+function onMenuClick(ev) {
+  var id = ev && ev.id ? String(ev.id) : "";
+  report("UI menu:click " + id);
+  if (id === "file.new") { newNote(); }
+  else if (id === "file.open") { openViaDialog(); }
+  else if (id === "file.quickOpen") { showQuickOpen(true); }
+  else if (id === "file.save") { saveCurrent(); }
+  else if (id === "file.rename") { renameCurrent(); }
+  else if (id === "file.delete") { deleteCurrent(); }
+  else if (id === "file.refresh") { refreshList(); }
+  else if (id === "view.mode.edit") { applyViewMode("edit"); }
+  else if (id === "view.mode.split") { applyViewMode("split"); }
+  else if (id === "view.mode.preview") { applyViewMode("preview"); }
+  else if (id.indexOf("apptheme.") === 0) { applyAppTheme(id.slice("apptheme.".length)); }
+  // 「显示行号」是独立开关（非单选组）：信封里的 checked 就是新状态，直接应用并落偏好
+  else if (id === "view.linenos") { applyLineNumbers(!!(ev && ev.checked), true); }
+  else if (id === "help.about") { showAbout(true); }
+  // file.quit 不到这里：退出在仓颉侧应用层直接收口
+}
+
+// ── 通用小弹窗：重命名（带输入框）/ 删除确认（纯文本）。一次性的确认不该为它引宿主对话框 ──
+var modalDone = null;
+function showModal(opts) {
+  $("modal-title").textContent = opts.title;
+  var input = $("modal-input");
+  var hasInput = (typeof opts.value === "string");
+  input.style.display = hasInput ? "" : "none";
+  if (hasInput) { input.value = opts.value; }
+  var textEl = $("modal-text");
+  textEl.style.display = opts.text ? "" : "none";
+  textEl.textContent = opts.text || "";
+  var okBtn = $("modal-ok");
+  okBtn.textContent = opts.okText || "确定";
+  okBtn.style.background = opts.danger ? "#c0524e" : "var(--accent)";
+  modalDone = opts.onOk || null;
+  $("modal").classList.add("on");
+  if (hasInput) {
+    // 选中文本时去掉后缀：.md 是命名契约的一部分，重命名不该动它
+    var dot = input.value.lastIndexOf(".");
+    setTimeout(function () {
+      input.focus();
+      input.setSelectionRange(0, dot > 0 ? dot : input.value.length);
+    }, 0);
+  }
+}
+function closeModal() {
+  $("modal").classList.remove("on");
+  modalDone = null;
+}
+function modalSubmit() {
+  var input = $("modal-input");
+  var value = (input.style.display !== "none") ? input.value.trim() : undefined;
+  var fn = modalDone;
+  closeModal();
+  if (fn) { fn(value); }
+}
+// ── 重命名/删除：入口是原生「文件」菜单，作用于当前笔记；外部文件在库里没目标，弹窗拒 ──
+function renameCurrent() {
+  if (externalPath || !current) {
+    showModal({ title: "无法重命名", text: "当前文档是库外外部文件，没有重命名目标。先保存进库（Ctrl+S）再试。", okText: "知道了" });
+    return;
+  }
+  var from = current;
+  showModal({
+    title: "重命名：" + from,
+    value: from,
+    okText: "重命名",
+    onOk: function (newName) {
+      if (!newName || newName === from) { return; }
+      invoke("note:rename", { name: from, newName: newName }).then(function (r) {
+        if (r && r.ok && r.name) {
+          noteMtimes[r.name] = noteMtimes[from] || "";  // 真 rename 保留 mtime，值跟着名字走
+          delete noteMtimes[from];
+          current = r.name;
+          $("doc-title").textContent = current;
+          rememberLast(current);
+          renderList();
+          updateDocMeta();
+          report("SELFCHECK PASS rename " + from + " -> " + current);
+        }
+      }).catch(function (e) {
+        report("SELFCHECK FAIL rename: " + (e && e.message ? e.message : e));
+      });
+    }
+  });
+}
+function deleteCurrent() {
+  if (externalPath || !current) {
+    showModal({ title: "无法删除", text: "当前文档是库外外部文件，磁盘上的原文件不受影响。", okText: "知道了" });
+    return;
+  }
+  var gone = current;
+  showModal({
+    title: "删除笔记",
+    text: "删除「" + gone + "」？此操作不可恢复。",
+    okText: "删除",
+    danger: true,
+    onOk: function () {
+      invoke("note:delete", { name: gone }).then(function () {
+        delete noteMtimes[gone];
+        current = "";
+        $("doc-title").textContent = "（未打开）";
+        setDoc("");
+        return refreshList().then(function (list) {
+          if (list.length > 0) { return openNote(list[0]); }
+          report("SELFCHECK PASS delete " + gone);
+        });
+      }).catch(function (e) {
+        report("SELFCHECK FAIL delete: " + (e && e.message ? e.message : e));
+      });
+    }
+  });
+}
+
+// 自检辅助：列表行计数 / 按 title 找行（判「同文件只出现一行」与「外部条目进列表」）
+function countListRows(label) {
+  var rows = $("note-list").children, n = 0;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].textContent === label) { n++; } }
+  return n;
+}
+function findListRow(title) {
+  var rows = $("note-list").children;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].title === title) { return rows[k]; } }
+  return null;
+}
+function countActiveRows() {
+  var rows = $("note-list").children, n = 0;
+  for (var k = 0; k < rows.length; k++) { if (rows[k].className.indexOf("active") >= 0) { n++; } }
+  return n;
+}
+// ── 自检（CJNOTE_SELFCHECK=1 时跑一轮，全部经 report 回投 stderr） ──
+function selfCheck(env) {
+  if (!env || !env.selfcheck) { return; }
+  report("SELFCHECK start");
+  var pass = 0, fail = 0;
+  function ok(cond, name) {
+    if (cond) { pass++; report("SELFCHECK PASS " + name); }
+    else { fail++; report("SELFCHECK FAIL " + name); }
+  }
+  ok(!!bridge, "bridge ready");
+  ok(!!(cm || $("editor-fallback")), "editor ready");
+  // 视图三态与界面主题：切类后计算样式真变了才算数，验完复原到用户当前选择
+  var viewBefore = ($("work").className || "").replace("mode-", "") || "split";
+  applyViewMode("edit", false);
+  ok(getComputedStyle($("preview-pane")).display === "none" && getComputedStyle($("editor-pane")).display !== "none", "view edit hides preview");
+  applyViewMode("preview", false);
+  ok(getComputedStyle($("editor-pane")).display === "none" && getComputedStyle($("preview-pane")).display !== "none", "view preview hides editor");
+  applyViewMode("split", false);
+  ok(getComputedStyle($("editor-pane")).display !== "none" && getComputedStyle($("preview-pane")).display !== "none", "view split shows both");
+  applyViewMode(viewBefore, false);
+  var themeBefore = curTheme;
+  applyAppTheme("light", false);
+  var bgLight = getComputedStyle(document.body).backgroundColor;
+  applyAppTheme("dark", false);
+  var bgDark = getComputedStyle(document.body).backgroundColor;
+  applyAppTheme("system", false);
+  ok(document.documentElement.className === "apptheme-system", "apptheme defaults to system");
+  ok(bgLight !== bgDark, "light and dark palettes differ");
+  applyAppTheme(themeBefore, false);
+  // tab 高亮配色回归：head 通用钮规则 (1,1,1) 曾盖过 .side-tab 非激活色 (1,1,0)，
+  // 非激活 tab 被染成 accent 蓝、高亮看起来「反了」——两个 tab 都不许是 accent 色
+  var accentProbe = document.createElement("span");
+  accentProbe.style.color = "var(--accent)";
+  document.body.appendChild(accentProbe);
+  var accentColor = getComputedStyle(accentProbe).color;
+  document.body.removeChild(accentProbe);
+  ok(getComputedStyle($("tab-notes")).color !== accentColor &&
+     getComputedStyle($("tab-outline")).color !== accentColor, "side tabs never painted accent");
+  // 醒目下划线：恰好一个 tab 有 accent 底线，且一定在激活的那个上（与当前激活态无关地断言）
+  var notesUnder = getComputedStyle($("tab-notes")).borderBottomColor === accentColor;
+  var outUnder = getComputedStyle($("tab-outline")).borderBottomColor === accentColor;
+  ok(notesUnder !== outUnder && notesUnder === ($("tab-notes").className.indexOf("active") >= 0),
+     "accent underline only on the active side tab");
+  // 侧栏宽度拖动：窄条必须是 col-resize；模拟拖动要真改变宽度、超限夹取、双击复位（偏好落盘在异步链验）
+  var rz = $("resizer");
+  ok(!!rz && getComputedStyle(rz).cursor === "col-resize", "sidebar resizer present with col-resize");
+  var rzBox = rz.getBoundingClientRect();
+  var rzX = rzBox.left + rzBox.width / 2;
+  var sbBefore = $("sidebar").getBoundingClientRect().width;
+  rz.dispatchEvent(new MouseEvent("mousedown", { clientX: rzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: rzX + 60, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok(Math.abs($("sidebar").getBoundingClientRect().width - (sbBefore + 60)) <= 2,
+     "drag widens sidebar (was " + Math.round(sbBefore) + "px)");
+  rz.dispatchEvent(new MouseEvent("mousedown", { clientX: rzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: rzX + 9999, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok($("sidebar").getBoundingClientRect().width <= 480.5, "sidebar width clamped at max");
+  rz.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  ok(Math.abs($("sidebar").getBoundingClientRect().width - 220) <= 1, "double click resets sidebar to 220px");
+  applySidebarW(220);
+  // AI 面板宽度拖动：方向与侧栏相反（往左拖变宽），同样要「真改变宽度 / 超限夹取 / 双击复位」
+  var arz = $("ai-resizer");
+  ok(!!arz && getComputedStyle(arz).cursor === "col-resize", "ai panel resizer present with col-resize");
+  var arzBox = arz.getBoundingClientRect();
+  var arzX = arzBox.left + arzBox.width / 2;
+  var aiBefore = $("ai").getBoundingClientRect().width;
+  arz.dispatchEvent(new MouseEvent("mousedown", { clientX: arzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: arzX - 40, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok(Math.abs($("ai").getBoundingClientRect().width - (aiBefore + 40)) <= 2,
+     "drag leftwards widens ai panel (was " + Math.round(aiBefore) + "px)");
+  arz.dispatchEvent(new MouseEvent("mousedown", { clientX: arzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: arzX - 9999, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  var aiMax = $("ai").getBoundingClientRect().width;
+  ok(aiMax <= AI_MAX + 0.5 && aiMax <= availableAiW() + 1,
+     "ai panel width clamped at max (" + Math.round(aiMax) + "px <= " + AI_MAX + " and <= available " + Math.round(availableAiW()) + ")");
+  arz.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  var aiReset = $("ai").getBoundingClientRect().width;
+  ok(aiReset <= AI_DEFAULT + 0.5 && aiReset >= AI_MIN - 0.5,
+     "double click resets ai panel towards default " + AI_DEFAULT + "px (now " + Math.round(aiReset) + "px)");
+  applyAiW(AI_DEFAULT);
+  // AI 面板重做：状态胶囊带色点 + 配置入口（静态 DOM，同步可断言）
+  ok($("ai-state").querySelector("i") !== null, "AI state pill has colored dot");
+  ok($("ai-cfg-btn") !== null, "AI config button in header");
+  // 「cjh 没起来」与「cjh 起来了但没配服务商」必须是两套话（2026-10-21 实机反馈）：
+  // 未配置密钥时 cjh 的健康检查照样 200，旧实现把这种情况也报成「cjh 没起来或连不上」，
+  // 用户看到的是一句假故障，且没有任何地方提示他去填密钥
+  var offRunning = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws", {});
+  ok(offRunning.indexOf("WS") >= 0 && offRunning.indexOf("没起来") < 0,
+     "running-but-unreachable wording names the WS, not 'not started'");
+  // 「端口上有人答话」和「页面连上了」是两件事（2026-10-21 另一台机器：netstat 只有 LISTENING、
+  // 没有 ESTABLISHED，而卡上原话只有一句「连不上」）：真实报错与版本归属都必须原样上卡
+  var offErr = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws",
+                             { err: "ws: connect failed: handshake 403" });
+  ok(offErr.indexOf("handshake 403") >= 0,
+     "offline card shows the real ws connect error text");
+  var offForeign = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws",
+                                 { foreign: true, version: "1.6.0", bundled: "1.5.3", owned: false });
+  ok(offForeign.indexOf("1.6.0") >= 0 && offForeign.indexOf("1.5.3") >= 0,
+     "offline card names the foreign cjh version next to the bundled one");
+  var offOwned = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws", { owned: false });
+  ok(offOwned.indexOf("不是本应用拉起的实例") >= 0,
+     "offline card says the listener was not started by this app");
+  ok(cjhOfflineTitle("running") !== cjhOfflineTitle("missing")
+     && cjhOfflineTitle("bzzt") === "cjh 没能启动",
+     "offline card title branches by failure kind");
+  var cfgNoKey = cjhCfgMissing({ hasKey: false, baseUrl: "", model: "" });
+  ok(cfgNoKey.ok === false && cfgNoKey.needKey === true && cfgNoKey.usesDefaults === true,
+     "missing api key -> unconfigured (empty base/model reported as defaults)");
+  var cfgFull = cjhCfgMissing({ hasKey: true, baseUrl: "https://x/v1", model: "m" });
+  ok(cfgFull.ok === true && cfgFull.usesDefaults === false,
+     "configured provider -> ready, no defaults hint");
+  var cfgCardSub = cjhCfgCardSub("ws://127.0.0.1:8765/ws", true);
+  ok(cfgCardSub.indexOf("已在运行") >= 0 && cfgCardSub.indexOf("去配置") >= 0
+     && cfgCardSub.indexOf("未就绪") < 0,
+     "unconfigured card says the backend IS running and points at configuration");
+  // 未配置卡要能一键进设置页；这里把消息区原有节点**移走再放回**（不是改 innerHTML），
+  // 免得后面依赖既有节点监听器的断言被这次自检悄悄弄坏
+  var aiBox = $("ai-msgs");
+  var keepNodes = [];
+  while (aiBox.firstChild) { keepNodes.push(aiBox.removeChild(aiBox.firstChild)); }
+  var keepCfg = cjhCfg;
+  cjhCfg = { checked: true, ok: false, needKey: true, usesDefaults: true, raw: null };
+  aiGreetNeedConfig();
+  var cfgCard = aiBox.querySelector(".ai-greet.cfg");
+  var cfgBtn = cfgCard ? cfgCard.querySelector(".to-cfg") : null;
+  ok(!!cfgCard && !!cfgBtn, "unconfigured state renders a card with 去配置 button");
+  if (cfgBtn) { cfgBtn.click(); }
+  ok(aiSettingsOpen(), "去配置 button jumps straight to the settings view");
+  while (aiBox.firstChild) { aiBox.removeChild(aiBox.firstChild); }
+  for (var kn = 0; kn < keepNodes.length; kn++) { aiBox.appendChild(keepNodes[kn]); }
+  cjhCfg = keepCfg;
+  // 竞态回归（2026-10-21 实测踩过 bubbles=0）：连上之后还要复判一次配置，这个异步回调
+  // 可能晚于用户的第一问——启动期卡片一律只能画在空态，绝不能清掉已开始的对话
+  var raceUser = aiMsgEl("user", "自检：这一条在启动期卡片之后到达", false);
+  aiGreet("晚到的问候卡");
+  ok(aiBox.querySelectorAll(".msg").length >= 1,
+     "late greet card does not wipe an in-flight conversation");
+  aiGreetOffline("running");
+  ok(aiBox.querySelectorAll(".msg").length >= 1,
+     "late offline card does not wipe an in-flight conversation");
+  while (aiBox.firstChild) { aiBox.removeChild(aiBox.firstChild); }
+  for (var km = 0; km < keepNodes.length; km++) { aiBox.appendChild(keepNodes[km]); }
+  // ⚙ 必须点开一个真设置页：删掉直连配置后若只剩「无声重连」，用户会以为按钮坏了（实测反馈）
+  openAiSettings();
+  ok(aiSettingsOpen(), "gear switches ai panel to settings view");
+  ok(document.querySelector("#ai-settings-view #set-model") !== null,
+    "settings view has editable model field");
+  ok(document.querySelector("#ai-settings-view #set-proto") !== null,
+    "settings view has protocol selector");
+  ok(document.querySelector("#ai-settings-view #set-base") !== null,
+    "settings view has base url field");
+  // 「测试连通」：按钮要在设置页里，且探针必须走「帧级覆盖 + 只归拢给设置页」这套实现，
+  // 否则「测的配置」与「填的配置」就成了两回事（这条挡的是回归，不是运行时行为）
+  ok(document.querySelector("#ai-settings-view #set-test") !== null,
+    "settings view has connectivity test button");
+  ok(typeof testCjhConnectivity === "function" && typeof handleProbeFrame === "function",
+    "connectivity probe implemented (frame override + probe frame branch)");
+  ok($("set-note").textContent.indexOf("即时") >= 0,
+    "settings note documents live apply");
+  aiView("chat");
+  ok(!aiSettingsOpen(), "back returns ai panel to chat view");
+  // 外部文件条目进单列表（形态对齐 markdown-notes）：加条目要出对应行、显示文件名、完整路径在 title
+  addExtFile("/selfcheck/probe-external.md", "probe-external.md");
+  var extRow = findListRow("/selfcheck/probe-external.md");
+  ok(!!extRow && extRow.textContent === "probe-external.md", "external file entry shows in single list");
+  removeExtFile("/selfcheck/probe-external.md");
+  // 「关于」浮层（帮助菜单入口）：开要真可见、关要真收回，验完复原。
+  // 判据必须带尺寸——只断言 display 的话，浮层被压成 0×0 也算过（实测踩过：inset 不生效）
+  showAbout(true);
+  var ac = $("about-card");
+  var acBox = ac.getBoundingClientRect();
+  ok(getComputedStyle(ac).display === "flex" && acBox.width > 100 && acBox.height > 100,
+    "about overlay opens covering viewport");
+  showAbout(false);
+  ok(getComputedStyle($("about-card")).display === "none", "about overlay closes");
+  // cjh 引导卡：后端未就绪时必须给一个能点的「重新连接」，而不是只留一行说明
+  aiGreetOffline("missing");
+  ok(document.querySelector("#ai-msgs .ai-greet.off .g-chips button") !== null,
+    "cjh offline card offers a retry button");
+  aiGreet("写笔记时随时问我。");
+  ok(document.querySelectorAll("#ai-msgs .ai-greet .g-chips button").length === 3,
+    "ai empty state has three suggestion chips");
+  // 侧栏大纲：围栏里的 # 不算标题、一条标题一行、点击要真跳到那一行（验完复原正文与页签）
+  var mdBefore = getDoc();
+  var sideBefore = sideTab;
+  setDoc("# 一级\n\n```\n# 不是标题\n```\n\n## 二级\n### 三级\n");
+  var ol = outlineItems(getDoc());
+  ok(ol.length === 3 && ol[0].level === 1 && ol[2].level === 3 && ol[2].line === 7,
+    "outline skips fenced headings");
+  showSide("outline");
+  ok($("outline").children.length === 3, "outline renders one row per heading");
+  ok($("outline").children[0].title.indexOf("一级") >= 0, "outline row title carries full heading");
+  $("outline").children[2].onclick();
+  ok(cm ? cm.getCursor().line === 7 : true, "outline click jumps to heading line");
+  // 长标题撑宽回归：flex 自动最小值坑——长 nowrap 标题曾把 #sidebar 撑过 220px（用户实测报过）。
+  // 判据量真实宽度：侧栏必须仍 ~220px，长标题行必须被裁在侧栏内
+  var longTxt = "超长标题"; for (var li = 0; li < 30; li++) { longTxt += "很长"; }
+  setDoc("# " + longTxt + "\n\n## 正常标题\n");
+  var sbW = $("sidebar").getBoundingClientRect().width;
+  var longRow = $("outline").children[0];
+  ok(sbW <= 225, "sidebar stays ~220px with long outline heading (was " + Math.round(sbW) + "px)");
+  ok(longRow.getBoundingClientRect().width <= sbW, "long heading row clipped inside sidebar");
+  // 快速打开：过滤纯函数 + 浮层真能开合并盖住视口（本机 WebKitGTK 上 inset 失效过，量尺寸才算数）
+  ok(filterNotes(["欢迎.md", "周报.md"], "周").join("|") === "周报.md", "quick open filters by name");
+  ok(filterNotes(["a.md", "b.md"], "").length === 2, "quick open lists all on empty query");
+  showQuickOpen(true);
+  var qo = $("quick-open").getBoundingClientRect();
+  ok(getComputedStyle($("quick-open")).display === "flex" && qo.width > 100 && qo.height > 100,
+    "quick open overlay covers viewport");
+  showQuickOpen(false);
+  ok(getComputedStyle($("quick-open")).display === "none", "quick open overlay closes");
+  showSide(sideBefore);
+  setDoc(mdBefore);
+  // 顶栏文档状态：字数按非空白字符算；圆点跟 dirty（强调色=未保存，saved=已保存）
+  ok(docWordCount("a b\n中\t文") === 4, "word count ignores whitespace");
+  var dirtyBeforeMeta = dirty;
+  dirty = false; updateDocMeta();
+  ok($("doc-state").className.indexOf("saved") >= 0 &&
+    $("doc-state").getElementsByTagName("b")[0].textContent === "已保存", "doc status shows saved when clean");
+  dirty = true; updateDocMeta();
+  ok($("doc-state").className.indexOf("saved") < 0 &&
+    $("doc-state").getElementsByTagName("b")[0].textContent === "未保存", "doc status shows dirty after edit");
+  ok($("doc-stat").textContent === docWordCount(getDoc()) + " 字", "word count shown in topbar");
+  dirty = dirtyBeforeMeta; updateDocMeta();
+  // 主题弹层：点按钮弹三项、选一项即生效并收起（点外部/Esc 关闭走同一开关）
+  var themeBtnEl = $("btn-theme");
+  themeBtnEl.onclick({ stopPropagation: function () {}, target: themeBtnEl });
+  ok(!$("theme-menu").hasAttribute("hidden") &&
+    $("theme-menu").getElementsByTagName("button").length === 3, "theme popover opens with three options");
+  var themeBeforePick = curTheme;
+  $("theme-menu").getElementsByTagName("button")[1].onclick({});
+  ok(curTheme === "light" && $("theme-menu").hasAttribute("hidden"),
+    "theme option applies and closes menu");
+  ok($("theme-menu").getElementsByTagName("button")[1].className === "on", "theme popover marks current option");
+  applyAppTheme(themeBeforePick);
+  // 原生标题行：能力探测是异步的，这里只断言「页面行为与探测结论一致」——
+  // 支持时页面顶栏整行让出（display:none → offsetParent 为空），不支持时保持可见
+  ok(document.body.classList.contains("native-titlebar") === titlebarSupported &&
+    (($("topbar").offsetParent !== null) === !titlebarSupported),
+    "page topbar follows native titlebar capability");
+  report("UI system-light=" + (window.matchMedia("(prefers-color-scheme: light)").matches ? "1" : "0"));
+  ok(!!window.marked, "marked ready");
+  refreshList().then(function (list) {
+    ok(list.length >= 1, "note list non-empty");
+    // 开第一篇、写入、保存、重读——文件落盘闭环
+    var target = list[0];
+    if (target) {
+      openNote(target).then(function (r) {
+        // 基准取本次 open 返回的 body、落盘按名字显式存：不依赖编辑器 current——
+        // 启动「恢复上次打开」与本链并发，序号守卫可能跳过本次打开（恢复赢），current 还是空的
+        var prev = (r && typeof r.body === "string") ? r.body : "";
+        setDoc(prev + "\n<!-- probe -->\n");
+        invoke("note:save", { name: target, body: prev + "\n<!-- probe -->\n" }).then(function () {
+          invoke("note:open", { name: target }).then(function (r) {
+            var text = (r && typeof r.body === "string") ? r.body : "";
+            ok(text.indexOf("<!-- probe -->") >= 0, "write-read roundtrip");
+            setDoc(prev);
+            invoke("note:save", { name: target, body: prev }).catch(function (e) {
+              report("SELFCHECK FAIL restore save: " + e);
+            });
+            // 单列表：刚打开的笔记必须恰好一行（两段式里同一文件出现过两行，用户报「乱」）
+            ok(countListRows(target) === 1, "opened note appears exactly once in list");
+            // 侧栏宽度偏好落盘（同步段模拟过拖动，末态是双击复位后的 220）
+            invoke("store:get", { key: "ui.sidebarw" }).then(function (v) {
+              ok(v === "220", "sidebar width persisted to store");
+            });
+            // 消息区必须有一张引导卡：在线是三条建议、离线是「重新连接」，两种都算就绪表现
+            // （数量断言在前面的 aiGreet 用例里已精确验过，这里只看「有没有卡」）
+            ok(document.querySelector("#ai-msgs .ai-greet") !== null,
+               "AI panel shows a greet card");
+            // 高亮唯一：同一时刻只能有一行选中。模拟「外部文件 → 库内笔记」切换：
+            // openNote 若不清 externalPath，外部行与库内行会同时亮（用户实测报过）
+            addExtFile("/selfcheck/probe-external.md", "probe-external.md");
+            externalPath = "/selfcheck/probe-external.md";
+            openNote(target).then(function () {
+              ok(countActiveRows() === 1, "only one list row highlighted at a time");
+              removeExtFile("/selfcheck/probe-external.md");
+            });
+            // 设置页的配置通路（宿主代劳读写 ~/.cjh）：读取要回得出模型名、密钥只能是脱敏值；
+            // 保存走一次「写回原值」的受控调用——整条路径过一遍，但不改任何实际配置
+            invoke("cjh:config").then(function (c) {
+              c = c || {};
+              ok(typeof c.model === "string" && c.model.length > 0,
+                 "cjh:config returns model from settings.json");
+              ok((c.apiKey || "") === "" || (c.apiKey || "").indexOf("****") >= 0,
+                 "cjh:config masks api key");
+              var same = (typeof c.temperature === "number" && c.temperature > 0) ? c.temperature : 0.7;
+              return invoke("cjh:saveConfig", { temperature: same }).then(function (r) {
+                ok(!!r && r.ok === true, "cjh:saveConfig writes config file");
+                ok(!!r && (r.wrote || []).indexOf("temperature") >= 0,
+                   "cjh:saveConfig reports written keys");
+              });
+            }).catch(function (e) {
+              ok(false, "cjh:config failed: " + (e && e.message ? e.message : e));
+            });
+            // AI 探针（真实 cjh，不再注入 mock）：连上才跑；连不上就 SKIP 并如实记一行，
+            // 不把「环境里没有后端」算成失败（假红会让交付门禁失真，实测踩过）
+            if (cjh.up) {
+              window.__cjnoteAiDone = function (text, err) {
+                // 「（空回复）」是收尾兜底文案，不是回复：不排除它，delta 帧全被吞掉的 bug
+                // 也能让这条断言变绿（实测踩过——页面上明明什么都没收到）
+                ok(!err && typeof text === "string" && text.length > 0 &&
+                   text.indexOf("（空回复）") < 0, "cjh chat reply non-empty");
+                // 回复渲染 markdown（与预览同源）：正文是结构化元素而非裸文本。
+                // 断言自带现场（气泡数 / 子节点数 / 正文片段）：这条直到 2026-10-21 才第一次
+                // 真正跑到（Linux 沙盒里一直是 SKIP），只回 true/false 时无从判断是没气泡还是空正文
+                var aiAs = document.querySelectorAll("#ai-msgs .msg.assistant");
+                var aiLastBody = aiAs.length ? aiAs[aiAs.length - 1].querySelector(".body") : null;
+                ok(!!aiLastBody && aiLastBody.childNodes.length >= 1,
+                   "AI reply body is rendered markdown (bubbles=" + aiAs.length +
+                   " kids=" + (aiLastBody ? aiLastBody.childNodes.length : -1) +
+                   " html=" + (aiLastBody ? String(aiLastBody.innerHTML).slice(0, 60) : "-") + ")");
+                ctxProbe(renameProbe);
+                // 设置页「测试连通」真跑一轮：它也是 ws 上的一条对话，必须等上面那轮收尾了再发
+                //（两轮并行会互相插帧）。探针不带 session_id，不污染当前会话。
+                window.__cjnoteProbeDone = function (got, err, cost) {
+                  window.__cjnoteProbeDone = null;
+                  ok(!err && String(got).length > 0,
+                     "connectivity probe reached the provider (reply non-empty)");
+                  report("SELFCHECK PROBE reply=" + String(got).slice(0, 40) + " ms=" + cost +
+                    (err ? " err=" + err : ""));
+                };
+                testCjhConnectivity();
+              };
+              $("ai-input").value = "自检：只回复 OK 两个字";
+              aiSend();
+              setTimeout(function () {
+                if (typeof window.__cjnoteAiDone === "function") {
+                  window.__cjnoteAiDone = null;
+                  ok(false, "cjh chat reply timeout");
+                  ctxProbe(renameProbe);
+                }
+              }, 90000);
+            } else {
+              report("SELFCHECK SKIP cjh chat: 未连接 (state=" + cjh.state + ")");
+              ctxProbe(renameProbe);
+            }
+            // 上下文拼装断言：用户实测报过「明明勾了笔记，AI 回复里却没有」，也报过反复勾选导致
+            // 跨轮累加。改造后上下文是**指针**（绝对路径 + 库根），正文由 AI 自取——每条都钉住。
+            function ctxProbe(next) {
+              var lib = document.getElementById("ai-lib-note");
+              var saved = { cur: current, ext: externalPath, lib: lib.checked, root: noteRoot, path: docPath };
+              var restore = function () {
+                lib.checked = saved.lib;
+                current = saved.cur;
+                externalPath = saved.ext;
+                noteRoot = saved.root;
+                docPath = saved.path;
+              };
+              var probeName = "";
+              // ① 后端必须给绝对路径：相对路径会被 cjh 按它自己的工作区解析，静默读错目录
+              return invoke("note:list", {}).then(function (lr) {
+                noteRoot = (lr && lr.root) ? String(lr.root) : "";
+                ok(isAbsPath(noteRoot), "note:list returns an absolute library root");
+                return invoke("note:create", { title: "自检-上下文" });
+              }).then(function (cr) {
+                probeName = (cr && cr.name) ? String(cr.name) : "";
+                if (!probeName) { throw new Error("ctx probe: note:create 未返回名字"); }
+                return invoke("note:save", { name: probeName, body: "marker-CTX-1\n" });
+              }).then(function () {
+                return invoke("note:open", { name: probeName });
+              }).then(function (or) {
+                docPath = (or && or.path) ? String(or.path) : "";
+                ok(isAbsPath(docPath) && docPath.indexOf(probeName) >= 0,
+                  "note:open returns the note's absolute path");
+                current = probeName;
+                externalPath = "";
+                lib.checked = false;
+                return buildAiContext(null);
+              }).then(function (r1) {
+                // ② 库内笔记：指针里有绝对路径与库根，且**不含正文**（正文由 AI 自己读）
+                ok(r1.ctx.indexOf("【当前笔记】" + probeName) >= 0 &&
+                   r1.ctx.indexOf("绝对路径：" + docPath) >= 0 &&
+                   r1.ctx.indexOf("笔记库根目录：" + noteRoot) >= 0,
+                  "in-library note yields an absolute-path pointer");
+                ok(r1.ctx.indexOf("marker-CTX-1") < 0,
+                  "pointer carries no note body (no cross-turn duplication)");
+                // ③ 库外文件（Ctrl+O 打开的那种，current 是空串）：走自己的分支，同样只给路径
+                current = "";
+                docPath = "";
+                externalPath = "/selfcheck/probe-external.md";
+                return buildAiContext(null);
+              }).then(function (r2) {
+                ok(r2.ctx.indexOf("/selfcheck/probe-external.md") >= 0 &&
+                   r2.ctx.indexOf("（笔记库之外的普通文件）") >= 0,
+                  "externally opened file yields its own absolute path");
+                // ④ 什么都没打开：必须明说，不能给一段空上下文
+                externalPath = "";
+                return buildAiContext(null);
+              }).then(function (r3) {
+                ok(r3.ctx.indexOf("没有打开任何笔记或文件") >= 0,
+                  "no-document pointer says so explicitly");
+                // ⑤ 勾「问笔记库」= 显式要求这一轮自己检索（页面不再替 AI 预取）
+                lib.checked = true;
+                var before = r3.ctx.length;
+                return buildAiContext(null).then(function (r4) {
+                  ok(r4.ctx.length > before && r4.ctx.indexOf("本轮要求") >= 0 && r4.ctx.indexOf("grep") >= 0,
+                    "lib checkbox asks the model to search the library itself");
+                  ok(r4.ctx.indexOf("【笔记库概况") < 0 && r4.ctx.indexOf("检索命中") < 0,
+                    "no page-side pre-fetch in the context");
+                  return invoke("note:delete", { name: probeName });
+                });
+              }).then(function () {
+                restore();
+                next();
+              }).catch(function (e) {
+                ok(false, "context probe: " + e);
+                restore();
+                next();
+              });
+            }
+            // 重命名闭环 + mtime：造临时笔记 → 改名 → 旧名消失/新名出现 → 删除。
+            // std.fs.rename 是真重命名（保留 mtime）
+            function renameProbe() {
+              invoke("note:create", { title: "自检-重命名" }).then(function (cr) {
+                var tmpName = (cr && cr.name) ? cr.name : "";
+                if (!tmpName) { ok(false, "rename probe create"); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); return; }
+                var renamed = tmpName.replace(".md", "-改名.md");
+                return invoke("note:rename", { name: tmpName, newName: renamed }).then(function (rr) {
+                  ok(!!(rr && rr.ok && rr.name === renamed), "rename ok");
+                  return invoke("note:list", {}).then(function (lr) {
+                    var nms = (lr && lr.notes) ? lr.notes : [];
+                    var hasOld = false, hasNew = false;
+                    for (var k = 0; k < nms.length; k++) {
+                      if (nms[k].name === tmpName) { hasOld = true; }
+                      if (nms[k].name === renamed) { hasNew = true; }
+                    }
+                    ok(!hasOld && hasNew, "rename swaps old and new in the list");
+                    var first = nms[0];
+                    ok(!!(first && typeof first.mtime === "string" && Date.parse(first.mtime) > 0), "note:list returns mtime");
+                    return invoke("note:delete", { name: renamed }).then(function () {
+                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                    });
+                  });
+                });
+              }).catch(function (e) {
+                ok(false, "rename probe: " + e);
+                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+              });
+            }
+          }).catch(function (e) { ok(false, "roundtrip read: " + e); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); });
+        });
+      });
+    } else {
+      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+    }
+  });
+}
+
+// ── L2 选区动作：选中文字浮出工具条 → AI 结果进 diff 确认条（接受插入/拒绝丢弃）──
+// 统一插入模式的第一落地：所有 AI 改文档的动作都走「生成 → diff 待确认 → 应用/丢弃」一条路。
+var l2 = { selText: "", from: null, to: null, streaming: false, acc: "", barEl: null, act: "" };
+
+function l2SelectionInEditor() {
+  if (cm) {
+    var s = cm.getSelection();
+    if (s && s.trim().length > 0) {
+      return { text: s, from: cm.getCursor("from"), to: cm.getCursor("to") };
+    }
+    return null;
+  }
+  var ta = $("editor-fallback");
+  var st = ta.selectionStart, en = ta.selectionEnd;
+  if (en > st && ta.value.slice(st, en).trim().length > 0) {
+    return { text: ta.value.slice(st, en), from: st, to: en };
+  }
+  return null;
+}
+function l2ShowBar(x, y) {
+  var bar = $("sel-bar");
+  bar.style.display = "flex";
+  // 贴着选区下方，避免出视口
+  var px = Math.min(x, window.innerWidth - 170);
+  var py = Math.min(y + 10, window.innerHeight - 50);
+  bar.style.left = px + "px";
+  bar.style.top = py + "px";
+}
+function l2HideBar() {
+  $("sel-bar").style.display = "none";
+}
+function l2OnSelChange() {
+  if (l2.streaming) { return; }
+  var sel = l2SelectionInEditor();
+  if (sel) {
+    l2.selText = sel.text;
+    l2.from = sel.from;
+    l2.to = sel.to;
+    // 坐标：CodeMirror 用 charCoords，textarea 用鼠标位置
+    if (cm) {
+      var pos = cm.charCoords(sel.to, "window");
+      l2ShowBar(pos.left, pos.bottom);
+    } else {
+      l2ShowBar(l2.mouseX || 200, l2.mouseY || 200);
+    }
+  } else {
+    l2HideBar();
+  }
+}
+function l2PromptFor(act, sel, doc) {
+  if (act === "rewrite") {
+    return "改写下面的文字，保持原意、更通顺简洁，直接给出改写结果，不要解释：\n\n" + sel;
+  }
+  if (act === "continue") {
+    return "接着下面的文字自然续写 1-2 句，直接给出续写内容，不要重复原文、不要解释：\n\n" + sel;
+  }
+  if (act === "translate") {
+    return "判断下面的文字是中文还是英文，翻译成另一种语言，直接给出译文，不要解释：\n\n" + sel;
+  }
+  return sel;
+}
+function l2Apply(text) {
+  if (cm && typeof l2.from.line === "number") {
+    cm.replaceRange(text, l2.from, l2.to);
+  } else {
+    var ta = $("editor-fallback");
+    ta.value = ta.value.slice(0, l2.from) + text + ta.value.slice(l2.to);
+    dirty = true;
+    renderPreview(ta.value);
+  }
+  dirty = true;
+  updateDocMeta();
+}
+function l2Run(act) {
+  if (l2.streaming || !l2.selText) { return; }
+  if (!cjh.up) {
+    // 选区动作同样经 cjh：没连上就没有 AI，先重连一次并说清楚（不静默失败）
+    report("CJH-WARN 选区动作前未连接，先重连");
+    cjhBoot(true).then(function () {
+      if (cjh.up) { aiSetState("已连上，再点一次", "ok"); }
+    });
+    return;
+  }
+  l2HideBar();
+  l2.streaming = true;
+  l2.act = act;
+  l2.acc = "";
+  var actName = { rewrite: "改写", continue: "续写", translate: "翻译" }[act] || act;
+  aiSetState(actName + "中…", "busy");
+  var bar = $("diff-bar");
+  bar.style.display = "flex";
+  $("diff-title").textContent = "AI " + actName + "中…";
+  $("diff-accept").disabled = true;
+  $("diff-reject").textContent = "丢弃";
+  // 与聊天共用一条 WS：本轮标成 l2，帧进来落 diff 条而不是聊天气泡
+  aiTurn = { kind: "l2", body: null, acc: "", tools: [] };
+  var frame = { type: "chat", message: l2PromptFor(act, l2.selText, getDoc()) };
+  if (cjh.session) { frame.session_id = cjh.session; }
+  cjhWsSend(frame).catch(function (e) {
+    l2.streaming = false;
+    aiTurn = null;
+    $("diff-title").textContent = "**[错误]** " + (e && e.message ? e.message : String(e));
+    $("diff-accept").disabled = true;
+    aiSetState("出错", "bad");
+  });
+}
+function l2Stream(acc) {
+  var actName = { rewrite: "改写", continue: "续写", translate: "翻译" }[l2.act] || l2.act;
+  $("diff-title").textContent = "AI " + actName + "：" + String(acc).slice(0, 80);
+}
+// 本轮 l2 的收尾（由 cjhFinishTurn 调用）：成功则进「待确认」，失败 / 空回 / 中断都就地收口
+function l2Finish(acc, errText, stopped) {
+  l2.streaming = false;
+  var full = String(acc || "").trim();
+  if (stopped) {
+    $("diff-title").textContent = "已停止（未产生结果）";
+    $("diff-accept").disabled = true;
+    $("diff-reject").textContent = "关闭";
+    aiSetState("就绪", "ok");
+    return;
+  }
+  if (errText || full === "") {
+    $("diff-title").textContent = errText || "**[错误]** cjh 没有返回内容";
+    $("diff-accept").disabled = true;
+    $("diff-reject").textContent = "关闭";
+    aiSetState("出错", "bad");
+    return;
+  }
+  l2.pending = full;
+  $("diff-title").textContent = full.slice(0, 120);
+  $("diff-accept").disabled = false;
+  $("diff-reject").textContent = "丢弃";
+  aiSetState("待确认", "busy");
+  report("SELFCHECK PASS l2 diff shown len=" + full.length);
+}
+function l2Accept() {
+  if (l2.pending) {
+    l2Apply(l2.pending);
+    report("SELFCHECK PASS l2 accepted into doc");
+    l2Close();
+  }
+}
+function l2Close() {
+  l2.pending = null;
+  l2.streaming = false;
+  $("diff-bar").style.display = "none";
+  aiSetState(cjh.up ? "就绪" : "未连接", cjh.up ? "ok" : "bad");
+}
+function initL2() {
+  var bar = $("sel-bar");
+  // CodeMirror 的 selectionChange 事件；textarea 用 mouseup 轮询
+  if (cm) {
+    cm.on("cursorActivity", l2OnSelChange);
+  } else {
+    document.addEventListener("mouseup", function (e) {
+      l2.mouseX = e.clientX; l2.mouseY = e.clientY;
+      setTimeout(l2OnSelChange, 10);
+    });
+  }
+  // 点击别处不收（工具条自身要可点）；Escape 收
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { l2HideBar(); if (l2.streaming) { l2Close(); } }
+  });
+  var btns = bar.querySelectorAll("button[data-act]");
+  for (var i = 0; i < btns.length; i++) {
+    (function (b) {
+      b.onclick = function () { l2Run(b.getAttribute("data-act")); };
+    })(btns[i]);
+  }
+  $("diff-accept").onclick = l2Accept;
+  $("diff-reject").onclick = l2Close;
+}
+
+// ── 启动 ──
+waitForBridge(function () {
+  bridge = window.__CJ_TAURI__;
+  invoke("notes:env", {}).then(function (env) {
+    appVersion = env && env.version ? String(env.version) : "";
+    initEditor();
+    updateDocMeta();
+    document.getElementById("btn-refresh").onclick = function () { refreshList(); };
+    document.getElementById("tab-notes").onclick = function () { showSide("notes"); };
+    document.getElementById("tab-outline").onclick = function () { showSide("outline"); };
+    // 排序下拉：改完即重排 + 偏好落盘
+    $("sortby").onchange = function () {
+      sortBy = this.value;
+      renderList();
+      invoke("store:set", { key: "ui.sortby", value: sortBy }).catch(function () {});
+      report("UI sortBy=" + sortBy);
+    };
+    // 弹窗接线：确定 / 取消 / Enter 提交 / Esc 与点外侧关闭
+    $("modal-ok").onclick = modalSubmit;
+    $("modal-cancel").onclick = closeModal;
+    $("modal-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); modalSubmit(); }
+    });
+    $("modal").addEventListener("mousedown", function (e) {
+      if (e.target === this) { closeModal(); }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && $("modal").classList.contains("on")) { e.preventDefault(); closeModal(); }
+    });
+    // 原生菜单点击 → 框架自动投 `menu:click`（信封即载荷，见 src/shell_event.cj）：
+    // 菜单、顶栏按钮、快捷键收敛到同一批动作函数
+    if (bridge.listen) { bridge.listen("menu:click", onMenuClick); }
+    // 「关于」浮层：按钮与 Esc 都能关（Esc 只在浮层开着时接管，不干扰编辑器）
+    document.getElementById("about-close").onclick = function () { showAbout(false); };
+    document.getElementById("about-card").addEventListener("click", function (e) {
+      if (e.target === this) { showAbout(false); }
+    });
+    // 快速打开：输入即过滤、点条目即打开、点遮罩关闭
+    document.getElementById("quick-input").addEventListener("input", function () {
+      quickSel = 0;
+      renderQuickList(this.value);
+    });
+    document.getElementById("quick-input").addEventListener("keydown", quickKey);
+    document.getElementById("quick-open").addEventListener("click", function (e) {
+      if (e.target === this) { showQuickOpen(false); }
+    });
+    // 视图三态：页内分段按钮与 Ctrl+1/2/3 走同一个 applyViewMode，行为天然一致
+    document.getElementById("mode-edit").onclick = function () { applyViewMode("edit"); };
+    document.getElementById("mode-split").onclick = function () { applyViewMode("split"); };
+    document.getElementById("mode-preview").onclick = function () { applyViewMode("preview"); };
+    // 主题按钮：点开三项弹层（不再三下循环），选完写回 store 并同步原生菜单勾选
+    var themeBtn = document.getElementById("btn-theme");
+    themeBtn.onclick = function (e) {
+      e.stopPropagation();
+      themePopOpen($("theme-menu").hasAttribute("hidden"));
+    };
+    var themeOpts = $("theme-menu").getElementsByTagName("button");
+    for (var ti = 0; ti < themeOpts.length; ti++) {
+      themeOpts[ti].onclick = function () {
+        applyAppTheme(this.getAttribute("data-theme"));
+        themePopOpen(false);
+      };
+    }
+    // 点弹层以外的地方收起（按钮自身的点击已 stopPropagation，不会自己关掉）
+    document.addEventListener("click", function (e) {
+      var wrap = document.querySelector(".theme-wrap");
+      if (wrap && !wrap.contains(e.target)) { themePopOpen(false); }
+    });
+    loadUiPrefs();
+    loadExtFiles();
+    initSidebarDrag();
+    loadSidebarW();
+    initAiDrag();
+    loadAiW();
+    document.addEventListener("keydown", function (e) {
+      // 主题弹层开着时 Esc 先收它（最轻的一层，优先于两个模态浮层）
+      if (e.key === "Escape" && !$("theme-menu").hasAttribute("hidden")) {
+        e.preventDefault();
+        themePopOpen(false);
+        return;
+      }
+      // 「快速打开」浮层开着时 Esc 先关它（比关于浮层更靠前：它是模态拾取器）
+      if (e.key === "Escape" && $("quick-open").classList.contains("on")) {
+        e.preventDefault();
+        showQuickOpen(false);
+        return;
+      }
+      // 「关于」浮层开着时 Esc 先关它（否则会漏给编辑器）
+      if (e.key === "Escape" && $("about-card").classList.contains("on")) {
+        e.preventDefault();
+        showAbout(false);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "o" || e.key === "O")) { e.preventDefault(); openViaDialog(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P")) { e.preventDefault(); showQuickOpen(true); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s" && cm) { e.preventDefault(); saveCurrent(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "1" || e.key === "2" || e.key === "3")) {
+        e.preventDefault();
+        applyViewMode({ "1": "edit", "2": "preview", "3": "split" }[e.key]);
+      }
+    });
+    // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）+ 输入框随内容自动增高
+    document.getElementById("ai-send").onclick = aiSend;
+    // ⚙ 打开设置页（不是静默重连，也不是往消息区塞一张卡）
+    document.getElementById("ai-cfg-btn").onclick = openAiSettings;
+    document.getElementById("ai-set-back").onclick = function () { aiView("chat"); };
+    document.getElementById("set-save").onclick = saveCjhConfigForm;
+    // 「测试连通」：不改配置、只发一条单轮对话验连通（帧级覆盖，见 testCjhConnectivity）
+    document.getElementById("set-test").onclick = testCjhConnectivity;
+    document.getElementById("set-refresh").onclick = function () {
+      loadCjhConfigForm();
+      refreshCjhStatusLine();
+    };
+    document.getElementById("ai-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); aiSend(); }
+    });
+    document.getElementById("ai-input").addEventListener("input", function () {
+      this.style.height = "auto";
+      this.style.height = Math.min(this.scrollHeight, 120) + "px";
+    });
+    // L2 选区动作接线（编辑器初始化之后）
+    initL2();
+    refreshList().then(function (list) {
+      if (list.length === 0) { return; }
+      // 恢复「上次打开」：重启还在（对齐 markdown-notes）；键缺失或笔记已删回退第一篇
+      return invoke("store:get", { key: LAST_KEY }).then(function (last) {
+        var pick = list[0];
+        if (typeof last === "string") {
+          for (var i = 0; i < list.length; i++) { if (list[i] === last) { pick = last; break; } }
+        }
+        if (pick !== list[0]) { report("UI 已恢复上次打开: " + pick); }
+        return openNote(pick);
+      });
+    });
+    // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡。
+    // 问候卡只在「连上了 **且** 服务商配齐了」时出：配置缺着就交给「去配置」那张卡，
+    // 否则会先甩出一排「写点什么」的按钮，用户点了才发现根本发不出去。
+    initCjh().then(function () {
+      if (cjh.up && cjhCfg.ok) { aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。"); }
+    });
+    selfCheck(env);
+  }).catch(function (e) {
+    document.getElementById("doc-title").textContent = "notes:env 失败：" + e;
+  });
+}, 50);
+</script>
+  <div id="modal">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-title"></div>
+      <input id="modal-input" />
+      <div class="modal-text" id="modal-text"></div>
+      <div class="modal-btns">
+        <button id="modal-cancel">取消</button>
+        <button id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

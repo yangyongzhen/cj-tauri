@@ -176,3 +176,47 @@ func testClipboardReadReturnsHostValue(): Unit {
     let got = cmd.handle("clipboard:read", JsonObject(), IpcContext("main", IpcHub()))
     @Expect(got.asString().getValue(), "pasted 文本")
 }
+
+/** 桩侧「label → 宿主」解析器见 plugin_dialog_test.cj 的 routeProbeHost（同包可见） */
+@Test
+func testClipboardRoutesToTheWindowThatAsked(): Unit {
+    // 与 dialog 同一条契约：报文里的 window 决定交给哪个宿主。
+    // 只装单槽时第二扇窗的读写会落到默认窗那个宿主上（多窗口下的串台来源）。
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = ClipboardCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+
+    cmds.handle("clipboard:write", clipTextArgs("second 的剪贴板"), IpcContext("second", IpcHub()))
+    @Expect(secondHost.clipboardWritten, "second 的剪贴板")
+    // 关键断言：另一扇窗的宿主一点都没被碰到
+    @Expect(mainHost.clipboardWritten, "")
+
+    // 读同样按窗口解析
+    secondHost.clipboardReadValue = Some("from second")
+    let got = cmds.handle("clipboard:read", JsonObject(), IpcContext("second", IpcHub()))
+    @Expect(got.asString().getValue(), "from second")
+    @Expect(mainHost.clipboardReadValue.isNone(), true)
+}
+
+@Test
+func testClipboardReportsUnknownWindowInsteadOfFallingBack(): Unit {
+    let mainHost = FakeHost("main")
+    let secondHost = FakeHost("second")
+    let cmds = ClipboardCommands()
+    cmds.attachHost(mainHost)
+    cmds.attachHostResolver({ label => routeProbeHost(label, mainHost, secondHost) })
+
+    var threw = false
+    try {
+        cmds.handle("clipboard:write", clipTextArgs("x"), IpcContext("ghost", IpcHub()))
+    } catch (e: CommandException) {
+        threw = true
+        @Expect(e.message.contains("ghost"), true)
+    }
+    @Expect(threw, true)
+    // 报错之后两个宿主都没被写过：不回落单槽，宁可不写
+    @Expect(mainHost.clipboardWritten, "")
+    @Expect(secondHost.clipboardWritten, "")
+}

@@ -66,6 +66,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 |---|---|
 | 前端收到 `path is outside the authorized scope`，stderr 有 `[cj-tauri] scope denied (fs)` | **不是 bug**：清单给该插件写了 `scopes`，这条路径不在 `allow` 里（或命中了 `deny`）。要么把路径加进 `scopes`，要么改用白名单内的路径；`..` 与软链接都会被规范化拆穿，绕不过去。没写 `scopes` 的旧清单是全量放行的（启动有一行 stderr 提示） |
 | 用户要用名单之外的服务商 / 端点（页面侧就是加不进白名单） | 这是**设计使然**（清单是启动时读的静态文件 = 出网防线，页面改不了）。放行要**人**点一下：框架 `TauriApp.allowScopePattern(plugin, pattern)` 运行期叠加（内存态、重启即空，回 `Bool`）+ `isScopeAllowed(plugin, value)` 查当前口径；持久化与启动重放归应用（样板见 `examples/ai-chat` 的 `app:allowHost`：原生确认框 → 加白 → 写 `~/.local/share/cj-ai-chat/allowed-hosts.txt`）。注册中心**只收具体值**：空串或含 `*` / `?` 与制表换行的模式当场拒并回 `false`（通配一进来就等于全放行），回 `false` 别当成功。口径不变：**先 deny 后 allow**，加白掀不掉 `deny`；插件名传字符串（`"http"` / `"fs"` / `"ws"`） |
+| 应用改完 cjh 配置「保存了却不生效」（cjh 后端，2026-10-20 实测） | 三条都实测过：① `POST /api/settings` 是**字段白名单**——`baseUrl` / `model` / `apiKey` / `temperature` / `maxTokens` / `maxIterations` 能改**且改内存即生效**（GET 立刻回新值），`provider_protocol` 传进去**静默忽略**（GET 也不回显），它只能靠「写文件 + 重启」；② 「重启 cjh」的那条命令通常**只重启本应用 spawn 的实例**，端口上是别人拉起的 cjh（如 ai-chat 先起、另一个应用后连）时只回一句「需手动重启」——所以别把「配置生效」建在重启上；③ `chat` 帧支持**帧级 `model` / `baseUrl` / `apiKey` 覆盖**（单次生效、不落盘、不粘连），做「测试连通」按钮就用它：拿表单里的值真发一条最小对话，配一个故意错的 key 会被服务商拒（`provider_auth_error`）证明确实生效；探针别带 `session_id`，否则要么污染用户当前会话、要么多出一个会话（cjh 会用帧里的 id 回投，盘上的文件名却不是它回的 id，按 id 删不掉） |
 
 ### 多窗口 / 回调
 

@@ -11,6 +11,36 @@
 
 ### Added
 
+- **新增示例 `examples/cjnote`：AI 原生 Markdown 笔记**（从 [cjnote](https://gitcode.com/qq8864/cjnote) 移植进仓，
+  随上游 `52c5afd` 同步）：三栏（笔记库 / CodeMirror 编辑 / AI 助手），笔记就是工作区 `notes/` 下的纯 `.md`；
+  原生菜单（文件 / 视图 / 帮助）+ `setTitlebarSubtitle` 副标题（平台没这块能力位时回落页面顶栏）、视图三态与
+  界面主题**与原生菜单勾选双向同步**、`Ctrl+O` 打开库外文件只进内存（首次保存才落成库里的新笔记，不改写磁盘原文件）、
+  大纲页签与页内快速打开；笔记存取走应用自研的 `NoteStore`，**不引 fs 插件**。
+  **AI 后端只有 cjh 一条路**（上游这一版把第三方直连整个移除）：⚙ 从弹窗改成整页设置，地址 / 密钥 / 模型 / 协议
+  写进 cjh 的 `settings.json` + `auth.json` 并重启生效；密钥输入框**永远留空**（只有真输了新值才写，带 `****` 的
+  掩码值一律跳过），所以打开设置页再保存不会把掩码写回配置文件。AI 走 cjh 的 ws（`ws:default`），不再有
+  「某家服务商域名不在白名单」这类问题。另有编辑器「显示行号」开关与 AI 流式回复节流渲染。
+  移植适配：框架依赖从仓外同级 `../cj-tauri` 改为仓内上两级 `../..`（`link-option` 的 `-L../../native` 同改）；
+  清单里的 `store:del` 是笔误（store 插件真名 `store:delete`）已订正；`-lcjTauri.plugins.fs` 一并去掉——
+  本应用只 import `std.fs`、不引 fs 插件（清掉 `target/release/incremental-cache.json` 强制重链后仍链得过）；
+  `README.md` 的桥路径与 `LD_LIBRARY_PATH` 示例改回仓内口径。
+  **随包分发 cjh 预编译产物**（`vendor/cjh/bin/<平台>/`——应用按路径直接找现成二进制，没有运行期解包，所以
+  `bin/` 树必须真的在盘上；另带两个平台压缩包与 `SHA256SUMS`）：Windows 那份原样随上游，**Linux 两份已按 cjh
+  `a3e1e6e` 的 `dist/cjh-linux-x64` 重建**——上游随包的 Linux 通道要求 `GLIBC_2.38`，本机（22.04 / 2.35）
+  起不来；重建后 `GLIBC_2.34` 封顶。仓库**不提交 `*.dll`** 的规则对这里开口子：Windows 侧按名字加载的 4 个
+  依赖 DLL 随包分发（与 ai-chat 的 `vendor/cjh` 同性质，见 `.gitignore` 的例外与 `AGENTS.md` §5）。
+  **设置页的保存是「两条腿」**（2026-10-20 实测定案）：写 `settings.json` / `auth.json` 管下次拉起与协议字段，
+  同时把 `baseUrl` / `model` / `apiKey` / `temperature` / `maxTokens` / `maxIterations` 经 `POST /api/settings`
+  即时推给**正在运行的那只 cjh**——`cjh:restart` 只重启本应用 spawn 的实例（端口上是 ai-chat 拉起的 cjh 时
+  它只回一句「需手动重启」，于是设置看着「保存了却不生效」），而这条 REST 通道对别人的实例同样有效。
+  只有 `provider_protocol` 不在白名单（传进去静默忽略），那一项改动才如实提示需重启。
+  设置页另加**「测试连通」**按钮：走 `chat` 帧的**帧级 `model` / `baseUrl` / `apiKey` 覆盖**（单次生效、
+  不落盘）真发一条最小对话，测的就是「表单里这组值能不能用」且配置一字未动；探针不带 `session_id`
+  （cjh 为这一轮另开会话），不污染当前对话、也不顶掉会话 id。前端库（marked / Highlight.js / CodeMirror）
+  与已有示例的副本逐字节相同，来源与许可证见 `AGENTS.md` §5。
+  Linux 实机：窗口 1280x800、原生菜单 13 项、页面自检 `SELFCHECK DONE passed=62 failed=0`（PASS 明细 63 条，
+  含真实 cjh 聊天探针与设置页连通探针——探针那条是异步收尾，落在汇总行之后属预期）；
+  Windows 未实机验证。
 - **ai-chat 示例：聊天与 Agent 会话分离**：侧栏按当前模式只列本模式的会话
   （聊天 = 直连会话，Agent = cjh 会话及其镜像），各自记住自己的当前会话、切换模式互不顶掉；
   新建会话打上归属标签，存量存档按「有无 cjhId」归类。同步撤掉旧的「聊天模式隐藏镜像」
@@ -484,6 +514,17 @@
 
 ### Fixed
 
+- **`examples/cjnote` 的「引用当前笔记 / 问笔记库」两个勾选框都会静默空转**（用户实测：勾了笔记，AI 回复里
+  还是看不到笔记内容）。两条独立成因，都已修：① **库外文件勾了等于没勾**——`Ctrl+O` 打开的库外文件走
+  `openExternalPath()`，那里把 `current` 置成空串，而拼上下文的条件是 `current` 非空，于是整篇正文根本没附上、
+  页面上也没有任何提示；现在按「当前文档」本身取内容（标签回落成文件名），正文超 2 万字才截断且如实标注。
+  ② **「问笔记库」把整句自然语言当关键词**——`note:search` 是朴素大小写敏感 `contains`（标题 + 正文），
+  实测「总结下笔记的内容」在全库 0 命中，附上去的上下文自然是空串；现在检索之外**再附一份「笔记库概况」**
+  （新增命令 `note:brief`：最近改动的至多 8 篇，每篇标题 + 正文前 1200 字，按 UTF-8 字符边界截断），
+  「总结 / 库里都有什么」这类问题有料可答。两条路径在**勾了却没有可附正文**时都改成打一条页面提示行
+  （同时进 stderr 日志），不再静默。页面把拼装抽成 `buildAiContext()` 并补了 4 条自检断言（库外文件附正文 /
+  空正文有提示 / 检索未命中走概况兜底 / `note:brief` 形状与 front-matter 剥离），沙盒自检 66/66
+  （含 cjh 真连通探针 `reply=ok`）。
 - **ai-chat 设置页的 Agent 横幅把行为说反了**：原文案写「下面这些字段只在聊天模式下生效，Agent 模式下改了
   不会影响这一轮对话」，而 `agentChatFrame()` 一直把当前服务商的 `model` / `base_url` / `api_key` 带进当回合的
   chat 帧，**改动当回合就生效**；现在还会同步进 cjh 基线（见 Added 段）。文案已改成实话，并把「连上 cjh」

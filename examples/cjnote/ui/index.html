@@ -121,10 +121,11 @@ body.native-titlebar #topbar { display: none; }
   display: flex; flex-direction: column;
   background: var(--bg2); border-right: 1px solid var(--border); min-height: 0;
 }
-/* 侧栏宽度拖条：侧栏与工作区之间的窄条；悬停/拖动时 accent 提示可拖 */
-#resizer { flex: 0 0 6px; cursor: col-resize; background: transparent; }
-#resizer:hover { background: var(--accent); opacity: 0.35; }
-#resizer.dragging { background: var(--accent); opacity: 0.7; }
+/* 宽度拖条：左侧栏右缘（#resizer）与 AI 面板左缘（#ai-resizer）共用一套样式；
+   悬停/拖动时 accent 提示可拖，body.resizing 让拖动期间光标与选区全局一致 */
+#resizer, #ai-resizer { flex: 0 0 6px; cursor: col-resize; background: transparent; }
+#resizer:hover, #ai-resizer:hover { background: var(--accent); opacity: 0.35; }
+#resizer.dragging, #ai-resizer.dragging { background: var(--accent); opacity: 0.7; }
 body.resizing, body.resizing * { cursor: col-resize !important; user-select: none; }
 #sidebar .head {
   flex: 0 0 auto; padding: 10px 12px 6px; color: var(--fg-dim);
@@ -211,7 +212,10 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 #preview img { max-width: 100%; }
 /* ── AI 侧栏（2026-10-19 视觉重做：状态胶囊 / markdown 气泡 / 空态引导 / 打字动效） ── */
 #ai {
-  flex: 0 0 320px; display: flex; flex-direction: column; min-height: 0;
+  /* 宽度走 --ai-w（拖左缘拖条调整，240~640px 夹取，双击复位 320）；
+     min/max-width 同侧栏：必须写死值，min-width:auto 会被内容 min-content 撑宽 */
+  flex: 0 0 var(--ai-w, 320px); min-width: 240px; max-width: 640px;
+  display: flex; flex-direction: column; min-height: 0;
   background: var(--bg2); border-left: 1px solid var(--border);
 }
 /* 头部：标题 + 状态胶囊（点色：缺省=黄 / 就绪=绿 / 出错=红 / 忙=蓝呼吸） */
@@ -244,6 +248,10 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 .ai-greet .g-ico { font-size: 30px; color: var(--accent); margin-bottom: 8px; }
 .ai-greet .g-title { font-size: 14px; color: var(--fg); margin-bottom: 6px; }
 .ai-greet .g-sub { font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+.ai-greet .g-log {
+  font-size: 11px; line-height: 1.5; margin: -8px 0 12px; color: var(--fg-dim);
+  opacity: .75; word-break: break-all; user-select: text;
+}
 .ai-greet .g-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .ai-greet .g-chips button {
   background: var(--bg3); border: 1px solid var(--border); color: var(--fg-dim);
@@ -336,6 +344,8 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 /* 工具活动单行（tool_start / tool_result）：挂在 AI 气泡下方 */
 .ai-tools { font-size: 11px; color: var(--fg-dim); margin-top: 6px; word-break: break-all; }
 .ai-greet.off .g-ico { color: #e0b060; }
+/* 未配置服务商：同一个琥珀警示位，但按钮是「去配置」——这类不是故障，是缺一步配置 */
+.ai-greet.cfg .g-ico, .ai-greet.cfg .g-title { color: #e0b060; }
 /* ── 对话 / 设置 两个视图：同一时刻只显示一个（#ai.settings 切换） ── */
 #ai-chat-view { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 #ai-settings-view { flex: 1 1 auto; display: none; flex-direction: column; min-height: 0; }
@@ -538,6 +548,7 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
       </div>
     </div>
   </div>
+  <div id="ai-resizer" title="拖动调整 AI 面板宽度；双击恢复默认"></div>
   <div id="ai">
     <div class="head">
       <span class="title"><span class="ico">✦</span>AI 助手</span>
@@ -753,10 +764,20 @@ function report(line) {
   try { invoke("report", { line: line }); } catch (e) {}
 }
 function eprintlnShim(line) { console.log(line); }
+// 绝对路径判定：POSIX 以 "/" 开头，Windows 是 "E:/…" 或 "E:\…"（后端给的正是这两种）。
+// 只认 "/" 会让 Windows 上的自检断言恒红——那是判定写窄了，不是后端没给绝对路径。
+function isAbsPath(p) {
+  var s = String(p || "");
+  return s.charAt(0) === "/" || /^[A-Za-z]:[\\/]/.test(s);
+}
 
 // ── AI 侧栏：后端只有 cjh（宿主拉起 vendor 里那份），页面经 ws 插件直连它的聊天流 ──
 // cjh 是 agent：system / 工具 / 会话都由它管，页面只发一问、收一答的帧流。
-var cjh = { state: "missing", api: "", ws: "", up: false, session: "", checking: false, probe: { on: false } };
+// wsErr / owned / foreign / healthVersion / bundledVersion：端口上那只到底是谁 + 上一次连不上的原文，
+// 由 cjhFacts() 与 cjhConnect() 的 catch 填（离线卡靠它们把成因说清楚）
+var cjh = { state: "missing", api: "", ws: "", up: false, session: "", checking: false,
+  wsErr: "", owned: false, foreign: false, healthVersion: "", bundledVersion: "",
+  probe: { on: false } };
 var aiStreaming = false;
 var aiTurn = null;        // 本轮流式：{ kind: "chat"|"l2", body, acc, tools }
 var curApproval = null;   // 未决的审批卡（cjh 工具串行调，同时只会有一个）
@@ -831,8 +852,17 @@ function aiSetBody(el, text) {
   box.scrollTop = box.scrollHeight;
 }
 // 空态引导卡：图标 + 说明 + 建议按钮（点一下直接把问题发出去）
+// 启动期卡片（问候 / 未配置 / 离线）都只负责空态：**已经有人开始聊了就不能清空消息区**。
+// 2026-10-21 自检抓到：连上之后还要一次 cjh:config 复判，这个异步回调可能晚于用户的第一问，
+// 于是「画问候卡」把刚到的回复整个抹掉（断言现场 bubbles=0、页面看着像没回）。
+function aiGreetIdle() {
+  var box = $("ai-msgs");
+  if (!box) { return false; }
+  return box.children.length === 0 || !!box.querySelector(".ai-greet");
+}
 function aiGreet(sub) {
   var box = $("ai-msgs");
+  if (!aiGreetIdle()) { return; }
   box.innerHTML = "";
   var card = document.createElement("div");
   card.className = "ai-greet";
@@ -862,6 +892,16 @@ function aiGreet(sub) {
 // ── cjh 连接：状态 → 端点 → WS ──
 // 宿主在后台拉起 cjh web（vendor/cjh/bin/ 里的随包二进制），页面只连它的 WS 聊天流。
 // 三态来自 cjh:status：running（已就绪）/ configured（有二进制没起）/ missing（找不到）
+// 端口上那只到底是谁：`cjh:status` 与 `cjh:start` 都带这几项。
+// HTTP 200 只证明「有 cjh 在答话」，证明不了它就是随包那只、也证明不了 /ws 能连
+// （2026-10-21 另一台机器：netstat 显示 8765 上有 LISTENING，页面却连不上 WS——两条事实要能对上）。
+function cjhFacts(st) {
+  st = st || {};
+  cjh.owned = (st.owned === true);
+  cjh.healthVersion = st.healthVersion || "";
+  cjh.foreign = (st.foreign === true);
+  cjh.bundledVersion = st.bundledVersion || "";
+}
 function cjhBoot(force) {
   if (cjh.checking && !force) { return Promise.resolve(); }
   cjh.checking = true;
@@ -869,7 +909,9 @@ function cjhBoot(force) {
   return invoke("cjh:status").then(function (st) {
     st = st || {};
     cjh.state = st.state || "missing";
-    report("CJH status=" + cjh.state + " ws=" + (st.wsUrl || "-"));
+    cjhFacts(st);
+    report("CJH status=" + cjh.state + " ws=" + (st.wsUrl || "-")
+      + " owned=" + cjh.owned + " version=" + (cjh.healthVersion || "-") + " foreign=" + cjh.foreign);
     if (cjh.state === "running") {
       cjh.api = st.apiUrl || ""; cjh.ws = st.wsUrl || "";
       cjh.checking = false;
@@ -882,6 +924,7 @@ function cjhBoot(force) {
         cjh.checking = false;
         if (r && r.ok) {
           cjh.api = r.apiUrl || ""; cjh.ws = r.wsUrl || ""; cjh.state = "running";
+          cjhFacts(r);
           return cjhConnect();
         }
         aiSetState("未就绪", "bad");
@@ -905,21 +948,44 @@ function cjhConnect() {
     cjh.up = true;
     aiSetState("就绪", "ok");
     report("CJH ws connected " + cjh.ws);
-    updateAiCfgTip();
-    // 续聊：会话内容在 cjh 侧，页面只留着 id
-    if (cjh.session) { cjhWsSend({ type: "resume_session", session_id: cjh.session }).catch(function () {}); }
+    // 连上只是第一步：再判「服务商配置齐不齐」——没配密钥时状态必须说「未配置密钥」，
+    // 别让用户以为后端没起来（这两种情况的下一步完全不同）
+    return cjhCfgCheck().then(function (cfg) {
+      updateAiCfgTip();
+      if (!cfg.ok) {
+        aiSetState("未配置密钥", "");
+        aiGreetNeedConfig();
+        report("CJH-WARN 服务商密钥未配置（cjh 已连上 " + cjh.ws + "）");
+      }
+      // 续聊：会话内容在 cjh 侧，页面只留着 id
+      if (cjh.session) { cjhWsSend({ type: "resume_session", session_id: cjh.session }).catch(function () {}); }
+    });
   }).catch(function (e) {
     cjh.up = false;
+    // 真实报错必须留下来：w 插件回的是 `ws: url must start with ws://…` /
+    // `ws: host is outside the authorized scope` / `ws: connect failed: <细节>` 这些**能定位**的话，
+    // 只写一句「连不上」等于让人自己去猜（实测那台机器就卡在这一步）
+    cjh.wsErr = (e && e.message ? e.message : String(e));
     aiSetState("未连接", "bad");
     aiGreetOffline(cjh.state);
-    report("CJH-WARN 连接失败: " + (e && e.message ? e.message : e));
+    report("CJH-WARN 连接失败: " + cjh.wsErr);
   });
 }
 function cjhWsSend(obj) { return invoke("ws:send", { text: JSON.stringify(obj) }); }
 function updateAiCfgTip() {
   var btn = $("ai-cfg-btn");
   if (!btn) { return; }
-  btn.title = cjh.up ? ("AI 后端：cjh 已连接 " + cjh.ws + "（点击查看）") : "AI 后端：cjh 未连接（点击查看）";
+  var needCfg = cjhCfg.checked && !cjhCfg.ok;
+  btn.title = needCfg
+    ? "AI 后端：cjh 已连接，但服务商密钥未配置（点这里填）"
+    : (cjh.up ? ("AI 后端：cjh 已连接 " + cjh.ws + "（点击查看）") : "AI 后端：cjh 未连接（点击查看）");
+  // 输入框占位是最容易被看到的一行：未配置时直接把它变成下一步动作
+  var inp = $("ai-input");
+  if (inp) {
+    inp.placeholder = needCfg
+      ? "还没配置服务商密钥——点右上角 ⚙ 填上再问"
+      : "问点什么…（Enter 发送，Shift+Enter 换行）";
+  }
 }
 // ── 设置页：点 ⚙ 切到设置视图（不是一个只会转圈的状态卡） ──
 // 配置读写交给宿主（cjh:config / cjh:saveConfig / cjh:restart）：页面没有 fs 权限碰 ~/.cjh，
@@ -1030,6 +1096,19 @@ function saveCjhConfigForm() {
         }
       }
       refreshCjhStatusLine();
+      // 配置刚改过：复判一次（重启失败而配置走了 REST 白名单即时生效时，这条是唯一的回正路径）
+      cjhCfgCheck().then(function (cfg) {
+        updateAiCfgTip();
+        var box = $("ai-msgs");
+        if (cfg.ok) {
+          if (cjh.up) { aiSetState("就绪", "ok"); }
+          if (box && box.querySelector(".ai-greet.cfg")) {
+            aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。");
+          }
+        } else if (box && box.querySelector(".ai-greet.cfg")) {
+          aiGreetNeedConfig();
+        }
+      });
     });
   }).catch(function (e) {
     btn.disabled = false;
@@ -1240,23 +1319,127 @@ function aiAskCjh(text, ctx) {
     aiTurn = null;
   });
 }
-// 后端未就绪时的引导卡：说清是哪一种「没连上」，并给一个能点的下一步
+// ── 后端状态有两条轴，必须分开说 ──
+// ① cjh 进程在不在、页面连不连得上它的 WS；② 服务商配置齐不齐。
+// 实测（随包 cjh 1.5.3，空 HOME 起一只）：没配密钥时 `/api/health` **照样返回 200**、
+// `/ws` 端点也正常，只有 `/api/settings` 的 apiKey 是空串。旧实现把这两种情况糊成一句
+// 「cjh 没起来或连不上」，于是一个明明起着、只是没填密钥的后端被报成「未就绪」，
+// 用户既找不到原因、也没人提示他去填密钥。下面把判定拆成两套。
+var cjhCfg = { checked: false, ok: true, needKey: false, usesDefaults: false, raw: null };
+/** 纯函数：从 `cjh:config` 的返回判「服务商配齐了没」。
+ *  只有 **API 密钥**是硬门槛；接入地址 / 模型名留空时 cjh 用内置默认值（实测 /api/settings 有值）。 */
+function cjhCfgMissing(c) {
+  c = c || {};
+  var hasKey = !!c.hasKey;
+  var hasBase = String(c.baseUrl || "").trim() !== "";
+  var hasModel = String(c.model || "").trim() !== "";
+  return { ok: hasKey, needKey: !hasKey, usesDefaults: !hasBase || !hasModel };
+}
+function cjhCfgCheck() {
+  return invoke("cjh:config").then(function (c) {
+    var v = cjhCfgMissing(c);
+    cjhCfg = { checked: true, ok: v.ok, needKey: v.needKey, usesDefaults: v.usesDefaults, raw: c || null };
+    return cjhCfg;
+  }).catch(function () {
+    // 读不到配置 ≠ 没配置：判成「未知/就绪」，不制造假告警
+    cjhCfg = { checked: true, ok: true, needKey: false, usesDefaults: false, raw: null };
+    return cjhCfg;
+  });
+}
+/** 纯函数：离线卡的标题按「卡在哪一步」分支，不再一句话糊住三种情况 */
+function cjhOfflineTitle(state) {
+  if (state === "missing") { return "没找到 AI 后端 cjh"; }
+  if (state === "running") { return "连不上 cjh 的通信通道"; }
+  return "cjh 没能启动";
+}
+/**
+ * 纯函数：离线卡的副标题。
+ *
+ * `extra` = { err, owned, foreign, version, bundled }——「连不上」时把**真实报错**与
+ * 「端口上那只到底是谁」一并写出来。这两项缺任何一个，用户都只能自己猜
+ * （实测另一台机器：8765 上确实有 LISTENING，卡上却只有一句「连不上」，无从下手）。
+ */
+function cjhOfflineSub(state, wsUrl, extra) {
+  var x = extra || {};
+  if (state === "missing") {
+    return "没找到随包 cjh（vendor/cjh/bin/）。确认打包时把对应平台的二进制带上了，然后点「重新连接」。";
+  }
+  if (state === "running") {
+    var s = "cjh 进程在运行（" + (wsUrl || "端口上的实例") + "），但页面没连上它的 WS";
+    s += x.err ? ("：" + x.err) : "。";
+    if (x.foreign) {
+      s += "端口上答话的是 cjh " + x.version + "，随包的是 " + x.bundled
+        + "——很可能是另一份 cjh 占着这个端口。";
+    } else if (x.owned === false) {
+      s += "这只不是本应用拉起的实例（端口上原本就有 cjh），它的 WS 未必对页面开放。";
+    }
+    return s + "点「重新连接」再试一次；细节看应用日志（搜索 [frontend] / [cjnote] 前缀）。";
+  }
+  return "找到了 cjh 可执行文件，但没能把它拉起来（进程没起来 / 端口没响应）。"
+    + "点「重新连接」再试一次；启动失败的原因在应用日志（搜索 [frontend] / [cjnote] 前缀）。";
+}
+// 后端没连上时的引导卡：说清是哪一种「没连上」，并给一个能点的下一步
 function aiGreetOffline(state) {
   var box = $("ai-msgs");
+  if (!aiGreetIdle()) { return; }
   box.innerHTML = "";
   var card = document.createElement("div");
   card.className = "ai-greet off";
-  var sub = state === "missing"
-    ? "没找到随包 cjh（vendor/cjh/bin/）。确认打包时把对应平台的二进制带上了，然后点「重新连接」。"
-    : "cjh 没起来或连不上。点「重新连接」再试一次；启动细节在应用日志（搜索 [cjnote] 前缀）。";
   card.innerHTML =
     '<div class="g-ico">⚠</div>' +
-    '<div class="g-title">AI 后端未就绪</div>' +
+    '<div class="g-title"></div>' +
     '<div class="g-sub"></div>' +
+    '<div class="g-log"></div>' +
     '<div class="g-chips"><button>重新连接</button></div>';
-  card.querySelector(".g-sub").textContent = sub;
+  card.querySelector(".g-title").textContent = cjhOfflineTitle(state);
+  card.querySelector(".g-sub").textContent = cjhOfflineSub(state, cjh.ws, {
+    err: cjh.wsErr,
+    owned: cjh.owned,
+    foreign: cjh.foreign,
+    version: cjh.healthVersion,
+    bundled: cjh.bundledVersion
+  });
+  // 日志路径**当场问出来**（log:path）：产物是 GUI 子系统、双击没有控制台，
+  // 只说「看应用日志」等于让人去猜文件在哪——那正是上一轮被吐槽的空指引
+  var logEl = card.querySelector(".g-log");
+  invoke("log:path").then(function (p) {
+    logEl.textContent = p ? ("应用日志：" + p)
+      : "应用日志未开启（设 CJ_TAURI_LOG=<文件路径> 再启动即可落盘）";
+  }).catch(function () {});
   box.appendChild(card);
   card.querySelector(".g-chips button").onclick = function () { cjhBoot(true); };
+}
+/** 纯函数：未配置卡的说明（端点是活的、缺的是密钥——这两句都不能省，否则又回到「未就绪」） */
+function cjhCfgCardSub(wsUrl, usesDefaults) {
+  var ep = wsUrl || "ws://127.0.0.1:8765/ws";
+  var s = "cjh 已在运行（" + ep + "），但还没配置服务商密钥——这一项不填，问什么都只会被服务商拒绝。";
+  if (usesDefaults) {
+    s += "接入地址与模型名留空时用 cjh 内置默认值（https://api.openai.com/v1/chat/completions / gpt-4o-mini）。";
+  }
+  return s + "点「去配置」填好保存即可生效。";
+}
+// 连上了、只是服务商没配：给一张带「去配置」的卡（点一下直达设置页，不是让人自己找 ⚙）
+function aiGreetNeedConfig() {
+  var box = $("ai-msgs");
+  if (!box) { return; }
+  // 已经聊过就不覆盖（那轮对话本身有意义）；只有空态或已经是一张引导卡时才换掉
+  if (box.children.length > 0 && !box.querySelector(".ai-greet")) { return; }
+  box.innerHTML = "";
+  var card = document.createElement("div");
+  card.className = "ai-greet off cfg";
+  card.innerHTML =
+    '<div class="g-ico">⚙</div>' +
+    '<div class="g-title">还没配置服务商密钥</div>' +
+    '<div class="g-sub"></div>' +
+    '<div class="g-chips"><button class="to-cfg">去配置</button><button class="to-retry">重新连接</button></div>';
+  card.querySelector(".g-sub").textContent = cjhCfgCardSub(cjh.ws, cjhCfg.usesDefaults);
+  box.appendChild(card);
+  card.querySelector(".to-cfg").onclick = function () {
+    aiView("settings");
+    loadCjhConfigForm();
+    refreshCjhStatusLine();
+  };
+  card.querySelector(".to-retry").onclick = function () { cjhBoot(true); };
 }
 // 会话 id 落 store：重启后 resume_session 接着聊（聊天记录在 cjh 侧，页面不镜像）
 function saveCjhSession(id) {
@@ -1611,6 +1794,65 @@ function loadSidebarW() {
     if (typeof v === "string" && v) {
       var w = parseInt(v, 10);
       if (!isNaN(w)) { applySidebarW(w); }
+    }
+  }).catch(function () {});
+}
+// ── AI 面板宽度拖动：面板左缘的 resizer 窄条（#work 与 #ai 之间）。
+//    方向与侧栏相反：右缘不动、拖的是左缘，往左拖变宽，所以增量取负。
+//    宽度写进 --ai-w（240~640px 夹取），双击复位 320；偏好落 store（ui.aiw）。
+//    上限还要跟窗口走：窗口窄时「拖到 640」会把编辑区挤成 0，那不是用户想要的最宽，
+//    所以夹取里再扣掉「侧栏 + 编辑区保底」，并在窗口 resize 后按新空间重夹一次。
+var AI_W_KEY = "ui.aiw";
+var AI_MIN = 240, AI_MAX = 640, AI_DEFAULT = 320, WORK_MIN = 320;
+function availableAiW() {
+  var sbW = $("sidebar") ? $("sidebar").getBoundingClientRect().width : 0;
+  // 两条拖条各 6px：这里不去查 DOM，拖条宽度是 CSS 常量，写死更好读
+  return Math.max(AI_MIN, window.innerWidth - sbW - 12 - WORK_MIN);
+}
+function clampAiW(w) {
+  var max = Math.min(AI_MAX, availableAiW());
+  return Math.max(AI_MIN, Math.min(max, Math.round(Number(w) || AI_DEFAULT)));
+}
+function applyAiW(w) {
+  document.documentElement.style.setProperty("--ai-w", clampAiW(w) + "px");
+}
+function persistAiW() {
+  invoke("store:set", { key: AI_W_KEY, value: String(Math.round($("ai").getBoundingClientRect().width)) }).catch(function () {});
+}
+function initAiDrag() {
+  var rz = $("ai-resizer");
+  if (!rz) { return; }
+  rz.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    var startX = e.clientX;
+    var startW = $("ai").getBoundingClientRect().width;
+    rz.classList.add("dragging");
+    document.body.classList.add("resizing");
+    function onMove(ev) { applyAiW(startW - (ev.clientX - startX)); }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      rz.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      persistAiW();
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
+  rz.addEventListener("dblclick", function () {
+    applyAiW(AI_DEFAULT);
+    invoke("store:set", { key: AI_W_KEY, value: String(AI_DEFAULT) }).catch(function () {});
+  });
+  // 窗口变窄后旧宽度可能已超出可给的空间：resize 时按新空间重夹（只在拖动/复位时落盘）
+  window.addEventListener("resize", function () {
+    applyAiW($("ai").getBoundingClientRect().width);
+  });
+}
+function loadAiW() {
+  invoke("store:get", { key: AI_W_KEY }).then(function (v) {
+    if (typeof v === "string" && v) {
+      var w = parseInt(v, 10);
+      if (!isNaN(w)) { applyAiW(w); }
     }
   }).catch(function () {});
 }
@@ -2255,9 +2497,90 @@ function selfCheck(env) {
   rz.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   ok(Math.abs($("sidebar").getBoundingClientRect().width - 220) <= 1, "double click resets sidebar to 220px");
   applySidebarW(220);
+  // AI 面板宽度拖动：方向与侧栏相反（往左拖变宽），同样要「真改变宽度 / 超限夹取 / 双击复位」
+  var arz = $("ai-resizer");
+  ok(!!arz && getComputedStyle(arz).cursor === "col-resize", "ai panel resizer present with col-resize");
+  var arzBox = arz.getBoundingClientRect();
+  var arzX = arzBox.left + arzBox.width / 2;
+  var aiBefore = $("ai").getBoundingClientRect().width;
+  arz.dispatchEvent(new MouseEvent("mousedown", { clientX: arzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: arzX - 40, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  ok(Math.abs($("ai").getBoundingClientRect().width - (aiBefore + 40)) <= 2,
+     "drag leftwards widens ai panel (was " + Math.round(aiBefore) + "px)");
+  arz.dispatchEvent(new MouseEvent("mousedown", { clientX: arzX, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mousemove", { clientX: arzX - 9999, bubbles: true }));
+  document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  var aiMax = $("ai").getBoundingClientRect().width;
+  ok(aiMax <= AI_MAX + 0.5 && aiMax <= availableAiW() + 1,
+     "ai panel width clamped at max (" + Math.round(aiMax) + "px <= " + AI_MAX + " and <= available " + Math.round(availableAiW()) + ")");
+  arz.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  var aiReset = $("ai").getBoundingClientRect().width;
+  ok(aiReset <= AI_DEFAULT + 0.5 && aiReset >= AI_MIN - 0.5,
+     "double click resets ai panel towards default " + AI_DEFAULT + "px (now " + Math.round(aiReset) + "px)");
+  applyAiW(AI_DEFAULT);
   // AI 面板重做：状态胶囊带色点 + 配置入口（静态 DOM，同步可断言）
   ok($("ai-state").querySelector("i") !== null, "AI state pill has colored dot");
   ok($("ai-cfg-btn") !== null, "AI config button in header");
+  // 「cjh 没起来」与「cjh 起来了但没配服务商」必须是两套话（2026-10-21 实机反馈）：
+  // 未配置密钥时 cjh 的健康检查照样 200，旧实现把这种情况也报成「cjh 没起来或连不上」，
+  // 用户看到的是一句假故障，且没有任何地方提示他去填密钥
+  var offRunning = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws", {});
+  ok(offRunning.indexOf("WS") >= 0 && offRunning.indexOf("没起来") < 0,
+     "running-but-unreachable wording names the WS, not 'not started'");
+  // 「端口上有人答话」和「页面连上了」是两件事（2026-10-21 另一台机器：netstat 只有 LISTENING、
+  // 没有 ESTABLISHED，而卡上原话只有一句「连不上」）：真实报错与版本归属都必须原样上卡
+  var offErr = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws",
+                             { err: "ws: connect failed: handshake 403" });
+  ok(offErr.indexOf("handshake 403") >= 0,
+     "offline card shows the real ws connect error text");
+  var offForeign = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws",
+                                 { foreign: true, version: "1.6.0", bundled: "1.5.3", owned: false });
+  ok(offForeign.indexOf("1.6.0") >= 0 && offForeign.indexOf("1.5.3") >= 0,
+     "offline card names the foreign cjh version next to the bundled one");
+  var offOwned = cjhOfflineSub("running", "ws://127.0.0.1:8765/ws", { owned: false });
+  ok(offOwned.indexOf("不是本应用拉起的实例") >= 0,
+     "offline card says the listener was not started by this app");
+  ok(cjhOfflineTitle("running") !== cjhOfflineTitle("missing")
+     && cjhOfflineTitle("bzzt") === "cjh 没能启动",
+     "offline card title branches by failure kind");
+  var cfgNoKey = cjhCfgMissing({ hasKey: false, baseUrl: "", model: "" });
+  ok(cfgNoKey.ok === false && cfgNoKey.needKey === true && cfgNoKey.usesDefaults === true,
+     "missing api key -> unconfigured (empty base/model reported as defaults)");
+  var cfgFull = cjhCfgMissing({ hasKey: true, baseUrl: "https://x/v1", model: "m" });
+  ok(cfgFull.ok === true && cfgFull.usesDefaults === false,
+     "configured provider -> ready, no defaults hint");
+  var cfgCardSub = cjhCfgCardSub("ws://127.0.0.1:8765/ws", true);
+  ok(cfgCardSub.indexOf("已在运行") >= 0 && cfgCardSub.indexOf("去配置") >= 0
+     && cfgCardSub.indexOf("未就绪") < 0,
+     "unconfigured card says the backend IS running and points at configuration");
+  // 未配置卡要能一键进设置页；这里把消息区原有节点**移走再放回**（不是改 innerHTML），
+  // 免得后面依赖既有节点监听器的断言被这次自检悄悄弄坏
+  var aiBox = $("ai-msgs");
+  var keepNodes = [];
+  while (aiBox.firstChild) { keepNodes.push(aiBox.removeChild(aiBox.firstChild)); }
+  var keepCfg = cjhCfg;
+  cjhCfg = { checked: true, ok: false, needKey: true, usesDefaults: true, raw: null };
+  aiGreetNeedConfig();
+  var cfgCard = aiBox.querySelector(".ai-greet.cfg");
+  var cfgBtn = cfgCard ? cfgCard.querySelector(".to-cfg") : null;
+  ok(!!cfgCard && !!cfgBtn, "unconfigured state renders a card with 去配置 button");
+  if (cfgBtn) { cfgBtn.click(); }
+  ok(aiSettingsOpen(), "去配置 button jumps straight to the settings view");
+  while (aiBox.firstChild) { aiBox.removeChild(aiBox.firstChild); }
+  for (var kn = 0; kn < keepNodes.length; kn++) { aiBox.appendChild(keepNodes[kn]); }
+  cjhCfg = keepCfg;
+  // 竞态回归（2026-10-21 实测踩过 bubbles=0）：连上之后还要复判一次配置，这个异步回调
+  // 可能晚于用户的第一问——启动期卡片一律只能画在空态，绝不能清掉已开始的对话
+  var raceUser = aiMsgEl("user", "自检：这一条在启动期卡片之后到达", false);
+  aiGreet("晚到的问候卡");
+  ok(aiBox.querySelectorAll(".msg").length >= 1,
+     "late greet card does not wipe an in-flight conversation");
+  aiGreetOffline("running");
+  ok(aiBox.querySelectorAll(".msg").length >= 1,
+     "late offline card does not wipe an in-flight conversation");
+  while (aiBox.firstChild) { aiBox.removeChild(aiBox.firstChild); }
+  for (var km = 0; km < keepNodes.length; km++) { aiBox.appendChild(keepNodes[km]); }
   // ⚙ 必须点开一个真设置页：删掉直连配置后若只剩「无声重连」，用户会以为按钮坏了（实测反馈）
   openAiSettings();
   ok(aiSettingsOpen(), "gear switches ai panel to settings view");
@@ -2419,10 +2742,15 @@ function selfCheck(env) {
                 // 也能让这条断言变绿（实测踩过——页面上明明什么都没收到）
                 ok(!err && typeof text === "string" && text.length > 0 &&
                    text.indexOf("（空回复）") < 0, "cjh chat reply non-empty");
-                // 回复渲染 markdown（与预览同源）：正文是结构化元素而非裸文本
-                var lastA = document.querySelectorAll("#ai-msgs .msg.assistant .body");
-                ok(lastA.length >= 1 && lastA[lastA.length - 1].childNodes.length >= 1,
-                   "AI reply body is rendered markdown");
+                // 回复渲染 markdown（与预览同源）：正文是结构化元素而非裸文本。
+                // 断言自带现场（气泡数 / 子节点数 / 正文片段）：这条直到 2026-10-21 才第一次
+                // 真正跑到（Linux 沙盒里一直是 SKIP），只回 true/false 时无从判断是没气泡还是空正文
+                var aiAs = document.querySelectorAll("#ai-msgs .msg.assistant");
+                var aiLastBody = aiAs.length ? aiAs[aiAs.length - 1].querySelector(".body") : null;
+                ok(!!aiLastBody && aiLastBody.childNodes.length >= 1,
+                   "AI reply body is rendered markdown (bubbles=" + aiAs.length +
+                   " kids=" + (aiLastBody ? aiLastBody.childNodes.length : -1) +
+                   " html=" + (aiLastBody ? String(aiLastBody.innerHTML).slice(0, 60) : "-") + ")");
                 ctxProbe(renameProbe);
                 // 设置页「测试连通」真跑一轮：它也是 ws 上的一条对话，必须等上面那轮收尾了再发
                 //（两轮并行会互相插帧）。探针不带 session_id，不污染当前会话。
@@ -2464,7 +2792,7 @@ function selfCheck(env) {
               // ① 后端必须给绝对路径：相对路径会被 cjh 按它自己的工作区解析，静默读错目录
               return invoke("note:list", {}).then(function (lr) {
                 noteRoot = (lr && lr.root) ? String(lr.root) : "";
-                ok(noteRoot.charAt(0) === "/", "note:list returns an absolute library root");
+                ok(isAbsPath(noteRoot), "note:list returns an absolute library root");
                 return invoke("note:create", { title: "自检-上下文" });
               }).then(function (cr) {
                 probeName = (cr && cr.name) ? String(cr.name) : "";
@@ -2474,7 +2802,7 @@ function selfCheck(env) {
                 return invoke("note:open", { name: probeName });
               }).then(function (or) {
                 docPath = (or && or.path) ? String(or.path) : "";
-                ok(docPath.charAt(0) === "/" && docPath.indexOf(probeName) >= 0,
+                ok(isAbsPath(docPath) && docPath.indexOf(probeName) >= 0,
                   "note:open returns the note's absolute path");
                 current = probeName;
                 externalPath = "";
@@ -2805,6 +3133,8 @@ waitForBridge(function () {
     loadExtFiles();
     initSidebarDrag();
     loadSidebarW();
+    initAiDrag();
+    loadAiW();
     document.addEventListener("keydown", function (e) {
       // 主题弹层开着时 Esc 先收它（最轻的一层，优先于两个模态浮层）
       if (e.key === "Escape" && !$("theme-menu").hasAttribute("hidden")) {
@@ -2865,9 +3195,11 @@ waitForBridge(function () {
         return openNote(pick);
       });
     });
-    // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡
+    // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡。
+    // 问候卡只在「连上了 **且** 服务商配齐了」时出：配置缺着就交给「去配置」那张卡，
+    // 否则会先甩出一排「写点什么」的按钮，用户点了才发现根本发不出去。
     initCjh().then(function () {
-      if (cjh.up) { aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。"); }
+      if (cjh.up && cjhCfg.ok) { aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。"); }
     });
     selfCheck(env);
   }).catch(function (e) {

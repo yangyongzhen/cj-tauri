@@ -45,6 +45,7 @@
 | **最近打开** | `Ctrl+O` 打开的库外文件直接并进左侧单列表（只显示文件名、完整路径悬停可见，点击重开、文件没了自动清条目，最近 8 条持久化）；重启自动恢复上次打开的笔记 |
 | **列表排序** | 侧栏「按修改时间 / 按名称」下拉，默认按修改时间（最近动过的在最上），偏好落盘 |
 | **侧栏可调宽** | 拖动侧栏右缘拖条调宽（160~480px 夹取），双击复位 220px，偏好落盘；长内容 ellipsis 截断不受影响 |
+| **AI 面板可调宽** | 拖动 AI 面板左缘拖条调宽（240~640px 夹取），双击复位 320px，偏好落盘；上限还跟窗口走——窄窗口下自动让位给编辑区（保底 320px），不会把中间挤成 0 |
 | **重命名 / 删除** | 「文件」菜单作用于当前笔记：真重命名（保留 mtime、拒绝覆盖已存在目标名）、删除带页内确认；外部文件被拒 |
 | **AI 助手** | 后端是 [cjh](https://atomgit.com/qq8864/cjh)（随包分发、自动拉起、退出收尾）；页面经 ws 直连 `ws://127.0.0.1:8765/ws` 流式收帧，逐字落进对话区，回复按 markdown 渲染（代码块高亮，与预览同源）；状态胶囊（就绪/未连接/忙/出错）、空态建议按钮一键提问、工具调用单行展示、审批请求内联成卡片（批准/拒绝） |
 | **AI 上下文（指针式）** | 每问默认只带**当前笔记的绝对路径**（外加笔记库根），**不带正文**——正文由 AI 自己按需 `read_file` 读，读的是最新内容。勾「问笔记库」则显式要求这一轮做全库检索；页面不做预取 |
@@ -170,6 +171,24 @@ LISTENING、页面 ws 连得上（单文件形态同样复核过：`cjh` 的 `Ma
 > 内嵌成 base64，**随包 cjh 与它的 4 个运行时 DLL** 作为 PE 资源（`RT_RCDATA`）一起塞在里面，
 > 首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`。不装仓颉 SDK、不设 `PATH`、不需要 `vendor/` 目录。
 > Linux 单文件产物用 `pack-linux-single.sh`（**不含 cjh**，需与 `vendor/cjh/` 同级摆放）。
+>
+> 上表那份 `cjnote.exe` 已随「AI 面板可拖宽度」与「AI 后端两态分流」两项改动**重打**
+> （2026-10-21 23:10 构建，34 184 192 字节，GUI 子系统、导入表只有系统 DLL），源码与产物同版。
+> 重打时顺带修掉一个真问题：Git Bash 的 `HOME` 是 POSIX 形式（`/c/Users/yang`），原生 Win32
+> 读不到 `~/.cjh`——**从 Git Bash 启动时配置页一片空白**（自检里 `cjh:config` 拿不到 model）。
+> 现在宿主会把 `/<盘符>/…` 与 `/cygdrive/<盘符>/…` 规范成原生路径再拼 `~/.cjh`。
+> 取证：同一份 exe，Git Bash 下自检 `84 PASS / 0 FAIL / 1 SKIP`（汇总行 `passed=84`、明细 84 条 PASS、
+> 0 条 FAIL；SKIP 那条是真实 cjh 聊天探针当时没连上，不算失败）；空配置目录下仍如实报
+> `CJH-WARN 服务商密钥未配置`（`未配置` 与 `未启动` 两条轴没有混）。
+>
+> **另一台机器上报的「cjh 在运行、页面 ws 连不上」已修**：仓颉运行时算 ws 握手的随机 nonce 走 OpenSSL，
+> 而它按**裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`（SDK 与 stdx 都不带，开发机上只是恰好命中
+> PATH 里 Git 自带的那份）——于是 `/api/health` 照常 200、页面显示「cjh 在运行」，只有 ws 报
+> `Can not load openssl library or function RAND_bytes.`。现在宿主在随包资源释放完成后**按绝对路径预加载**
+> 这两个 DLL（先 `libcrypto` 后 `libssl`），运行时再按裸名加载即命中已加载模块——不改 PATH、
+> 不把 DLL 摆到 exe 旁边，零新增体积（它们本来就在包里）。取证：默认日志里两行
+> `[cj-bridge] preload: …\cjnote\runtime/lib{crypto,ssl}-3-x64.dll` 之后紧跟
+> `[cj-tauri] ws: connected ws://127.0.0.1:8765/ws`。
 
 想把应用交付成**一个文件**（没有 `lib/`、没有 `ui/`、没有 `capabilities/`），用框架的通用打包脚本：
 
@@ -227,25 +246,31 @@ Linux 单文件**仍不含 cjh**——它按 `vendor/cjh/bin/<平台>/` 找现�
 
 ```bash
 CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
-# SELFCHECK DONE passed=68 failed=0
+# SELFCHECK DONE passed=84 failed=0        # Windows/WebView2 实测（另有 1 条 SKIP）；Linux 上次为 passed=68
 ```
 
 （汇总行的 `passed` 与 PASS 明细条数**不保证末行对齐**：`report` 是异步命令，聚合行之后还可能再来明细，
-所以探针那条断言会落在汇总行之后——判据是「PASS 明细 68 条、FAIL 0 条、汇总 failed=0」三者一致。）
+所以探针那条断言会落在汇总行之后——判据是「PASS 明细条数、FAIL 0 条、汇总 failed=0」三者一致。）
+
+「后端给了绝对路径」那两条断言用 `isAbsPath()` 判定（`/…` 或 `E:/…` 都算绝对）——只认 `/` 会让
+Windows 上恒红，那是判定写窄了、不是后端没给。
 
 断言覆盖：列表与打开、保存与字数同步、三态切换与持久化、主题切换与勾选回写、外部草稿保存、
 大纲抽取与跳行、原生副标题能力探测、AI 设置页切换、四个可编辑字段与按钮齐备、配置通路
 （`cjh:config` 回模型名且密钥脱敏、`cjh:saveConfig` 写盘并回报写入键、白名单字段即时推给运行中的实例），
+**两条宽度拖条**（侧栏右缘 / AI 面板左缘：真改变宽度、超限夹取、双击复位、偏好落 store），
+**AI 后端两态分流**（「离线文案按卡点分支」三条 + 「缺密钥判未配置」两条 + 「未配置卡带『去配置』且点了直达设置页」，
+以及「晚到的启动期卡片不得抹掉正在进行的对话」两条竞态回归），
 以及两条**真实 cjh** 的通路：流式聊天探针（有后端才跑，连不上记一行 SKIP，不把「环境里没有后端」算成失败）
 与设置页的**测试连通**（帧级覆盖真发一轮，回包非空才算过）。
-本轮沙盒实测：**68 PASS / 0 FAIL / 1 SKIP**。
+本轮实测：Windows/WebView2 **84 PASS / 0 FAIL / 1 SKIP**；Linux 沙盒上次为 **68 PASS / 0 FAIL / 1 SKIP**（新增断言未在 Linux 复跑）。
 
 ## 平台状态
 
 | 平台 | 状态 |
 | --- | --- |
-| Linux（WebKitGTK） | **已实机跑通**：菜单、副标题、AI 流式（markdown 气泡、工具行、审批卡）、AI 设置页（改配置即时生效 + 测试连通）、笔记增删改查重命名、最近打开、侧栏可调宽；沙盒自检 **68 PASS / 0 FAIL**、单文件产物启动同样取证过 |
-| Windows（WebView2） | **已实机跑通（2026-10-21）**：窗口与页面、`Ctrl+O` 打开笔记、视图菜单三态与行号开关勾选回写、6 个插件装配正常；**随包 cjh 自动拉起**（`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`）、页面 ws 连上（`CJH ws connected ws://127.0.0.1:8765/ws`）、`/api/health` → 200。副标题能力位为 0，按设计回落页面顶栏。**单文件形态同样取证**：`cjnote.exe` 34.1 MB、GUI 子系统、导入表只有系统 DLL；干净目录双击等价启动 → `cjh` 从 `%LOCALAPPDATA%\cjnote\runtime\` 自行释放拉起、`8765` LISTENING、页面 ws 连上，且 `cjh` 无窗口（`MainWindowHandle=0`）、可见控制台窗口 **0** 个。**尚缺**：Windows 侧的页面自检（`CJNOTE_SELFCHECK=1`） |
+| Linux（WebKitGTK） | **已实机跑通**：菜单、副标题、AI 流式（markdown 气泡、工具行、审批卡）、AI 设置页（改配置即时生效 + 测试连通）、笔记增删改查重命名、最近打开、侧栏与 AI 面板均可调宽；沙盒自检 **68 PASS / 0 FAIL**、单文件产物启动同样取证过 |
+| Windows（WebView2） | **已实机跑通（2026-10-21）**：窗口与页面、`Ctrl+O` 打开笔记、视图菜单三态与行号开关勾选回写、6 个插件装配正常；**随包 cjh 自动拉起**（`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`）、页面 ws 连上（`CJH ws connected ws://127.0.0.1:8765/ws`）、`/api/health` → 200。副标题能力位为 0，按设计回落页面顶栏。**单文件形态同样取证**：`cjnote.exe` 34.1 MB、GUI 子系统、导入表只有系统 DLL；干净目录双击等价启动 → `cjh` 从 `%LOCALAPPDATA%\cjnote\runtime\` 自行释放拉起、`8765` LISTENING、页面 ws 连上，且 `cjh` 无窗口（`MainWindowHandle=0`）、可见控制台窗口 **0** 个。**页面自检同样跑通**：`CJNOTE_SELFCHECK=1` → **84 PASS / 0 FAIL / 1 SKIP**（含两条宽度拖条断言与 AI 后端两态分流的断言；SKIP 是真实 cjh 聊天探针当时未连上）；顺带修正了「绝对路径」断言只认 `/` 的 POSIX 假设。**AI 后端两态分流另在空配置目录取证**：`HOME` 指向空目录启动 → cjh 自行拉起、`CJH ws connected ws://127.0.0.1:8765/ws`、页面报 `CJH-WARN 服务商密钥未配置（cjh 已连上 ws://127.0.0.1:8765/ws）`，状态胶囊为「未配置密钥」、消息区给「去配置」卡（不再说「cjh 没起来」） |
 
 ## 相关文档
 

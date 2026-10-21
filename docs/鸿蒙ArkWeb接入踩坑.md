@@ -991,13 +991,63 @@ probe:log window=second <- {"kind":"dialog-result","me":"second","confirmed":tru
 
 注意 `window=` 与 `me=` 必须**同一行都出现且相等**：只看 `confirmed=` 分不清是哪扇窗答的。
 
-**同族的风险面（同类形状，还没修，别以为只有 dialog）**：`clipboard` 与 `notification`
-两个插件同样在 `setup()` 里固定 `app.webviewHost()`。它们目前是「应用级」能力、单窗用得着，
-但一旦在第二扇窗里调用，落到的是同一类「谁先装配谁生效」的槽位——要么按 `ipc.window` 解析，
-要么在文档里写清「仅默认窗可用」，不要留成未定义行为。
+**同族的风险面（同一形状，2026-10-21 已按同一口径修完）**：`clipboard` 与 `notification`
+两个插件原本也在 `setup()` 里固定 `app.webviewHost()`。修法与判据、以及「为什么真机取证证明不了
+串台」的实测数据见下一节 §10.13。
 
 → 桌面两平台同样走这个插件，所以这条修复同时纠正 Windows / Linux 的多窗口 `dialog:*` 路由
 （桌面单窗行为不变：解析器给出默认窗宿主，与原先那一个相同）。
+
+
+### 10.13 `clipboard` / `notification` 的同一形状：修好之后，真机反而「证明不了」串台
+
+**同一处病**：两个插件原先 `setup()` 只调 `handler.attachHost(app.webviewHost())`，
+`handle` 里 `let _ = ipc`——报文自带的窗口归属被丢掉，第二扇窗的命令全发给默认窗那一个宿主。
+与 §10.12 完全同源，只是受害能力不同（剪贴板会读写错窗的内容、通知会画到错窗的角标/横幅）。
+
+**修法**（`src/plugins/clipboard/plugin_clipboard.cj` / `src/plugins/notification/plugin_notification.cj`）：
+照抄 dialog 的口径，装配时注入解析器、命令按 `ipc.window` 取宿主：
+
+```cangjie
+// setup()
+this.handler.attachHostResolver({ label => app.hostOf(label) })
+
+// requireHost(ipc)：解析器优先；解析器在场而窗口未登记时如实抛错
+//   "clipboard: 窗口 \"ghost\" 没有登记宿主（addWindow(); 默认窗在 run() 之前也可用）"
+// 单槽 host 只留作单窗口 / 单测兜底，**绝不回落**（回落正是串台的来源）
+```
+
+桌面单测各补两条（`src/tests/plugin_clipboard_test.cj` / `plugin_notification_test.cj`），
+直接复用 `plugin_dialog_test.cj` 的 `routeProbeHost` 桩：按窗口路由到对应 FakeHost、
+未登记窗口（`"ghost"`）抛错且**两个宿主都没被写过**。框架用例 **308/308** 全绿。
+
+**真机数据（2026-10-21 23:53，`hilog-cn.log`，pid 20172，探针两窗各自动打一遍）**：
+
+```
+probe:log window=main   <- {"kind":"platform-clipboard-write","me":"main","ok":false,"detail":"clipboard: 写入失败（宿主未就绪 / 平台拒绝）"}
+probe:log window=second <- {"kind":"platform-clipboard-write","me":"second","ok":false,"detail":"clipboard: 写入失败（宿主未就绪 / 平台拒绝）"}
+probe:log window=main   <- {"kind":"platform-clipboard-read","me":"main","ok":true,"detail":"null"}
+probe:log window=second <- {"kind":"platform-clipboard-read","me":"second","ok":true,"detail":"null"}
+probe:log window=main   <- {"kind":"platform-notification","me":"main","ok":false,"detail":"notification: 发送失败（宿主未就绪 / 本平台未实现 / 桌面环境不可用）"}
+probe:log window=second <- {"kind":"platform-notification","me":"second","ok":false,"detail":"notification: 发送失败（宿主未就绪 / 本平台未实现 / 桌面环境不可用）"}
+```
+
+**这段数据能证明什么、不能证明什么**（别读过）：
+- 能证明：报文按 label 归到了**本窗**（每条里 `window=` 与 `me=` 相等），且两个插件在鸿蒙侧
+  **如实失败**（`hostCapabilities()` 为 0，`clipboardWriteText` / `notify` 恒 false）。
+- **不能证明**串台有没有修好——两个宿主的行为完全一样（都 false），所以「共用一个槽」在设备上
+  会打印出与上表**一模一样**的行。区分力只在单测里（两个 FakeHost 行为不同：只该被写的那一个
+  才有痕迹），或者在宿主真落地以后的真机复测。**取证工具与被测能力同归于「都一样」时，
+  这条证据等于零**，别把它写成「串台已证伪」。
+- `clipboard:read` 那个 `ok=true, detail=null` **不是「支持了」**：`None` 在插件语义里是
+  「空 / 非文本」这种**合法结果**，不是错误（`plugin_clipboard.cj` 的 `case None => JsonNull()`）。
+  所以能力位为 0 时「读」看起来是成功的——判断能力是否落地要看 `write` / `notify` 的失败行，
+  别拿 read 的 null 当凭证。
+
+**后续**：鸿蒙侧接 `ohos.pasteboard` 与通知模块之前，能力位一律保持 0；接上之后再复跑本节同一
+探针（`examples/ohos-probe` 的 `showPlatformBits()`），届时两个宿主行为不同，`window=` 才真正有
+区分力。
+
 
 
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）

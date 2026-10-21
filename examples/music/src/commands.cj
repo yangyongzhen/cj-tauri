@@ -4,6 +4,9 @@ import std.collection.*
 import std.env.*
 import stdx.encoding.json.*
 import cjTauri.*
+// 本文件里的 FavGetCommand / FavSetCommand / MusicConfigCommand 都持有 StoreBackend：
+// 仓颉的 import 按**文件**生效，main.cj 里导入过不代表这里可见。
+import cjTauri.plugins.store.*
 
 /**
  * 音乐播放器的命令层：前端 `invoke` 的语义入口 → 后台接口 / 本机收藏库
@@ -164,6 +167,9 @@ public class MusicHotCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        // 本命令只用 args；接口要求的另两个参数按仓库惯例就地显式弃用（见 AGENTS §3），不改接口签名。
+        let _ = cmd
+        let _ = ipc
         let (start, count) = pagedArgs(argInt(args, "start", 0), argInt(args, "count", MUSIC_PAGE_SIZE), 50)
         var body = JsonObject()
         body.put("kind", JsonString(MUSIC_HOT_KIND))
@@ -177,13 +183,15 @@ public class MusicHotCommand <: CommandHandler {
  * `music:search` —— 搜索：`{q, start?, count?}` → POST `/api/v1/musicsearch`
  *
  * 实测中文关键词能搜到（`q=周杰伦` → `total: 61`），但**结果里的 `title` 是后台自己的乱码**
- * （后端把查询串按 GBK 解的，回给我们的 `title` 长这样：`�ܽ���的搜索结果`）——
+ * （后端把查询串按 GBK 解的，回给我们的 `title` 长这样：一串替换字符（U+FFFD）—— 原文是后台按 GBK 解出来的字节，已不可读
  * 页面因此不显示后台的 title，自己拼「“关键词” 的搜索结果」。这一条已写进 README。
  */
 public class MusicSearchCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let q = argString(args, "q", "")
         if (q.size == 0) {
             throw CommandException("请输入搜索关键词")
@@ -209,6 +217,8 @@ public class MusicMenusCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let (start, count) = pagedArgs(argInt(args, "start", 0), argInt(args, "count", 10), 30)
         return musicApiCall("/api/v1/getsongmenu?start=${start}&count=${count}", None)
     }
@@ -231,6 +241,8 @@ public class MusicLyricCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let sid = argString(args, "sid", "")
         if (!isSafeSid(sid)) {
             throw CommandException("非法的歌曲 id：\"${sid}\"（只接受数字）")
@@ -293,6 +305,8 @@ public class MusicImageCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let url = argString(args, "url", "")
         if (url.size == 0) {
             throw CommandException("缺少封面地址")
@@ -406,6 +420,8 @@ public class MusicShareCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let title = clipText(trimAsciiText(argString(args, "title", "")), 60)
         if (title.size == 0) {
             throw CommandException("请填写歌单标题")
@@ -481,6 +497,9 @@ public class FavGetCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         let n = storeArrayCount(this.store, "songs")
         let m = storeArrayCount(this.store, "recent")
         let p = this.store.pathOf()
@@ -508,6 +527,8 @@ public class FavSetCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         var touched: Int64 = 0
         match (args.get("songs")) {
             case Some(v) =>
@@ -567,6 +588,9 @@ public class MusicConfigCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
         /*
          * 自检等级走 `CJ_MUSIC_SELFCHECK`：
          *   0 / 未设 —— 不自检（默认）
@@ -612,6 +636,8 @@ public class MusicQuitCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
         eprintln("[music] 页面请求退出（window=${ipc.window}）")
         this.app.quit()
         return JsonBool(true)
@@ -628,6 +654,8 @@ public class ReportCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         eprintln("[frontend] " + argString(args, "line", "(空)"))
         return JsonBool(true)
     }

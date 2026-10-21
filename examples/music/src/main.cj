@@ -2,6 +2,9 @@ package music_app
 
 import stdx.encoding.json.*
 import cjTauri.*
+// StoreBackend（收藏库的存储本体）定义在 store 插件子包里：`import cjTauri.*` 只给核心包，
+// 子包不会随之可见——少了这一行，`StoreBackend` 会被判成未声明类型（RFC-003 第 2 期迁移漏项）。
+import cjTauri.plugins.store.*
 
 /**
  * 前端页面路径（相对**项目根**）
@@ -51,6 +54,9 @@ main(): Int64 {
     // 这里刻意不用链式写法：`music:quit` 要拿到 app 自己（无人值守自检靠它收尾）——
     // 与 examples/typing-poem 的 `typing:quit` 同一套装配顺序。
     var app = TauriApp().window(winCfg)
+    // 存储插件：StoreBackend 由它提供（上面收藏库那两行直接 new 它）。装配必须在 run() 之前——
+    // 页面前命令表要定稿；前端不直连 store:* 命令，所以能力清单里不必声明。
+    app.plugin(StorePlugin())
     app.register("music:hot", MusicHotCommand())
     app.register("music:search", MusicSearchCommand())
     app.register("music:menus", MusicMenusCommand())

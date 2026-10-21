@@ -104,14 +104,24 @@ if [ "$fails" -eq "$before" ]; then
 fi
 
 # ---------------------------------------------------------- 5. 构建产物
+# 例外：随包分发的 cjh 依赖 DLL。cjh 是仓颉程序，Windows 侧那几个 DLL 由它**按名字 LoadLibrary**
+# （不在 PE 导入表里，漏了就是起不来 / https 全灭），所以必须随包分发——.gitignore 为此开了
+# `!vendor/cjh/bin/**` 的口子（AGENTS §5）。白名单只认「vendor/cjh/bin/ 这棵树里的 .dll」，
+# 不放宽 `*.dll` 的全局口径，且放行了哪几个会打进日志，便于复核。
 section "没有被跟踪的构建产物"
 before=$fails
-hits=$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)target/|\.dll$|\.log$|(^|/)cjpm\.lock$' || true)
+tracked_bad=$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)target/|\.dll$|\.log$|(^|/)cjpm\.lock$' || true)
+dll_allow='^examples/[^/]+/vendor/cjh/bin/.*\.dll$'
+allowed_dll=$(printf '%s\n' "$tracked_bad" | grep -E "$dll_allow" || true)
+hits=$(printf '%s\n' "$tracked_bad" | grep -vE "$dll_allow" || true)
 if [ -n "$hits" ]; then
     bad "以下文件不该被跟踪："
     printf '%s\n' "$hits" | sed 's/^/        /'
 else
     ok "无 target/、*.dll、*.log、cjpm.lock"
+fi
+if [ -n "$allowed_dll" ]; then
+    printf '  note  白名单放行随包 cjh 的依赖 DLL %s 个（依名字加载，必须随包）\n' "$(printf '%s\n' "$allowed_dll" | wc -l)"
 fi
 
 # ------------------------------------------- 6. 插件/命令不得引用核心内部件

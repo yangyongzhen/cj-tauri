@@ -25,8 +25,8 @@
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 287 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，187 项断言，不依赖 SDK / 图形栈），入口是
+   当前 294 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，228 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
    实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
@@ -66,6 +66,14 @@
   （`menu`→`menu:click`、`tray`→`tray:click`、`drop`→`dragdrop:files`，需在能力清单 `events` 声明）；
   菜单/状态改动走应用层 API（`setMenu(To)` / `setMenuItemState*`），别再直接调宿主——应用层要用
   留存的模型补齐「另一维状态」。
+- **宿主无关的进程工具：后台静默子进程 `launchHidden()`（`src/process_hidden.cj`）**——应用产物是 GUI
+  子系统、父进程没有控制台，用 `std.process.launch` 起**控制台程序**（cjh / ffmpeg 这类 CLI）会让 Windows
+  给子进程配一个控制台窗口；这条走 C 桥（Windows = `CreateProcessW` + `DETACHED_PROCESS` + 三个标准句柄
+  指 NUL；**不要用 `CREATE_NO_WINDOW`**——它只是不显示，子进程仍持有一个隐藏 console、conhost 照样挂，
+  Linux = `posix_spawn` + 自成会话 + `/dev/null`），只留 pid 凭据（`isAlive()` / `stop()` 按 pid 走，
+  Windows 的进程句柄当场关掉不占句柄表）。代价是**拿不到子进程的 stdout / stderr**，要读输出得另走管道。
+  分工照老规矩：导出在 core（`cj_bridge_spawn_hidden` / `cj_bridge_kill_pid` / `cj_bridge_pid_alive`，
+  两平台同名同签名），分叉只在 `cj_plat_*` 原语里（原语清单 24 个）。
 - **插件 JS 的注入通道**：`Plugin.jsShim()` 由 `pluginInitScripts()` 收成「一个插件一段」，
   经 `WebViewHost.addInitScript()` 交给宿主，桥在 document-start 注入（排在 `BRIDGE_JS` 之后）。
   必须在 `start()` / `startUrl()` 之前注册；**不要再往 HTML 字符串里拼 `<script>` 注入 shim**——
@@ -293,8 +301,27 @@
   （`@When` 一平台一份，Windows 带 `.exe`）并让**编译 `-o`、缓存路径、shell 调用行三处同源**，
   漏任一处即回归静默失败。**同类风险面**：任何「先自己编译、再执行产物」的链路（脚手架、插件、
   E2E 探针的自建二进制）——Windows 上都要认这个名字后缀，且失败要留 stderr 凭证。
+- **随包分发双平台二进制的应用，候选表必须按平台分**（2026-10-21 实测，`examples/cjnote` 的 Windows 首验）：
+  `vendor/cjh/bin/` 里 linux-x64（ELF）与 windows-x64（PE）两份并排躺着，而发现逻辑只问「这个文件打不打得开」
+  ——`fileReadable` 在 Windows 上对 ELF 同样回 true，于是候选表里排在前面的 Linux 那份被选中。报错是
+  `ProcessException: Created process failed … The system cannot find the file specified`：**`CreateProcess` 对
+  不带扩展名的名字会自动补 `.exe`**，它去找的是 `linux-x64/cjh.exe`，与「文件真的不存在」长得一模一样，
+  极易误判成权限 / 杀软 / 路径问题（与上一条「cmd.exe 不执行无后缀文件」同源）。落法：候选表按
+  `@When[os == …]` 各列一份（平台差异只在条件编译里，§2），并**把实际选中的那个 bin 打进失败日志**——
+  排查时正是 `启动 cjh web 失败（vendor/cjh/bin/linux-x64/cjh）：…` 这一行定死的，原先的日志只打异常。
+  同族风险面：任何「按目录找现成二进制」的发现逻辑（`vendor/`、`.extract/`、插件自带的工具链）。
+  顺带一条排查手法：**先写三个探针把「看起来像」的嫌疑排掉**（同一段代码分别在 console 子系统、
+  GUI 子系统、`spawn` 轻量线程里各跑一次），三个都成功就说明问题不在调用形态、而在挑错了对象。
 - Git Bash 下 `PATH` 里的 SDK 路径必须是 POSIX 形式（`/d/Program Files (x86)/Cangjie/...`）；
   盘符形式（`D:/...`）会被 MSYS 破坏，导致依赖仓颉运行时 DLL 的原生进程退出码 127 且无输出。
+- **反过来：应用自己从 `HOME` 拼路径时，POSIX 形式会被原生 Win32 API 吃掉**（2026-10-21 实测，`cjnote`）。
+  Git Bash 的 `HOME` 是 `/c/Users/yang`，原生 API 把它当「当前盘根目录下的 `c/Users/yang`」——
+  `~/.cjh/settings.json` 于是**静默读不到**：配置页一片空白、自检里 `cjh:config returns model from
+  settings.json` 恒红，而**同一份 exe 从 cmd 里起就正常**（79 PASS / 0 FAIL），清理 `HOME` 后也正常。
+  判据：把环境变量摘掉再跑一次，结果反转 ⇒ 是启动环境而非代码/构建。修法是把 `/<盘符>/…` 与
+  `/cygdrive/<盘符>/…` 规范成原生路径（`examples/cjnote/src/cjh_host.cj` 的 `nativePathOf`，
+  平台差异走 `@When[os == "Windows"]`、非 Windows 分支恒等）。**凡是读 `HOME` / `XDG_*` 拼路径的
+  宿主代码都该过这一层**——`$HOME` 在 Git Bash / MSYS 下与原生进程看到的不是同一个字符串。
 - **`CANGJIE_STDX` 要指 stdx 的 `dynamic/stdx`（DLL 目录），不是 stdx 包根**：`cli/src/resolve.cj`
   把它**逐字**写进生成工程的 `[target.<triple>.bin-dependencies]`，给错了照样 `create` 成功——一直要到
   在那个新工程里 `cjpm build` 才炸：`root package '<名>' imports package 'stdx.encoding.json' in its
@@ -353,6 +380,18 @@
   `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`）。
   打包用 `scripts/pack-win.sh`（已覆盖这两个），别手工抄 DLL 清单（实测 2026-10-06：`examples/movie`
   的便携包第一版就是这么挂的）。
+- **静态库里的资源对象不会被链接器取出来：`.rsrc` 节消失、体积也不涨**（2026-10-21 实测，cjnote 单文件）：
+  `pack_assets.o`（windres 产出的资源对象）没有任何符号被引用，`ar rcs` 进 `libcjtbridge.a` 之后
+  链接器按需提取、根本不会碰它——产物照旧 `build success`、`objdump -h` 里连 `.rsrc` 一节都没有，
+  表象是「资源明明嵌了却没生效」（运行期找不到 cjh，页面照旧「AI 后端未就绪」）。判据就是**看节表**：
+  `objdump -h app.exe | grep -c rsrc` 必须 ≥ 1 且尺寸对得上（cjnote 是 `0x162df20` ≈ 22.2 MB，
+  未 strip 产物 56.3 MB → strip 后 32.6 MB）。落法是**把 .o 当链接输入直接给 ld.lld**——打包器生成
+  `link-option` 时拼上它的盘符路径，别指望静态库替它担保。
+- **`llvm-rc` 不认字符串资源名，只能用数字 ID**：rc 里写 `"cjh.exe" RCDATA "…"` 报
+  `llvm-rc: Error parsing file: expected int or identifier, got "cjh.exe"`（windres 的后端就是 llvm-rc）。
+  于是「资源名即文件名」这条路走不通——桥改由打包器生成的 `pack_assets_map.h`（ID → 文件名）驱动，
+  编桥时带 `-DCJ_PACK_ASSETS_EMBEDDED` 才包含它；桥因此依旧不认识应用的任何文件名，打包器放什么就释放什么。
+  释放目录由应用给（cjnote 是 `%LOCALAPPDATA%\cjnote\runtime`，**不放 `%TEMP%`**：会被清理，等于每次重解几十 MB）。
 - **单文件包（`scripts/pack-win-single.sh`）里 loader 必须内嵌释放，不能静态链**：SDK 的
   `WebView2LoaderStatic.lib` 是 MSVC 编的，要 `/GS` 的 `__security_cookie` 与 C++ 运行时符号
   （`?nothrow@std@@`、`_Init_thread_epoch` …），mingw 实测链接失败
@@ -486,6 +525,17 @@
   与框架代码无关，gdb 里一眼可见）。`onDestroy` 仍由 `destroy` 信号触发一次，收尾里那次是幂等兜底。
 - 诊断输出一律走 stderr：仓颉 `println` 的 stdout 有缓冲，进程被强杀时日志会丢；
   桥的 stderr 每行即时落盘，端到端验证以它为准。
+- **GUI 子系统 + 控制台子进程 = 桌面上那个黑窗口**（2026-10-21 实测，`examples/cjnote` 拉起 cjh）：
+  应用产物是 `--subsystem=windows`、**没有控制台**，用 `std.process.launch` 起一个控制台子系统的程序，
+  Windows 会给**子进程**单独配一个控制台窗口——用户看到的是「点一下按钮，旁边蹦出一个黑窗口」，
+  而 stderr 里一行错误都没有（进程起得好好的，只是多了一扇窗）。`launch` 的签名没有创建标志可传，
+  所以只能走框架的 `launchHidden()`（`CreateProcessW` + `DETACHED_PROCESS`），并且**顺手把三个标准句柄
+  显式指到 NUL**：没有控制台时它们是无效句柄，控制台程序一 println（cjh 启动就打 banner）可能直接死在
+  自己的控制台上。`SW_HIDE` 不算解法——它只是「先建再藏」，窗口会先闪一下。
+  **判据要 A/B 两个读数**：① 数可见的 `ConsoleWindowClass` 窗口（同一份二进制，只差创建标志：
+  不给标志 1 → 2 个，新增那只的 pid 就是子进程）；② `Get-Process <名> | MainWindowHandle`
+  （隐藏那轮 = 0、弹出那轮非 0）。**先拿一个有窗口的进程（应用自己）校准一遍**，否则「读数为 0」
+  完全可能是这个指标本来就恒 0——与「过滤器本身也会骗人」同族。
 - **平台没有 C 桥时，「不带 `@When` 的核心包 `foreign func`」会留成未解析符号，表现是应用一启动就没**
   （2026-10-18 鸿蒙 ArkWeb 首轮实测：白屏三轮、误判成「静态包硬链进动态根包导致 init 卡死」）：
   `src/log_bridge.cj` 原本**故意**不写 `@When`（桌面两平台同名导出、实现只有 `native/core/bridge_core.c` 一份），
@@ -757,6 +807,11 @@
   否则 npm 以 `E422` 拒绝发布）。
 - 不提交：`target/`、`dist-win/`、`**/dist-single/work/`、`**/dist-single/*.WebView2/`、`*.dll`、`*.log`、`cjpm.lock`、`.atomcode/`（本地会话产物）。
   `dist-single/` 下**打好的 exe 例外**——那份随仓库分发（不装 SDK 的人能直接拿到）。
+  **第二处例外是随包 cjh 的依赖 DLL**（`examples/*/vendor/cjh/bin/**`）：cjh 是仓颉程序，Windows 侧
+  `libcangjie-runtime.dll` / `libboundscheck.dll` / `libssl-3-x64.dll` / `libcrypto-3-x64.dll` 由它
+  **按名字 LoadLibrary**（不在 PE 导入表里，漏了就起不来 / https 全灭），不随包分发等于把 cjh 交成残包。
+  该目录由各示例自己的 `.gitignore` 用 `!vendor/cjh/bin/**` 开口子，`scripts/check-static.sh` 的
+  「构建产物」检查按同一口径放行**这棵树里的** `.dll` 并把放行条数打进日志——**口径不放宽到任意 `*.dll`**。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
 - `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。
@@ -768,14 +823,17 @@
   `github-dark.min.css` 1 315 字节、`atom-one-dark.min.css` 856 字节，均取自 jsDelivr 的
   UMD/CDN 构建、原样分发；许可证随文件放在 `ui/vendor/LICENSE.txt`——marked 为 MIT、
   Highlight.js 为 BSD-3-Clause，markdown-notes 预览渲染、代码高亮与主题切换用；
-  **ai-chat 复用同一份 hljs**：`examples/ai-chat/ui/vendor/` 下的 `highlight.min.js` 与
-  `github-dark.min.css` 是 markdown-notes 那份的逐字节拷贝，许可证同一份 `LICENSE.txt`——
-  更新时两处一起换）、
+  **ai-chat 与 cjnote 复用同一份 hljs**：`examples/ai-chat/ui/vendor/` 与 `examples/cjnote/ui/vendor/`
+  下的 `highlight.min.js`、`github-dark.min.css` 都是 markdown-notes 那份的逐字节拷贝，许可证同一份
+  `LICENSE.txt`——更新时三处一起换）、
   **CodeMirror 5.65.16**（`examples/leetcode-gui/ui/vendor/` 下的 `codemirror.min.js` 173 953 字节
   与 `codemirror.min.css` 6 378 字节，取自 jsDelivr 的 `codemirror@5.65.16` CDN 构建，尾部的
   sourceMappingURL 行已删——内联后指向不存在的 map 文件；许可证随文件放在
   `ui/vendor/codemirror.LICENSE.txt`，MIT；leetcode-gui 编辑器的语法高亮/行号用，
-  仓颉高亮规则是应用自写的轻量 mode 未用官方 clike——对仓颉关键字覆盖不全）。
+  仓颉高亮规则是应用自写的轻量 mode 未用官方 clike——对仓颉关键字覆盖不全；
+  **cjnote 复用同一份**：`examples/cjnote/ui/vendor/` 下的 `codemirror.min.js` / `codemirror.min.css`
+  是 leetcode-gui 那两份的逐字节拷贝（`codemirror.LICENSE.txt` 同一份），`marked.min.js` /
+  `github-dark.min.css` 则是 markdown-notes 那两份的逐字节拷贝——更新时两处一起换）。
   选 r160 的理由：**它是最后一个带 UMD 构建的版本**（`three@0.161+` 只剩 ESM），而这个示例的页面是
   `run(html)` 的内联来源（Windows 下 `NavigateToString`，无真实来源），相对 `<script src>` 与 ES module
   都不成立——只能把整份 UMD 经 `addInitScript()` 走 document-start 通道注入（AGENTS §4 有这条坑的完整形状）。

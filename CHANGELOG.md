@@ -11,6 +11,82 @@
 
 ### Added
 
+- **新增示例 `examples/cjnote`：AI 原生 Markdown 笔记**（从 [cjnote](https://atomgit.com/qq8864/cjnote) 移植进仓，
+  随上游 `52c5afd` 同步）：三栏（笔记库 / CodeMirror 编辑 / AI 助手），笔记就是工作区 `notes/` 下的纯 `.md`；
+  原生菜单（文件 / 视图 / 帮助）+ `setTitlebarSubtitle` 副标题（平台没这块能力位时回落页面顶栏）、视图三态与
+  界面主题**与原生菜单勾选双向同步**、`Ctrl+O` 打开库外文件只进内存（首次保存才落成库里的新笔记，不改写磁盘原文件）、
+  大纲页签与页内快速打开；笔记存取走应用自研的 `NoteStore`，**不引 fs 插件**。
+  **AI 后端只有 cjh 一条路**（上游这一版把第三方直连整个移除）：⚙ 从弹窗改成整页设置，地址 / 密钥 / 模型 / 协议
+  写进 cjh 的 `settings.json` + `auth.json` 并重启生效；密钥输入框**永远留空**（只有真输了新值才写，带 `****` 的
+  掩码值一律跳过），所以打开设置页再保存不会把掩码写回配置文件。AI 走 cjh 的 ws（`ws:default`），不再有
+  「某家服务商域名不在白名单」这类问题。另有编辑器「显示行号」开关与 AI 流式回复节流渲染。
+  移植适配：框架依赖从仓外同级 `../cj-tauri` 改为仓内上两级 `../..`（`link-option` 的 `-L../../native` 同改）；
+  清单里的 `store:del` 是笔误（store 插件真名 `store:delete`）已订正；`-lcjTauri.plugins.fs` 一并去掉——
+  本应用只 import `std.fs`、不引 fs 插件（清掉 `target/release/incremental-cache.json` 强制重链后仍链得过）；
+  `README.md` 的桥路径与 `LD_LIBRARY_PATH` 示例改回仓内口径。
+  **随包分发 cjh 预编译产物**（`vendor/cjh/bin/<平台>/`——应用按路径直接找现成二进制，没有运行期解包，所以
+  `bin/` 树必须真的在盘上；另带两个平台压缩包与 `SHA256SUMS`）：Windows 那份原样随上游，**Linux 两份已按 cjh
+  `a3e1e6e` 的 `dist/cjh-linux-x64` 重建**——上游随包的 Linux 通道要求 `GLIBC_2.38`，本机（22.04 / 2.35）
+  起不来；重建后 `GLIBC_2.34` 封顶。仓库**不提交 `*.dll`** 的规则对这里开口子：Windows 侧按名字加载的 4 个
+  依赖 DLL 随包分发（与 ai-chat 的 `vendor/cjh` 同性质，见 `.gitignore` 的例外与 `AGENTS.md` §5）。
+  **设置页的保存是「两条腿」**（2026-10-20 实测定案）：写 `settings.json` / `auth.json` 管下次拉起与协议字段，
+  同时把 `baseUrl` / `model` / `apiKey` / `temperature` / `maxTokens` / `maxIterations` 经 `POST /api/settings`
+  即时推给**正在运行的那只 cjh**——`cjh:restart` 只重启本应用 spawn 的实例（端口上是 ai-chat 拉起的 cjh 时
+  它只回一句「需手动重启」，于是设置看着「保存了却不生效」），而这条 REST 通道对别人的实例同样有效。
+  只有 `provider_protocol` 不在白名单（传进去静默忽略），那一项改动才如实提示需重启。
+  设置页另加**「测试连通」**按钮：走 `chat` 帧的**帧级 `model` / `baseUrl` / `apiKey` 覆盖**（单次生效、
+  不落盘）真发一条最小对话，测的就是「表单里这组值能不能用」且配置一字未动；探针不带 `session_id`
+  （cjh 为这一轮另开会话），不污染当前对话、也不顶掉会话 id。前端库（marked / Highlight.js / CodeMirror）
+  与已有示例的副本逐字节相同，来源与许可证见 `AGENTS.md` §5。
+  Linux 实机：窗口 1280x800、原生菜单 13 项、页面自检 `SELFCHECK DONE passed=68 failed=0`（另有 1 条 SKIP）；
+  Windows 侧页面自检 2026-10-21 跑通，**最终产物口径为 `passed=84 failed=0`**（明细 84 条 PASS / 0 条 FAIL /
+  1 条 SKIP：真实 cjh 聊天探针那一刻 ws 未连上，不计入失败；取证行见本文件「OpenSSL 预加载」那条）。
+- **cjnote 示例：AI 面板宽度可拖**（与左侧栏同一套交互）：面板左缘加 6px 拖条，拖动改宽
+  （240~640px 夹取，双击复位 320），宽度写进 `--ai-w`、偏好落 store（`ui.aiw`）、下次启动回放。
+  方向与侧栏相反（拖的是右栏左缘，往左拖变宽），上限还要跟窗口走：夹取里扣掉「侧栏 + 编辑区保底 320px」，
+  并在 `resize` 后按新空间重夹一次，免得窄窗口下把编辑区挤成 0。页面自检补 4 条断言
+  （拖条存在且 `col-resize`、往左拖真的变宽、超限夹取、双击复位），最终产物自检口径
+  `SELFCHECK DONE passed=84 failed=0`（取证行见「OpenSSL 预加载」那条）；
+  顺带修掉两条「后端给了绝对路径」断言只认 `/` 的 POSIX 假设——Windows 上后端给的是 `E:/…`，
+  这两条此前在 Windows 恒红（判定写窄，不是后端没给）。
+- **cjnote 示例：AI 后端的提示不再把「没配服务商」说成「cjh 没起来」**。实测随包 cjh 1.5.3 在
+  **没有服务商密钥**时 `/api/health` 照样返回 200、`/ws` 端点也正常（只有 `/api/settings` 的 `apiKey` 是空串），
+  旧实现只按「连没连上」判定，这种情况因此被报成「AI 后端未就绪 / cjh 没起来或连不上」——
+  后端明明起着，用户却找不到原因、也没有任何地方提示他去填密钥。现在拆成两条轴：
+  **cjh 在不在**（离线卡标题按卡点分「没找到 cjh」/「cjh 没能启动」/「连不上它的 WS」，不再一句话糊住），
+  与 **服务商配没配**（连上后复判一次 `cjh:config`：缺密钥时状态胶囊显示「未配置密钥」、消息区给一张
+  「去配置」卡，点一下直达设置页，并说明接入地址与模型名留空时用 cjh 内置默认值；输入框占位同步改成下一步动作；
+  保存配置后复判一次，配置齐了把卡换回正常问候）。顺带修掉一个竞态：启动期的问候 / 未配置 / 离线卡
+  此前会无条件清空消息区，**晚到的异步回调会把刚到的回复整个抹掉**（页面看着像「发出一问没回」，
+  自检现场 `bubbles=0`）——现在三张卡只在空态绘制。空配置目录实机取证：
+  `CJH-WARN 服务商密钥未配置（cjh 已连上 ws://127.0.0.1:8765/ws）`；页面自检 84 PASS / 0 FAIL / 1 SKIP。
+- **cjnote 示例：从 Git Bash 启动时读不到 `~/.cjh`（配置页空白），已修**。Git Bash 的 `HOME`
+  是 POSIX 形式（`/c/Users/yang`），而原生 Win32 API 会把它解释成「当前盘根目录下的
+  `c/Users/yang`」——`cjh:config` 于是拿不到 `settings.json` 里的 model（配置页一片空白），
+  自检里 `cjh:config returns model from settings.json` 恒红。**同一份 exe 从 cmd 里起就正常**
+  （79 PASS / 0 FAIL），清理 `HOME` 后也正常，与构建无关。修法：`cjhConfigDir()` 的三个来源
+  （`CJH_HOME` / `HOME` / `USERPROFILE`）都先过 `nativePathOf()`——只把 `/<盘符>/…` 与
+  `/cygdrive/<盘符>/…` 规范成原生路径，其余原样返回（平台差异走 `@When[os == "Windows"]`，
+  非 Windows 分支是恒等函数）。取证：同一份单文件 exe 在 Git Bash 下自检
+  **84 PASS / 0 FAIL / 1 SKIP**（汇总行 `passed=84`、`SELFCHECK PASS` 明细 84 条、FAIL 0 条；SKIP 那条是
+  真实 cjh 聊天探针当时没连上，不计入失败），空配置目录下仍如实报 `CJH-WARN 服务商密钥未配置`。
+- **单文件产物里的 `ws://` 连不上（`Can not load openssl library or function RAND_bytes.`）已修**：
+  仓颉运行时的随机数默认实现走 OpenSSL，而它按**裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`——
+  SDK 与 stdx 都不带这两个，开发机上只是恰好命中 PATH 里 Git 自带的那份，于是**同一条 `ws://` 连接线
+  本机全通、别人双击就挂**（RFC6455 升级要算 `Sec-WebSocket-Key` 的随机 nonce，明文 ws 也逃不掉；
+  `plugin_ws.cj` 无条件给的 `TlsClientConfig` 还会让 TLS 后端提前实例化）。症状极具误导性：cjh 的
+  `/api/health` 照常 200、页面显示「cjh 在运行」，**只有 ws 握手失败**。修法是**启动早期按绝对路径
+  预加载一次**，之后运行时按裸名加载即命中已加载模块——不改系统 PATH、也不把 DLL 摆到 exe 旁边，
+  单文件承诺不破；这两个 DLL 本来就在包里（随包 cjh 要用它们），**零新增体积**。
+  新增桥导出 `cj_bridge_preload_library(path)`（1 = 已在进程内 / 0 = 失败，原因打 stderr）与仓颉侧
+  `preloadEmbeddedLibrary(path)`（`src/embedded_assets.cj`；没有 C 桥的平台如实返回 false）；平台原语
+  `cj_plat_preload_library` 按 `AGENTS.md` §2 落在 `bridge_win.c`（`LoadLibraryA`）与 `bridge_linux.c`
+  （`dlopen`），`native/tests/test_bridge_core.c` 桩自检 232/232 通过。`examples/cjnote` 首个接入：
+  随包资源释放完成后先加载 `libcrypto` 再 `libssl`（后者依赖前者的符号）。
+  取证：另一台机器那条报错不再出现；最终产物默认日志里 `[cj-bridge] preload: …\cjnote\runtime/libcrypto-3-x64.dll` /
+  `…/libssl-3-x64.dll` 两行之后紧跟 `[cj-tauri] ws: connected ws://127.0.0.1:8765/ws`，页面自检
+  `SELFCHECK DONE passed=84 failed=0`（明细 84 条 PASS / 0 条 FAIL / 1 条 SKIP）。机制另有最小 C 探针
+  单独证明（裸名搜不到 → 绝对路径预加载成功 → 同一裸名立刻命中），不依赖应用日志。
 - **ai-chat 示例：聊天与 Agent 会话分离**：侧栏按当前模式只列本模式的会话
   （聊天 = 直连会话，Agent = cjh 会话及其镜像），各自记住自己的当前会话、切换模式互不顶掉；
   新建会话打上归属标签，存量存档按「有无 cjhId」归类。同步撤掉旧的「聊天模式隐藏镜像」
@@ -415,6 +491,39 @@
 
 ### Added
 
+- **单文件包可以内嵌「外部程序」了（PE 资源释放，`cj_bridge_extract_assets`）**——cjh 这类
+  **独立可执行文件**既并不进静态库、也不在 PE 导入表里，单文件产物过去只能让它落在包外。
+  现在示例根放一份 `pack-assets.txt`（一行一个文件），Windows 打包器用 `windres` 把它们编成
+  `RT_RCDATA` 资源链进 exe（资源名只能是数字 ID——llvm-rc 不认字符串资源名）；运行期应用调
+  `extractEmbeddedAssets(dir)`（`src/embedded_assets.cj`）由桥取出来写盘，幂等：目标已在且大小一致
+  就跳过（几十 MB 不必每次重解）。桥不认识任何应用文件名——ID → 文件名的表由打包器生成、
+  编译期编进去（`-DCJ_PACK_ASSETS_EMBEDDED`），没有内嵌资源的普通构建如实返回 0。
+  `examples/cjnote` 首个接入：`dist-single/cjnote.exe` **32.6 MB**，干净目录双击等价实测——
+  cjh 从 `%LOCALAPPDATA%\cjnote\runtime\` 拉起（`spawn hidden: …\runtime\cjh.exe -> pid=…`）、
+  `8765 LISTENING`、页面 `CJH ws connected`、可见控制台窗口 0 个。桩自检 228 → 232 项。
+- **新增「后台静默子进程」能力：`launchHidden()` / `BackgroundProcess`（`src/process_hidden.cj`）**——
+  起一个**控制台程序**但不要那个控制台窗口。C 桥新增三个导出
+  `cj_bridge_spawn_hidden` / `cj_bridge_kill_pid` / `cj_bridge_pid_alive`（实现在 core、两平台同名同签名，
+  分叉的只有平台原语 `cj_plat_spawn_hidden` / `cj_plat_kill_pid` / `cj_plat_pid_alive`：Windows 走
+  `CreateProcessW` + `CREATE_NO_WINDOW` 并把三个标准句柄显式指到 NUL，Linux 走 `posix_spawn` + 自成会话 +
+  `/dev/null`）。取舍是**拿不到子进程的 stdout / stderr**（要读输出得另走管道）；句柄口径只留 pid，
+  `isAlive()` / `stop()` 都按 pid 走，Windows 的进程句柄当场关掉不占句柄表。桩自检 221 → 228 项。
+  平台原语清单随之 21 → 24 个（`native/core/bridge_core.h`）。
+- **新增通用单文件打包脚本 `scripts/pack-linux-single.sh`**（与 `scripts/pack-win-single.sh` 同设计：
+  示例路径与输出目录都可传参，脚本内无任何示例专属逻辑）：静态链仓颉运行时与 std（`--static --static-std`）、
+  框架各包（`--static-libs`），C 桥编成静态归档 `libcjtbridge.a` 直接链进可执行文件，并把页面、`ui/vendor`
+  的前端库与能力清单 base64 编进二进制（生成示例的 `src/packed_assets.cj`）。示例侧前置三件套
+  `src/packed_assets.cj`（空存根）/ `src/packed_resources.cj` / 至少一份 `capabilities/*.json`——缺哪样就 `die` 说明哪样。
+  **判据看产物与启动日志**：`examples/cjnote/dist-single/cjnote` 11 698 576 B；`ldd` 里只剩系统
+  WebKitGTK / GTK 那一套（无 `libcjTauri*`、无 `libcjtbridge.so`、无仓颉运行时 DLL）；刻意
+  `env -u LD_LIBRARY_PATH` 启动照样起窗口——`set window: title=cjnote — AI 笔记 size=1280x800`、
+  `menu applied: items=16 bar=0x… visible=1`、`[cjnote] 能力清单来自内嵌资源（1 份，共 1568 字节 base64）`，
+  stderr 49 行无 `not found`。已在 cjnote 与 typing-poem 两个示例上跑通（后者自带 three.js，
+  走 `PACKED_THREE_B64` 通道）。两条硬约束说清楚：**系统 WebKitGTK / GTK 没有静态库**
+  （发行版里查无 `libwebkit2gtk-4.1.a` / `libgtk-3.a`），所以 Linux 上全静态 ELF 不成立，能静态下来的
+  只是「本框架带来的依赖」；产物**不含 cjh**——cjh 是独立进程，按 `vendor/cjh/bin/<平台>/` 找现成二进制、
+  运行期不解包，须与产物同级摆放且以该目录为工作目录。用法与两种交付形态的对比见
+  `examples/cjnote/README.md` 的「单文件打包（可选）」一节。
 - **鸿蒙（HarmonyOS ArkWeb）接入第一段打通：框架核心能在真机 HAP 里执行**——本轮只做到「框架代码跑起来」，
   宿主（`WebViewHost` 的 ArkWeb 实现）仍未落地，能力位如实报 0。实测证据（真机 `3QC0124B20000048`，
   bundle `com.yang.testcj`）：页面 `file://` 加载完成后经 `javaScriptProxy` 回调鸿蒙侧，仓颉侧调到
@@ -468,6 +577,9 @@
 
 ### Changed
 
+- **`examples/cjnote` 随包 cjh 升到官方 v1.5.3**（Linux 二进制与 Windows 自包含包一起换，
+  `vendor/cjh/SHA256SUMS` 按新件重写 16 行）：隔离 HOME 实测 `{"status":"ok","version":"1.5.3"}`、约 2 秒应答。
+  随包口径不变——应用按 `vendor/cjh/bin/<平台>/` 找现成二进制、运行期不解包，所以 `bin/` 树必须真在盘上。
 - **`examples/ai-chat` MCP 面板撤掉「编辑配置」入口，回到只读**（2026-10-20 用户裁定）：要改 MCP
   配置直接改 cjh 自己的 `settings.json` 更直接，也绕开 GET 掩码 `***` / POST 整体替换那套容易把
   真实密钥抹成三个星号的坑。`mcpEditGuard()` 留在页内自检里继续钉住「掩码拒发 / 坏 JSON 拒发」，
@@ -494,6 +606,60 @@
   修复后两个宿主各自的 `id` 序列独立（`label=main id=1` 与 `label=second id=1`），
   取消 / 确定两条回填路径各窗恒等（`window=` 与页面自认 `me=` 同一行相等）。桌面两平台同走此插件，
   单窗行为不变。两条新单测钉住路由（框架 296 用例全绿）。
+- **修：`examples/cjnote` 拉起 cjh 时桌面上会蹦出一个 DOS 黑窗口**（2026-10-21 实机看到）：
+  应用产物是 GUI 子系统（`--subsystem=windows`）、父进程**没有控制台**，而 cjh 是控制台子系统程序，
+  Windows 会给它**单独配一个控制台窗口**。`std.process.launch` 的签名里没有可以传创建标志的地方，
+  所以拉起改走框架新增的 `launchHidden()`（C 桥 `CreateProcessW` + `DETACHED_PROCESS`）。
+  **一开始用的是 `CREATE_NO_WINDOW`，不够**：它只是不显示窗口，子进程仍持有一个隐藏 console、
+  `conhost.exe` 照样挂在它名下；改用 `DETACHED_PROCESS` 之后 cjh **根本没有 console**，
+  单文件产物实测 `cjh` 的 `MainWindowHandle=0`、可见 `ConsoleWindowClass` 窗口 0 个、`8765` 照样 LISTENING。
+  A/B 取证（**同一份 cjh.exe，只差创建标志**，数可见的 `ConsoleWindowClass` 窗口）：
+  不给标志那轮 1 → 2 个，新增那只 pid=15740、`MainWindowHandle=525772`；
+  应用内这轮 cjh `MainWindowHandle=0`、可见控制台只剩启动器自己的那一只（pid 16232），
+  而对照组 `main.exe` 的 `MainWindowHandle=787648` 证明这个读数不是恒 0。
+  连通性同轮成立：`[cj-bridge] spawn hidden: … -> pid=16068`、`cjh web 已就绪（port=8765，等了 0ms）`、
+  `127.0.0.1:8765` LISTENING 属 cjh 且 4956 ↔ 16068 ESTABLISHED、页面 `CJH ws connected`。
+- **修：`examples/cjnote` 在 Windows 上永远拉不起随包 cjh，界面一直显示「AI 后端未就绪」**（2026-10-21 首验抓到）：
+  `cjhBinCandidates()` 是一张**不分平台**的候选表，`vendor/cjh/bin/linux-x64/cjh` 排在 `windows-x64/cjh.exe` 前面，
+  而 Windows 的 `fileReadable` 对 ELF 同样回 true（它只是个「能打开的文件」），于是应用拿 Linux 那份去 `launch`，
+  报 `ProcessException: Created process failed … The system cannot find the file specified`。
+  **真因不是文件不存在**：`CreateProcess` 对**不带扩展名的名字会自动补 `.exe`**，它去找的是 `linux-x64/cjh.exe`；
+  三个「看起来像」的嫌疑已用探针排除——`launch()` 的相对路径写法（console / GUI 子系统各编一份都成功）、
+  以及从 `spawn` 轻量线程里调用（同样成功），所以问题只在候选表的平台顺序。修法是把候选表按平台拆成
+  `cjhPlatformCandidates()` + `@When[os == "Windows"]` / `@When[os != "Windows"]`（AGENTS §2 的平台差异口径），
+  环境变量 `CJNOTE_CJH` 的优先级不变；失败日志补上实际用的 bin（`启动 cjh web 失败（${bin}）：…`），
+  下次同类问题一眼能看出挑的是哪份。Windows 首验取证：`[cjnote] cjh web 已就绪（port=8765，等了 0ms）`、
+  页面 `CJH ws connected ws://127.0.0.1:8765/ws`、`/api/health` → 200。
+- **`examples/cjnote` 设置页在「从没跑过 cjh」的机器上保存必然失败**：那种机器上 `~/.cjh` 整个目录都不存在，
+  而 `File.writeTo` 只建文件、不建目录——报的是 `写配置失败 …/.cjh/settings.json：FSException`。
+  修法是在写盘前补一次建目录，且**必须带存在性判断**：目录已存在时 `Directory.create` 会抛
+  `The input path … is already exists`，而「已存在」才是绝大多数用户的常态（装过 cjh 就有），漏判等于
+  把保存对所有老用户打红（第一版就是这么写的，靠隔离沙盒当场抓住）。写成 `if (!exists(dir))`，
+  与 `main.cj` 建 `notes/` 的既有写法同款。隔离沙盒两种 HOME 各跑一轮：已配过 cjh → **68 PASS / 0 FAIL / 1 SKIP**；
+  全新 HOME → **67 PASS / 1 FAIL**（那唯一一条 FAIL 是「本机 settings.json 里没有 model 可断言」，
+  同轮里 `~/.cjh/settings.json` 被成功建出并写回，保存路径已通）。
+- **`examples/music` 在 main 上编不过**（`error: undeclared type name 'StoreBackend'`，与打包脚本无关）：
+  `88838f1` 把收藏库从手搓 `MusicStore` 迁到 store 插件的 `StoreBackend` 时只改了源码，没补子包导入，
+  也没装配插件——`import cjTauri.*` 只带出核心包，插件子包不会随之可见（AGENTS §2「一个插件一个子包」）；
+  而**仓颉的 import 按文件生效**，所以 `src/main.cj` 与 `src/commands.cj` 两处都要补
+  `import cjTauri.plugins.store.*`，并在 `run()` 之前 `app.plugin(StorePlugin())`（页面前命令表要定稿）。
+  修完 `cjpm build success`、产物 `target/release/bin/main` 7 655 320 B。
+- **`examples/music` 的 29 条编译警告清零**（此前无人可见——基线编不过，警告根本没机会打出来）：
+  23 条「未使用参数」按仓库惯例就地 `let _ = <参数>` 显式弃用（不改接口签名）、`api.cj` 里真未使用的
+  `import std.collection.*` 删掉、4 条 `unsecure character` 出在搜索命令的文档注释里——那是一串
+  **非法 UTF-8 字节**（`EF BF BD`×4 加一对残缺字节，即后台按 GBK 解出的乱码样例），改成文字描述
+  「一串替换字符（U+FFFD）」，顺带把源码里那段无效字节清掉。零警告是 §3 的交付门禁。
+- **`examples/cjnote` 的「引用当前笔记 / 问笔记库」两个勾选框都会静默空转**（用户实测：勾了笔记，AI 回复里
+  还是看不到笔记内容）。两条独立成因，都已修：① **库外文件勾了等于没勾**——`Ctrl+O` 打开的库外文件走
+  `openExternalPath()`，那里把 `current` 置成空串，而拼上下文的条件是 `current` 非空，于是整篇正文根本没附上、
+  页面上也没有任何提示；现在按「当前文档」本身取内容（标签回落成文件名），正文超 2 万字才截断且如实标注。
+  ② **「问笔记库」把整句自然语言当关键词**——`note:search` 是朴素大小写敏感 `contains`（标题 + 正文），
+  实测「总结下笔记的内容」在全库 0 命中，附上去的上下文自然是空串；现在检索之外**再附一份「笔记库概况」**
+  （新增命令 `note:brief`：最近改动的至多 8 篇，每篇标题 + 正文前 1200 字，按 UTF-8 字符边界截断），
+  「总结 / 库里都有什么」这类问题有料可答。两条路径在**勾了却没有可附正文**时都改成打一条页面提示行
+  （同时进 stderr 日志），不再静默。页面把拼装抽成 `buildAiContext()` 并补了 4 条自检断言（库外文件附正文 /
+  空正文有提示 / 检索未命中走概况兜底 / `note:brief` 形状与 front-matter 剥离），沙盒自检 66/66
+  （含 cjh 真连通探针 `reply=ok`）。
 - **ai-chat 设置页的 Agent 横幅把行为说反了**：原文案写「下面这些字段只在聊天模式下生效，Agent 模式下改了
   不会影响这一轮对话」，而 `agentChatFrame()` 一直把当前服务商的 `model` / `base_url` / `api_key` 带进当回合的
   chat 帧，**改动当回合就生效**；现在还会同步进 cjh 基线（见 Added 段）。文案已改成实话，并把「连上 cjh」

@@ -1,0 +1,16 @@
+# cjh 预编译产物（随包分发：应用按 vendor/cjh/bin/<平台>/ 直接找现成二进制，没有运行期解包）
+# 来源：官方 v1.5.3 发行包 —— gitcode.com/qq8864/cjh/releases/tag/v1.5.3（2026-10-20）。
+# 这一版含 issue #6 的修复：POST /api/settings 里的 apiKey 会落 auth.json（响应带 note 说明），
+# 最高 glibc 需求 GLIBC_2.34，本机（Ubuntu 22.04 / glibc 2.35）直接可用。
+# 它取代了此前那份「按 b396c2b 源码本机重建」的二进制 —— 当初重建是因为上游 v1.5.2 随包那份
+# 要求 GLIBC_2.38，在本机根本起不来；官方 v1.5.3 已含同一处修复，重建版就此作废。
+# 上游 dist/SHA256SUMS 在 gitcode 的 raw 通道取不到（403），改用「归档内件与独立下载件互校」：
+# tar.gz 里的 cjh-v1.5.3-linux-x64 与单独下载的那份逐字节相同（bdda51cd…），
+# 自包含 zip 里的 exe 与这里的 bin/windows-x64/cjh.exe 亦逐字节相同（3ca61dc2…），
+# 且三件体积与发行说明完全一致（17132624 / 5706644 / 7914700）。
+# Windows 侧用「自包含」包：exe 加 4 个按名字加载的 DLL —— 仓颉运行时、boundscheck、
+# OpenSSL 的 libcrypto / libssl（TLS 由运行时按名字找，不在 PE 导入表里，缺了只有 https 全灭）。
+3ca61dc21d399674c0bb9b95cfaa11bd090043a5a5ec84f1899f24e00ccf8142  cjh-windows-x64.exe
+bdda51cdce93d8ccb81d92626b86341855722fc67337a02343b11015ff86033e  cjh-linux-x64
+c861a762e408347031c41073073a4587bade54f3d3878d0d9fc1b752659287a2  cjh-v1.5.3-windows-x64-selfcontained.zip
+604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e  cjh-v1.5.3-linux-x64.tar.gz

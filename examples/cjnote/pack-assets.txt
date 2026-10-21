@@ -1,0 +1,13 @@
+# 单文件产物要一起带走的「外部程序」——静态链接不进来的那些。
+#
+# 打包器（scripts/pack-win-single.sh）会按这里的顺序，把每个文件作为 PE 资源（RT_RCDATA）嵌进
+# exe，运行期由 C 桥释放到用户目录（examples/cjnote 的 releaseEmbeddedCjh）。
+# 一行一个，相对**示例根**；空行与 # 开头的行忽略。
+#
+# 为什么 cjh 必须走这条路：它是独立可执行文件（约 14 MB）外加 4 个运行时 DLL，既不能并进静态库、
+# 也不在 PE 导入表里——不嵌进来，单文件产物就没有 AI 后端。
+vendor/cjh/bin/windows-x64/cjh.exe
+vendor/cjh/bin/windows-x64/libboundscheck.dll
+vendor/cjh/bin/windows-x64/libcangjie-runtime.dll
+vendor/cjh/bin/windows-x64/libcrypto-3-x64.dll
+vendor/cjh/bin/windows-x64/libssl-3-x64.dll

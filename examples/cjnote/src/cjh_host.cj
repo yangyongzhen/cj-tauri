@@ -4,8 +4,11 @@
 // 真实屏「迟早整页冻结」曾误判为 fork 所致（做过零 fork + run.sh 守护的改造）；后经
 // gdb 全线程栈 + /proc 信号掩码取证定案：根因是 WebKit 的 JSC 覆盖 SIGUSR1 处理器
 // （仓颉运行时线程挂起/恢复所用的信号），已在 cj-tauri 框架层修复（issue #4，桥里
-// 保存/恢复信号处理器）。进程模型回归 **SubProcess 直管**：两平台同一实现，cjh 随包
+// 保存/恢复信号处理器）。进程模型回归 **后台直管**：两平台同一实现，cjh 随包
 // 自动拉起、退出只收自己 spawn 的那一只——单二进制 + vendor 目录即可分发，无需启动脚本。
+// 拉起走框架的 `launchHidden`（C 桥 `DETACHED_PROCESS` / `posix_spawn`）而不是
+// `std.process.launch`：应用是 GUI 子系统、没有控制台，用 launch 会让 Windows 给 cjh 配一个
+// 控制台窗口（实机上就是点一下笔记旁边蹦个黑窗口，2026-10-21 修）。
 //
 // 与 ai-chat 示例的**有意差异**：那边让用户选 cjh 可执行文件路径（引导卡里点「选择…」），
 // 这里把 cjh 按平台打进 vendor/cjh/bin/<平台>/ 随包分发——笔记应用的用户不该知道
@@ -22,7 +25,6 @@ import std.collection.*
 import std.convert.*
 import std.env.*
 import std.fs.*
-import std.process.*
 import cjTauri.*
 import stdx.encoding.json.*
 import stdx.net.http.*
@@ -30,9 +32,14 @@ import stdx.net.http.*
 public let CJH_DEFAULT_PORT: Int64 = 8765
 
 /** 子进程句柄与归属记账（不做并发保护——AGENTS §2：不给「不会发生的并发」上锁） */
-public var gCjhProc: Option<SubProcess> = None
+public var gCjhProc: Option<BackgroundProcess> = None
 /** true = cjh 是本应用 spawn 的（退出时要收尾）；false = 用户自己的实例（别动人家的） */
 public var gCjhOwned: Bool = false
+/**
+ * 单文件产物里**从 exe 内嵌资源释放出来**的 cjh 路径（空串 = 没有内嵌资源，普通构建就是这样）。
+ * 装配期由 `releaseEmbeddedCjh()` 填一次，之后 `cjhBinCandidates()` 把它排在 vendor 布局之前。
+ */
+public var gCjhAssetBin: String = ""
 
 func cjhPort(): Int64 {
     if (let Some(v) <- getVariable("CJNOTE_CJH_PORT")) {
@@ -96,7 +103,7 @@ func cjhPlatformCandidates(): ArrayList<String> {
     return list
 }
 
-/** cjh 可执行文件候选路径：环境变量优先，其次是打包布局，最后兼容早期解包目录 */
+/** cjh 可执行文件候选路径：环境变量 → 单文件产物释放出来的 → 打包布局 → 早期解包目录 */
 func cjhBinCandidates(): ArrayList<String> {
     let list = ArrayList<String>()
     if (let Some(p) <- getVariable("CJNOTE_CJH")) {
@@ -104,10 +111,91 @@ func cjhBinCandidates(): ArrayList<String> {
             list.add(p)
         }
     }
+    if (gCjhAssetBin.size > 0) {
+        list.add(gCjhAssetBin)
+    }
     for (p in cjhPlatformCandidates()) {
         list.add(p)
     }
     return list
+}
+
+/**
+ * 内嵌资源的落地目录（单文件包把 cjh 嵌在 exe 里，运行期得先取出来才有得跑）。
+ *
+ * Windows = `%LOCALAPPDATA%/cjnote/runtime`：每用户、可写、重启后还在——释放一次就够；
+ * 不放 %TEMP%（会被清理，等于每次都重新解几十 MB）。其他平台 = `$XDG_DATA_HOME`（缺省
+ * `~/.local/share`）下的 cjnote/runtime，与桌面惯例一致。
+ */
+@When[os == "Windows"]
+func cjhRuntimeDir(): Option<String> {
+    if (let Some(p) <- getVariable("LOCALAPPDATA")) {
+        if (p.size > 0) {
+            return Some(p + "/cjnote/runtime")
+        }
+    }
+    return None
+}
+
+@When[os != "Windows"]
+func cjhRuntimeDir(): Option<String> {
+    if (let Some(p) <- getVariable("XDG_DATA_HOME")) {
+        if (p.size > 0) {
+            return Some(p + "/cjnote/runtime")
+        }
+    }
+    if (let Some(h) <- getVariable("HOME")) {
+        if (h.size > 0) {
+            return Some(h + "/.local/share/cjnote/runtime")
+        }
+    }
+    return None
+}
+
+@When[os == "Windows"]
+func cjhBinName(): String {
+    return "cjh.exe"
+}
+
+@When[os != "Windows"]
+func cjhBinName(): String {
+    return "cjh"
+}
+
+/**
+ * 把**嵌在 exe 里**的随包 cjh 取出来，返回可执行文件路径（没有内嵌资源 / 取不出来时回空串）。
+ *
+ * 为什么需要它：单文件产物没有随行的 `vendor/cjh/bin/`，而 cjh 是**外部程序**、静态链接不进来，
+ * 只能作为 PE 资源跟着 exe 走——打包器写资源（`scripts/pack-win-single.sh`），框架的
+ * `extractEmbeddedAssets` 负责取出来写盘。开发期构建有 vendor 目录，走不到这里。
+ *
+ * 幂等：目标已在且大小与资源一致时桥会跳过写盘，所以装配期每次调用都没问题。
+ */
+func releaseEmbeddedCjh(): String {
+    let dir = match (cjhRuntimeDir()) {
+        case Some(d) => d
+        case None => return ""
+    }
+    // 桥只建最后一级目录，多级路径在这里先建（LOCALAPPDATA / HOME 本身一定存在）
+    if (!exists(dir)) {
+        try {
+            Directory.create(dir, recursive: true)
+        } catch (e: Exception) {
+            eprintln("[cjnote] 建运行时目录失败（${dir}）：${e}")
+            return ""
+        }
+    }
+    let n = extractEmbeddedAssets(dir)
+    if (n <= 0) {
+        return ""
+    }
+    let bin = dir + "/" + cjhBinName()
+    if (!fileReadable(bin)) {
+        eprintln("[cjnote] 内嵌 cjh 已释放但读不到：${bin}")
+        return ""
+    }
+    eprintln("[cjnote] 内嵌 cjh 就绪：${bin}（${n} 个文件）")
+    return bin
 }
 
 /** 找随包 cjh：第一个存在且可读的候选。只回布尔式的值、不留 stderr——
@@ -171,21 +259,25 @@ public func cjhStatusJson(): JsonValue {
  * 按指定路径拉起 cjh web 并等健康检查（100ms 一步，最多 10 秒——cjh web 启动要装 Agent 栈，
  * 秒级是正常量级）。阻塞只落在命令 worker 线程上，不冻窗口。
  *
- * 两平台同一实现（SubProcess 直管）。铁律：用户自己的 cjh 实例（端口上已有的活实例）
- * 永远不会被顶掉——拉起前只收**我们 spawn 的**那一只（换路径重试时旧进程若还占着端口，
- * 新的那只绑定就会失败，而表象只是「10 秒后仍不通」）。
+ * 走 `launchHidden`（框架 C 桥）而不是 `std.process.launch`：应用产物是 GUI 子系统、没有控制台，
+ * 用 launch 拉起控制台程序 cjh 会让 Windows 给它配一个控制台窗口（实机上就是点一下笔记旁边蹦出
+ * 一个黑窗口）。代价是拿不到 cjh 的 stdout / stderr——健康检查本来就按 HTTP 探端口，不依赖输出。
+ *
+ * 铁律：用户自己的 cjh 实例（端口上已有的活实例）永远不会被顶掉——拉起前只收**我们 spawn 的**
+ * 那一只（换路径重试时旧进程若还占着端口，新的那只绑定就会失败，而表象只是「10 秒后仍不通」）。
  *
  * 显式 `--bind 127.0.0.1`：cjh web 默认绑 0.0.0.0 且默认不带鉴权 token，跟着默认走等于把
  * 「能读写工作区、能跑 shell」的整套 API 摆到局域网上；本应用的消费面全在本机。
  */
 func ensureCjhUp(bin: String): Bool {
     stopOwnedCjh()
-    var proc: SubProcess
-    try {
-        proc = launch(bin, ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"])
-    } catch (e: Exception) {
-        eprintln("[cjnote] 启动 cjh web 失败（${bin}）：${e}")
-        return false
+    var proc: BackgroundProcess
+    match (launchHidden(bin, ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"])) {
+        case Some(p) => proc = p
+        case None =>
+            // 起不来时 C 桥已在 stderr 留了原因（含程序路径），这里只补应用侧上下文
+            eprintln("[cjnote] 启动 cjh web 失败（${bin}）")
+            return false
     }
     gCjhProc = Some(proc)
     let port = cjhPort()
@@ -193,11 +285,11 @@ func ensureCjhUp(bin: String): Bool {
     while (waited < 10000) {
         if (cjhHealthy(port)) {
             gCjhOwned = true
-            eprintln("[cjnote] cjh web 已就绪（port=${port}，等了 ${waited}ms）")
+            eprintln("[cjnote] cjh web 已就绪（port=${port}，等了 ${waited}ms，pid=${proc.processId()}）")
             return true
         }
         if (!proc.isAlive()) {
-            eprintln("[cjnote] cjh web 进程退出（exit=${proc.wait()}）——检查 vendor/cjh 二进制")
+            eprintln("[cjnote] cjh web 进程退出（pid=${proc.processId()}）——检查 vendor/cjh 二进制")
             gCjhProc = None
             return false
         }
@@ -213,11 +305,8 @@ func ensureCjhUp(bin: String): Bool {
 func stopOwnedCjh(): Unit {
     if (let Some(p) <- gCjhProc) {
         if (p.isAlive()) {
-            eprintln("[cjnote] 收尾：终止 cjh web")
-            p.terminate()
-            // 给 200ms 走完收尾再 wait，避免僵尸
-            sleep(Duration.millisecond * 200)
-            let _ = p.wait()
+            eprintln("[cjnote] 收尾：终止 cjh web（pid=${p.processId()}）")
+            p.stop() // 内部按 pid 终止并等到退出（Windows 无句柄可用，只认 pid）
         }
         gCjhProc = None
     }

@@ -445,6 +445,24 @@
 
 ### Added
 
+- **单文件包可以内嵌「外部程序」了（PE 资源释放，`cj_bridge_extract_assets`）**——cjh 这类
+  **独立可执行文件**既并不进静态库、也不在 PE 导入表里，单文件产物过去只能让它落在包外。
+  现在示例根放一份 `pack-assets.txt`（一行一个文件），Windows 打包器用 `windres` 把它们编成
+  `RT_RCDATA` 资源链进 exe（资源名只能是数字 ID——llvm-rc 不认字符串资源名）；运行期应用调
+  `extractEmbeddedAssets(dir)`（`src/embedded_assets.cj`）由桥取出来写盘，幂等：目标已在且大小一致
+  就跳过（几十 MB 不必每次重解）。桥不认识任何应用文件名——ID → 文件名的表由打包器生成、
+  编译期编进去（`-DCJ_PACK_ASSETS_EMBEDDED`），没有内嵌资源的普通构建如实返回 0。
+  `examples/cjnote` 首个接入：`dist-single/cjnote.exe` **32.6 MB**，干净目录双击等价实测——
+  cjh 从 `%LOCALAPPDATA%\cjnote\runtime\` 拉起（`spawn hidden: …\runtime\cjh.exe -> pid=…`）、
+  `8765 LISTENING`、页面 `CJH ws connected`、可见控制台窗口 0 个。桩自检 228 → 232 项。
+- **新增「后台静默子进程」能力：`launchHidden()` / `BackgroundProcess`（`src/process_hidden.cj`）**——
+  起一个**控制台程序**但不要那个控制台窗口。C 桥新增三个导出
+  `cj_bridge_spawn_hidden` / `cj_bridge_kill_pid` / `cj_bridge_pid_alive`（实现在 core、两平台同名同签名，
+  分叉的只有平台原语 `cj_plat_spawn_hidden` / `cj_plat_kill_pid` / `cj_plat_pid_alive`：Windows 走
+  `CreateProcessW` + `CREATE_NO_WINDOW` 并把三个标准句柄显式指到 NUL，Linux 走 `posix_spawn` + 自成会话 +
+  `/dev/null`）。取舍是**拿不到子进程的 stdout / stderr**（要读输出得另走管道）；句柄口径只留 pid，
+  `isAlive()` / `stop()` 都按 pid 走，Windows 的进程句柄当场关掉不占句柄表。桩自检 221 → 228 项。
+  平台原语清单随之 21 → 24 个（`native/core/bridge_core.h`）。
 - **新增通用单文件打包脚本 `scripts/pack-linux-single.sh`**（与 `scripts/pack-win-single.sh` 同设计：
   示例路径与输出目录都可传参，脚本内无任何示例专属逻辑）：静态链仓颉运行时与 std（`--static --static-std`）、
   框架各包（`--static-libs`），C 桥编成静态归档 `libcjtbridge.a` 直接链进可执行文件，并把页面、`ui/vendor`
@@ -532,6 +550,19 @@
 
 ### Fixed
 
+- **修：`examples/cjnote` 拉起 cjh 时桌面上会蹦出一个 DOS 黑窗口**（2026-10-21 实机看到）：
+  应用产物是 GUI 子系统（`--subsystem=windows`）、父进程**没有控制台**，而 cjh 是控制台子系统程序，
+  Windows 会给它**单独配一个控制台窗口**。`std.process.launch` 的签名里没有可以传创建标志的地方，
+  所以拉起改走框架新增的 `launchHidden()`（C 桥 `CreateProcessW` + `DETACHED_PROCESS`）。
+  **一开始用的是 `CREATE_NO_WINDOW`，不够**：它只是不显示窗口，子进程仍持有一个隐藏 console、
+  `conhost.exe` 照样挂在它名下；改用 `DETACHED_PROCESS` 之后 cjh **根本没有 console**，
+  单文件产物实测 `cjh` 的 `MainWindowHandle=0`、可见 `ConsoleWindowClass` 窗口 0 个、`8765` 照样 LISTENING。
+  A/B 取证（**同一份 cjh.exe，只差创建标志**，数可见的 `ConsoleWindowClass` 窗口）：
+  不给标志那轮 1 → 2 个，新增那只 pid=15740、`MainWindowHandle=525772`；
+  应用内这轮 cjh `MainWindowHandle=0`、可见控制台只剩启动器自己的那一只（pid 16232），
+  而对照组 `main.exe` 的 `MainWindowHandle=787648` 证明这个读数不是恒 0。
+  连通性同轮成立：`[cj-bridge] spawn hidden: … -> pid=16068`、`cjh web 已就绪（port=8765，等了 0ms）`、
+  `127.0.0.1:8765` LISTENING 属 cjh 且 4956 ↔ 16068 ESTABLISHED、页面 `CJH ws connected`。
 - **修：`examples/cjnote` 在 Windows 上永远拉不起随包 cjh，界面一直显示「AI 后端未就绪」**（2026-10-21 首验抓到）：
   `cjhBinCandidates()` 是一张**不分平台**的候选表，`vendor/cjh/bin/linux-x64/cjh` 排在 `windows-x64/cjh.exe` 前面，
   而 Windows 的 `fileReadable` 对 ELF 同样回 true（它只是个「能打开的文件」），于是应用拿 Linux 那份去 `launch`，

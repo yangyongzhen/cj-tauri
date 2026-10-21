@@ -10,7 +10,7 @@
 [![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
 
 前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
-27 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
+28 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
 
 > 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、19 屏实机截图与文档入口。
 
@@ -85,7 +85,7 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 
 ### 方式二：直接下载单文件工具（免安装、免 SDK）
 
-仓库随版本分发静态链接的单文件 Windows 工具（点击下载，八份产物全部实测过导入表）：
+仓库随版本分发静态链接的单文件 Windows 工具（点击下载，九份产物全部实测过导入表）：
 
 **调试与工具类**：
 
@@ -109,8 +109,10 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 | [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
 | [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
 | [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
+| [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（34.1MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（随包 release 到 `%LOCALAPPDATA%`、静默拉起、退出收尾）；体积大是因为 cjh 与 4 个运行时 DLL 一起嵌进了 exe，[中文说明](examples/cjnote/README.md) |
 
-体积、依赖与冷启动都是**实测**的：八份产物 4.69–9.79 MB，PE 导入表里只有 Windows 系统 DLL
+体积、依赖与冷启动都是**实测**的：九份产物 4.69–34.1 MB（`cjnote` 那份含内嵌 AI 后端，其余 4.69–9.79 MB），
+PE 导入表里只有 Windows 系统 DLL
 （没有任何第三方运行时，非系统 DLL 一列全是 0），双击不弹控制台
 （`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，
 一条命令复核：`bash scripts/dist-report.sh`。

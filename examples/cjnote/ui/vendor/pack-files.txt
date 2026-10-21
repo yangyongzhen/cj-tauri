@@ -1,0 +1,5 @@
+ui/vendor/marked.min.js
+ui/vendor/highlight.min.js
+ui/vendor/codemirror.min.js
+ui/vendor/codemirror.min.css
+ui/vendor/github-dark.min.css

@@ -16,22 +16,17 @@ import std.fs.*
 import std.time.*
 import stdx.encoding.json.*
 
-/** 「笔记库概况」给 AI 的正文上限（每篇）：够回答「总结一下」这类问题，又不至于几篇就把报文撑大 */
-let BRIEF_BODY_MAX: Int64 = 1200
-/** 「笔记库概况」最多给几篇：只作兜底视角，精确内容仍以 note:search 的命中为准 */
-let BRIEF_MAX_NOTES: Int64 = 8
-
-/** 按 UTF-8 字符边界截断：直接切字节会把汉字劈成半个，String.fromUtf8 拿到非法序列
-    （AGENTS §4：迭代 String 得到的是字节，续字节满足 (b & 0xC0) == 0x80） */
-func utf8Cut(b: Array<UInt8>, max: Int64): String {
-    var end = max
-    if (end > b.size) {
-        end = b.size
+/** 绝对路径：给 AI 的「当前笔记」指针必须是**绝对**的——cjh 的 read_file 对它自己的相对路径是按
+    **它当时的工作区**解析的，而那个工作区可能是别的应用设的（实测：ai-chat 先起的 cjh 指向
+    examples/ai-chat/target），相对路径会静默指到别的目录去。canonicalize 顺带解析软链（与框架
+    scope 同口径）；失败原样返回，不假装成功。 */
+func absOf(rel: String): String {
+    try {
+        return canonicalize(rel).toString()
+    } catch (e: Exception) {
+        let _ = e
+        return rel
     }
-    while (end > 0 && end < b.size && (b[end] & 0xC0u8) == 0x80u8) {
-        end--
-    }
-    return String.fromUtf8(b[0..end])
 }
 
 /** 仓颉 trimAscii 是 cjh 自有（std 没有）：自写一个（AGENTS §4 知识库结论） */
@@ -328,97 +323,6 @@ public class NoteStore {
         return out
     }
 
-    /** note:brief：给 AI 的「笔记库概况」——最近改动的几篇，每篇给标题 + 正文开头（截断）。
-        为什么需要它：note:search 是朴素 contains，自然语言提问（实测「总结下笔记的内容」）在
-        库里 0 命中，只给检索等于「问笔记库」勾了没勾；概况与检索互补——检索给精确片段，
-        概况让「总结 / 库里都有什么」这类问题有料可答。 */
-    public func brief(): JsonValue {
-        let out = JsonObject()
-        let arr = JsonArray()
-        try {
-            let entries = Directory.readFrom(this.dir)
-            var names = ArrayList<String>()
-            var mtimes = HashMap<String, String>()
-            for (info in entries) {
-                if (!info.isDirectory() && info.name.endsWith(".md") && !info.name.startsWith(".")) {
-                    names.add(info.name)
-                    try {
-                        mtimes.add(info.name, info.lastModificationTime.toString())
-                    } catch (e: Exception) {
-                        let _ = e  // stat 失败的按最旧处理，不拖垮整个概况
-                    }
-                }
-            }
-            // 最近改动优先：mtime 取的是 ISO 字符串，字典序即时间序（缺失 = 空串 = 最旧）
-            var i: Int64 = 1
-            while (i < names.size) {
-                var j = i
-                let cur = names[i]
-                let curKey = match (mtimes.get(cur)) {
-                    case Some(v) => v
-                    case None => ""
-                }
-                while (j > 0) {
-                    let prevKey = match (mtimes.get(names[j - 1])) {
-                        case Some(v) => v
-                        case None => ""
-                    }
-                    if (prevKey >= curKey) {
-                        break
-                    }
-                    names[j] = names[j - 1]
-                    j--
-                }
-                names[j] = cur
-                i++
-            }
-            var taken: Int64 = 0
-            for (name in names) {
-                if (taken >= BRIEF_MAX_NOTES) {
-                    break
-                }
-                var text = ""
-                try {
-                    text = String.fromUtf8(File.readFrom(this.notePath(name)))
-                } catch (e: Exception) {
-                    let _ = e
-                    continue  // 读不了的单篇跳过，不拖垮整个概况
-                }
-                let (meta, body) = this.splitFrontMatter(text)
-                var title = ""
-                if (let Some(t) <- meta.get("title")) {
-                    match (t.kind()) {
-                        case JsonKind.JsString =>
-                            let s = t.asString().getValue()
-                            if (s.size > 0) {
-                                title = s
-                            }
-                        case _ => ()
-                    }
-                }
-                if (title.size == 0) {
-                    title = this.titleFromBody(body)
-                }
-                if (title.size == 0) {
-                    title = name
-                }
-                let bb = body.toArray()
-                let cut = utf8Cut(bb, BRIEF_BODY_MAX)
-                let item = JsonObject()
-                item.put("name", JsonString(name))
-                item.put("title", JsonString(title))
-                item.put("body", JsonString(cut))
-                item.put("truncated", JsonBool(cut.size != body.size))
-                arr.add(item)
-                taken++
-            }
-        } catch (e: Exception) {
-            eprintln("[cjnote] note:brief 读目录失败（${this.dir}）：${e}")
-        }
-        out.put("notes", arr)
-        return out
-    }
-
     /** note:list：扫目录 .md，标题 = front-matter title > 正文首行 # > 文件名 */
     public func list(): JsonValue {
         let out = JsonObject()
@@ -491,6 +395,9 @@ public class NoteStore {
             eprintln("[cjnote] note:list 读目录失败（${this.dir}）：${e}")
         }
         out.put("notes", arr)
+        // 笔记库根目录（绝对）：页面的 AI 指针要用它——AI 要自己在库里找东西时得知道库在哪，
+        // 而 cjh 的相对路径按它自己的工作区解析，只有绝对路径靠得住（见 absOf 注释）
+        out.put("root", JsonString(absOf(this.dir)))
         return out
     }
 
@@ -526,6 +433,8 @@ public class NoteStore {
         if (let Some(t) <- meta.get("desc")) {
             out.put("desc", t)
         }
+        // 本笔记的绝对路径：页面随问题附给 AI 当「我正在看哪篇」，正文由 AI 自己 read_file 取
+        out.put("path", JsonString(absOf(this.notePath(name))))
         return out
     }
 
@@ -652,9 +561,6 @@ public class NoteCommands <: CommandHandler {
         }
         if (cmd == "note:search") {
             return this.store.search(this.requireStr(args, "query"))
-        }
-        if (cmd == "note:brief") {
-            return this.store.brief()
         }
         if (cmd == "note:open") {
             return this.store.open(this.requireStr(args, "name"))

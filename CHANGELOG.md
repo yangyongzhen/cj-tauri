@@ -9,10 +9,25 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+### Fixed
+
+- **cjnote 聊天模式直连报 `unknown CA` 的问题有了可用出路**（2026-10-22）：服务商（实测
+  `taotoken.net`）下发的链是 `叶 → Xcc Trust DV SSL CA（中间）→ Certum Trusted Network CA（自签根）`，
+  中间证书不在系统证书库，而本机仓颉 stdx **不会用服务端下发的中间证书建链**，于是握手失败
+  （`TlsException: … certificate verify failed (134), TLS alert unknown CA`；同机 curl/openssl 通过，
+  baidu/deepseek 也通过）。探针确认 `CertificateVerifyMode.CustomCA(...)`（只给 CA 级证书或整条链）
+  在本机 stdx 上**不起作用**，只有 `CustomVerify` / `TrustAll` 能连通——所以落成「按主机放行」：
+  宿主侧白名单文件 `%LOCALAPPDATA%\cjnote\tls-allow.txt`（一行一个主机名，`#` 起为注释），
+  环境变量 `CJNOTE_TLS_INSECURE_HOSTS=<host[,host]>` 作补充，两者合并生效；只对列出的主机跳过校验，
+  启动时 stderr 明写一行 `注意：<host> 的证书链不做校验（由宿主侧白名单放行：<文件路径> …）`，
+  失败时的错误文案也改为给出可操作提示（文件路径 + 环境变量两种落法）。**默认仍是严格校验**，
+  且刻意不做进设置页：文件与变量页面都写不了（页面只有笔记库与 `store` 的权限），
+  「要不要校验证书」始终只在用户手里；选文件而非纯变量是因为单文件 exe 双击启动读不到 shell 变量。
+
 ### Changed
 
 - **cjnote 的 Windows 单文件产物重打**（2026-10-22，纳入 AI 面板折叠 / 拖宽上限 960）：
-  `examples/cjnote/dist-single/cjnote.exe` 34 202 624 字节，GUI 子系统（双击不弹控制台），
+  `examples/cjnote/dist-single/cjnote.exe` 34 287 616 字节，GUI 子系统（双击不弹控制台），
   导入表只有系统 DLL，`.rsrc` 节 `0x0162df20` ≈ 22.2 MB 即内嵌的 cjh 与 4 个运行时 DLL。
   同一份 exe 在隔离目录实测：`CJNOTE_SELFCHECK=1` → **89 PASS / 0 FAIL / 1 SKIP**
   （汇总行 `passed=87 failed=0`）；cjh 自行释放到 `%LOCALAPPDATA%\cjnote\runtime\` 并
@@ -20,6 +35,14 @@
 
 ### Added
 
+- **cjnote 的 AI 面板新增「聊天 / Agent」双模式**（2026-10-22）：Agent 模式仍是原来的 cjh 通路
+  （有工具、能读写文件）；**聊天模式**不做 agent 循环、也没有任何工具，由宿主侧直接向服务商的
+  chat completions 接口发一次流式请求，增量逐块经 `ai:chunk` 回投页面（新命令 `ai:chat`，
+  `examples/cjnote/src/ai_direct.cj`）。密钥与地址只在宿主侧取用（读 cjh 的 `auth.json`，与
+  `cjh:config` 同一套脱敏口径），**页面拿不到明文**；两模式共用同一份服务商配置，切换偏好落 `store`。
+- **`CJNOTE_SELFCHECK_AI=1`：聊天模式的宿主侧实网冒烟**（不开窗口，开窗前直接跑一次 `ai:chat`
+  再退出）：`ok/status/chars/received/chunks/costMs` 一行打到 stderr，退出码 `0` 成功 / `1` 失败 /
+  `2` 请求成功但一条 `ai:chunk` 都没回推（专指流式没生效）。与日常自检分开开关——它真的会打服务商接口。
 - **cjnote 的 AI 助手面板可折叠了**（2026-10-22 用户反馈：不用 AI 时这块 320px 太占注意力）：
   三条入口走同一个 `applyAiVisible`——面板头「»」胶囊按钮、`Ctrl+4`、原生「视图」菜单勾选项
   「显示 AI 助手」（新增独立开关 `view.aipanel`，勾选态经新命令 `aipanel:sync` 与页面双向同步，

@@ -154,9 +154,11 @@ public class TitlebarSyncCommand <: CommandHandler {
 /** notes:env：宿主侧启动参数交给页面（页面没有进程环境） */
 public class NotesEnvCommand <: CommandHandler {
     private let selfCheck: Bool
+    private let aiSmoke: Bool
 
-    public init(selfCheck: Bool) {
+    public init(selfCheck: Bool, aiSmoke: Bool) {
         this.selfCheck = selfCheck
+        this.aiSmoke = aiSmoke
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
@@ -165,6 +167,9 @@ public class NotesEnvCommand <: CommandHandler {
         let _ = ipc
         let out = JsonObject()
         out.put("selfcheck", JsonBool(this.selfCheck))
+        // 实网冒烟单独一个开关：它会真的打一次服务商接口（用自己的密钥、花自己的额度），
+        // 不能跟着日常自检无条件跑——那样每次自检都在发请求。
+        out.put("aiSmoke", JsonBool(this.aiSmoke))
         out.put("workspace", JsonString("notes"))
         // 框架版本随环境一起给页面：「关于」浮层要显示它（页面没有别的地方能拿到）
         out.put("version", JsonString(CJ_TAURI_VERSION))
@@ -363,6 +368,18 @@ main(): Int64 {
             selfCheck = true
         }
     }
+    // 实网冒烟：CJNOTE_SELFCHECK_AI=1 时自检额外打一次 ai:chat（见 ui/index.html 的 selfCheck）
+    var aiSmoke = false
+    if (let Some(v) <- getVariable("CJNOTE_SELFCHECK_AI")) {
+        if (v == "1") {
+            aiSmoke = true
+        }
+    }
+
+    // 实网冒烟：只跑宿主侧一次直连、不开窗口（取证用，见 ai_direct.cj 的 aiSmokeRun）
+    if (aiSmoke) {
+        return aiSmokeRun()
+    }
 
     let htmlRaw = textOrFile(PACKED_UI_B64, "ui/index.html", "请在工程根目录启动")
     if (htmlRaw.size == 0) {
@@ -391,7 +408,7 @@ main(): Int64 {
         // cjh 后端通道：ws:frame 事件回投聊天流（cjh web 的 /ws）
         .plugin(WsPlugin())
         .register("report", ReportCommand())
-        .register("notes:env", NotesEnvCommand(selfCheck))
+        .register("notes:env", NotesEnvCommand(selfCheck, aiSmoke))
         .register("note:list", noteCmds)
         .register("note:search", noteCmds)
         .register("note:open", noteCmds)
@@ -414,6 +431,8 @@ main(): Int64 {
     let _ = app.register("cjh:config", cjhCmds)
     let _ = app.register("cjh:saveConfig", cjhCmds)
     let _ = app.register("cjh:restart", cjhCmds)
+    // 「聊天模式」直连大模型：不走 cjh 的 agent 循环、没有工具，密钥只留在宿主侧（见 ai_direct.cj）
+    let _ = app.register("ai:chat", AiChatCommand())
 
     // 单文件产物：随包的 cjh 是作为 PE 资源嵌在 exe 里的，运行期先取出来再登记进候选表。
     // 普通构建没有内嵌资源——releaseEmbeddedCjh() 如实回空串，这一行相当于什么都没做。

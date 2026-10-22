@@ -35,6 +35,7 @@
     "cjh:config",
     "cjh:saveConfig",
     "cjh:restart",
+    "ai:chat",
     "system:version"
   ],
   "permissions": ["store:default", "http:default", "log:default", "clipboard:default", "ws:default"],
@@ -55,5 +56,5 @@
       "allow": ["127.0.0.1", "localhost"]
     }
   },
-  "events": ["http:chunk", "ws:frame", "ws:state", "menu:click"]
+  "events": ["http:chunk", "ws:frame", "ws:state", "menu:click", "ai:chunk"]
 }

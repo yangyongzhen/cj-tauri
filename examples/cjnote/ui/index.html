@@ -111,6 +111,9 @@ body.native-titlebar #topbar { display: none; }
 .segbtn:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
 .segbtn:hover { border-color: var(--accent); }
 .segbtn.active { color: var(--accent); border-color: var(--accent); background: var(--bg); font-weight: 600; }
+/* AI 面板头的模式开关（Agent / 聊天）：字号比内容区的段控小一号，别跟标题抢宽度 */
+#ai .head .seg { margin-right: 6px; }
+#ai .head .segbtn { padding: 2px 8px; font-size: 11px; }
 /* ── 三栏 ── */
 #main { flex: 1 1 auto; display: flex; min-height: 0; }
 #sidebar {
@@ -573,6 +576,10 @@ body.ai-hidden #ai, body.ai-hidden #ai-resizer { display: none; }
     <div class="head">
       <span class="title"><span class="ico">✦</span>AI 助手</span>
       <span class="right">
+        <span class="seg" id="ai-mode-seg">
+          <button id="ai-mode-agent" class="segbtn active" title="Agent 模式：交给 cjh 执行，能读笔记、调工具、多轮会话">Agent</button>
+          <button id="ai-mode-chat" class="segbtn" title="聊天模式：直连大模型，纯对话——不调工具、不读写文件">聊天</button>
+        </span>
         <button id="ai-cfg-btn" title="设置">⚙</button>
         <span class="state" id="ai-state"><i></i>连接中…</span>
         <button id="ai-hide-btn" title="收起 AI 助手（Ctrl+4）">»</button>
@@ -800,7 +807,17 @@ var cjh = { state: "missing", api: "", ws: "", up: false, session: "", checking:
   wsErr: "", owned: false, foreign: false, healthVersion: "", bundledVersion: "",
   probe: { on: false } };
 var aiStreaming = false;
-var aiTurn = null;        // 本轮流式：{ kind: "chat"|"l2", body, acc, tools }
+var aiTurn = null;        // 本轮流式：{ kind: "chat"|"l2"|"direct", body, acc, tools }
+// 「只聊天」模式：直连大模型，不经过 cjh 的 agent 循环（宿主侧 ai:chat，见 src/ai_direct.cj）。
+// 两个模式共用同一个面板与同一只输入框，差别只在「谁执行」：Agent 交给 cjh（有工具、有会话），
+// 聊天直接打服务商（没有工具，历史由页面自己记——直连没有服务端会话可依赖）。
+var aiMode = "agent";     // "agent" | "chat"
+var AI_MODE_KEY = "ai.mode";
+// 聊天模式的多轮历史（只存 user/assistant 的纯文本，最多留 12 条）。
+// 不复用 Agent 那条路：cjh 的会话 id 是它的，直连侧没有会话，只能自己攒。
+var chatHist = [];
+var CHAT_HIST_MAX = 12;
+var CHAT_NOTE_MAX_CHARS = 6000;   // 附正文的上限：够读懂上下文，又不至于把每问都塞爆令牌
 var curApproval = null;   // 未决的审批卡（cjh 工具串行调，同时只会有一个）
 
 // 状态胶囊：文案 + 点色（ok=绿 / bad=红 / busy=蓝呼吸 / 缺省=黄）
@@ -1003,9 +1020,13 @@ function updateAiCfgTip() {
   // 输入框占位是最容易被看到的一行：未配置时直接把它变成下一步动作
   var inp = $("ai-input");
   if (inp) {
+    // 两种模式共用同一份服务商配置（都读 cjh 的 settings/auth），所以缺密钥这件事对两者都成立；
+    // 但「问点什么」是 Agent 的口气——聊天模式没有工具，别让它暗示能读库
+    var chatIdle = "随便聊点什么…（Enter 发送，Shift+Enter 换行）";
+    var agentIdle = "问点什么…（Enter 发送，Shift+Enter 换行）";
     inp.placeholder = needCfg
       ? "还没配置服务商密钥——点右上角 ⚙ 填上再问"
-      : "问点什么…（Enter 发送，Shift+Enter 换行）";
+      : (aiMode === "chat" ? chatIdle : agentIdle);
   }
 }
 // ── 设置页：点 ⚙ 切到设置视图（不是一个只会转圈的状态卡） ──
@@ -1304,6 +1325,11 @@ function aiSend() {
   var input = $("ai-input");
   var text = input.value.trim();
   if (!text) { return; }
+  if (aiMode === "chat") {
+    // 聊天模式不碰 cjh：cjh 没起来、没连上，都不该挡着「只聊天」这条路
+    aiAskDirect(text);
+    return;
+  }
   if (!cjh.up) {
     // 未连接：先按一次重连，连上后再发（用户不该为「后端刚起来」重敲一遍）
     report("CJH-WARN 未连接，先重连再发");
@@ -1340,8 +1366,164 @@ function aiAskCjh(text, ctx) {
     aiTurn = null;
   });
 }
-// ── 后端状态有两条轴，必须分开说 ──
-// ① cjh 进程在不在、页面连不连得上它的 WS；② 服务商配置齐不齐。
+// ── 「只聊天」模式：直连大模型 ──
+// 谁执行决定上下文形态：Agent 那条带的是**指针**（AI 自己 read_file 读正文）；聊天这条
+// 没有工具，指针毫无意义——要让它知道「我在看哪一篇」只能把正文直接给它。所以两种模式的
+// 上下文是两套话术，不能共用 buildAiContext（那会给一个没有工具的家伙递一份只有工具能用的说明）。
+function chatNoteExcerpt() {
+  var nm = current || (externalPath ? String(externalPath).split(/[\\/]/).pop() : "");
+  if (!nm) { return null; }
+  var body = "";
+  try { body = String(getDoc() || ""); } catch (e) { body = ""; }
+  if (!body.trim()) { return { name: nm, body: "", truncated: false }; }
+  var cut = body.length > CHAT_NOTE_MAX_CHARS;
+  return { name: nm, body: cut ? body.slice(0, CHAT_NOTE_MAX_CHARS) : body, truncated: cut };
+}
+function directSystemPrompt() {
+  var parts = [];
+  parts.push("你是 cjnote（本地优先的 Markdown 笔记应用）里的写作助手，当前处于「聊天模式」：" +
+             "纯文本对话，没有任何工具——不能读写文件、不能检索笔记库，也无需说明这一点。");
+  parts.push("回答直接、简洁；需要用户自己动手的地方就明确说出来。");
+  var note = chatNoteExcerpt();
+  if (note) {
+    if (note.body) {
+      parts.push("【用户正在看的笔记】" + note.name + (note.truncated ? "（正文过长已截断）" : "") +
+                 "\n\n" + note.body);
+    } else {
+      parts.push("【用户正在看的笔记】" + note.name + "（当前是空文档）");
+    }
+  } else {
+    parts.push("【当前文档】用户现在没有打开任何笔记。");
+  }
+  if (dirty && current) {
+    parts.push("（用户编辑器里有未保存改动，上面给的是编辑器当前内容）");
+  }
+  return parts.join("\n\n");
+}
+/** 聊天模式的一问一答：宿主 `ai:chat` 发请求、读 SSE，delta 经 `ai:chunk` 事件回来 */
+function aiAskDirect(text) {
+  $("ai-input").value = "";
+  aiMsgEl("user", text);
+  aiStreaming = true;
+  $("ai-send").textContent = "…";
+  $("ai-send").disabled = true;
+  aiSetState("回复中", "busy");
+  aiTurn = { kind: "direct", body: aiMsgEl("assistant", "", true), acc: "" };
+  var msgs = [{ role: "system", content: directSystemPrompt() }];
+  var from = Math.max(0, chatHist.length - CHAT_HIST_MAX);
+  for (var i = from; i < chatHist.length; i++) { msgs.push(chatHist[i]); }
+  msgs.push({ role: "user", content: text });
+  report("AI-DIRECT 发送 model-agnostic msgs=" + msgs.length +
+         (current ? (" note=" + current) : ""));
+  var off = null;
+  var finish = function (errText) {
+    if (off) { try { off(); } catch (e) {} off = null; }
+    aiStreaming = false;
+    $("ai-send").textContent = "发送";
+    $("ai-send").disabled = false;
+    var turn = aiTurn;
+    aiTurn = null;
+    if (!turn) { return; }
+    if (errText) {
+      aiSetState("出错", "bad");
+      aiSetBody(turn.body, "**[错误]** " + errText);
+      report("AI-DIRECT 失败 " + String(errText).slice(0, 160));
+      return;
+    }
+    var reply = turn.acc || "";
+    if (!reply.trim()) {
+      aiSetBody(turn.body, "**[错误]** 服务商回了空内容（多半是模型名在当前服务商上不可用）");
+      aiSetState("空回复", "bad");
+      report("AI-DIRECT 空回复");
+      return;
+    }
+    aiSetBody(turn.body, reply);
+    chatHist.push({ role: "user", content: text });
+    chatHist.push({ role: "assistant", content: reply });
+    while (chatHist.length > CHAT_HIST_MAX * 2) { chatHist.shift(); }
+    aiSetState("就绪", "ok");
+    report("AI-DIRECT 完成 chars=" + reply.length + " hist=" + chatHist.length);
+  };
+  try {
+    off = window.__CJ_TAURI__.listen("ai:chunk", function (p) {
+      if (!aiTurn || aiTurn.kind !== "direct") { return; }
+      if (p && p.done) { return; }   // 收尾统一走命令的返回，两条路径抢着改状态会互相覆盖
+      aiTurn.acc += (p && p.delta) || "";
+      aiSetBody(aiTurn.body, aiTurn.acc);
+    });
+  } catch (e) {
+    report("AI-DIRECT 订阅失败: " + (e && e.message ? e.message : e));
+  }
+  invoke("ai:chat", { messages: msgs }).then(function (r) {
+    r = r || {};
+    if (!r.ok) { finish(r.error || "直连失败（没有原因）"); return; }
+    finish("");
+  }).catch(function (e) {
+    finish(e && e.message ? e.message : String(e));
+  });
+}
+// 模式切换：同一个面板，两套话术。切换只改「谁执行」，不动消息区（历史都在，聊天往下接着聊）
+function applyAiMode(m, persist) {
+  aiMode = (m === "chat") ? "chat" : "agent";
+  var ai = $("ai");
+  if (ai) { ai.className = ai.className.replace(/\s*chatmode/g, "") + (aiMode === "chat" ? " chatmode" : ""); }
+  var a = $("ai-mode-agent"), b = $("ai-mode-chat");
+  if (a) { a.className = "segbtn" + (aiMode === "agent" ? " active" : ""); }
+  if (b) { b.className = "segbtn" + (aiMode === "chat" ? " active" : ""); }
+  // 「问笔记库」要 AI 自己去 grep / read_file，聊天模式没有工具——留着勾就是静默空转
+  var lib = $("ai-lib-note");
+  if (lib) {
+    lib.disabled = (aiMode === "chat");
+    if (aiMode === "chat") { lib.checked = false; }
+    var lab = lib.parentNode;
+    if (lab) {
+      lab.title = aiMode === "chat"
+        ? "聊天模式没有工具：改用「附当前笔记正文」（自动带）"
+        : "让 AI 自己去笔记库里检索再回答（需要工具）";
+    }
+  }
+  var hint = $("ai-ctx-hint");
+  if (hint) {
+    hint.textContent = aiMode === "chat" ? "上下文：当前笔记正文（直连，无工具）" : "上下文：当前笔记";
+    hint.title = aiMode === "chat"
+      ? "聊天模式直连服务商：页面把当前笔记正文随每问一起发过去（不指路径），因此它能读到内容但没有工具"
+      : "每问只带「我正在看哪一篇」的绝对路径，正文由 AI 自己按需读取";
+  }
+  var inp = $("ai-input");
+  if (inp) {
+    inp.placeholder = aiMode === "chat"
+      ? "随便聊点什么…（Enter 发送，Shift+Enter 换行）"
+      : "问点什么…（Enter 发送，Shift+Enter 换行）";
+  }
+  if (aiMode === "chat") {
+    aiSetState("直连", "ok");
+    aiGreet("聊天模式：直接连大模型，能聊、但不碰你的笔记文件（要它读文件、改稿就切回 Agent）。");
+  } else {
+    aiGreetIdle();
+    if (persist) {
+      // 只有用户当场切回来才重新连：启动时由 initCjh 统一负责，别在这儿抢跑
+      aiSetState("连接中…", "busy");
+      cjhBoot(false);
+    } else {
+      aiSetState(cjh.up ? "就绪" : "连接中…", cjh.up ? "ok" : "busy");
+    }
+  }
+  updateAiCfgTip();
+  if (persist) {
+    invoke("store:set", { key: AI_MODE_KEY, value: aiMode }).catch(function () {});
+  }
+}
+function aiModeFromPref() {
+  return invoke("store:get", { key: AI_MODE_KEY }).then(function (v) {
+    var m = (v === "chat") ? "chat" : "agent";
+    applyAiMode(m, false);
+    report("AI-MODE 恢复 " + m);
+  }).catch(function (e) {
+    report("AI-MODE 读取失败: " + (e && e.message ? e.message : e));
+    applyAiMode("agent", false);
+  });
+}
+
 // 实测（随包 cjh 1.5.3，空 HOME 起一只）：没配密钥时 `/api/health` **照样返回 200**、
 // `/ws` 端点也正常，只有 `/api/settings` 的 apiKey 是空串。旧实现把这两种情况糊成一句
 // 「cjh 没起来或连不上」，于是一个明明起着、只是没填密钥的后端被报成「未就绪」，
@@ -2496,6 +2678,40 @@ function selfCheck(env) {
     if (cond) { pass++; report("SELFCHECK PASS " + name); }
     else { fail++; report("SELFCHECK FAIL " + name); }
   }
+  // 收尾统一走这里：所有分支（含实网冒烟）都从它出聚合行，避免中途 return 漏掉 DONE
+  var finished = false;
+  function finish() {
+    if (finished) { return; }
+    finished = true;
+    if (!env || !env.aiSmoke) {
+      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+      return;
+    }
+    // 实网冒烟（CJNOTE_SELFCHECK_AI=1）：真的打一次 ai:chat，同时盯 ai:chunk 是否真在流式回推。
+    // 单独开关的原因见 src/main.cj 的 NotesEnvCommand：日常自检不该每次都发请求。
+    report("SELFCHECK ai smoke start");
+    var deltas = 0, seen = 0;
+    var off = null;
+    try {
+      off = window.__CJ_TAURI__.listen("ai:chunk", function (p) {
+        if (p && p.delta) { deltas++; seen += p.delta.length; }
+      });
+    } catch (e) { off = null; }
+    invoke("ai:chat", { messages: [{ role: "user", content: "只回复两个字：收到" }] }).then(function (r) {
+      if (off) { off(); }
+      var okFlag = !!(r && r.ok);
+      ok(okFlag, "ai:chat ok" + (okFlag ? "" : ("：" + ((r && r.error) || "未知原因"))));
+      ok(deltas > 0, "ai:chunk streamed deltas=" + deltas + " chars=" + seen);
+      report("SELFCHECK ai smoke endpoint=" + ((r && r.endpoint) || "?") +
+             " status=" + ((r && r.status) || 0) + " chars=" + ((r && r.chars) || 0) +
+             " received=" + ((r && r.received) || 0));
+      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+    }).catch(function (e) {
+      if (off) { off(); }
+      ok(false, "ai:chat: " + (e && e.message ? e.message : e));
+      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+    });
+  }
   ok(!!bridge, "bridge ready");
   ok(!!(cm || $("editor-fallback")), "editor ready");
   // 视图三态与界面主题：切类后计算样式真变了才算数，验完复原到用户当前选择
@@ -2595,6 +2811,61 @@ function selfCheck(env) {
     invoke("store:delete", { key: AI_PANEL_KEY }).catch(function () {});
     if (!panelVisibleBefore) { applyAiVisible(false, false); }
   }).catch(function (e) { report("SELFCHECK FAIL aipanel pref: " + e); });
+  // ── 聊天模式（直连大模型）：接线 + 切换联动 + 端点归一化（dryRun 不发请求、不烧令牌） ──
+  ok($("ai-mode-agent") !== null && $("ai-mode-chat") !== null, "ai mode switch has Agent + chat buttons");
+  var modeBefore = aiMode;
+  applyAiMode("chat", false);
+  ok(aiMode === "chat" && $("ai").classList.contains("chatmode"), "chat mode marks the ai panel");
+  ok($("ai-lib-note").disabled === true,
+     "chat mode disables the note-library checkbox (direct mode has no tools)");
+  ok(String($("ai-input").placeholder).indexOf("随便聊") >= 0, "chat mode rewrites the input placeholder");
+  applyAiMode("agent", false);
+  ok(aiMode === "agent" && !$("ai").classList.contains("chatmode") && $("ai-lib-note").disabled === false,
+     "switching back to agent restores the panel");
+  applyAiMode(modeBefore, false);
+  invoke("ai:chat", { dryRun: true }).then(function (d) {
+    d = d || {};
+    ok(d.ok === true && String(d.endpoint || "").slice(-17) === "/chat/completions",
+       "ai:chat resolves an OpenAI-compatible endpoint (" + (d.endpoint || "-") + ")");
+    return invoke("cjh:config").then(function (c) {
+      c = c || {};
+      ok(!!d.hasKey === !!c.hasKey, "ai:chat sees the same key state as cjh:config");
+      ok(String(d.protocol || "") === String(c.protocol || "openai"),
+         "ai:chat reads the same protocol as cjh:config");
+      report("AI-DIRECT dryRun endpoint=" + (d.endpoint || "-") + " model=" + (d.model || "-") +
+             " protocol=" + (d.protocol || "-") + " hasKey=" + d.hasKey);
+      if (!d.hasKey) {
+        report("SELFCHECK SKIP ai:chat round: 没有服务商密钥");
+        return null;
+      }
+      // 真跑一轮最小对话：密钥、端点、SSE 解析、ai:chunk 回投四条链一次验完。
+      // 提示写死成「只回一个词」，令牌开销可以忽略（与设置页「测试连通」同一思路）。
+      var chunks = 0;
+      var off = null;
+      try {
+        off = window.__CJ_TAURI__.listen("ai:chunk", function (p) {
+          if (p && !p.done) { chunks++; }
+        });
+      } catch (e) {
+        report("SELFCHECK FAIL ai:chunk listen: " + (e && e.message ? e.message : e));
+      }
+      return invoke("ai:chat", {
+        messages: [
+          { role: "system", content: "只回复一个词 ok" },
+          { role: "user", content: "连通测试" }
+        ]
+      }).then(function (r) {
+        if (off) { try { off(); } catch (e2) {} }
+        r = r || {};
+        ok(r.ok === true, "ai:chat round reaches the provider" + (r.ok ? "" : (": " + r.error)));
+        ok(Number(r.chars) > 0, "ai:chat round produced text (" + r.chars + " chars)");
+        report("SELFCHECK AI-DIRECT round chunks=" + chunks + " chars=" + r.chars +
+               " received=" + r.received);
+      });
+    });
+  }).catch(function (e) {
+    report("SELFCHECK FAIL ai:chat: " + (e && e.message ? e.message : e));
+  });
   // 「cjh 没起来」与「cjh 起来了但没配服务商」必须是两套话（2026-10-21 实机反馈）：
   // 未配置密钥时 cjh 的健康检查照样 200，旧实现把这种情况也报成「cjh 没起来或连不上」，
   // 用户看到的是一句假故障，且没有任何地方提示他去填密钥
@@ -2928,7 +3199,7 @@ function selfCheck(env) {
             function renameProbe() {
               invoke("note:create", { title: "自检-重命名" }).then(function (cr) {
                 var tmpName = (cr && cr.name) ? cr.name : "";
-                if (!tmpName) { ok(false, "rename probe create"); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); return; }
+                if (!tmpName) { ok(false, "rename probe create"); finish(); return; }
                 var renamed = tmpName.replace(".md", "-改名.md");
                 return invoke("note:rename", { name: tmpName, newName: renamed }).then(function (rr) {
                   ok(!!(rr && rr.ok && rr.name === renamed), "rename ok");
@@ -2943,20 +3214,20 @@ function selfCheck(env) {
                     var first = nms[0];
                     ok(!!(first && typeof first.mtime === "string" && Date.parse(first.mtime) > 0), "note:list returns mtime");
                     return invoke("note:delete", { name: renamed }).then(function () {
-                      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                      finish();
                     });
                   });
                 });
               }).catch(function (e) {
                 ok(false, "rename probe: " + e);
-                report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+                finish();
               });
             }
-          }).catch(function (e) { ok(false, "roundtrip read: " + e); report("SELFCHECK DONE passed=" + pass + " failed=" + fail); });
+          }).catch(function (e) { ok(false, "roundtrip read: " + e); finish(); });
         });
       });
     } else {
-      report("SELFCHECK DONE passed=" + pass + " failed=" + fail);
+      finish();
     }
   });
 }
@@ -3242,6 +3513,9 @@ waitForBridge(function () {
     });
     // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）+ 输入框随内容自动增高
     document.getElementById("ai-send").onclick = aiSend;
+    // 模式开关：Agent（cjh 执行，有工具）/ 聊天（直连大模型，纯对话）。切换即落偏好。
+    document.getElementById("ai-mode-agent").onclick = function () { applyAiMode("agent", true); };
+    document.getElementById("ai-mode-chat").onclick = function () { applyAiMode("chat", true); };
     // ⚙ 打开设置页（不是静默重连，也不是往消息区塞一张卡）
     document.getElementById("ai-cfg-btn").onclick = openAiSettings;
     // AI 面板折叠：面板头「»」收起 / 工具条右缘「✦ AI 助手」唤回（Ctrl+4 也在 keydown 里）
@@ -3279,8 +3553,16 @@ waitForBridge(function () {
     // AI 后端接线：连 cjh（宿主已在后台拉起 vendor 里那份），连不上就出引导卡。
     // 问候卡只在「连上了 **且** 服务商配齐了」时出：配置缺着就交给「去配置」那张卡，
     // 否则会先甩出一排「写点什么」的按钮，用户点了才发现根本发不出去。
-    initCjh().then(function () {
-      if (cjh.up && cjhCfg.ok) { aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。"); }
+    // 先恢复「Agent / 聊天」偏好：偏好是聊天时连不连 cjh 都不影响使用，但空态卡要说对话
+    aiModeFromPref().then(function () {
+      return initCjh();
+    }).then(function () {
+      // 问候卡只在「Agent 模式 + 连上了 + 服务商配齐了」时出：配置缺着就交给「去配置」那张卡，
+      // 否则会先甩出一排「写点什么」的按钮，用户点了才发现根本发不出去。
+      // 聊天模式下空态卡由 applyAiMode 负责（它说清「没有工具」这件事），这里不覆盖。
+      if (aiMode === "agent" && cjh.up && cjhCfg.ok) {
+        aiGreet("写笔记时随时问我；每问我会带上「我正在看哪一篇」的路径，正文我自己读。");
+      }
     });
     selfCheck(env);
   }).catch(function (e) {

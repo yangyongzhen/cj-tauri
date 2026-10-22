@@ -98,10 +98,35 @@ notes/                   笔记库（运行期数据，不入库）
 > 能力清单里放行的是 33 条（含上述插件命令）；未放行的命令前端一调就被拒并在 stderr 留一行
 > `尚未授权`——启动日志里那几条 `dialog:save` / `dialog:pickFolder` / `dialog:message` 的提示即属此类。
 
-**AI 只有 cjh 一个后端，应用不做任何直连**：聊天走 `ws:connect` + `ws:send` 到
-`ws://127.0.0.1:8765/ws` 收流式帧（`delta` 逐字、`tool_start`/`tool_result` 单行、审批帧内联成卡、
-`done` 收尾），配置读写走宿主（页面没有 `~/.cjh` 的写权限）。模型与凭证都在 cjh 自己的配置里，
-所以要换服务商／模型／密钥，改设置页即可，本应用不保存也不中转明文密钥。
+**AI 有两条通路，面板顶部用「聊天 / Agent」切换**：
+
+- **Agent 模式**（默认）：走 cjh 的 agent 循环，聊天流经 `ws:connect` + `ws:send` 到
+  `ws://127.0.0.1:8765/ws` 收流式帧（`delta` 逐字、`tool_start`/`tool_result` 单行、审批帧内联成卡、
+  `done` 收尾），配置读写走宿主（页面没有 `~/.cjh` 的写权限）。模型与凭证都在 cjh 自己的配置里，
+  所以要换服务商／模型／密钥，改设置页即可，本应用不保存也不中转明文密钥。**能读写文件、跑命令的只有这条**。
+- **聊天模式**：不做 agent 循环、也没有任何工具，由**宿主侧**直接向服务商的 chat completions 接口发一次
+  流式请求，增量逐块经 `ai:chunk` 回投页面（`examples/cjnote/src/ai_direct.cj` 的 `ai:chat`）。
+  密钥只留在宿主（读 cjh 的 `auth.json`，与 `cjh:config` 的脱敏口径一致），**页面拿不到明文**；
+  上下文同样只给指针（`Chat` 的绝对路径），但聊天模式下这段说明只当普通文本随消息发出。
+
+两条通路共用同一份服务商配置（地址 / 模型 / 密钥都来自 cjh 的设置），区别只在「有没有工具与上下文自动装载」。
+
+**服务商证书链不完整时怎么办**（2026-10-22 实测 `taotoken.net`）：该站点下发的中间证书
+`Xcc Trust DV SSL CA` 不在系统证书库里，仓颉 stdx 不会用服务端下发的中间证书建链，聊天模式会报
+`TlsException: … certificate verify failed (134), TLS alert unknown CA`（同一台机器上 curl / openssl 验证通过）。
+正解是**把中间证书装进系统证书库**；确需放行时用宿主侧白名单文件：
+
+```text
+%LOCALAPPDATA%\cjnote\tls-allow.txt     # 一行一个主机名，# 起为注释
+# 例：
+taotoken.net
+```
+
+命中时启动日志会明写一行 `注意：<host> 的证书链不做校验（由宿主侧白名单放行：<文件路径> …）`，
+**其余主机仍然严格校验**。之所以选文件而不是设置项：产物是 GUI 子系统的单文件 exe，双击启动的进程
+读不到交互式 shell 里 export 的变量；而这个文件**页面写不了**（页面只有笔记库与 `store` 的权限），
+「要不要校验证书」始终只在用户手里。临时用也可以给宿主设环境变量
+`CJNOTE_TLS_INSECURE_HOSTS=<host[,host]>`，两者合并生效（文件优先写入、环境变量作补充）。
 
 **上下文为什么只给指针**：`Chat`（当前笔记）按**绝对路径 + 笔记库根**发出去，正文由 AI 自取。
 绝对路径是硬前提——cjh 的 `read_file` 对相对路径是按**它当时的工作区**解析的，给相对路径会静默读错目录；
@@ -169,14 +194,14 @@ LISTENING、页面 ws 连得上（单文件形态同样复核过：`cjh` 的 `Ma
 
 ## 单文件打包（可选）
 
-> **Windows 已发布的产物**：[`dist-single/cjnote.exe`](dist-single/cjnote.exe)（**34.2 MB**，单文件，
+> **Windows 已发布的产物**：[`dist-single/cjnote.exe`](dist-single/cjnote.exe)（**34.3 MB**，单文件，
 > 双击即用）——C 桥 / 仓颉运行时 / stdx / 插件包全部静态链进这一个文件，页面与 `capabilities/`
 > 内嵌成 base64，**随包 cjh 与它的 4 个运行时 DLL** 作为 PE 资源（`RT_RCDATA`）一起塞在里面，
 > 首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`。不装仓颉 SDK、不设 `PATH`、不需要 `vendor/` 目录。
 > Linux 单文件产物用 `pack-linux-single.sh`（**不含 cjh**，需与 `vendor/cjh/` 同级摆放）。
 >
 > 上表那份 `cjnote.exe` 已随「AI 面板可折叠 / 拖宽上限 960」（`66671ee`）**重打**
-> （2026-10-22 20:01 构建，34 202 624 字节，GUI 子系统、导入表只有系统 DLL、`.rsrc` 节
+> （2026-10-22 21:37 构建，34 287 616 字节，GUI 子系统、导入表只有系统 DLL、`.rsrc` 节
 > `0x0162df20` ≈ 22.2 MB 即内嵌的 cjh 与 4 个运行时 DLL），源码与产物同版。
 > 重打时顺带修掉一个真问题：Git Bash 的 `HOME` 是 POSIX 形式（`/c/Users/yang`），原生 Win32
 > 读不到 `~/.cjh`——**从 Git Bash 启动时配置页一片空白**（自检里 `cjh:config` 拿不到 model）。
@@ -255,6 +280,28 @@ CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
 
 （汇总行的 `passed` 与 PASS 明细条数**不保证末行对齐**：`report` 是异步命令，聚合行之后还可能再来明细，
 所以探针那条断言会落在汇总行之后——判据是「PASS 明细条数、FAIL 0 条、汇总 failed=0」三者一致。）
+
+### 聊天模式（宿主直连）的实网冒烟
+
+页面那条直连断言要等窗口与自检都跑完，而 TLS / 端点这类问题定论在「宿主 → 服务商」这一段。
+所以另有一条**不开窗口**的冒烟：`CJNOTE_SELFCHECK_AI=1` 时进程在开窗前直接跑一次 `ai:chat`，
+把结果与流式回推条数打到 stderr，然后退出（`0` 成功 / `1` 失败 / `2` 请求成功但没有 `ai:chunk`）。
+
+```bash
+# 严格校验（证书链完整时应通过；链不完整会如实失败并给出提示）
+CJNOTE_SELFCHECK_AI=1 ./target/release/bin/main 2>&1 | grep "AI SMOKE"
+
+# 使证书链不完整的主机可用：把主机名写进白名单文件（见上文「服务商证书链不完整时怎么办」）
+#   %LOCALAPPDATA%\cjnote\tls-allow.txt  →  taotoken.net
+CJNOTE_SELFCHECK_AI=1 ./target/release/bin/main 2>&1 | grep "AI SMOKE"
+# [cjnote] 注意：taotoken.net 的证书链不做校验（由宿主侧白名单放行：C:\Users\<你>\AppData\Local/cjnote/tls-allow.txt 或 CJNOTE_TLS_INSECURE_HOSTS）
+# [cjnote] AI SMOKE ok=true status=200 chars=6 received=11780 chunks=2 costMs=2742 endpoint=…
+```
+
+判据三条：`ok=true`、`status=200`、`chunks>0`（有 chunk 才说明「边读边推」真的生效；
+`chunks=0` 而 `chars>0` 是流式没回推，退出码为 2 专门区分这种情况）。
+2026-10-22 本机实测：不放行时 `ok=false status=0`、报 `unknown CA` 并附可操作提示（退出码 1）；
+放行后 `chunks=3`（退出码 0）。
 
 「后端给了绝对路径」那两条断言用 `isAbsPath()` 判定（`/…` 或 `E:/…` 都算绝对）——只认 `/` 会让
 Windows 上恒红，那是判定写窄了、不是后端没给。

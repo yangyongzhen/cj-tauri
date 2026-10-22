@@ -9,6 +9,17 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+### Changed
+
+- **README 与官网的鸿蒙 PC 口径从「预留」改为「已支持」，并补三张实机截图**（2026-10-22）：
+  README 的平台徽章加 `鸿蒙 PC`、现状段由「双平台宿主」改成三平台宿主（平台差异仍只落在条件编译
+  与 C 桥两处），「运行效果」与「示例一览」补 `ohos-music` / `ohos-movie` / `create --template ohos`
+  生成物三张实机截图（`docs/images/example-ohos-{music,movie,template}.jpg`）；官网特性卡把
+  "HarmonyOS ArkWeb has a reserved architecture slot" 改成 ArkWeb 实机跑通（2in1 桌面形态、宿主写在
+  仓颉侧不走 C 桥、`card__meta` 补 `arkweb_proxy.cj`），示例轮播由 21 屏加到 24 屏（同样三张，落
+  `website/assets/screenshots/ohos-*.jpg`），标题与提示行的数量一起对齐。截图按实机窗口矩形
+  `[515 281 2090 1394]` 裁切并缩到 1240 px 宽——原图是整屏桌面快照，直接上站会带上用户桌面图标。
+
 ### Added
 
 - **鸿蒙 PC 上的音乐播放器示例 `examples/ohos/ohos-music`**（2026-10-22）：把 `examples/music`

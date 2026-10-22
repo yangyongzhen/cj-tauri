@@ -437,6 +437,18 @@
   **声明了哪几个常量打包器就生成哪几个**——没有 three.js 就不写那一条）与 `src/packed_resources.cj`
   （`decodeBase64` / `splitBy` / `textOrFile`），再把页面与能力清单的取用改成「内嵌优先、否则读盘」；
   最快是照 `examples/music/src/` 那两份抄。打包器会逐条 `die` 提示缺哪样。
+- **单文件包只内嵌页面 / vendor 前端资源 / 能力清单，不内嵌 `vendor/` 里的大二进制**（2026-10-23 实测，
+  `examples/ai-chat`）：`pack-win-single.sh` 按 `PACKED_*_B64` 存根声明生成，`vendor/cjh/` 那份 13 MB 的
+  安装包不会被编进 exe——于是「一键部署」在这个产物里必然报「找不到 cjh 安装包 …」。
+  两个方向都成立：要么**如实报**（当前做法，引导卡把 zip 路径 / `CJ_AICHAT_CJH_BUNDLE` 提示给用户），
+  要么应用自己按平台给 `VENDOR_*_B64` 再补一条存根（体积代价 13 MB）；
+  **不要**让部署命令在包内找不到文件时假装成功或静默回落到手动模式。
+- **单文件 exe 双击启动时日志是 0 字节，带 `2> log` 起就正常**（2026-10-23 实测，`examples/ai-chat`）：
+  `cj_bridge_set_log_file` 是把 stderr `dup2` 到日志文件的，而 `--subsystem=windows` 的产物双击时
+  **stderr 句柄无效**——日志文件会被建出来（open 成功）却一行都写不进，表象是「应用没起来 / 没日志」，
+  而窗口其实好好地开着。判据：同一份 exe 带 `ai-chat.exe 2> err.txt` 启动，日志 605 行、`err.txt` 0 字节
+  （stderr 已被接管）。**取证一律带 stderr 重定向**；要让双击也有日志，得在 C 桥里改成不依赖 fd 2
+  的落盘通道（当前未做）。
 - **判「这个 DLL 是不是系统的」先确认它在 `System32` 里，再决定加白名单还是报警**（2026-10-13 实测）：
   写分发实测脚本时按白名单分类 PE 导入表，`dbghelp.dll`（Windows 自带，崩溃栈回溯用）没进白名单，
   于是**四份单文件 exe 全被报成「非系统 DLL = 1」**——数字看着像把「免安装」当场推翻，实则是白名单漏项。

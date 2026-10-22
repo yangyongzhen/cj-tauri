@@ -61,6 +61,8 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 单文件 exe 28MB 不瘦身 | llvm-mingw 的 `strip.exe` 包装器缺 `llvm-strip` 真身，`strip 2>/dev/null` 吞了报错；回退 SDK 的 `llvm-objcopy --strip-all`（脚本已内置），排查先裸跑 strip 看真实报错 |
 | 单文件包里嵌了外部程序（cjh 这类）却运行期找不到它、exe 体积也没涨 | 资源对象（windres 产出的 `.o`）塞进 `libcjtbridge.a` 后**不会被链接器提取**（静态库按需提取，它没有任何符号引用），产物照旧 `build success`、而 `objdump -h app.exe` 里数 `.rsrc` 一节是 0。落法：把它**当链接输入直接给 ld.lld**（打包器拼进 `link-option`），判据看节表不看构建日志 |
 | rc 里写资源名 `"cjh.exe" RCDATA "…"` 编译失败 | `llvm-rc`（windres 的后端）不认字符串资源名，报 `expected int or identifier`。资源名只能数字 ID，文件名由打包器另生成 `pack_assets_map.h`（ID → 名字，编桥时 `-DCJ_PACK_ASSETS_EMBEDDED` 才包含），桥因此仍不认识应用的任何文件名 |
+| 单文件 exe 双击启动后日志文件是 0 字节（窗口其实好好开着） | `cj_bridge_set_log_file` 把 stderr `dup2` 到日志文件，而 `--subsystem=windows` 的产物双击时 **stderr 句柄无效**：文件被建出来却写不进一行。带 `app.exe 2> err.txt` 起即正常（日志有内容、`err.txt` 反而 0 字节，说明 stderr 已被接管）。**取证一律带 stderr 重定向**；要双击也有日志得改 C 桥的落盘通道（当前未做） |
+| 单文件包里「一键部署 / 拉起随包程序」报找不到安装包 | 打包器只内嵌页面 / vendor 前端资源 / 能力清单（按 `PACKED_*_B64` 存根声明），**`vendor/` 里的大二进制不会进 exe**。ai-chat 的 cjh zip（13 MB）就属于这类：单文件产物里如实报「找不到 cjh 安装包」，要装就设 `CJ_AICHAT_CJH_BUNDLE` 指过去 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 
 ### 运行期 / 页面

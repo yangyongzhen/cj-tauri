@@ -11,6 +11,17 @@
 
 ### Added
 
+- **cjnote 的 AI 助手面板可折叠了**（2026-10-22 用户反馈：不用 AI 时这块 320px 太占注意力）：
+  三条入口走同一个 `applyAiVisible`——面板头「»」胶囊按钮、`Ctrl+4`、原生「视图」菜单勾选项
+  「显示 AI 助手」（新增独立开关 `view.aipanel`，勾选态经新命令 `aipanel:sync` 与页面双向同步，
+  仿 `linenos:sync` 的两条入口约定）；隐藏后中栏工具条右缘出「✦ AI 助手」把手唤回。
+  实现只切 `body.ai-hidden` 一个类（CSS 藏 `#ai` 与左缘拖条，中栏自动占满），**不做宽度过渡动画**
+  （收缩是布局重排，CodeMirror 要重新量宽）；偏好落 `store`（`ui.aipanel`）重启恢复；
+  隐藏只影响可见性，cjh 连接与流式消息照常。能力清单放行 33 条（+`aipanel:sync`），
+  沙盒自检 90 PASS / 2 FAIL（2 FAIL 为真实服务商聊天往返，厂商端点不可达）。
+- **cjnote 的 AI 面板拖宽上限从 640 放宽到 960**（同轮用户反馈「拉不大」）：真正兜底的仍是
+  「编辑区保底 320px」的动态夹取——1280 宽窗口实测能拉到 728px（撞窗口保底），大窗口可到 960。
+
 - **新增示例 `examples/cjnote`：AI 原生 Markdown 笔记**（从 [cjnote](https://atomgit.com/qq8864/cjnote) 移植进仓，
   随上游 `52c5afd` 同步）：三栏（笔记库 / CodeMirror 编辑 / AI 助手），笔记就是工作区 `notes/` 下的纯 `.md`；
   原生菜单（文件 / 视图 / 帮助）+ `setTitlebarSubtitle` 副标题（平台没这块能力位时回落页面顶栏）、视图三态与
@@ -391,6 +402,10 @@
 
 ### Fixed
 
+- **修：Linux 共享库桥编不过（`environ` undeclared）**：`cj_plat_spawn_hidden` 用 `posix_spawn` 收
+  进程环境指针，而 glibc 的 `unistd.h` 只在 `_GNU_SOURCE` 下暴露 `environ`——单文件打包器的静态编译
+  定义了它、`native/build_linux.sh` 的共享库构建没有，于是同一份源码一边能编一边报
+  `'environ' undeclared`。按 POSIX 显式 `extern char **environ;` 声明（标准符号，两种构建都合法）。
 - **修：`http` 插件流式分块每轮少移 1 字节，中文长回复偶发整条失败**（`Invalid utf8 byte sequence.`）：
   `takeCompleteUtf8` 把「完整 UTF-8 序列」取走后用 `remove(0..(cut - 1))` 清缓冲，而仓颉的 Range 是
   **右开**的——`0..(cut - 1)` 只移走 `cut - 1` 个字节，上一个序列的末字节留在缓冲里，下一轮拼出的

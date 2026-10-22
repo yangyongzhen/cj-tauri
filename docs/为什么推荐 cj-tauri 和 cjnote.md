@@ -289,8 +289,8 @@ FFI 也不是什么隆重的事——一行 `foreign func`，本仓的 SQLite �
 
 | 项目 | 值 |
 | --- | --- |
-| 应用命令 | 18 条（`note:*` / `cjh:*` / `theme:*` / `report` 等），能力清单放行 32 条 |
-| 页面自检 | 沙盒实测 **68 PASS / 0 FAIL / 1 SKIP**（含真实 cjh 的聊天与连通探针，连不上记 SKIP 不算失败） |
+| 应用命令 | 19 条（`note:*` / `cjh:*` / `theme:*` / `report` 等），能力清单放行 33 条 |
+| 页面自检 | 沙盒实测 **90 PASS / 2 FAIL**（仅有的 2 条 FAIL 是真实服务商聊天往返，随厂商可用性波动；AI 面板折叠与拖宽断言全绿） |
 | 开发态产物 | `target/release/bin/main` **7.6M** |
 | 单文件产物 | `dist-single/cjnote` **11.2M**（静态链接 + 页面 / 前端库 / 能力清单全内嵌，换机器只要系统有 WebKitGTK / GTK） |
 | 装配插件 | 6 个（store / http / log / clipboard / dialog / ws） |

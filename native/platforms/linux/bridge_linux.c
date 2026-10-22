@@ -29,6 +29,9 @@
 #include <signal.h>
 #include <spawn.h>
 #include <stdarg.h>
+/* posix_spawn 要用进程环境指针：glibc 的 unistd.h 只在 _GNU_SOURCE 下暴露 environ，
+   共享库构建没定义它——按 POSIX 显式声明（标准符号，不带 _GNU_SOURCE 也合法） */
+extern char **environ;
 #include <sys/types.h>
 #include <termios.h>
 #include <time.h>

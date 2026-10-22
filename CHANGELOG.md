@@ -14,6 +14,29 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [1.1.1] - 2026-10-23
+
+（末位发布：只补文档与包元数据，不改行为。起因是 npm 包页面的介绍里，**鸿蒙 PC 工程怎么创建一个字都没提**——
+正文取自随包分发的 `npm/README.md`，改它必须发一版才生效。）
+
+### Fixed
+
+- `npm/README.md`（也就是 npm 包页面的介绍正文）补「鸿蒙 PC（`--template ohos`）」一节：创建命令与
+  `--bundle` / `--label`、生成物结构（`main_ability.cj` / `index.cj` / `rawfile/` / `build-hap.sh`）、
+  前置（DevEco Studio 6.1 + 签名 + `DEVECO_WIN` / `CANGJIE_STDX_OHOS`）、桌面形态的两个配置
+  （`deviceTypes: 2in1` + `checkDeviceTypes: false`）、窗口沿用系统默认、已知限制与真机 hilog 判据；
+  `create` / `build` / `run` 三行说明补上鸿蒙工程转交 `build-hap.sh` 的行为。
+- `npm/package.json` 的 `description` 补「鸿蒙 PC」（原为 Windows / Linux 双平台口径）。
+- `examples/ohos/ohos-music` 与 `examples/ohos/ohos-movie` 的 README 仍记着已撤除的自定窗口尺寸
+  （`86% × 84%` → `2683×1747`），改为当前口径：不调 `resize()`，沿用系统默认 `[515 281 2090 1394]`。
+
+### Changed
+
+- 新增四篇鸿蒙 PC 实战文档：`docs/鸿蒙PC实战-01-白屏三轮与一条llvm-nm.md`（加载期 SIGSEGV 与
+  `llvm-nm` 判据）、`-02-窗口尺寸别再自己改.md`（三版自定尺寸与被撤回的理由）、
+  `-03-音乐示例搬上鸿蒙PC.md`（业务代码单份 + 构建期同步）、`-04-观影示例与鸿蒙TLS.md`
+  （鸿蒙上仓颉运行时装不了 OpenSSL，取图改走 `ohos.net.http`）。
+
 ## [1.1.0] - 2026-10-22
 
 （自 1.0.0 起 75 个提交：鸿蒙 PC 从「架构预留」走到实机跑通——music / movie 两个示例工程

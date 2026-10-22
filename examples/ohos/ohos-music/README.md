@@ -84,7 +84,7 @@ MainAbility OnCreated.<ability>
 host registered after N polls label=main
 host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
 page begin label=main    /    page end label=main
-main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
+main window keeps system default 2090x1394 px at density 190% on screen 3120x2080, rect=[515 281 2090 1394]
 ```
 
 `aa start` 需要**屏幕已解锁**（开发者模式下无法自动解锁），锁屏时表现为启动失败 / 抓到锁屏画面。
@@ -98,10 +98,11 @@ main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
   页面侧表现为「已经退出」。要真退出用 `aa force-stop` 或关闭窗口。
 - **`music:config` / `fav:*` 落沙箱**：`<filesDir>/music-library.local.json`（桌面版是项目根的
   相对路径）。卸载即清。
-- **窗口尺寸**：`onWindowStageCreate` 里按**屏幕像素**折算再居中——
-  `resize()` / `moveWindowTo()` 收的都是 px，不是 vp（传 `1440×900` 在一台 3120×2080 px 的机器上
-  只占屏宽 46%，看着就是「小窗」）。现在是 `display.getDefaultDisplaySync()` 读出屏幕 →
-  `86% × 84%` → `resize` → `moveWindowTo` 居中，实测稳定矩形 `[218 166 2683 1747]`
-  （218/166 正好是居中的余量），换设备 / 换分辨率自动合适，用户可再拉伸。
+- **窗口尺寸**：**不干预**——`onWindowStageCreate` 里不调 `resize()` / `moveWindowTo()`，沿用系统按桌面形态
+  给的默认矩形（本机实测 `[515 281 2090 1394]`，约屏宽 2/3 且居中），只打一行 hilog 作凭证。
+  此前两版自定尺寸都撤了：`resize()` 收的是 **px 不是 vp**（传 `1440×900` 在一台 3120×2080 px 的机器上
+  只占屏宽 46%），按屏幕比例折算又会在开窗瞬间跳一下（`86% × 84%` → `[218 166 2683 1747]`），
+  用户观感就是「先看到另一个大小、随后变了」。要自己定尺寸的话两个数记着：传 px、`densityPixels` 是
+  Float32（本机 190%）。
 - **多窗口 / 原生对话框不在本工程**：一扇窗、无 overlay；那两条能力的取证留在
   `examples/ohos-probe`（AGENTS §4 的「鸿蒙侧弹窗只能声明式」）。

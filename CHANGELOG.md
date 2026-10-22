@@ -603,9 +603,25 @@
   `entry/cjpm.toml` 同时在）后**转交工程脚本**而不是自己拼 cjpm/hvigor（`run` = `--install`）；
   `copyTree` 对图片等二进制走字节拷贝——原来的文本通道读到 png 会抛
   `IllegalArgumentException: Invalid unicode scalar value`，create 直接崩且留下半成品目录。
-  **未验证**：设备锁屏时无法 `aa start`（开发者模式不能自动解锁），模板生成物的装机开窗未在本轮取证；
   签名构建与 `hdc install` 已通过（`entry-default-signed.hap` 1 647 178 字节、`install bundle successfully`），
   未签名包 `entry-default-unsigned.hap` 1 576 126 字节。
+  **装机开窗已补取证（2026-10-22 解锁后）**：`create --template ohos` 生成的工程 `hdc install` 后
+  `aa start` 开窗、页面渲染，hilog 逐行齐全——`host registered after 0 polls label=main` →
+  `host pageUrl label=main url="file:///…/cj-tauri-main.html"` → `host initScripts label=main count=1` →
+  `page begin label=main` → `page end label=main`；窗口为桌面形态，**默认尺寸按逻辑尺寸给**：
+  取 1000×700 vp、由屏幕密度折算成像素并按屏幕 82% 封顶（本机密度 190% →
+  `main window sized 1900x1330 px = 1000x700 vp at density 190% (want 1900x1330 cap 2558x1705) on screen
+  3120x2080, rect=[610 375 1900 1330]`，占屏 61%×64%，四周留白 610/375）。
+  早先那版按屏幕像素取 86%×84%（`2683x1747`、几乎占满屏）已撤：桌面应用的默认窗口应当
+  **与屏幕大小无关**，换分辨率 / 换缩放不该变成另一副样子；比例法在大屏上就是「一开窗就最大化」。
+  折算时有个坑：`densityPixels` 是 **Float32**（`.cj.d` 里看着像 Float64），直接与 `Float64` 相乘
+  报的是 `invalid binary operator on 'Float64' and 'Float32'`，取整数百分比（190）后全程整数运算即无碍。
+  三条交互在屏上都验过（截图人眼确认、`uitest uiInput click` 点击）：`greet` 往返
+  （`invoke OK: Hello, world! 来自仓颉后端（鸿蒙 ArkWeb 宿主）`）、后端事件推送
+  （`后端: timer started` + `收到后端事件 tick #5` → 隔几秒 `tick #21`，原生→页面持续推）、
+  `system:version` 返回 `{"name":"cj-tauri","version":"1.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}`。
+  同轮无 `command not allowed` / `command not registered`、无 SIGSEGV；页面默认态是「等待 invoke…」
+  （模板页面没有自动调用，命令往返都是点出来的）——所以这条链路是页面主动发起的，不是宿主自说自话。
 - **单文件包可以内嵌「外部程序」了（PE 资源释放，`cj_bridge_extract_assets`）**——cjh 这类
   **独立可执行文件**既并不进静态库、也不在 PE 导入表里，单文件产物过去只能让它落在包外。
   现在示例根放一份 `pack-assets.txt`（一行一个文件），Windows 打包器用 `windres` 把它们编成
@@ -711,6 +727,13 @@
 
 ### Fixed
 
+- **鸿蒙模板的窗口尺寸取证行打的是过渡值**（2026-10-22 装机首轮发现）：`main_ability.cj` 的
+  「事后查询复核」在 `resize()` / `moveWindowTo()` 之后**紧接着**读 `getWindowProperties().windowRect`，
+  而平台回填矩形是异步的——实测请求 `2683×1747`，紧跟读到的是 `[515 281 2090 1394]`，
+  同一时刻截图里窗口明明已经是 2683×1747 满幅居中。这行正是「我调过了 ≠ 生效了」的凭证，
+  报过渡值反而会把排查带偏（第一轮据此怀疑过 resize 没生效）。现在改成**有界轮询**（最多 30 次 ×10ms）
+  到与请求尺寸一致为止，等不到才如实报最后读到的值，行尾追加 `after N polls`；
+  实测修正后为 `rect=[218 166 2683 1747] after 1 polls`，与页面上看到的窗口一致。
 - **多窗口下 `clipboard:*` / `notification:notify` 也全发给默认窗那一个宿主**（与上一条 dialog 同源）：
   两个插件原先在 `setup()` 里只调 `handler.attachHost(app.webviewHost())`、`handle` 里 `let _ = ipc`，
   第二扇窗的剪贴板读写与通知一律落到默认窗宿主上。现在装配时注入

@@ -60,8 +60,11 @@ bash build-hap.sh --install
 - **改页面**：`entry/src/main/resources/rawfile/index.html`，前端只经 `window.__CJ_TAURI__`
   的 `invoke` / `listen`，并且要**等桥出现**（ArkWeb 没有 document-start 注入）。
 - **联网**：`module.json5` 已声明 `ohos.permission.INTERNET`；用不到就删掉。
-- **窗口尺寸**：`main_ability.cj` 的 `applyDesktopWindowSize()` 按屏幕像素折算（86%×84% 居中）。
-  `resize()` 收的是**像素**不是 vp，别写死成 vp 的量级。
+- **窗口尺寸**：`main_ability.cj` 的 `applyDesktopWindowSize()` 取**逻辑尺寸 1000×700 vp**，
+  用 `display.densityPixels` 折算成像素（本机密度 190% → 1900×1330 px）并按屏幕 82% 封顶，居中。
+  两处别踩：`resize()` 收的是**像素**不是 vp（写死 vp 量级会得到一扇很小的窗）；
+  `densityPixels` 是 **Float32**，跟 `Float64` 直接相乘编不过，先化成整数百分比再算。
+  想要别的默认大小就改 `targetWVP` / `targetHVP` 两个数。
 
 ## 已知边界
 

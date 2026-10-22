@@ -1099,20 +1099,35 @@ toast」变成「歌单 6 张、封面加载」。
 1440×900 vp）。落法是先读屏幕再折算并居中（换分辨率/换设备自动合适）：
 
 ```cangjie
+// 取逻辑尺寸再按密度折算：桌面默认窗口应当「与屏幕大小无关」。
+// 别按屏幕比例取（早先的 86%×84% 在 3120×2080 上就是 2683×1747，等于一开窗就最大化）。
+let targetWVP: Int64 = 1000
+let targetHVP: Int64 = 700
 let screen = getDefaultDisplaySync()          // ohos.display，宽高是 px
 let screenW = Int64(screen.width)
 let screenH = Int64(screen.height)
-let w = UInt32(screenW * 86 / 100)            // 86% 留侧边余量
-let h = UInt32(screenH * 84 / 100)            // 84% 留顶栏 / 任务栏
+// densityPixels 是 Float32：跟 Float64 直接相乘报 invalid binary operator，
+// 先化成整数百分比（2 倍密度 → 200），后面全程整数运算
+var densityPct = Int64(screen.densityPixels * 100.0)
+if (densityPct <= 0) { densityPct = 100 }
+let wantW = targetWVP * densityPct / 100
+let wantH = targetHVP * densityPct / 100
+let capW = screenW * 82 / 100                 // 小屏封顶，别越出可用区域
+let capH = screenH * 82 / 100
+let w = UInt32(if (wantW < capW) { wantW } else { capW })
+let h = UInt32(if (wantH < capH) { wantH } else { capH })
 let mainWin = windowStage.getMainWindow()     // 变量别叫 main：main 是关键字，会报「expected '('」
 mainWin.resize(w, h)
 mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
 ```
 
-实测稳定矩形 `[218 166 2683 1747]`（2683×1747 正是 86%×84%，218/166 是居中余量），
-两次启动读数一致。**一个会骗人的伴随现象**：`resize()` 之后立刻 `getWindowProperties().windowRect`
+本机（HAD-W32 / 3120×2080 / 密度 **190%**）实测：`1900x1330 px = 1000x700 vp`，
+稳定矩形 `[610 375 1900 1330] after 1 polls`（占屏 61%×64%，四周留白 610/375 且居中）。
+密度是 190% 而非 200% —— 别按「2 倍屏」想当然，`screen.width` 给的是物理 px、逻辑宽是 3120/1.9 ≈ 1642 vp，
+日志里把 `want` / `cap` / 密度一起打出来，才分得清「按 vp 折算的」和「被 82% 夹住的」。
+**一个会骗人的伴随现象**：`resize()` 之后立刻 `getWindowProperties().windowRect`
 读到的是**过渡值**（本轮读到 `[515 281 2090 1394]`，既不是旧尺寸也不是新尺寸），
-要判「到底生效没有」得等系统应用完再读（`hidumper`，或延迟读一次），别拿紧邻的那次读当下结论。
+要判「到底生效没有」得等系统应用完再读——有界轮询（30×10ms）到与请求一致，行尾标 `after N polls`。
 
 **取证**（`CjMusic` tag，hilog）：
 

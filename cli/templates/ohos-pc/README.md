@@ -60,11 +60,15 @@ bash build-hap.sh --install
 - **改页面**：`entry/src/main/resources/rawfile/index.html`，前端只经 `window.__CJ_TAURI__`
   的 `invoke` / `listen`，并且要**等桥出现**（ArkWeb 没有 document-start 注入）。
 - **联网**：`module.json5` 已声明 `ohos.permission.INTERNET`；用不到就删掉。
-- **窗口尺寸**：`main_ability.cj` 的 `applyDesktopWindowSize()` 取**逻辑尺寸 1000×700 vp**，
-  用 `display.densityPixels` 折算成像素（本机密度 190% → 1900×1330 px）并按屏幕 82% 封顶，居中。
-  两处别踩：`resize()` 收的是**像素**不是 vp（写死 vp 量级会得到一扇很小的窗）；
-  `densityPixels` 是 **Float32**，跟 `Float64` 直接相乘编不过，先化成整数百分比再算。
-  想要别的默认大小就改 `targetWVP` / `targetHVP` 两个数。
+- **窗口尺寸**：`main_ability.cj` **默认不动窗口**——鸿蒙 PC 按桌面形态给的那扇窗（本机 3120×2080 屏上
+  `2090×1394 px`，约屏宽 2/3）就是合适的大小，`logDefaultWindowRect()` 只把它读出来打一行 hilog 当凭证。
+  别在 `onWindowStageCreate` 里 `resize()`：系统先按默认尺寸建窗、你的 resize 紧接着改它，用户看到的是
+  「先弹一个尺寸、随即变成另一个」，观感就是窗口莫名跳一下（这是本模板撤掉两版自定尺寸的原因）。
+  **真要固定尺寸**就自己调 `windowStage.getMainWindow().resize(w, h)`，两个坑记着：`resize()` 收的是**像素**
+  不是 vp（写 vp 量级会得到一扇很小的窗）；`densityPixels` 是 **Float32**，跟 `Float64` 直接相乘编不过，
+  先化成整数百分比再算。
+  上述「系统给的就是桌面窗」的前提是 `entry/build-profile.json5` 的 `deviceTypes` 为 `2in1` 且
+  `cangjieOptions.checkDeviceTypes=false`——写成 phone/tablet 时系统按手机应用塞进竖屏兼容窗（约 600 宽）。
 
 ## 已知边界
 

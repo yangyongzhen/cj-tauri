@@ -608,14 +608,17 @@
   **装机开窗已补取证（2026-10-22 解锁后）**：`create --template ohos` 生成的工程 `hdc install` 后
   `aa start` 开窗、页面渲染，hilog 逐行齐全——`host registered after 0 polls label=main` →
   `host pageUrl label=main url="file:///…/cj-tauri-main.html"` → `host initScripts label=main count=1` →
-  `page begin label=main` → `page end label=main`；窗口为桌面形态，**默认尺寸按逻辑尺寸给**：
-  取 1000×700 vp、由屏幕密度折算成像素并按屏幕 82% 封顶（本机密度 190% →
-  `main window sized 1900x1330 px = 1000x700 vp at density 190% (want 1900x1330 cap 2558x1705) on screen
-  3120x2080, rect=[610 375 1900 1330]`，占屏 61%×64%，四周留白 610/375）。
-  早先那版按屏幕像素取 86%×84%（`2683x1747`、几乎占满屏）已撤：桌面应用的默认窗口应当
-  **与屏幕大小无关**，换分辨率 / 换缩放不该变成另一副样子；比例法在大屏上就是「一开窗就最大化」。
-  折算时有个坑：`densityPixels` 是 **Float32**（`.cj.d` 里看着像 Float64），直接与 `Float64` 相乘
-  报的是 `invalid binary operator on 'Float64' and 'Float32'`，取整数百分比（190）后全程整数运算即无碍。
+  `page begin label=main` → `page end label=main`；窗口为桌面形态，**默认不干预尺寸**（2026-10-22 用户裁定）：
+  系统本来就按桌面形态给一扇约 2/3 屏宽的窗，本机 3120×2080 上初始矩形 `[515 281 2090 1394]`
+  （2090×1394 px ≈ 1100×734 vp），模板只打一行
+  `main window keeps system default 2090x1394 px at density 190% on screen 3120x2080, rect=[515 281 2090 1394]`
+  作凭证、不 resize 也不 moveWindowTo。此前两版自定尺寸一并撤除：屏幕像素 86%×84%（`2683x1747`，几乎占满屏）
+  与逻辑 1000×700 vp ×密度（`1900x1330`）——除了「跟平台抢方向盘」之外，更直接的毛病是
+  **系统先按默认建窗、resize 紧接着改**，屏上就是「先弹一个尺寸、随即跳成另一个」，观感很怪。
+  自定尺寸时要记的两个坑仍在：`resize()` 收 px 不收 vp；`densityPixels` 是 **Float32**
+  （`.cj.d` 里看着像 Float64），直接与 `Float64` 相乘报 `invalid binary operator on 'Float64' and 'Float32'`，
+  取整数百分比（190）后全程整数运算即无碍。`examples/ohos/ohos-music` 与 `ohos-movie` 同口径同步
+  （两示例日志同为单行 `keeps system default 2090x1394 …`，截图人眼确认窗口不再跳变）。
   三条交互在屏上都验过（截图人眼确认、`uitest uiInput click` 点击）：`greet` 往返
   （`invoke OK: Hello, world! 来自仓颉后端（鸿蒙 ArkWeb 宿主）`）、后端事件推送
   （`后端: timer started` + `收到后端事件 tick #5` → 隔几秒 `tick #21`，原生→页面持续推）、

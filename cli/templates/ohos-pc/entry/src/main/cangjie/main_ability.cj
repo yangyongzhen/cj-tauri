@@ -56,7 +56,7 @@ class MainAbility <: UIAbility {
 
     public override func onWindowStageCreate(windowStage: WindowStage): Unit {
         Hilog.info(1, "CjTauri", "MainAbility onWindowStageCreate.")
-        this.applyDesktopWindowSize(windowStage)
+        this.logDefaultWindowRect(windowStage)
         // 等框架把宿主登记上再建树：组件的 build() 只有在该 label 有宿主、页面地址非空时
         // 才渲染 `Web`。等不到也照常 loadContent——页面会自己报桥缺失，比静默白屏好排查。
         this.waitAndLogHost(DEFAULT_WINDOW_LABEL)
@@ -81,62 +81,31 @@ class MainAbility <: UIAbility {
     }
 
     /**
-     * 把主窗设成「桌面应用」的默认量级并居中
+     * 不干预窗口尺寸：**鸿蒙 PC 上系统给的默认窗口就是答案**
      *
-     * **按逻辑尺寸定，不按屏幕比例定**：桌面应用的默认窗口应当是「与屏幕大小无关的一扇窗」，
-     * 换分辨率 / 换缩放都不该变成另一副样子。所以取 1000×700 vp（≈ 框架 `WindowConfig`
-     * 默认的 900×640 那一档），再用屏幕密度 `densityPixels` 折算成像素——
-     * **`resize()` 收的是像素，不是 vp**（实测：传 1440×900 后窗口矩形就是 `[515 281 1440 900]`，
-     * 而屏幕是 3120×2080 px——只占屏宽 46%）。
-     * 折算后按屏幕 82% 封顶：小屏上不超出可用区域（还要留标题栏与任务栏），
-     * 到底被夹没夹看日志里 `want` 与 `cap` 两段。想改默认大小就改 `targetWVP` / `targetHVP`。
+     * 早先这里自己 `resize()` 定尺寸（先按屏幕比例 86%×84% = 2683×1747、后按逻辑 1000×700 vp），
+     * 两版都是在跟平台的默认窗口抢方向盘：实测系统本来就按桌面形态给一扇约 2/3 屏宽的窗
+     * （3120×2080 的屏上初始矩形 `[515 281 2090 1394]`，即 2090×1394 px ≈ 1100×734 vp），
+     * 而紧接着的 resize 把它改成 1900×1330——屏上看到的是「先弹一个尺寸、随即变成另一个」，
+     * 观感就是窗口莫名跳一下。所以模板**默认不碰窗口尺寸**，只读取矩形打一行日志作凭证；
+     * 应用真需要固定尺寸时自己调 `windowStage.getMainWindow().resize()`。
+     * 前提是 `entry/build-profile.json5` 的 `deviceTypes` 写成 `2in1` 且
+     * `cangjieOptions.checkDeviceTypes=false` 放行——写成 phone/tablet 时系统按手机应用塞进
+     * 竖屏兼容窗（约 600 宽），那种情况才需要自己定尺寸。
      */
-    private func applyDesktopWindowSize(windowStage: WindowStage): Unit {
+    private func logDefaultWindowRect(windowStage: WindowStage): Unit {
         try {
-            let targetWVP: Int64 = 1000
-            let targetHVP: Int64 = 700
             let screen = getDefaultDisplaySync()
             let screenW = Int64(screen.width)
             let screenH = Int64(screen.height)
-            // 密度读不到就按 1:1 折算：宁可窗口偏小，也不凭空放大到屏外。
-            // 注意 `densityPixels` 是 **Float32**（d.ts 里看着像 Float64），直接和 Float64 相乘编不过，
-            // 所以先化成整数百分比（2 倍密度 → 200），后面全程整数运算。
+            // `densityPixels` 是 **Float32**（.cj.d 里看着像 Float64），先化成整数百分比再参与运算。
             let densityRaw = screen.densityPixels
-            var densityPct = Int64(densityRaw * 100.0)
-            if (densityPct <= 0) {
-                densityPct = 100
-            }
-            let wantW = targetWVP * densityPct / 100
-            let wantH = targetHVP * densityPct / 100
-            let capW = screenW * 82 / 100
-            let capH = screenH * 82 / 100
-            var pxW = wantW
-            var pxH = wantH
-            if (pxW > capW) {
-                pxW = capW
-            }
-            if (pxH > capH) {
-                pxH = capH
-            }
-            let w = UInt32(pxW)
-            let h = UInt32(pxH)
+            let densityPct = Int64(densityRaw * 100.0)
             let mainWin = windowStage.getMainWindow()
-            mainWin.resize(w, h)
-            mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
-            // 事后查询复核：resize 不抛异常不代表尺寸生效（「我调过了」不算凭证）。
-            // 但不能紧跟着就读——平台回填窗口矩形是异步的，立刻读到的是过渡值
-            // （实测 2026-10-22：请求 2683x1747，紧跟读到 [515 281 2090 1394]，而屏上窗口确实是 2683x1747）。
-            // 有界轮询到与请求一致为止；等不到就如实报最后读到的那个值。
-            var r = mainWin.getWindowProperties().windowRect
-            var polls = 0
-            while (polls < 30 && (r.width != w || r.height != h)) {
-                sleep(Duration.millisecond * 10)
-                r = mainWin.getWindowProperties().windowRect
-                polls += 1
-            }
-            Hilog.info(1, "CjTauri", "main window sized ${w}x${h} px = ${targetWVP}x${targetHVP} vp at density ${densityPct}% (want ${wantW}x${wantH} cap ${capW}x${capH}) on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}] after ${polls} polls")
+            let r = mainWin.getWindowProperties().windowRect
+            Hilog.info(1, "CjTauri", "main window keeps system default ${r.width}x${r.height} px at density ${densityPct}% on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
         } catch (e: Exception) {
-            Hilog.info(1, "CjTauri", "main window sizing failed: ${e}")
+            Hilog.info(1, "CjTauri", "main window geometry read failed: ${e}")
         }
     }
 

@@ -1091,43 +1091,45 @@ checkCangjieDeviceTypes(e){ const n = e?.cangjieOptions?.checkDeviceTypes; if (v
 装包即生效、不弹窗。判据：加权限前后同一份 hap 只差这一处，截图里热门歌曲与封面从「全空 + 错误
 toast」变成「歌单 6 张、封面加载」。
 
-**第三处是窗口尺寸，而且 `resize()` 收的是「像素」不是 vp**：第一版写死
+**第三处是窗口尺寸，而这件事最后落在「干脆别动它」上**：第一版写死
 `windowStage.getMainWindow().resize(1440, 900)`，日志照打「resized」、也不抛异常，可窗口在
 3120×2080 px 的屏上只有 **46% 宽**——1420 宽的一扇小窗，用户第一句反馈就是「太小」。
 判据不靠肉眼看：`hidumper -s WindowManagerService -a '-a'` 读到的窗口矩形就是
 `[515 281 1440 900]`，**数字和传进去的一模一样**，说明单位是 px（按 vp 理解会以为已经给了
-1440×900 vp）。落法是先读屏幕再折算并居中（换分辨率/换设备自动合适）：
+1440×900 vp）。第二版改成「逻辑 1000×700 vp × `densityPixels`，再按屏幕 82% 封顶」，屏上是 1900×1330。
+可用户紧接着问「刚启动时弹出来的窗口大小合适，为何后来又变了」——**系统本来就按桌面形态给一扇
+约 2/3 屏宽的窗**（初始矩形 `[515 281 2090 1394]` = 2090×1394 px ≈ 1100×734 vp），
+而我们的 `resize()` 在 `onWindowStageCreate` 里紧接着把它改掉，屏上就是「先弹一个尺寸、随即跳成另一个」。
+裁定（2026-10-22）：**默认不干预窗口**，只把它读出来打一行日志当凭证——
 
 ```cangjie
-// 取逻辑尺寸再按密度折算：桌面默认窗口应当「与屏幕大小无关」。
-// 别按屏幕比例取（早先的 86%×84% 在 3120×2080 上就是 2683×1747，等于一开窗就最大化）。
-let targetWVP: Int64 = 1000
-let targetHVP: Int64 = 700
+// 不 resize、不 moveWindowTo：系统给的这扇桌面窗就是默认大小。
+// 早先两版自定尺寸（屏幕 86%×84% = 2683×1747、逻辑 1000×700 vp ×密度 = 1900×1330）
+// 都会在开窗瞬间造成一次可见跳变。
 let screen = getDefaultDisplaySync()          // ohos.display，宽高是 px
 let screenW = Int64(screen.width)
 let screenH = Int64(screen.height)
 // densityPixels 是 Float32：跟 Float64 直接相乘报 invalid binary operator，
-// 先化成整数百分比（2 倍密度 → 200），后面全程整数运算
-var densityPct = Int64(screen.densityPixels * 100.0)
-if (densityPct <= 0) { densityPct = 100 }
-let wantW = targetWVP * densityPct / 100
-let wantH = targetHVP * densityPct / 100
-let capW = screenW * 82 / 100                 // 小屏封顶，别越出可用区域
-let capH = screenH * 82 / 100
-let w = UInt32(if (wantW < capW) { wantW } else { capW })
-let h = UInt32(if (wantH < capH) { wantH } else { capH })
+// 先化成整数百分比（2 倍密度 → 200）再参与运算
+let densityPct = Int64(screen.densityPixels * 100.0)
 let mainWin = windowStage.getMainWindow()     // 变量别叫 main：main 是关键字，会报「expected '('」
-mainWin.resize(w, h)
-mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
+let r = mainWin.getWindowProperties().windowRect
+Hilog.info(1, "CjTauri", "main window keeps system default ${r.width}x${r.height} px at density ${densityPct}% on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
 ```
 
-本机（HAD-W32 / 3120×2080 / 密度 **190%**）实测：`1900x1330 px = 1000x700 vp`，
-稳定矩形 `[610 375 1900 1330] after 1 polls`（占屏 61%×64%，四周留白 610/375 且居中）。
-密度是 190% 而非 200% —— 别按「2 倍屏」想当然，`screen.width` 给的是物理 px、逻辑宽是 3120/1.9 ≈ 1642 vp，
-日志里把 `want` / `cap` / 密度一起打出来，才分得清「按 vp 折算的」和「被 82% 夹住的」。
+应用真要固定尺寸才自己调 `resize(w, h)`，两个坑记着：**`resize()` 收 px 不收 vp**（写 vp 量级会得到
+一扇很小的窗）；`densityPixels` 是 **Float32**（`.cj.d` 里看着像 Float64），先化成整数百分比再算。
+前提仍是 `deviceTypes: 2in1` + `checkDeviceTypes=false`——写成 phone/tablet 时系统按手机应用
+给一扇竖屏兼容窗（约 600 宽），那种情况才需要自己定尺寸。
+
+本机（HAD-W32 / 3120×2080 / 密度 **190%**）实测：`keeps system default 2090x1394 px at density 190%
+… rect=[515 281 2090 1394]`，只有这一行、没有第二个尺寸。密度是 190% 而非 200%——别按「2 倍屏」
+想当然，`screen.width` 给的是物理 px、逻辑宽是 3120/1.9 ≈ 1642 vp。
 **一个会骗人的伴随现象**：`resize()` 之后立刻 `getWindowProperties().windowRect`
 读到的是**过渡值**（本轮读到 `[515 281 2090 1394]`，既不是旧尺寸也不是新尺寸），
 要判「到底生效没有」得等系统应用完再读——有界轮询（30×10ms）到与请求一致，行尾标 `after N polls`。
+反过来，**要判「窗口有没有被人改过」，就得在 resize 之前也打一行初始矩形**——只打最终值的话，
+用户说「先看到的是另一个大小」时毫无凭证可对账（这条就是这么发现系统默认其实是 2090×1394 的）。
 
 **取证**（`CjMusic` tag，hilog）：
 
@@ -1135,7 +1137,7 @@ mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h))
 host registered after N polls label=main
 host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
 page begin label=main
-main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
+main window keeps system default 2090x1394 px at density 190% on screen 3120x2080, rect=[515 281 2090 1394]
 ```
 
 **教训**：鸿蒙侧「窗口看着像手机」不是布局问题，先看 `deviceTypes`；而插件报「某平台不支持」时，

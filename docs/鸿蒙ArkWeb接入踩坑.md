@@ -1050,6 +1050,63 @@ probe:log window=second <- {"kind":"platform-notification","me":"second","ok":fa
 
 
 
+### 10.14 鸿蒙 PC 上应用是「竖屏手机窗」：`deviceTypes` 没写 `2in1`，而插件默认禁它
+
+**现象**：`examples/ohos/ohos-music` 首次实机，页面渲染正常但窗口是**竖屏兼容窗**（实测约 600 宽、
+歌单与播放器挤成一列，桌面上一眼就是手机应用）。同一套页面在 Windows / Linux 上是三栏布局。
+
+**根因**：`module.json5` 的 `deviceTypes` 只写 `phone` / `tablet`。鸿蒙 PC 对这类 hap 走
+「手机应用兼容窗」形态——窗口形状由**声明**决定，不是页面能改的（页面的响应式只能在给定的视口里
+自适应）。写 `2in1` 才是桌面窗口形态。
+
+**卡点**：把 `2in1` 写进 `module.json5` 直接判配置错：
+
+```
+> hvigor ERROR: Failed :entry:default@GeneratePkgModuleJson
+Configuration Error 01103012
+> Only phone and tablet devices are supported for Cangjie applications,
+deviceTypes configuration is invalid: 2in1
+```
+
+看着像「仓颉应用不支持鸿蒙 PC」。真因是**插件里有一条可关的校验**（读插件源码定死，
+`cangjie-build-support/.../cangjie-pre-build.js`）：
+
+```js
+this.supportDevices = ["default", "phone", "tablet"];
+checkCangjieDeviceTypes(e){ const n = e?.cangjieOptions?.checkDeviceTypes; if (void 0 === n || !0 === n) { …校验… } }
+```
+
+**落法**（`entry/build-profile.json5`）：
+
+```json5
+"cangjieOptions": { "path": "./cjpm.toml", "checkDeviceTypes": false }
+```
+
+`module.json5` 写 `["2in1", "tablet", "phone"]` 后，`assembleHap` 通过、安装通过，
+窗口变成桌面形态。
+
+**第二处必须声明的**：`requestPermissions` 里的 `ohos.permission.INTERNET`。缺它时页面每次请求
+都死在 `SocketException: Failed to create socket: Operation not permitted.`，而页面显示的是自家文案
+「歌单拉取失败：连不上后台接口」——**看着像断网 / 后台挂了**，实际是权限。这条是 `normal` 级，
+装包即生效、不弹窗。判据：加权限前后同一份 hap 只差这一处，截图里热门歌曲与封面从「全空 + 错误
+toast」变成「歌单 6 张、封面加载」。
+
+**第三处是窗口尺寸**：PC 上默认窗口偏小，`onWindowStageCreate` 里
+`windowStage.getMainWindow().resize(1440, 900)`（失败如实打一行、不挡 `loadContent`）。系统会按自己的
+窗口缩放折算，实测落到物理 `[515 281 2156 1324]`（≈ 逻辑 1078×662），用户可再拉伸。
+
+**取证**（`CjMusic` tag，hilog）：
+
+```
+host registered after N polls label=main
+host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
+page begin label=main
+main window resized to 1440x900
+```
+
+**教训**：鸿蒙侧「窗口看着像手机」不是布局问题，先看 `deviceTypes`；而插件报「某平台不支持」时，
+先读插件源码里那条校验有没有开关（这类门禁常为支持新设备形态留了口子），别急着改架构。
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

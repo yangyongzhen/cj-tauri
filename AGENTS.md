@@ -640,6 +640,16 @@
   同样是 `aarch64`，用它门禁会把有 C 桥的桌面平台一起摘掉），唯一可靠判据是 **`env`**
   （`aarch64-linux-ohos` → `ohos`，桌面 → `gnu`）；框架里一律写 `@When[env == "ohos"]` /
   `@When[env != "ohos"]`。详见 `native/platforms/harmonyos/README.md` 的平台判据小节。
+- **鸿蒙 PC 上窗口是竖屏兼容窗 ⇒ 先看 `deviceTypes`，不是布局问题**（2026-10-22 实测，
+  `examples/ohos/ohos-music`）：只写 `phone` / `tablet` 时系统按手机应用给一扇约 600 宽的竖窗，
+  页面的响应式只能在给定视口里自适应。要桌面形态必须写 `2in1`，而仓颉构建插件默认把 deviceTypes
+  限制成 phone/tablet（写 `2in1` 判 `01103012 Only phone and tablet devices are supported`）——
+  **放行开关在插件里**：`entry/build-profile.json5` 的 `cangjieOptions.checkDeviceTypes = false`
+  （`cangjie-pre-build.js` 的 `checkCangjieDeviceTypes` 只在 `!== false` 时才校验）。
+  同轮另一处必写：`requestPermissions` 的 `ohos.permission.INTERNET`——缺了所有请求都死成
+  `SocketException: Failed to create socket: Operation not permitted.`，页面显示的却是自家
+  「连不上后台接口」文案（像断网、像后台挂了）。判据与完整过程见
+  `docs/鸿蒙ArkWeb接入踩坑.md` §10.14；工程说明见 `examples/ohos/ohos-music/README.md`。
 - **从命令行构建鸿蒙工程（headless）必须自己喂仓颉插件路径，DevEco IDE 里构建不受影响**（2026-10-19 实测，
   `examples/ohos-probe`）：`hvigorw` 按「`hvigor-config.json5` 的 `dependencies` → `CANGJIE_BUILD_SUPPORT_PATH`
   → DevEco 安装根 → `DEVECO_CANGJIE_PATH` → **`DEVECO_HVIGOR_CANGJIE_PLUGIN`**」找仓颉构建插件，

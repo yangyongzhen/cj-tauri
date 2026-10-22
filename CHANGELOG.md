@@ -9,6 +9,21 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+### Added
+
+- **鸿蒙 PC 上的音乐播放器示例 `examples/ohos/ohos-music`**（2026-10-22）：把 `examples/music`
+  的歌单 / 播放器 / 歌词搬到鸿蒙 PC（实机 HAD-W32 / HarmonyOS 7.0.0.107 / API 26 / aarch64），
+  同一份前端页面与仓颉命令层，宿主侧换成 ArkWeb 组件。首轮实机：页面渲染正常、热门歌曲与后台歌单
+  加载出来、播放进度在走（00:17 / 03:42），窗口为**桌面形态**（可拉伸、三栏铺开）。
+  工程侧新增 `examples/ohos/` 作为「鸿蒙应用工程根」，`build-hap.sh` 每次构建把
+  `examples/music/src/*.cj` 同步成 `musiclib/`（只改包声明）并把 `ui/index.html` 与能力清单
+  base64 内嵌成 `musiclib/ohos_assets.cj`——**业务逻辑仍只有 `examples/music` 一份**。
+  两处必须这么写的配置（否则表象都很误导）：`module.json5` 的 `deviceTypes` 要写 `2in1`
+  （只写 phone/tablet 时系统按手机应用塞进竖屏兼容窗，约 600 宽）而仓颉构建插件默认禁它，
+  放行开关是 `entry/build-profile.json5` 的 `cangjieOptions.checkDeviceTypes=false`；
+  `requestPermissions` 必须有 `ohos.permission.INTERNET`（缺了所有请求死成
+  `SocketException: Failed to create socket: Operation not permitted.`，页面显示的是「连不上后台接口」）。
+
 ### Fixed
 
 - **cjnote 聊天模式的回答会变成重复段落**（2026-10-22）：页面把同一句话叠七八遍

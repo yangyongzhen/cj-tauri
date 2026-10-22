@@ -22,7 +22,9 @@
 | IPC 双向桥 | invoke / resolve / event | 页面 `window.__CJ_TAURI__.invoke('music:hot')` → 仓颉侧 `CommandHandler` |
 | 能力安全模型 | capability 白名单 | `capabilities/default.json` 里逐条声明命令与事件 |
 
-平台状态：**Windows（WebView2）与 Linux（WebKitGTK）已实机跑通**，鸿蒙 ArkWeb 为架构预留位。
+平台状态：**Windows（WebView2）与 Linux（WebKitGTK）已实机跑通**；**鸿蒙 PC** 也已跑通，
+但宿主接入单独成一个工程——`examples/ohos/ohos-music/`（ArkWeb 组件 + 同一份页面 / 命令层，
+构建时从本目录同步过去，业务代码仍只有这里一份）。
 
 本示例是**框架的一个普通应用**：框架源码一行没改，应用侧只写三样东西——
 `src/`（仓颉后端）、`ui/`（页面）、`capabilities/`（白名单）。换句话说，

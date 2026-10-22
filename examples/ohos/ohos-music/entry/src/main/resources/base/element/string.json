@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "cj-tauri 爱音乐（鸿蒙）"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "仓颉爱音乐"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "仓颉爱音乐"
+    }
+  ]
+}

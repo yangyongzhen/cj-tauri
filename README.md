@@ -4,7 +4,7 @@
 
 **用华为仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端，产物不带 Chromium、几 MB 级。**
 
-[![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux-blue)](#示例一览)
+[![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux%20%7C%20%E9%B8%BF%E8%92%99%20PC-blue)](#示例一览)
 [![Cangjie](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)](./LICENSE)
 [![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
@@ -12,7 +12,7 @@
 前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
 28 个可运行示例。Linux（WebKitGTK）、Windows（WebView2）与鸿蒙 PC（ArkWeb）均已实机跑通。
 
-> 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、19 屏实机截图与文档入口。
+> 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、24 屏实机截图与文档入口。
 
 > 💬 **QQ 技术交流群**：**92381027** —— 使用问题、功能建议、插件与踩坑交流都欢迎。
 
@@ -55,6 +55,21 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 ![Modbus Poll (cj-tauri) 主界面](examples/modbus-poll/images/modbus-poll-main.png)
 
 *多面板并行监控 + 底部报文监视逐帧滚动 Tx/Rx 十六进制。详见[它的 README](examples/modbus-poll/README.md)。*
+
+用 cj-tauri 实现的 **鸿蒙 PC 应用**（`examples/ohos/ohos-music` 与 `ohos-movie` —— 仓颉后端 + ArkWeb 前端，
+跑在 HarmonyOS PC 的 2in1 桌面形态里，页面代码与桌面版同一份）：
+
+![仓颉爱音乐（鸿蒙 PC 实机）](docs/images/example-ohos-music.jpg)
+
+*`ohos-music` 实机：窗口尺寸交给系统（cj-tauri 不 resize、不挪位），标题栏是鸿蒙 PC 的原生窗口装饰。*
+
+![仓颉观影（鸿蒙 PC 实机）](docs/images/example-ohos-movie.jpg)
+
+*`ohos-movie` 实机：封面经宿主侧 `movie:image` 带 Referer / UA 取回——页面直连图床会被防盗链挡成「200 + 0 字节」。*
+
+![cj-tauri create --template ohos 生成物（鸿蒙 PC 实机）](docs/images/example-ohos-template.jpg)
+
+*`cj-tauri create --template ohos` 直接生成的工程：`build-hap.sh` 编出可签安装的 hap，greet / `system:version` / 后端事件推送三条链路开箱可点。*
 
 更多示例截图见下文[示例一览](#示例一览)。
 
@@ -214,6 +229,8 @@ cli\cj-tauri.bat create myapp && cd myapp
 | ![AI 对话客户端：聊天模式](docs/images/example-ai-chat-chat.png) | ![AI 对话客户端：Agent 模式](docs/images/example-ai-chat-agent.png) |
 | [cjnote](https://atomgit.com/qq8864/cjnote)（生态项目）：分屏编辑 + AI 助手，顶栏并入原生菜单行 | [cjnote](https://atomgit.com/qq8864/cjnote)：原生「视图」菜单（三态与主题勾选同步） |
 | ![cjnote：分屏编辑 + AI 助手](docs/images/example-cjnote.png) | ![cjnote：原生视图菜单](docs/images/example-cjnote-menu.png) |
+| [ohos-music](examples/ohos/ohos-music)：鸿蒙 PC 音乐播放器（同步歌词） | [ohos-movie](examples/ohos/ohos-movie)：鸿蒙 PC 观影应用 |
+| ![仓颉爱音乐（鸿蒙 PC）](docs/images/example-ohos-music.jpg) | ![仓颉观影（鸿蒙 PC）](docs/images/example-ohos-movie.jpg) |
 
 ## 架构
 
@@ -296,7 +313,8 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 
 ## 现状与路线
 
-- ✅ Linux（WebKitGTK）与 Windows（WebView2）双平台宿主，IPC/能力模型完全共用
+- ✅ **三平台宿主**：Linux（WebKitGTK）、Windows（WebView2）、鸿蒙 PC（ArkWeb，2in1 桌面窗）——
+  IPC / 能力模型 / 命令分发完全共用，平台差异只落在条件编译与 C 桥两处
 - ✅ 脚手架 CLI（仓颉原生）：`create / dev / build / run / info`，npm 包跨平台分发
 - ✅ 插件体系 v1 + 14 个官方插件（fs / dialog / shell / serial / store / clipboard / notification / menu / mqtt / redis / log / http / ws / sqlite）；
   命令级白名单、命名权限集、**路径 scope**（RFC-003 第 4 期）三层闸门，Windows + Linux 实机证据

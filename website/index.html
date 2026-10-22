@@ -157,12 +157,12 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/><circle cx="6.4" cy="6.6" r=".9" fill="currentColor" stroke="none"/></svg>
           </div>
           <h3 class="card__title" data-en="WebView host">WebView 宿主</h3>
-          <p class="card__text" data-en="Opens the native window and injects the bridge script — no Chromium shipped. Linux uses WebKitGTK 4.1, Windows uses WebView2, HarmonyOS ArkWeb has a reserved architecture slot; host-level capabilities (menus, drag-and-drop, dialogs, tray, global hotkeys) are negotiated before the page loads.">
+          <p class="card__text" data-en="Opens the native window and injects the bridge script — no Chromium shipped. Linux uses WebKitGTK 4.1, Windows uses WebView2, HarmonyOS PC runs on ArkWeb (2in1 desktop window); host-level capabilities (menus, drag-and-drop, dialogs, tray, global hotkeys) are negotiated before the page loads.">
             开原生窗口、在 document-start 注入桥接脚本，不捆绑 Chromium。Linux 走 WebKitGTK 4.1、
-            Windows 走 WebView2、鸿蒙 ArkWeb 预留架构位；菜单、文件拖入、原生对话框、托盘、
-            全局快捷键这类宿主能力一律赶在页面加载前定稿。
+            Windows 走 WebView2、<strong>鸿蒙 PC 走 ArkWeb</strong>（2in1 桌面形态，宿主写在仓颉侧、不走 C 桥）；
+            菜单、文件拖入、原生对话框、托盘、全局快捷键这类宿主能力一律赶在页面加载前定稿。
           </p>
-          <p class="card__meta">host.cj · host_webkit.cj · host_webview2.cj</p>
+          <p class="card__meta">host.cj · host_webkit.cj · host_webview2.cj · arkweb_proxy.cj</p>
         </article>
         <article class="card">
           <div class="card__icon" aria-hidden="true">
@@ -447,7 +447,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
     <div class="wrap">
       <div class="sec-head">
         <span class="kicker" data-en="Examples">示例</span>
-        <h2 class="sec-title" data-en="28 runnable examples, plus ecosystem apps — 21 shots below, all on-device">28 个可直接运行的示例<br>下面 21 屏全是实机截图</h2>
+        <h2 class="sec-title" data-en="28 runnable examples, plus ecosystem apps — 24 shots below, all on-device">28 个可直接运行的示例<br>下面 24 屏全是实机截图</h2>
         <p class="sec-lead" data-en="Not hello-world stubs: a Modbus polling tool, a serial oscilloscope, a music player, an SQLite browser, an HTTP client, an MQTT console, an AI chat client. Each ships a self-check that ends with its own verdict, and the E2E entries write machine-readable evidence. The strip below scrolls sideways — drag it, swipe it, or use the arrows.">
           不是 hello world 拼盘：Modbus 调试工具、串口示波器、音乐播放器、SQLite 浏览器、HTTP 客户端、MQTT 调试台、AI 对话客户端……
           每个都带自检脚本，跑完自己下结论，E2E 入口把证据写成 JSON。下面是一条横向轮播，左右拖动、滚轮横滚或箭头都能翻。
@@ -671,11 +671,41 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
                   </div>
                 </a>
               </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/ohos/ohos-music" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/ohos-music.jpg" width="1240" height="827" loading="lazy" alt="鸿蒙 PC 实机：examples/ohos/ohos-music 音乐播放器，ArkWeb 页面上跑着同一份前端代码" data-en-alt="On a HarmonyOS PC: examples/ohos/ohos-music runs the very same frontend code inside ArkWeb"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="HarmonyOS PC: the music player example, same frontend code">鸿蒙 PC：音乐播放器示例，前端代码一份通吃</h3>
+                    <p class="slide__desc" data-en="The desktop example's page runs unchanged inside ArkWeb — only the host moved to the Cangjie side (no C bridge on this platform). Window size is left to the system: no resize, no reposition, so the 2in1 desktop window never jumps right after it appears. Playback, lyrics and cover art all come from Cangjie-side commands over the same IPC.">桌面版那份页面原封不动跑在 ArkWeb 里——动的只有宿主：鸿蒙侧宿主写在仓颉里，不走 C 桥。窗口尺寸交给系统（不 resize、不挪位），所以 2in1 桌面窗弹出后不会再跳一下。播放、歌词、封面全部照旧由仓颉侧命令经同一套 IPC 供数。</p>
+                    <span class="slide__tag" data-en="examples/ohos/ohos-music · ArkWeb · 2in1 desktop window">examples/ohos/ohos-music · ArkWeb · 2in1 桌面窗</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/examples/ohos/ohos-movie" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/ohos-movie.jpg" width="1240" height="827" loading="lazy" alt="鸿蒙 PC 实机：examples/ohos/ohos-movie 观影应用，封面统一走宿主侧 movie:image 取回" data-en-alt="On a HarmonyOS PC: examples/ohos/ohos-movie, whose covers are all fetched by the host-side movie:image command"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="HarmonyOS PC: the movie app, covers fetched by the host">鸿蒙 PC：观影应用，封面统一走宿主取回</h3>
+                    <p class="slide__desc" data-en="Hotlink protection turns a page-side &lt;img&gt; into HTTP 200 with a 0-byte body, so every poster goes through the host-side movie:image command with the right Referer and UA. On HarmonyOS the request rides the system network stack (ohos.net.http), so no OpenSSL has to be shipped alongside the hap.">图床的防盗链会把页面侧 &lt;img&gt; 直连变成「HTTP 200 + 0 字节」，所以封面一律交给宿主命令 movie:image 带正确的 Referer / UA 取回。鸿蒙侧这层请求走系统网络栈 ohos.net.http，hap 里不必再随包带一份 OpenSSL。</p>
+                    <span class="slide__tag" data-en="examples/ohos/ohos-movie · movie:image · ohos.net.http">examples/ohos/ohos-movie · movie:image · ohos.net.http</span>
+                  </div>
+                </a>
+              </li>
+              <li class="slide">
+                <a class="slide__link" href="https://atomgit.com/qq8864/cj-tauri/tree/main/cli/templates/ohos-pc" target="_blank" rel="noopener">
+                  <div class="slide__shot"><img src="assets/screenshots/ohos-template.jpg" width="1240" height="827" loading="lazy" alt="鸿蒙 PC 实机：cj-tauri create --template ohos 直接生成的工程，greet 与 system:version 开箱可点" data-en-alt="On a HarmonyOS PC: what cj-tauri create --template ohos generates, with greet and system:version ready to click"></div>
+                  <div class="slide__body">
+                    <h3 class="slide__title" data-en="cj-tauri create --template ohos: a runnable HarmonyOS PC project">cj-tauri create --template ohos：一条命令生成能跑的鸿蒙工程</h3>
+                    <p class="slide__desc" data-en="One command scaffolds a complete project (AppScope, build profiles, module.json5, the ArkWeb host component, the entry ability, the page and its capability list, build-hap.sh). build-hap.sh produces a signable hap, hdc installs it, aa start launches it — greet, system:version and backend event push all work out of the box. The page and capability list read as real rawfile resources, not build-time base64 blobs.">一条命令生成完整工程（AppScope、两份 build profile、module.json5、ArkWeb 宿主组件、入口 ability、页面与能力清单、build-hap.sh）。build-hap.sh 编出可签安装的 hap，hdc 装、aa start 起；greet、system:version、后端事件推送三条链路开箱可点。页面与能力清单是 rawfile 真文件，不再走构建期 base64 内嵌。</p>
+                    <span class="slide__tag" data-en="cli/templates/ohos-pc · build-hap.sh · rawfile page">cli/templates/ohos-pc · build-hap.sh · rawfile 页面</span>
+                  </div>
+                </a>
+              </li>
             </ul>
           </div>
         </div>
         <div class="carousel__foot">
-          <p class="carousel__hint" data-en="Swipe or scroll sideways — 21 on-device shots, picked from 28 examples plus one ecosystem app">左右拖动或滚动查看——21 屏实机截图，从 28 个示例与 1 个生态项目里挑的</p>
+          <p class="carousel__hint" data-en="Swipe or scroll sideways — 24 on-device shots, picked from 28 examples plus one ecosystem app">左右拖动或滚动查看——24 屏实机截图，从 28 个示例与 1 个生态项目里挑的</p>
         </div>
       </div>
 

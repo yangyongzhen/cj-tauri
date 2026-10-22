@@ -169,14 +169,15 @@ LISTENING、页面 ws 连得上（单文件形态同样复核过：`cjh` 的 `Ma
 
 ## 单文件打包（可选）
 
-> **Windows 已发布的产物**：[`dist-single/cjnote.exe`](dist-single/cjnote.exe)（**34.1 MB**，单文件，
+> **Windows 已发布的产物**：[`dist-single/cjnote.exe`](dist-single/cjnote.exe)（**34.2 MB**，单文件，
 > 双击即用）——C 桥 / 仓颉运行时 / stdx / 插件包全部静态链进这一个文件，页面与 `capabilities/`
 > 内嵌成 base64，**随包 cjh 与它的 4 个运行时 DLL** 作为 PE 资源（`RT_RCDATA`）一起塞在里面，
 > 首次运行释放到 `%LOCALAPPDATA%\cjnote\runtime\`。不装仓颉 SDK、不设 `PATH`、不需要 `vendor/` 目录。
 > Linux 单文件产物用 `pack-linux-single.sh`（**不含 cjh**，需与 `vendor/cjh/` 同级摆放）。
 >
-> 上表那份 `cjnote.exe` 已随「AI 面板可拖宽度」与「AI 后端两态分流」两项改动**重打**
-> （2026-10-21 23:10 构建，34 184 192 字节，GUI 子系统、导入表只有系统 DLL），源码与产物同版。
+> 上表那份 `cjnote.exe` 已随「AI 面板可折叠 / 拖宽上限 960」（`66671ee`）**重打**
+> （2026-10-22 20:01 构建，34 202 624 字节，GUI 子系统、导入表只有系统 DLL、`.rsrc` 节
+> `0x0162df20` ≈ 22.2 MB 即内嵌的 cjh 与 4 个运行时 DLL），源码与产物同版。
 > 重打时顺带修掉一个真问题：Git Bash 的 `HOME` 是 POSIX 形式（`/c/Users/yang`），原生 Win32
 > 读不到 `~/.cjh`——**从 Git Bash 启动时配置页一片空白**（自检里 `cjh:config` 拿不到 model）。
 > 现在宿主会把 `/<盘符>/…` 与 `/cygdrive/<盘符>/…` 规范成原生路径再拼 `~/.cjh`。
@@ -249,7 +250,7 @@ Linux 单文件**仍不含 cjh**——它按 `vendor/cjh/bin/<平台>/` 找现�
 
 ```bash
 CJNOTE_SELFCHECK=1 ./target/release/bin/main 2>&1 | grep SELFCHECK
-# SELFCHECK DONE passed=84 failed=0        # Windows/WebView2 实测（另有 1 条 SKIP）；Linux 上次为 passed=68
+# SELFCHECK DONE passed=87 failed=0        # Windows/WebView2 实测（另有 1 条 SKIP，明细 89 条 PASS）；Linux 上次为 passed=68
 ```
 
 （汇总行的 `passed` 与 PASS 明细条数**不保证末行对齐**：`report` 是异步命令，聚合行之后还可能再来明细，
@@ -266,7 +267,8 @@ Windows 上恒红，那是判定写窄了、不是后端没给。
 以及「晚到的启动期卡片不得抹掉正在进行的对话」两条竞态回归），
 以及两条**真实 cjh** 的通路：流式聊天探针（有后端才跑，连不上记一行 SKIP，不把「环境里没有后端」算成失败）
 与设置页的**测试连通**（帧级覆盖真发一轮，回包非空才算过）。
-本轮实测：Windows/WebView2 **84 PASS / 0 FAIL / 1 SKIP**（2026-10-21，未含 AI 面板折叠新断言）；Linux 沙盒 2026-10-22 为 **90 PASS / 2 FAIL**——仅有的 2 条 FAIL 是真实服务商聊天往返（本轮厂商端点不可达），AI 面板折叠 / 唤回 / 拖宽夹取（上限已放宽到 960，实测 728px 撞窗口保底）断言全绿。
+本轮实测：Windows/WebView2 **89 PASS / 0 FAIL / 1 SKIP**（2026-10-22，重打的单文件 `cjnote.exe` 上跑，
+含 AI 面板折叠 / 唤回断言；汇总行 `passed=87`，另 2 条明细落在聚合行之后）；Linux 沙盒 2026-10-22 为 **90 PASS / 2 FAIL**——仅有的 2 条 FAIL 是真实服务商聊天往返（本轮厂商端点不可达），AI 面板折叠 / 唤回 / 拖宽夹取（上限已放宽到 960，实测 728px 撞窗口保底）断言全绿。
 
 ## 平台状态
 

@@ -9,6 +9,15 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+### Changed
+
+- **cjnote 的 Windows 单文件产物重打**（2026-10-22，纳入 AI 面板折叠 / 拖宽上限 960）：
+  `examples/cjnote/dist-single/cjnote.exe` 34 202 624 字节，GUI 子系统（双击不弹控制台），
+  导入表只有系统 DLL，`.rsrc` 节 `0x0162df20` ≈ 22.2 MB 即内嵌的 cjh 与 4 个运行时 DLL。
+  同一份 exe 在隔离目录实测：`CJNOTE_SELFCHECK=1` → **89 PASS / 0 FAIL / 1 SKIP**
+  （汇总行 `passed=87 failed=0`）；cjh 自行释放到 `%LOCALAPPDATA%\cjnote\runtime\` 并
+  `ws connected ws://127.0.0.1:8765/ws`，`8765` LISTENING。
+
 ### Added
 
 - **cjnote 的 AI 助手面板可折叠了**（2026-10-22 用户反馈：不用 AI 时这块 320px 太占注意力）：

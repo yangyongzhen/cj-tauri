@@ -14,6 +14,42 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- `examples/ai-chat` 新增**单文件包**（`bash scripts/pack-win-single.sh examples/ai-chat` →
+  `dist-single/ai-chat.exe`，实测 10.6 MB、`Subsystem = 00000002`、导入表只有系统 DLL）：
+  页面、highlight.js 与主题、`capabilities/app.json` 全部 base64 编进二进制，运行时不再读 `ui/` 与
+  `capabilities/`（补齐三件套 `src/packed_assets.cj` / `src/packed_resources.cj` /
+  `ui/vendor/pack-files.txt`；判据仍是「base64 非空即内嵌、否则读盘」，仓库内构建行为不变）。
+  实机凭证：单独拷进空目录启动，日志有 `[cj-ai-chat] 能力清单来自内嵌资源：1 份`、
+  `[cj-bridge] host created`、7 个插件装配完成，窗口与页面渲染正常（含内嵌高亮配色）。
+  **单文件包不含 cjh 安装包**（13 MB 的 zip 没有编进 exe），引导卡第 1 步会如实报「找不到 cjh 安装包」，
+  按提示设 `CJ_AICHAT_CJH_BUNDLE` 或走手动指定；**双击启动时日志落盘不生效**（GUI 子系统下 stderr 句柄无效，
+  C 桥 `dup2` 到日志文件写不进内容），要日志就用 `ai-chat.exe 2> ai-chat.log` 启动。
+- `examples/ai-chat` 的**一键部署在 Windows 落地**（此前只有 Linux）：从仓库自带的
+  `vendor/cjh/cjh-v1.5.3-windows-x64-selfcontained.zip` 解出 cjh——同一个 `SHA256SUMS` 校验口径、
+  安装到 `%LOCALAPPDATA%\cj-ai-chat\cjh\`、解包走系统自带 bsdtar（`%SystemRoot%\System32\tar.exe`，
+  **绝对路径**：从 Git Bash 起的应用 PATH 里 MSYS 的 GNU tar 排在前面且不认 zip）、拉起走框架
+  `launchHidden`（GUI 子系统用 `launch` 会给 cjh 配一个控制台黑窗），并逐个点名核对 zip 里 4 个
+  「按名字 LoadLibrary」的运行时 DLL（`libcangjie-runtime` / `libboundscheck` / `libssl-3` /
+  `libcrypto-3`）。实机凭证：`CJH-DEPLOY PASS deploy ok=true reused=false … api=yes` +
+  `CJH-DEPLOY PASS status state=running api=yes`；端口上已有 cjh 时同一探针 `reused=true`。
+- `examples/ai-chat` 新增 **`CJH-DEPLOY` 页内探针**（开关 `CJ_AICHAT_PROBE_DEPLOY=1`，`main.cj` 注入
+  `window.__AICHAT_PROBE_DEPLOY__`）：桥就绪后跑一次 `cjh:deploy`，把 `ok/reused/deployed/api` 与随后的
+  `cjh:status` 三态回投到应用日志。它要真装一份 cjh 并起进程，与自检「先没有 cjh」的前提互斥，
+  **必须与 `CJ_AICHAT_PROBE=1` 分两轮跑**（README「自检」一节写明）。
+- 引导卡第 1 步的安装目录文案**按平台给**（Windows 显示 `%LOCALAPPDATA%\cj-ai-chat\cjh`，
+  其余平台仍是 `~/.local/share/cj-ai-chat/`）：平台信息异步取回，先写无路径的通用文案再补全。
+
+### Fixed
+
+- `examples/ai-chat` 一键部署**在 Windows 上必然失败**并错报成「解包/安装失败」：那句「安装目录可读」
+  的检查拿 `File(Path(dir), OpenMode.Read)` 去开**目录**，Windows 对目录 open 直接回 `Access is denied`
+  （Linux 上 `open(O_RDONLY)` 目录能过，所以这条只在 Windows 炸）。改用 `exists(Path(dir))`，两平台同一口径。
+- 解包失败**不再只回一句笼统文案**：`cjhExtractBundle` 改为回传失败原因（找不到解包工具 / 解包工具起不来 /
+  30s 未结束 / 解包后没找到二进制 / 缺哪个运行时库），由 `cjh:deploy` 的 `error` 字段原样带到引导卡——
+  Windows 首轮正是卡在「看不出真因」上，应用自己的 stderr 在 GUI 子系统下收不到（重定向也是 0 字节）。
+
 ## [1.1.2] - 2026-10-23
 
 （修正 1.1.1 的打包瑕疵：包里的预编译 CLI 是 1.1.0 那次构建留下的产物，装上后 `npx cj-tauri --version`

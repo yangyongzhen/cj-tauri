@@ -9,6 +9,18 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [Unreleased]
+
+（尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
+发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
+
+## [1.1.0] - 2026-10-22
+
+（自 1.0.0 起 75 个提交：鸿蒙 PC 从「架构预留」走到实机跑通——music / movie 两个示例工程
+（`examples/ohos/`）加 `create --template ohos` 脚手架，宿主住在应用侧 ArkUI、页面与能力清单是
+hap 的 `rawfile` 真文件、构建走工程自带的 `build-hap.sh`；窗口尺寸交还系统默认（不再 resize / 挪位）。
+桌面两平台的 IPC、能力模型与插件体系不变。）
+
 ### Changed
 
 - **README 与官网的鸿蒙 PC 口径从「预留」改为「已支持」，并补三张实机截图**（2026-10-22）：
@@ -589,11 +601,6 @@
   打一行 `[skip]` 说明后返回，不再误报 ERROR（判定面由 Linux 轮覆盖）。
 - **`host_webkit.cj` 的 `std.collection.*` import 改限定名**：Windows 侧报 unused 警告、Linux 侧
   必须要用——文件级 import 改 `std.collection.ArrayList` 限定名，两平台都零警告。
-
-## [Unreleased]
-
-（尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
-发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
 

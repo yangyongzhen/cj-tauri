@@ -6,6 +6,7 @@ import kit.AbilityKit.UIAbility
 import kit.AbilityKit.LaunchParam
 import kit.AbilityKit.LaunchReason
 import kit.ArkUI.WindowStage
+import ohos.display.getDefaultDisplaySync
 import cjTauri.*
 
 /*
@@ -45,19 +46,37 @@ class MainAbility <: UIAbility {
 
     public override func onWindowStageCreate(windowStage: WindowStage): Unit {
         Hilog.info(1, "CjMusic", "MainAbility onWindowStageCreate.")
-        // 鸿蒙 PC 上默认给的是手机形态的窄窗（实测约 600 宽），歌单 + 播放器挤成一列。
-        // 在建树之前把主窗放大到桌面尺寸；拿不到窗口或系统拒绝时如实记一行，
-        // 不让它挡住后面的 loadContent（页面按容器自适应，窄窗也能用）。
-        try {
-            windowStage.getMainWindow().resize(1440, 900)
-            Hilog.info(1, "CjMusic", "main window resized to 1440x900")
-        } catch (e: Exception) {
-            Hilog.info(1, "CjMusic", "main window resize failed: ${e}")
-        }
+        this.applyDesktopWindowSize(windowStage)
         // 等框架把宿主登记上再建树：组件的 build() 只有在该 label 有宿主、页面地址非空时才渲染
         // `Web`。等不到也照常 loadContent——页面会自己报桥缺失，比静默白屏好排查。
         this.waitAndLogHost(DEFAULT_WINDOW_LABEL)
         windowStage.loadContent("EntryView")
+    }
+
+    /**
+     * 把主窗放大到「桌面应用」的量级并居中
+     *
+     * **`resize()` 收的是像素，不是 vp**（2026-10-22 实测：传 1440×900 后窗口矩形就是
+     * `[515 281 1440 900]`，而屏幕是 3120×2080 px——只占屏宽 46%，看着像小窗；
+     * 若按 vp 理解会以为已经给了 1440×900 vp）。所以这里一律先读屏幕像素再折算，
+     * 不写死数字：换分辨率 / 换设备都自动合适。取 86%×84% 是为侧边、顶栏与任务栏留余量。
+     */
+    private func applyDesktopWindowSize(windowStage: WindowStage): Unit {
+        try {
+            let screen = getDefaultDisplaySync()
+            let screenW = Int64(screen.width)
+            let screenH = Int64(screen.height)
+            let w = UInt32(screenW * 86 / 100)
+            let h = UInt32(screenH * 84 / 100)
+            let mainWin = windowStage.getMainWindow()
+            mainWin.resize(w, h)
+            mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
+            // 事后查询复核：resize 不抛异常不代表尺寸生效（宿主 API 的「我调过了」不算凭证）
+            let r = mainWin.getWindowProperties().windowRect
+            Hilog.info(1, "CjMusic", "main window sized ${w}x${h} px on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
+        } catch (e: Exception) {
+            Hilog.info(1, "CjMusic", "main window sizing failed: ${e}")
+        }
     }
 
     /**

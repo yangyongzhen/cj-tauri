@@ -23,6 +23,8 @@
   放行开关是 `entry/build-profile.json5` 的 `cangjieOptions.checkDeviceTypes=false`；
   `requestPermissions` 必须有 `ohos.permission.INTERNET`（缺了所有请求死成
   `SocketException: Failed to create socket: Operation not permitted.`，页面显示的是「连不上后台接口」）。
+  默认窗口按**屏幕像素**折算成 86%×84% 并居中——`resize()` / `moveWindowTo()` 收的是 px 不是 vp，
+  写死 `1440×900` 在 3120×2080 的屏上只有 46% 宽（看着像小窗），实测稳定矩形 `[218 166 2683 1747]`。
 
 ### Fixed
 

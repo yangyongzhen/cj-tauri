@@ -77,7 +77,7 @@ MainAbility OnCreated.<ability>
 host registered after N polls label=main
 host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
 page begin label=main    /    page end label=main
-main window resized to 1440x900
+main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
 ```
 
 `aa start` 需要**屏幕已解锁**（开发者模式下无法自动解锁），锁屏时表现为启动失败 / 抓到锁屏画面。
@@ -88,7 +88,10 @@ main window resized to 1440x900
   页面侧表现为「已经退出」。要真退出用 `aa force-stop` 或关闭窗口。
 - **`music:config` / `fav:*` 落沙箱**：`<filesDir>/music-library.local.json`（桌面版是项目根的
   相对路径）。卸载即清。
-- **窗口尺寸**：`onWindowStageCreate` 里 `getMainWindow().resize(1440, 900)`，系统按自身窗口缩放
-  折算（实测物理 2156×1324 ≈ 逻辑 1078×662），用户可自己拉伸。
+- **窗口尺寸**：`onWindowStageCreate` 里按**屏幕像素**折算再居中——
+  `resize()` / `moveWindowTo()` 收的都是 px，不是 vp（传 `1440×900` 在一台 3120×2080 px 的机器上
+  只占屏宽 46%，看着就是「小窗」）。现在是 `display.getDefaultDisplaySync()` 读出屏幕 →
+  `86% × 84%` → `resize` → `moveWindowTo` 居中，实测稳定矩形 `[218 166 2683 1747]`
+  （218/166 正好是居中的余量），换设备 / 换分辨率自动合适，用户可再拉伸。
 - **多窗口 / 原生对话框不在本工程**：一扇窗、无 overlay；那两条能力的取证留在
   `examples/ohos-probe`（AGENTS §4 的「鸿蒙侧弹窗只能声明式」）。

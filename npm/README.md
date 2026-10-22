@@ -5,7 +5,7 @@
 WebView 宿主、IPC 双向桥（`invoke` / `resolve` / `event`）、能力安全模型（capability 白名单）。
 
 - 仓库与完整文档：<https://atomgit.com/qq8864/cj-tauri>
-- 当前状态：**Windows（WebView2）与 Linux（WebKitGTK）均已实机跑通**；鸿蒙 ArkWeb 为架构预留位
+- 当前状态：**Windows（WebView2）、Linux（WebKitGTK）与鸿蒙 PC（ArkWeb）均已实机跑通**
 
 ## 前置条件：仓颉 SDK
 

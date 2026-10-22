@@ -40,17 +40,63 @@ npx cj-tauri dev                   # 构建 C 桥 + cjpm build + 启动窗口
 npx cj-tauri create myapp-vue --template vue      # Vue 3 + Vite
 npx cj-tauri create myapp-react --template react  # React 18 + Vite
 
+npx cj-tauri create myohos --template ohos        # 鸿蒙 PC（2in1）工程：ArkWeb 宿主 + build-hap.sh
+npx cj-tauri create myohos --template ohos --bundle com.example.myapp --label "我的应用"
+
 npm i -g cj-tauri                  # 也可以全局安装，之后直接用 cj-tauri <子命令>
 ```
 
 | 子命令 | 作用 |
 |---|---|
-| `create <项目名> [--template app\|vue\|react]` | 生成工程（`src/` + `ui/` + `capabilities/` + `cjpm.toml`） |
-| `dev` | 构建 C 桥 + `cjpm build` + 启动应用；Vite 模板会接管 dev server（HMR） |
-| `build` | 构建 C 桥 + `cjpm build` |
-| `run` | 运行已构建产物 |
+| `create <项目名> [--template app\|vue\|react\|ohos]` | 生成工程（桌面模板：`src/` + `ui/` + `capabilities/` + `cjpm.toml`；`ohos` 见下一节） |
+| `dev` | 构建 C 桥 + `cjpm build` + 启动应用；Vite 模板会接管 dev server（HMR）；鸿蒙工程转交 `build-hap.sh` |
+| `build` | 构建 C 桥 + `cjpm build`；鸿蒙工程转交 `build-hap.sh` |
+| `run` | 运行已构建产物；鸿蒙工程转交 `build-hap.sh --install`（构建 + 装机 + 启动） |
 | `info` | 环境自检（排障先跑它） |
 | `help` | 帮助 |
+
+## 鸿蒙 PC（`--template ohos`）
+
+同一套框架换个宿主：桌面用 WebView2 / WebKitGTK，鸿蒙 PC 用 **ArkWeb**，上层页面、命令层、能力校验不用改。
+
+```bash
+npx cj-tauri create myohos --template ohos
+cd myohos
+bash build-hap.sh --install        # 构建 hap + hdc 装机 + aa start；等价于 npx cj-tauri run
+```
+
+生成的是标准 DevEco 工程（`entry/` + `AppScope/` + `build-profile.json5` + `hvigorfile.ts`），
+鸿蒙相关的那层很薄：
+
+| 路径 | 作用 |
+|---|---|
+| `entry/src/main/cangjie/main_ability.cj` | UIAbility：`ArkWebRuntime.configure(filesDir)` → 非 UI 线程 `spawn { run() }` → 等宿主登记再 `loadContent` |
+| `entry/src/main/cangjie/index.cj` | `@Component` 的 ArkWeb 宿主 + 双向桥（**必须住应用模块**，框架包引用 ArkUI 会启动即崩） |
+| `entry/src/main/resources/rawfile/` | `index.html`（页面真文件）与 `capabilities.json`（能力清单） |
+| `build-hap.sh` | 唯一构建入口：探测 DevEco / stdx、`--no-daemon` 跑 hvigor、可选 `--install` |
+
+前置两件事：
+
+- **DevEco Studio 6.1**（含仓颉插件）+ 已配好签名。`build-hap.sh` 用 `DEVECO_WIN` 找安装根
+  （默认 `D:\oh\DevEcoStudio`），用 `CANGJIE_STDX_OHOS` 找鸿蒙版 stdx 动态库；两者给不出时脚本会直接说清楚缺哪个。
+- 真机开着**开发者模式 + USB 调试**，`hdc` 能列到设备；`aa start` 需要**屏幕已解锁**。
+
+工程默认是桌面形态：`module.json5` 的 `deviceTypes` 写 `2in1`，并在 `entry/build-profile.json5` 里
+`cangjieOptions.checkDeviceTypes = false`（插件默认只放行 `phone` / `tablet`，写 `2in1` 会判 `01103012`）；
+窗口**不干预尺寸**，沿用系统给的默认矩形（实测本机 `2090×1394`，约屏宽 2/3 且居中）。
+
+已知限制：签名要在 DevEco 里配（命令行不做自动签名，换 `bundleName` 需重新签）；同一份调试签名下两个
+工程会互相顶掉安装位；单窗口、暂无原生对话框（那两条能力位如实返回 0）；没有可用的 C 桥，
+`launchHidden` / 串口 / 托盘这类宿主能力在鸿蒙上不提供。
+
+真机上怎么自证它通了（hilog，`CjTauri` tag）：
+
+```
+host registered after N polls label=main
+host pageUrl label=main url="file:///.../files/cj-tauri-main.html"
+page begin label=main
+main window keeps system default 2090x1394 px at density 190% on screen 3120x2080
+```
 
 ## 这个包装层做了什么
 

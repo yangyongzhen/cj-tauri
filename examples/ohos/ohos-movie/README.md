@@ -129,7 +129,7 @@ page loaded bytes=63810
 host registered after N polls label=main
 host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
 page begin label=main    /    page end label=main
-main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
+main window keeps system default 2090x1394 px at density 190% on screen 3120x2080, rect=[515 281 2090 1394]
 ```
 
 `aa start` 需要**屏幕已解锁**（开发者模式下无法自动解锁），锁屏时表现为启动失败 / 抓到锁屏画面。

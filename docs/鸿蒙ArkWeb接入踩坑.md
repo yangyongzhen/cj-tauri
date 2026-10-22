@@ -1091,9 +1091,28 @@ checkCangjieDeviceTypes(e){ const n = e?.cangjieOptions?.checkDeviceTypes; if (v
 装包即生效、不弹窗。判据：加权限前后同一份 hap 只差这一处，截图里热门歌曲与封面从「全空 + 错误
 toast」变成「歌单 6 张、封面加载」。
 
-**第三处是窗口尺寸**：PC 上默认窗口偏小，`onWindowStageCreate` 里
-`windowStage.getMainWindow().resize(1440, 900)`（失败如实打一行、不挡 `loadContent`）。系统会按自己的
-窗口缩放折算，实测落到物理 `[515 281 2156 1324]`（≈ 逻辑 1078×662），用户可再拉伸。
+**第三处是窗口尺寸，而且 `resize()` 收的是「像素」不是 vp**：第一版写死
+`windowStage.getMainWindow().resize(1440, 900)`，日志照打「resized」、也不抛异常，可窗口在
+3120×2080 px 的屏上只有 **46% 宽**——1420 宽的一扇小窗，用户第一句反馈就是「太小」。
+判据不靠肉眼看：`hidumper -s WindowManagerService -a '-a'` 读到的窗口矩形就是
+`[515 281 1440 900]`，**数字和传进去的一模一样**，说明单位是 px（按 vp 理解会以为已经给了
+1440×900 vp）。落法是先读屏幕再折算并居中（换分辨率/换设备自动合适）：
+
+```cangjie
+let screen = getDefaultDisplaySync()          // ohos.display，宽高是 px
+let screenW = Int64(screen.width)
+let screenH = Int64(screen.height)
+let w = UInt32(screenW * 86 / 100)            // 86% 留侧边余量
+let h = UInt32(screenH * 84 / 100)            // 84% 留顶栏 / 任务栏
+let mainWin = windowStage.getMainWindow()     // 变量别叫 main：main 是关键字，会报「expected '('」
+mainWin.resize(w, h)
+mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
+```
+
+实测稳定矩形 `[218 166 2683 1747]`（2683×1747 正是 86%×84%，218/166 是居中余量），
+两次启动读数一致。**一个会骗人的伴随现象**：`resize()` 之后立刻 `getWindowProperties().windowRect`
+读到的是**过渡值**（本轮读到 `[515 281 2090 1394]`，既不是旧尺寸也不是新尺寸），
+要判「到底生效没有」得等系统应用完再读（`hidumper`，或延迟读一次），别拿紧邻的那次读当下结论。
 
 **取证**（`CjMusic` tag，hilog）：
 
@@ -1101,7 +1120,7 @@ toast」变成「歌单 6 张、封面加载」。
 host registered after N polls label=main
 host pageUrl label=main url="file:///data/storage/el2/base/haps/entry/files/cj-tauri-main.html"
 page begin label=main
-main window resized to 1440x900
+main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
 ```
 
 **教训**：鸿蒙侧「窗口看着像手机」不是布局问题，先看 `deviceTypes`；而插件报「某平台不支持」时，

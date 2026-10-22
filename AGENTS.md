@@ -648,7 +648,12 @@
   （`cangjie-pre-build.js` 的 `checkCangjieDeviceTypes` 只在 `!== false` 时才校验）。
   同轮另一处必写：`requestPermissions` 的 `ohos.permission.INTERNET`——缺了所有请求都死成
   `SocketException: Failed to create socket: Operation not permitted.`，页面显示的却是自家
-  「连不上后台接口」文案（像断网、像后台挂了）。判据与完整过程见
+  「连不上后台接口」文案（像断网、像后台挂了）。**窗口尺寸同理有一个坑：`resize()` /
+  `moveWindowTo()` 收的是像素不是 vp**——写死 `resize(1440, 900)` 在 3120×2080 px 的机器上只占
+  46% 宽（日志照打「resized」、不抛异常，只有 `hidumper -s WindowManagerService` 读到的矩形
+  `[515 281 1440 900]` 才露馅）；正确落法是 `display.getDefaultDisplaySync()` 读屏幕 → 折算 →
+  居中，且**resize 之后紧邻的那次 `getWindowProperties()` 是过渡值**，别拿它下结论。
+  判据与完整过程见
   `docs/鸿蒙ArkWeb接入踩坑.md` §10.14；工程说明见 `examples/ohos/ohos-music/README.md`。
 - **从命令行构建鸿蒙工程（headless）必须自己喂仓颉插件路径，DevEco IDE 里构建不受影响**（2026-10-19 实测，
   `examples/ohos-probe`）：`hvigorw` 按「`hvigor-config.json5` 的 `dependencies` → `CANGJIE_BUILD_SUPPORT_PATH`

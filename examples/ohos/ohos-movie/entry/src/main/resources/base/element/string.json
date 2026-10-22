@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "cj-tauri 观影（鸿蒙）"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "仓颉观影"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "仓颉观影"
+    }
+  ]
+}

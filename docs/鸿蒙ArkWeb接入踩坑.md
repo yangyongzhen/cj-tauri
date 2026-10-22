@@ -1126,6 +1126,61 @@ main window sized 2683x1747 px on screen 3120x2080, rect=[218 166 2683 1747]
 **教训**：鸿蒙侧「窗口看着像手机」不是布局问题，先看 `deviceTypes`；而插件报「某平台不支持」时，
 先读插件源码里那条校验有没有开关（这类门禁常为支持新设备形态留了口子），别急着改架构。
 
+### 10.15 https 全灭而 http 正常：鸿蒙上仓颉运行时装不了 TLS，取图改走系统网络栈
+
+**现象**（2026-10-22，`examples/ohos/ohos-movie` 首轮）：页面、片单、搜索、详情、播放全正常，
+**只有封面全是「首字色块」**。同一份代码在 Windows 上封面正常。
+
+**分流判据只用了两分钟**：业务接口是 `http://`（正常）、封面是豆瓣/百度图床的 `https://`（全灭）。
+这个组合在 `AGENTS.md` §4 里已有先例（Windows 便携包漏 `libssl`/`libcrypto` → 「`http` 照 200，
+只有 https 全灭」），所以先去 hilog 找加载失败行，而不是猜网络或权限。
+
+**真因**（hilog 原文）：
+
+```
+W C03F07/MUSL-LDSO: load libcrypto_openssl.z.so failed, namespace=moduleNs_default, errno=2
+W C03F07/MUSL-LDSO: load libssl_openssl.z.so failed, namespace=moduleNs_default, errno=2
+W C03F07/MUSL-LDSO: load libz.so failed, namespace=moduleNs_default, errno=2
+```
+
+`errno=2` = ENOENT：仓颉运行时按名字去 dlopen **OpenSSL 3**（`libcrypto_openssl.z.so` /
+`libssl_openssl.z.so`），鸿蒙设备上没有这两个库。也就是说
+`stdx.net.http` + `tlsConfig(TlsClientConfig())` 这条链在设备上**从第一步就不可用**；
+`libz.so` 一起报只是同一次依赖解析的连带。
+
+**走过的一条弯路（别重复）**：往 hap 里塞 OpenSSL 的 `.so`。仓颉运行时是 musl 静态链的，
+它期望的 ABI/符号集与 AOSP 那份 OpenSSL 不是同一个东西；而且设备 `/system/lib64` 不可读、
+hap 里也没有 `entry/libs` 可借用。**这条路在拿到匹配的产物前不该开工。**
+
+**落法**：把「取图」这一件事换到**系统网络栈** `ohos.net.http`（NetworkKit）——
+`createHttp()` → `HttpRequest.request(url, options, callback)`，TLS、证书链、系统代理全交给 OS。
+关键是**平台差异只落在命令实现这一层**：命令名（`movie:image`）、入参（`{url}`）、返回值
+（`data:image/...;base64,...`）与桌面版一字不差，前端契约不动；白名单 `imageSourceOf`、浏览器 UA、
+5 MB 上限复用 `examples/movie/src/api.cj` 那份（为此把三个符号改成 `public`——
+**安全判定只许一份**，不能在 ohos 侧另写一套）。
+
+三个 API 形状坑（都在这轮实测里撞到）：
+
+1. **`HttpRequest.request` 只有回调形态**，没有同步版本。命令 handler 跑在框架的 worker 线程上
+   （不是 UI 线程），所以「发请求 → `sleep` 轮询等回调」是安全的、冻不住界面；但**不能**在 UI
+   线程上这么等。
+2. **回调里的结果要装进对象盒子**：仓颉 lambda 不能捕获可变局部变量（`AGENTS.md` §4）。
+3. **响应体按 `expectDataType: HttpDataType.ArrayBuffer` 取字节**，再自己编 base64（框架侧没有
+   编码器）；`Content-Type` 从 `resp.header`（`HashMap<String,String>`）里**大小写不敏感**地找。
+
+**判据（页面自证 + 日志）**：列表页 8 张可见封面里 7 张是真实海报；取不到的那条图源回
+**HTTP 200 + 0 字节**（防盗链，不是这次修的东西），hilog 有
+
+```
+CjMovie: image http=200 bytes=0 type=image/jpeg
+```
+
+——通道通了、失败仍如实回错误并回退成色块，不会白屏也不会假装成功。
+
+**可复用的结论**：鸿蒙侧任何「要访问 https」的宿主命令（封面、图床、第三方 API），
+默认都应该走 `ohos.net.http`，而不是试图让仓颉运行时自己起 TLS。判断成本极低：
+看 hilog 有没有那条 `MUSL-LDSO … openssl … errno=2`。
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

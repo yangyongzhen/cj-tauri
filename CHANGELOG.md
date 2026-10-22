@@ -26,8 +26,29 @@
   默认窗口按**屏幕像素**折算成 86%×84% 并居中——`resize()` / `moveWindowTo()` 收的是 px 不是 vp，
   写死 `1440×900` 在 3120×2080 的屏上只有 46% 宽（看着像小窗），实测稳定矩形 `[218 166 2683 1747]`。
 
+- **鸿蒙 PC 上的观影示例 `examples/ohos/ohos-movie`**（2026-10-22）：`examples/movie`
+  （榜单 → 搜索 → 详情 → 播放 → 换源）在鸿蒙 PC 上的落地，业务层仍是 `examples/movie` 一份
+  （`build-hap.sh` 同步成 `movielib/` 只改包声明，页面与能力清单 base64 内嵌）。
+  实机：列表页与详情页都正常、详情页可播放（6:42 / 2:22:33）、窗口为桌面形态（`2in1`）。
+  两处工程配置与 music 同口径（`cangjieOptions.checkDeviceTypes=false` 放行 `2in1`、
+  `ohos.permission.INTERNET`），另有一条 **movie 独有**的取舍见下面的 Fixed 条目。
+  两个鸿蒙示例复用同一份调试签名（`com.yang.testcj`），**同一台设备只能装一个**。
+
 ### Fixed
 
+- **鸿蒙侧 `movie:image` 的封面全灭：仓颉运行时装不了 TLS，改用系统网络栈**（2026-10-22）：
+  `examples/ohos/ohos-movie` 首轮实机页面照常、**只有封面全是首字色块**——后台接口是 http
+  （片单 / 搜索 / 播放全正常），封面却是豆瓣/百度图床的 https。真机 hilog 定死根因：
+  `MUSL-LDSO: load libcrypto_openssl.z.so failed … errno=2`（`libssl_openssl.z.so` 同样），
+  即仓颉运行时按名字 dlopen OpenSSL 3、设备上没有——与 Windows 侧「漏 `libssl`/`libcrypto`
+  → 只有 https 全灭」同形。修法不是往 hap 里塞 OpenSSL（ABI/符号对不上就再炸一次），而是把取图换到
+  **系统网络栈**：`ohos.net.http` 的 `createHttp()` + `HttpRequest.request`，命令名与契约与桌面版
+  完全一致（`movie:image`、`{url}` → `data:image/...;base64,...`），白名单 / 浏览器 UA / 5 MB 上限
+  复用 `examples/movie/src/api.cj` 那份（`imageSourceOf` 等改为 `public`，安全判定只留一份）。
+  两个实现细节：`request` 只有回调形态、命令又跑在 worker 线程上，所以「回调 + sleep 轮询」收口；
+  结果装在对象盒子里（仓颉 lambda 不能捕获可变局部变量）。取证：列表页 8 张可见封面里 7 张真实海报，
+  取不到的那条图源回 **HTTP 200 + 0 字节**（防盗链），hilog 有 `image http=200 bytes=0 type=image/jpeg`，
+  页面回退成色块——不会白屏、也不假装成功。
 - **cjnote 聊天模式的回答会变成重复段落**（2026-10-22）：页面把同一句话叠七八遍
   （`你好！我是…` 之后每隔一段又从头来一遍），而 `ai:chat` 的收尾统计显示
   `chars` 只有几个字节、`received` 却有几十 KB。定位分两步：① `curl` 直连同一端点，

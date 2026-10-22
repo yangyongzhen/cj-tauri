@@ -106,6 +106,20 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
     *)                    CLI_SRC="cli/target/release/bin/main";     CLI_DST="cj-tauri" ;;
 esac
 if [ -f "$CLI_SRC" ]; then
+    # 版本一致性守卫：预编译 CLI 是「上一次构建的产物」，包版本升了却没重编 cli/ 时，
+    # 它会在用户机器上自报旧版本号（实测 2026-10-23：1.1.1 的 tarball 里躺着 1.1.0 的 exe，
+    # 用户装完 `npx cj-tauri --version` 回 1.1.0，看着像装错了包）。这里先按产物自报的版本核对。
+    CLI_REPORTED="$("$CLI_SRC" --version 2>/dev/null | tail -1 | awk '{print $NF}')" || CLI_REPORTED=""
+    if [ -z "$CLI_REPORTED" ]; then
+        echo "[npm-pack] 警告：跑不动 $CLI_SRC，无法核对它自报的版本" >&2
+        echo "            （多半是缺仓颉运行时库，先按 envsetup 把 SDK 的 bin/runtime 配进 PATH）" >&2
+    elif [ "$CLI_REPORTED" != "$VERSION" ]; then
+        echo "[npm-pack] 预编译 CLI 版本不符：产物自报 ${CLI_REPORTED}，包版本 ${VERSION}" >&2
+        echo "           先在 cli/ 里 cjpm build 重编（版本号写在源码里，重编才会带上新的），再重新打包" >&2
+        exit 1
+    else
+        echo "[npm-pack] 预编译 CLI 版本核对通过：${CLI_REPORTED}"
+    fi
     mkdir -p "$STAGE/prebuilt/$PLATFORM"
     cp "$CLI_SRC" "$STAGE/prebuilt/$PLATFORM/$CLI_DST"
     chmod +x "$STAGE/prebuilt/$PLATFORM/$CLI_DST"

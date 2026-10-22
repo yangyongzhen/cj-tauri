@@ -175,6 +175,14 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   padding: 0 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
 }
 #work-head .work-tip { font-size: 11px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 面板隐藏后的唤出口：平时不占位（面板开着时它出现反而误导），hidden 态才显示 */
+#ai-show-btn {
+  display: none; margin-left: auto;
+  background: none; border: 1px solid var(--border); color: var(--fg-dim); cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 3px 8px; border-radius: 4px;
+}
+#ai-show-btn:hover { color: var(--accent); border-color: var(--accent); }
+body.ai-hidden #ai-show-btn { display: inline-block; }
 #work-body { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
 #editor-pane, #preview-pane { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; }
 #preview-pane { border-left: 1px solid var(--border); }
@@ -212,12 +220,17 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
 #preview img { max-width: 100%; }
 /* ── AI 侧栏（2026-10-19 视觉重做：状态胶囊 / markdown 气泡 / 空态引导 / 打字动效） ── */
 #ai {
-  /* 宽度走 --ai-w（拖左缘拖条调整，240~640px 夹取，双击复位 320）；
+  /* 宽度走 --ai-w（拖左缘拖条调整，240~960px 夹取，双击复位 320；JS 侧还按窗口
+     空间重夹，保编辑区 320px）；
      min/max-width 同侧栏：必须写死值，min-width:auto 会被内容 min-content 撑宽 */
-  flex: 0 0 var(--ai-w, 320px); min-width: 240px; max-width: 640px;
+  flex: 0 0 var(--ai-w, 320px); min-width: 240px; max-width: 960px;
   display: flex; flex-direction: column; min-height: 0;
   background: var(--bg2); border-left: 1px solid var(--border);
 }
+/* ── AI 面板折叠（2026-10-22）：不用 AI 时整块收起，中栏自然占满 ──
+   只切 body.ai-hidden 一个类，CSS 藏 #ai 与左缘拖条；不做宽度过渡动画——
+   收缩是布局重排（CodeMirror 要重新量宽），过渡期间连续重排反而发糊 */
+body.ai-hidden #ai, body.ai-hidden #ai-resizer { display: none; }
 /* 头部：标题 + 状态胶囊（点色：缺省=黄 / 就绪=绿 / 出错=红 / 忙=蓝呼吸） */
 #ai .head {
   flex: 0 0 auto; padding: 10px 12px;
@@ -237,6 +250,12 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
   font-size: 13px; line-height: 1; padding: 2px 5px; border-radius: 4px;
 }
 #ai-cfg-btn:hover { color: var(--fg); background: var(--bg3); }
+#ai-hide-btn {
+  /* 收起入口要一眼能找到：accent 色胶囊 + 加粗双箭头，hover 反色（2026-10-22 用户反馈灰字太不显眼） */
+  background: var(--accent-soft); border: none; color: var(--accent); cursor: pointer;
+  font-size: 15px; font-weight: 700; line-height: 1; padding: 2px 9px; border-radius: 10px;
+}
+#ai-hide-btn:hover { background: var(--accent); color: #fff; }
 #ai .head .state i { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
 #ai .head .state.ok i { background: var(--ok); }
 #ai .head .state.bad i { background: var(--err); }
@@ -532,6 +551,7 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
         <button id="mode-split" class="segbtn active" title="编辑 + 预览左右分屏（Ctrl+3）">分屏</button>
       </span>
       <span class="work-tip" id="work-tip">编辑 + 预览</span>
+      <button id="ai-show-btn" title="显示 AI 助手（Ctrl+4）">✦ AI 助手</button>
     </div>
     <div id="work-body">
       <div id="editor-pane">
@@ -555,6 +575,7 @@ html.dark-ui #editor-wrap .CodeMirror-activeline-background { background: var(--
       <span class="right">
         <button id="ai-cfg-btn" title="设置">⚙</button>
         <span class="state" id="ai-state"><i></i>连接中…</span>
+        <button id="ai-hide-btn" title="收起 AI 助手（Ctrl+4）">»</button>
       </span>
     </div>
     <div id="ai-chat-view">
@@ -1799,11 +1820,12 @@ function loadSidebarW() {
 }
 // ── AI 面板宽度拖动：面板左缘的 resizer 窄条（#work 与 #ai 之间）。
 //    方向与侧栏相反：右缘不动、拖的是左缘，往左拖变宽，所以增量取负。
-//    宽度写进 --ai-w（240~640px 夹取），双击复位 320；偏好落 store（ui.aiw）。
-//    上限还要跟窗口走：窗口窄时「拖到 640」会把编辑区挤成 0，那不是用户想要的最宽，
+//    宽度写进 --ai-w（240~960px 夹取），双击复位 320；偏好落 store（ui.aiw）。
+//    上限还要跟窗口走：窗口窄时「拖到上限」会把编辑区挤成 0，那不是用户想要的最宽，
 //    所以夹取里再扣掉「侧栏 + 编辑区保底」，并在窗口 resize 后按新空间重夹一次。
+//    960 是 2026-10-22 用户反馈「640 拉不大」后放宽的：真正兜底的还是编辑区 320px 保底。
 var AI_W_KEY = "ui.aiw";
-var AI_MIN = 240, AI_MAX = 640, AI_DEFAULT = 320, WORK_MIN = 320;
+var AI_MIN = 240, AI_MAX = 960, AI_DEFAULT = 320, WORK_MIN = 320;
 function availableAiW() {
   var sbW = $("sidebar") ? $("sidebar").getBoundingClientRect().width : 0;
   // 两条拖条各 6px：这里不去查 DOM，拖条宽度是 CSS 常量，写死更好读
@@ -1845,6 +1867,8 @@ function initAiDrag() {
   });
   // 窗口变窄后旧宽度可能已超出可给的空间：resize 时按新空间重夹（只在拖动/复位时落盘）
   window.addEventListener("resize", function () {
+    // 面板折叠时 display:none，量出来是 0——重夹会把用户存的宽度冲成下限，必须跳过
+    if (!aiPanelVisible()) { return; }
     applyAiW($("ai").getBoundingClientRect().width);
   });
 }
@@ -2191,6 +2215,27 @@ function applyViewMode(mode, remember) {
   report("UI view " + mode);
 }
 
+// ── AI 面板折叠（视图菜单勾选 + Ctrl+4 + 面板头按钮，三条入口走同一个 applyAiVisible）──
+// 只切 body.ai-hidden：CSS 藏 #ai 与拖条，中栏自动占满。偏好落 store（默认显示，首次
+// 启动保持展开）；宽度偏好（ui.aiw）与它是两件事，收起不改宽度。菜单勾选态经
+// aipanel:sync 回写——页面从偏好恢复时也要调一次，否则两条入口只改一条（同 linenos）。
+var AI_PANEL_KEY = "ui.aipanel";
+
+function aiPanelVisible() {
+  return !document.body.classList.contains("ai-hidden");
+}
+
+function applyAiVisible(visible, remember) {
+  document.body.classList.toggle("ai-hidden", !visible);
+  if (remember) {
+    invoke("store:set", { key: AI_PANEL_KEY, value: visible ? "1" : "0" }).catch(function () {});
+  }
+  invoke("aipanel:sync", { on: !!visible }).catch(function () {});
+  // 面板重新可见时编辑器宽度变了，CodeMirror 必须重量一次（同视图三态的 refresh 约定）
+  if (cm && visible) { try { cm.refresh(); } catch (e) {} }
+  report("UI aipanel " + (visible ? "shown" : "hidden"));
+}
+
 function loadUiPrefs() {
   // store:get 返回的是裸值（缺失回 JSON null），不是 {value} 包装——按 typeof 判，别取 .value
   invoke("store:get", { key: VIEW_KEY }).then(function (v) {
@@ -2210,6 +2255,10 @@ function loadUiPrefs() {
   // 行号偏好恢复（默认关）：remember=false 不回写，但要同步原生菜单勾选
   invoke("store:get", { key: "ui.linenos" }).then(function (v) {
     applyLineNumbers(v === "1", false);
+  }).catch(function () {});
+  // AI 面板显隐偏好恢复（默认显示）：缺失/非"0"一律视为显示
+  invoke("store:get", { key: AI_PANEL_KEY }).then(function (v) {
+    applyAiVisible(v !== "0", false);
   }).catch(function () {});
 }
 
@@ -2322,6 +2371,8 @@ function onMenuClick(ev) {
   else if (id.indexOf("apptheme.") === 0) { applyAppTheme(id.slice("apptheme.".length)); }
   // 「显示行号」是独立开关（非单选组）：信封里的 checked 就是新状态，直接应用并落偏好
   else if (id === "view.linenos") { applyLineNumbers(!!(ev && ev.checked), true); }
+  // 「显示 AI 助手」同款独立开关：菜单勾/去勾与页面折叠双向同步
+  else if (id === "view.aipanel") { applyAiVisible(!!(ev && ev.checked), true); }
   else if (id === "help.about") { showAbout(true); }
   // file.quit 不到这里：退出在仓颉侧应用层直接收口
 }
@@ -2522,6 +2573,28 @@ function selfCheck(env) {
   // AI 面板重做：状态胶囊带色点 + 配置入口（静态 DOM，同步可断言）
   ok($("ai-state").querySelector("i") !== null, "AI state pill has colored dot");
   ok($("ai-cfg-btn") !== null, "AI config button in header");
+  // AI 面板折叠：藏面板真藏掉（display:none）、把手只在隐藏态出现、恢复后回原状
+  ok($("ai-hide-btn") !== null && $("ai-show-btn") !== null, "AI panel collapse/restore buttons present");
+  var panelVisibleBefore = aiPanelVisible();
+  applyAiVisible(false, false);
+  ok(document.body.classList.contains("ai-hidden")
+     && getComputedStyle($("ai")).display === "none"
+     && getComputedStyle($("ai-resizer")).display === "none",
+     "ai panel collapse hides panel and resizer");
+  ok(getComputedStyle($("ai-show-btn")).display !== "none", "ai handle button appears only while hidden");
+  applyAiVisible(true, false);
+  ok(!document.body.classList.contains("ai-hidden")
+     && getComputedStyle($("ai")).display !== "none"
+     && getComputedStyle($("ai-resizer")).display !== "none",
+     "ai panel restore shows panel and resizer again");
+  // 偏好往返：存 "0" 后读回应折叠（自检 HOME 是隔离的，不碰用户偏好）
+  invoke("store:set", { key: AI_PANEL_KEY, value: "0" }).then(function () {
+    return invoke("store:get", { key: AI_PANEL_KEY });
+  }).then(function (v) {
+    ok(v === "0", "ai panel pref round-trips through store");
+    invoke("store:delete", { key: AI_PANEL_KEY }).catch(function () {});
+    if (!panelVisibleBefore) { applyAiVisible(false, false); }
+  }).catch(function (e) { report("SELFCHECK FAIL aipanel pref: " + e); });
   // 「cjh 没起来」与「cjh 起来了但没配服务商」必须是两套话（2026-10-21 实机反馈）：
   // 未配置密钥时 cjh 的健康检查照样 200，旧实现把这种情况也报成「cjh 没起来或连不上」，
   // 用户看到的是一句假故障，且没有任何地方提示他去填密钥
@@ -3161,11 +3234,19 @@ waitForBridge(function () {
         e.preventDefault();
         applyViewMode({ "1": "edit", "2": "preview", "3": "split" }[e.key]);
       }
+      // Ctrl+4：AI 面板折叠开关（与 Ctrl+1/2/3 同一族，about 卡与菜单 title 都提到它）
+      if ((e.ctrlKey || e.metaKey) && e.key === "4") {
+        e.preventDefault();
+        applyAiVisible(!aiPanelVisible(), true);
+      }
     });
     // AI 侧栏接线：发送按钮 + Enter 发送（Shift+Enter 换行）+ 输入框随内容自动增高
     document.getElementById("ai-send").onclick = aiSend;
     // ⚙ 打开设置页（不是静默重连，也不是往消息区塞一张卡）
     document.getElementById("ai-cfg-btn").onclick = openAiSettings;
+    // AI 面板折叠：面板头「»」收起 / 工具条右缘「✦ AI 助手」唤回（Ctrl+4 也在 keydown 里）
+    document.getElementById("ai-hide-btn").onclick = function () { applyAiVisible(false, true); };
+    document.getElementById("ai-show-btn").onclick = function () { applyAiVisible(true, true); };
     document.getElementById("ai-set-back").onclick = function () { aiView("chat"); };
     document.getElementById("set-save").onclick = saveCjhConfigForm;
     // 「测试连通」：不改配置、只发一条单轮对话验连通（帧级覆盖，见 testCjhConnectivity）

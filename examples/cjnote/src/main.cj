@@ -95,6 +95,30 @@ public class LinenosSyncCommand <: CommandHandler {
     }
 }
 
+/** aipanel:sync：「显示 AI 助手」勾选态从页面回写原生菜单。页面启动从偏好恢复面板
+ *  显隐后必须调一次，否则菜单勾与实际显示对不上（两条入口只改一条就露馅，同 linenos:sync）。 */
+public class AipanelSyncCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        var on = true
+        if (let Some(v) <- args.get("on")) {
+            match (v.kind()) {
+                case JsonKind.JsBool => on = v.asBool().getValue()
+                case _ => ()
+            }
+        }
+        let label = ipc.window
+        let _ = this.app.setMenuItemStateTo(label, "view.aipanel", true, on)
+        return JsonBool(true)
+    }
+}
+
 /** titlebar:sync：把「文档名 · 保存状态 · 字数」推到原生标题行（与菜单栏同一行右侧）。
  *  返回 `supported` 让页面知道这次是真的写进去了、还是本平台没有这块（Windows = false）——
  *  页面据它决定要不要保留自己那条顶栏：没这块的平台把顶栏删了就彻底没标题了。 */
@@ -265,6 +289,8 @@ func buildAppMenu(): MenuModel {
     view.add(MenuItem.separator())
     // 独立开关（非单选组）：默认不显示行号，勾选状态由页面持久化后经 menu:sync 回写
     view.add(MenuItem.checkbox("view.linenos", "显示行号", false))
+    // 同款独立开关：AI 面板默认显示，页面折叠后经 aipanel:sync 回写去勾
+    view.add(MenuItem.checkbox("view.aipanel", "显示 AI 助手", true))
     var help = ArrayList<MenuItem>()
     help.add(MenuItem.normal("help.about", "关于 cjnote…"))
     var items = ArrayList<MenuItem>()
@@ -378,6 +404,7 @@ main(): Int64 {
     // 页面自绘主题菜单 → 原生菜单勾选（两条入口必须一致，见 ThemeSyncCommand 注释）
     let _ = app.register("theme:apply", ThemeSyncCommand(app))
     let _ = app.register("linenos:sync", LinenosSyncCommand(app))
+    let _ = app.register("aipanel:sync", AipanelSyncCommand(app))
     // 页面 → 原生标题行（宿主支持时页面顶栏整行让出来，见 TitlebarSyncCommand 注释）
     let _ = app.register("titlebar:sync", TitlebarSyncCommand(app))
     // cjh 生命周期交给页面问（三态 + 端点），进程句柄在 cjh_host.cj 的全局里

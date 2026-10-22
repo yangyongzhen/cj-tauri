@@ -7,6 +7,14 @@ ArkWeb / Ability 生命周期），见各工程自己的 README。
 | 子目录 | 是什么 | 设备形态 |
 | --- | --- | --- |
 | `ohos-music/` | `examples/music`（爱音乐）在鸿蒙 PC 上的落地：内嵌页面 + music 命令层 | 鸿蒙 PC（`deviceTypes: 2in1`） |
+| `ohos-movie/` | `examples/movie`（仓颉观影）在鸿蒙 PC 上的落地：内嵌页面 + movie 命令层，封面走系统网络栈取图 | 鸿蒙 PC（`deviceTypes: 2in1`） |
+
+两个工程复用同一份调试签名（bundleName `com.yang.testcj`），**同一台设备只能装一个**——
+装第二个会顶掉第一个。
+
+| ohos-music | ohos-movie |
+| --- | --- |
+| ![ohos-music](ohos-music/screenshot.jpg) | ![ohos-movie](ohos-movie/screenshot-list.jpg) |
 
 `examples/ohos-probe/` 是更早的**宿主探针工程**（不在此目录下，因为它按「一个示例一个目录」的惯例
 留在 `examples/` 根），只做桥/多窗口/弹窗的取证，没有业务。

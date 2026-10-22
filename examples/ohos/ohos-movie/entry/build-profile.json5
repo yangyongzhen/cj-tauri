@@ -1,0 +1,25 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "cangjieOptions": {
+      "path": "./cjpm.toml",
+      /* 关掉「deviceTypes 只能写 phone/tablet」这条门禁（插件源码 cangjie-pre-build.js 的
+         checkCangjieDeviceTypes：`if (cangjieOptions?.checkDeviceTypes !== false)` 才校验）。
+         不关的话 module.json5 写 "2in1" 直接判 01103012——而只有声明 2in1，鸿蒙 PC 才会给
+         桌面形态的窗口，否则按手机应用塞进竖屏兼容窗（实测 600 宽、歌单挤成一列）。 */
+      "checkDeviceTypes": false
+    },
+    "nativeLib": {
+      "filter": {
+        "enableOverride": true
+      }
+    }
+  },
+  "buildOptionSet": [
+  ],
+  "targets": [
+    {
+      "name": "default"
+    }
+  ]
+}

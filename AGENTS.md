@@ -576,6 +576,20 @@
   同族的两个哑巴失败：`cjpm.exe` 退出码 `0xC0000139` = 桌面 SDK 与鸿蒙 `build-tools` 的运行时冲突
   （摘掉桌面 SDK 并**重启 hvigor daemon**）；`aa start` 的 `-a` 要用 `module.json5` 的 `EntryAbility`，
   写成仓颉类名 `MainAbility` 返回 `10104001`。清单见 `docs/鸿蒙ArkWeb接入踩坑.md` §10。
+- **鸿蒙上仓颉运行时装不了 TLS：要访问 https 的宿主命令一律走系统网络栈 `ohos.net.http`**
+  （2026-10-22 实测，`examples/ohos/ohos-movie` 首轮封面全灭）。`stdx.net.http` +
+  `TlsClientConfig()` 在设备上从第一步就不可用——运行时按名字 dlopen OpenSSL 3，设备上没有：
+  `MUSL-LDSO: load libcrypto_openssl.z.so failed … errno=2`（`libssl_openssl.z.so` 同样）。
+  表象与 Windows 侧「漏 `libssl`/`libcrypto` → 只有 https 全灭」完全同形：**后台接口是 http
+  就一切正常，只有 https 资源没了**，页面回退成色块 / 空图，容易被读成网络或权限问题。
+  落法是 `createHttp()` + `HttpRequest.request`（NetworkKit，TLS/证书链/代理交给 OS），
+  **平台差异只落在命令实现这一层**：命令名、入参、返回值不变，白名单与上限复用业务层那份
+  （不在 ohos 侧另写一套判定）。三个形状坑：`request` **只有回调形态**（命令跑在 worker 线程，
+  所以「回调 + `sleep` 轮询」收口，**UI 线程上不能这么等**）；结果要装进对象盒子（lambda 不能捕获
+  可变局部变量）；响应体按 `expectDataType: HttpDataType.ArrayBuffer` 取字节、自己编 base64，
+  `Content-Type` 从 `resp.header` 里大小写不敏感地找。**别往 hap 里塞 OpenSSL**——运行时是 musl
+  静态链，AOSP 那份的 ABI/符号对不上，设备 `/system/lib64` 也读不了。判据见
+  `docs/鸿蒙ArkWeb接入踩坑.md` §10.15。
 - **鸿蒙侧给 `@Component` 传参只有一种写法：`@Prop` 成员 + 调用点纯调用**（2026-10-19 多窗口实测，
   两种写法报的都是同一句、看着都像「参数写错」）：
   ① 成员写成普通 `var x: String = "…"` 时，宏把它展开成 `ObservedProperty<String>` 形参，外面传

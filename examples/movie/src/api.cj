@@ -29,10 +29,10 @@ let MOVIE_API_TIMEOUT_SECONDS = 20
  *
  * 防盗链的图源（百度图片代理）会看 UA：不带浏览器 UA 时同样给 200 + 空 body。
  */
-let MOVIE_BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"
+public let MOVIE_BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0"
 
 /** 单张封面的字节上限（超过就拒，避免一次 invoke 把几十 MB 塞进 IPC） */
-let MOVIE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
+public let MOVIE_IMAGE_MAX_BYTES = 5 * 1024 * 1024
 
 /** 后台接口基址（env CJ_MOVIE_API 优先） */
 func movieApiBase(): String {
@@ -146,7 +146,7 @@ func readBodyText(body: InputStream): String {
  * **为什么要白名单**：`movie:image` 的参数是页面可控的字符串，不校验的话这个命令就成了
  * 「让后端替你请求任意地址」的跳板（SSRF）。这里只放行后台确实会给的两个图源。
  */
-func imageSourceOf(raw: String): (String, String) {
+public func imageSourceOf(raw: String): (String, String) {
     if (raw.startsWith("https://image.baidu.com/search/down?url=")) {
         // 百度图片的下载代理：只认自家域名来的 Referer
         return (raw, "https://image.baidu.com/")

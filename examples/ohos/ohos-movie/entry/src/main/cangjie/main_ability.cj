@@ -1,0 +1,108 @@
+package ohos_app_cangjie_entry
+
+import kit.PerformanceAnalysisKit.Hilog
+import kit.AbilityKit.Want
+import kit.AbilityKit.UIAbility
+import kit.AbilityKit.LaunchParam
+import kit.AbilityKit.LaunchReason
+import kit.ArkUI.WindowStage
+import ohos.display.getDefaultDisplaySync
+import cjTauri.*
+
+/*
+ * 鸿蒙侧的 UIAbility（examples/ohos/ohos-movie）
+ *
+ * 与桌面示例的关系：`examples/movie` 的 `main()` 在鸿蒙上不成立——鸿蒙应用没有「自己起进程跑
+ * 一个 main」这回事，窗口属于 ArkUI，页面由 ArkWeb 组件承载。所以这里只做三件事：
+ * ① 把沙箱目录告诉框架（`run(html)` 要把内联页面落到沙箱再以 file:// 加载）；
+ * ② 在**非 UI 线程**上装配并跑框架应用（`run()` 阻塞到 quit，UI 线程要留给 ArkUI 建树）；
+ * ③ 等框架把默认窗口的宿主登记好，再 `loadContent`（组件的 `build()` 是一次性求值，
+ *    pageUrl 为空就永远不建 `Web`——白屏死锁，见 AGENTS §4 与 build 顺序的注释）。
+ */
+class MainAbility <: UIAbility {
+    public init() {
+        super()
+        registerSelf()
+    }
+
+    public override func onCreate(want: Want, launchParam: LaunchParam): Unit {
+        Hilog.info(1, "CjMovie", "MainAbility OnCreated.${want.abilityName}")
+
+        // 1) 沙箱目录要在 run() 之前给定：run(html) 把内联页面写成文件再以 file:// 加载
+        //    （ArkWeb 的仓颉绑定没有 loadData，见 src/host_arkweb.cj 文件头）。
+        //    movie 没有本地存储要落盘，所以这里只需给页面一处可写目录。
+        let filesDir = "${this.context.filesDir}"
+        ArkWebRuntime.configure(filesDir)
+
+        // 2) run() 会阻塞到 quit()，只能在非 UI 线程上跑——UI 线程要留给 ArkUI 建树。
+        let _ = spawn { startTauriMovie() }
+
+        match (launchParam.launchReason) {
+            case LaunchReason.StartAbility => Hilog.info(1, "CjMovie", "START_ABILITY")
+            case _ => ()
+        }
+    }
+
+    public override func onWindowStageCreate(windowStage: WindowStage): Unit {
+        Hilog.info(1, "CjMovie", "MainAbility onWindowStageCreate.")
+        this.applyDesktopWindowSize(windowStage)
+        // 等框架把宿主登记上再建树：组件的 build() 只有在该 label 有宿主、页面地址非空时才渲染
+        // `Web`。等不到也照常 loadContent——页面会自己报桥缺失，比静默白屏好排查。
+        this.waitAndLogHost(DEFAULT_WINDOW_LABEL)
+        windowStage.loadContent("EntryView")
+    }
+
+    /**
+     * 把主窗放大到「桌面应用」的量级并居中
+     *
+     * **`resize()` 收的是像素，不是 vp**（2026-10-22 实测：传 1440×900 后窗口矩形就是
+     * `[515 281 1440 900]`，而屏幕是 3120×2080 px——只占屏宽 46%，看着像小窗；
+     * 若按 vp 理解会以为已经给了 1440×900 vp）。所以这里一律先读屏幕像素再折算，
+     * 不写死数字：换分辨率 / 换设备都自动合适。取 86%×84% 是为侧边、顶栏与任务栏留余量。
+     */
+    private func applyDesktopWindowSize(windowStage: WindowStage): Unit {
+        try {
+            let screen = getDefaultDisplaySync()
+            let screenW = Int64(screen.width)
+            let screenH = Int64(screen.height)
+            let w = UInt32(screenW * 86 / 100)
+            let h = UInt32(screenH * 84 / 100)
+            let mainWin = windowStage.getMainWindow()
+            mainWin.resize(w, h)
+            mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
+            // 事后查询复核：resize 不抛异常不代表尺寸生效（宿主 API 的「我调过了」不算凭证）
+            let r = mainWin.getWindowProperties().windowRect
+            Hilog.info(1, "CjMovie", "main window sized ${w}x${h} px on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
+        } catch (e: Exception) {
+            Hilog.info(1, "CjMovie", "main window sizing failed: ${e}")
+        }
+    }
+
+    /**
+     * 有界等待（3s）默认窗口的宿主登记完成，并把页面地址 / 预执行脚本条数打进 hilog
+     *
+     * 白屏定位用：宿主把页面落盘后的 file:// 地址必须非空，否则组件拿不到 src。
+     */
+    private func waitAndLogHost(label: String): Unit {
+        var polls = 0
+        while (polls < 300) {
+            match (ArkWebRuntime.hostFor(label)) {
+                case Some(_) => break
+                case None => ()
+            }
+            sleep(Duration.millisecond * 10)
+            polls += 1
+        }
+        if (polls >= 300) {
+            Hilog.info(1, "CjMovie", "host not registered in 3s: label=${label}")
+            return
+        }
+        Hilog.info(1, "CjMovie", "host registered after ${polls} polls label=${label}")
+        match (ArkWebRuntime.hostFor(label)) {
+            case Some(h) =>
+                Hilog.info(1, "CjMovie", "host pageUrl label=${label} url=\"${h.currentUrl()}\"")
+                Hilog.info(1, "CjMovie", "host initScripts label=${label} count=${h.initScriptsSnapshot().size}")
+            case None => Hilog.info(1, "CjMovie", "host missing at loadContent label=${label}")
+        }
+    }
+}

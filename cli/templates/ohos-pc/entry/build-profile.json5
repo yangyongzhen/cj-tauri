@@ -1,0 +1,26 @@
+{
+  "apiType": "stageMode",
+  "buildOption": {
+    "cangjieOptions": {
+      "path": "./cjpm.toml",
+      /* 关掉「deviceTypes 只能写 phone/tablet」这条门禁（DevEco 仓颉插件的
+         cangjie-pre-build.js 里 `cangjieOptions?.checkDeviceTypes !== false` 才校验）。
+         不关的话 module.json5 写 "2in1" 会直接判 01103012（Only phone and tablet devices
+         are supported）——而只有声明 2in1，鸿蒙 PC 才按桌面应用开窗，否则塞进手机形态的
+         竖屏兼容窗（实测约 600 宽）。 */
+      "checkDeviceTypes": false
+    },
+    "nativeLib": {
+      "filter": {
+        "enableOverride": true
+      }
+    }
+  },
+  "buildOptionSet": [
+  ],
+  "targets": [
+    {
+      "name": "default"
+    }
+  ]
+}

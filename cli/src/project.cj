@@ -443,7 +443,56 @@ func runProject(c: AppContext): Int64 {
     return code
 }
 
+/** 某个目录下是不是鸿蒙脚手架工程（判据：build-hap.sh + entry/cjpm.toml 同时在） */
+func isOhosProjectAt(dir: String): Bool {
+    return exists(joinPath(dir, "build-hap.sh")) && exists(joinPath(joinPath(dir, "entry"), "cjpm.toml"))
+}
+
+/**
+ * 当前工作目录属于哪个鸿蒙工程（也认「站在 entry/ 里」这种跑法）
+ *
+ * 不能复用 `findProjectRoot`：鸿蒙工程根**没有** cjpm.toml（那份在 entry/ 下），
+ * 按「向上找 cjpm.toml」会在工程内一路找不到、反而跑到外面某个仓颉工程上去。
+ */
+func findOhosProjectRoot(): Option<String> {
+    let cur = stripTrailingSep(currentDir())
+    if (isOhosProjectAt(cur)) {
+        return Some(cur)
+    }
+    if (let Some(p) <- parentDir(cur)) {
+        if (isOhosProjectAt(p)) {
+            return Some(p)
+        }
+    }
+    return None
+}
+
+/**
+ * 鸿蒙工程：构建入口就是工程自带的 `build-hap.sh`
+ *
+ * 跑它而不是自己拼 hvigor 命令：DevEco 探测、cjc/opt 同代、stdx 联接、`--no-daemon`
+ * 这些坑全在脚本里（见模板 build-hap.sh 的注释），CLI 只负责传参。
+ * `--install` 走 `run`：编完装到设备并 `aa start`。
+ */
+func buildOhos(root: String, install: Bool): Int64 {
+    var argv = ArrayList<String>()
+    argv.add("build-hap.sh")
+    if (install) {
+        argv.add("--install")
+    }
+    println("[cj-tauri] 鸿蒙工程：bash build-hap.sh${if (install) { " --install" } else { "" }}（${root}）")
+    let code = execute("bash", argv.toArray(), workingDirectory: Path(root))
+    if (code != 0) {
+        eprintln("[cj-tauri] 构建失败（exit=${code}）")
+        eprintln("          日志: ${joinPath(root, ".buildlog")}/last-build.log")
+    }
+    return code
+}
+
 func cmdBuild(): Int64 {
+    if (let Some(root) <- findOhosProjectRoot()) {
+        return buildOhos(root, false)
+    }
     if (let Some(c) <- loadContext()) {
         if (buildProject(c, true)) {
             return 0
@@ -454,6 +503,12 @@ func cmdBuild(): Int64 {
 }
 
 func cmdDev(): Int64 {
+    if (let Some(root) <- findOhosProjectRoot()) {
+        // 鸿蒙没有「dev server 接管页面」这条路：页面是 hap 里的 rawfile，
+        // 改一次要重编一次；dev 就等同于 build（再加上装到设备更常见，留给 run）。
+        println("[cj-tauri] 鸿蒙工程：dev 等同于 build（页面在 hap 的 rawfile 里，没有 dev server）")
+        return buildOhos(root, false)
+    }
     if (let Some(c) <- loadContext()) {
         // 有 ui/package.json 才走 Node 路径：dev 模式页面来自 dev server，不必先打发布包
         var withUi = true
@@ -475,6 +530,9 @@ func cmdDev(): Int64 {
 }
 
 func cmdRun(): Int64 {
+    if (let Some(root) <- findOhosProjectRoot()) {
+        return buildOhos(root, true)
+    }
     if (let Some(c) <- loadContext()) {
         return runProject(c)
     }

@@ -1,0 +1,13 @@
+{
+  "app": {
+    /* bundleName 是应用在设备上的唯一 ID：两个应用写同一个 bundleName 会互相覆盖安装。
+       改它必须重新签名——DevEco 的「自动签名」会按新包名重新申请 profile。 */
+    "bundleName": "{{BUNDLE_NAME}}",
+    "vendor": "{{PROJECT_NAME}}",
+    "versionCode": 1000000,
+    "versionName": "1.0.0",
+    "buildVersion": "1",
+    "icon": "$media:layered_image",
+    "label": "$string:app_name"
+  }
+}

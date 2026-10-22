@@ -117,7 +117,7 @@
             <span class="chip chip--ok"><span class="dot"></span><span data-en="0 third-party runtime DLLs">0 个第三方运行时 DLL</span></span>
             <span class="chip"><span data-en="261 unit tests">261 个单元测试</span></span>
             <span class="chip"><span data-en="8 E2E entries">8 条 E2E 入口</span></span>
-            <span class="chip chip--mute"><span data-en="HarmonyOS · architecture reserved">鸿蒙 ArkWeb 架构预留</span></span>
+            <span class="chip"><span data-en="HarmonyOS PC (ArkWeb) · on-device">鸿蒙 PC（ArkWeb）· 实机</span></span>
           </div>
         </div>
       </div>
@@ -820,8 +820,8 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
           <p class="plat__s" data-en="Verified on real hardware, including clipboard readback, a real notification on the session bus, X11 global hotkeys and a tray icon through libayatana-appindicator3; all eight Linux E2E entries run here (Windows has one of its own).">实机跑通，含外部回读剪贴板、会话总线上实收通知、X11 全局快捷键与 libayatana-appindicator3 托盘图标；8 条 Linux E2E 入口都在这里跑（Windows 侧另有 1 条）。</p>
         </div>
         <div class="plat__i">
-          <p class="plat__h"><span class="dot" style="color:var(--c3)"></span><span data-en="HarmonyOS ArkWeb">鸿蒙 ArkWeb</span></p>
-          <p class="plat__s" data-en="Architecture slot reserved: the contract README and the scaffold exist, every capability bit reports 0, nothing is faked.">架构预留位：契约 README 与脚手架先行，能力位如实报 0，禁假实现。</p>
+          <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="HarmonyOS PC (ArkWeb)">鸿蒙 PC（ArkWeb）</span></p>
+          <p class="plat__s" data-en="Verified on a HarmonyOS PC: the ArkUI side hosts ArkWeb, pages round-trip system:version, multi-window label routing holds, and the music and movie examples run end to end — plus cj-tauri create --template ohos scaffolds a buildable hap. Host capability bits (menu, tray, hotkey, drag-and-drop, dialog) still honestly report 0.">实机跑通（鸿蒙 PC / 2in1）：应用侧 ArkUI 宿主 ArkWeb，页面 `system:version` 往返成功、多窗口 label 路由成立，`music` / `movie` 两个示例闭环；`cj-tauri create --template ohos` 直接生成可编 hap 的工程。宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框）仍如实报 0。</p>
         </div>
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--muted)"></span><span data-en="macOS">macOS</span></p>

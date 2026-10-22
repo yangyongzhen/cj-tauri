@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "{{PROJECT_NAME}} - entry 模块",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {}
+}

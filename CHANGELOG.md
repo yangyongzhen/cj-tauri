@@ -586,6 +586,26 @@
 
 ### Added
 
+- **鸿蒙 PC 脚手架 `cj-tauri create --template ohos`（`cli/templates/ohos-pc/`）**——桌面模板那套到了鸿蒙侧
+  不成立：鸿蒙没有「自己起进程跑一个 main」这回事，窗口归 ArkUI、页面归 ArkWeb。新模板把这一层的正确形状
+  固化下来：`main_ability.cj`（沙箱目录 → 非 UI 线程 `spawn { startTauriApp(...) }` → 等宿主登记 → `loadContent`）、
+  `index.cj`（ArkWeb 宿主组件 + `javaScriptProxy` 双向桥，必须住在**应用模块**里）、`app_host.cj`（框架装配与
+  demo 命令）、`entry/cjpm.toml`（源码依赖 `cjTauri` + `aarch64-linux-ohos` 目标段）、
+  `module.json5`（`deviceTypes: 2in1` + `ohos.permission.INTERNET`）、`entry/build-profile.json5`
+  （`cangjieOptions.checkDeviceTypes: false` 放行 2in1，否则插件只认 phone/tablet 并报 `01103012`）。
+  **页面与能力清单是 hap 里 `resources/rawfile/` 的真文件**（Ability 用 `resourceManager.getRawFileContent`
+  读成字符串交给框架）：不用像 `examples/ohos/` 那样在构建期把页面 base64 内嵌成生成物，DevEco 里直接点
+  Build 也能编过。**签名与证书不入模板**（调试证书与华为账号绑定、跨机器不通用），首次在 DevEco 里配自动
+  签名；`build-hap.sh` 会探测 DevEco / 校验 `DEVECO_SDK_HOME` 与 `NODE_HOME` 是否真存在、给 `--no-daemon`、
+  建 stdx 联接、并逐条打失败口径，`--install` 追加 `hdc install` + `aa start`。
+  CLI 侧：`create` 新增 `--bundle` / `--label`（缺省由项目名推导，见 `bundleNameFrom`），模板别名
+  `ohos` / `ohos-pc` / `harmonyos`；`cj-tauri build|dev|run` 检出鸿蒙工程（`build-hap.sh` +
+  `entry/cjpm.toml` 同时在）后**转交工程脚本**而不是自己拼 cjpm/hvigor（`run` = `--install`）；
+  `copyTree` 对图片等二进制走字节拷贝——原来的文本通道读到 png 会抛
+  `IllegalArgumentException: Invalid unicode scalar value`，create 直接崩且留下半成品目录。
+  **未验证**：设备锁屏时无法 `aa start`（开发者模式不能自动解锁），模板生成物的装机开窗未在本轮取证；
+  签名构建与 `hdc install` 已通过（`entry-default-signed.hap` 1 647 178 字节、`install bundle successfully`），
+  未签名包 `entry-default-unsigned.hap` 1 576 126 字节。
 - **单文件包可以内嵌「外部程序」了（PE 资源释放，`cj_bridge_extract_assets`）**——cjh 这类
   **独立可执行文件**既并不进静态库、也不在 PE 导入表里，单文件产物过去只能让它落在包外。
   现在示例根放一份 `pack-assets.txt`（一行一个文件），Windows 打包器用 `windres` 把它们编成

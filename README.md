@@ -10,7 +10,7 @@
 [![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
 
 前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
-28 个可运行示例。Linux（WebKitGTK）与 Windows（WebView2）均已实机跑通，鸿蒙 ArkWeb 预留。
+28 个可运行示例。Linux（WebKitGTK）、Windows（WebView2）与鸿蒙 PC（ArkWeb）均已实机跑通。
 
 > 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、19 屏实机截图与文档入口。
 
@@ -79,6 +79,16 @@ cd myapp
 npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
 ```
 
+鸿蒙 PC（2in1）工程走另一套构建链路——模板里带 ArkWeb 宿主、`build-hap.sh` 与
+`rawfile` 页面，编出来的就是 hap：
+
+```bash
+npx cj-tauri create myohosapp --template ohos --bundle com.example.myohosapp --label "我的应用"
+cd myohosapp
+export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
+bash build-hap.sh --install        # 编 hap → 装到设备 → 拉起（需先在 DevEco 配好自动签名）
+```
+
 前置条件见[30 秒上手](#30-秒上手)。找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，
 而不是一句 `command not found`。同目录还有 `cj-tauri build/run/info/doctor`：
 `doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
@@ -138,7 +148,8 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有三个脚手架模板（app / app-vue / app-react）。
+`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有四个脚手架模板
+（app / app-vue / app-react / ohos-pc）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：
@@ -223,7 +234,7 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（与 tauri IPC 
 WebView 宿主（src/host.cj 抽象 + 各平台实现）
    ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
    ├─ Windows: WebView2（src/host_webview2.cj + native/bridge_win.c，Win32 消息循环在宿主线程）
-   └─ 鸿蒙: ArkWeb（架构预留，条件编译位）
+   └─ 鸿蒙: ArkWeb（应用侧 ArkUI 组件宿主 + `arkweb_proxy.cj` 桥接，2in1 / 鸿蒙 PC）
 ```
 
 开发一个应用只需三步（对应 tauri 的 command / Builder / capabilities）：
@@ -294,7 +305,9 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
   Linux（WebKitGTK）双实现、`system:host` 如实上报；「最小化到托盘」是宿主基元（`minimizeToTray`，
   没装托盘就如实降级为普通最小化）
 - ✅ 工程化：294 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
-- 🔜 鸿蒙 ArkWeb 后端（架构预留）、macOS WebView、更多官方插件
+- ✅ 鸿蒙 PC（ArkWeb，2in1 桌面窗）：页面 `system:version` 往返、多窗口 label 路由、`music` / `movie` 两个示例
+  真机闭环，`cj-tauri create --template ohos` 直接生成可直接编 hap 的工程
+- 🔜 鸿蒙宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框仍如实报 0）、macOS WebView、更多官方插件
 
 ## 仓库与推送
 

@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["greet", "timer", "system:version", "system:ping", "system:echo"],
+  "events": ["tick"]
+}

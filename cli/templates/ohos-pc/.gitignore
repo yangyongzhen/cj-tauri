@@ -1,0 +1,16 @@
+# 鸿蒙构建产物与本地工具链（都不入库）
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+/.buildlog
+/.preview
+# build-hap.sh 建的 stdx 联接（指向 CANGJIE_STDX_OHOS）
+/stdx
+.cxx
+/.clangd
+/.clang-format
+**/.test
+*.hap

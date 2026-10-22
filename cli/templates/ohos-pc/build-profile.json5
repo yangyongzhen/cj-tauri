@@ -1,0 +1,46 @@
+{
+  "app": {
+    /* 签名留空：模板不随包分发证书（调试证书由每台机器的 DevEco 本机生成、与华为账号绑定，
+       既不该入库也无法跨机器通用）。
+       在 DevEco 里 File → Project Structure → Signing Configs 勾上
+       「Automatically generate signature」，那一步会把 signingConfigs 填满。
+       不签名也能 `assembleHap`（产物是 *-unsigned.hap），但装不进设备。 */
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

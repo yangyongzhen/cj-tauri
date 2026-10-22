@@ -7,12 +7,14 @@ func usage(): Unit {
     println("cj-tauri ${cliVersion()} — 仓颉版 Tauri CLI（脚手架 + 构建 + 运行）")
     println("")
     println("用法:")
-    println("  cj-tauri create <项目名> [--template <t>]")
+    println("  cj-tauri create <项目名> [--template <t>] [--bundle <bundleName>] [--label <应用名>]")
     println("                             创建新项目（src/ + ui/ + capabilities/ + cjpm.toml）")
     println("                             模板: app（内联单文件，缺省）/ vue / react")
-    println("  cj-tauri dev               构建 C 桥 + cjpm build + 启动应用")
-    println("  cj-tauri build             构建 C 桥 + cjpm build")
-    println("  cj-tauri run               运行已构建产物")
+    println("                                   ohos（鸿蒙 PC / 2in1：ArkWeb 宿主 + build-hap.sh）")
+    println("                             --bundle / --label 只对 ohos 模板有意义（缺省由项目名推导）")
+    println("  cj-tauri dev               构建 C 桥 + cjpm build + 启动应用（鸿蒙工程改走 build-hap.sh）")
+    println("  cj-tauri build             构建 C 桥 + cjpm build（鸿蒙工程 = 编 hap）")
+    println("  cj-tauri run               运行已构建产物（鸿蒙工程 = 装到设备并拉起）")
     println("  cj-tauri info [--json]     环境自检（排障用）；--json 只输出插件清单（机器可读）")
     println("  cj-tauri doctor            环境自检逐行给结论（每条自带「缺了就怎么办」）")
     println("  cj-tauri help              显示本帮助")
@@ -46,15 +48,35 @@ main(args: Array<String>): Int64 {
     if (sub == "create") {
         var name = ""
         var tpl = "app"
+        var bundle = ""
+        var label = ""
         var i = 1
         while (i < args.size) {
             let a = args[i]
             if (a == "--template" || a == "-t") {
                 if (i + 1 >= args.size) {
-                    eprintln("用法: cj-tauri create <项目名> [--template app|vue|react]")
+                    eprintln("用法: cj-tauri create <项目名> [--template app|vue|react|ohos]")
                     return 1
                 }
                 tpl = args[i + 1]
+                i = i + 2
+                continue
+            }
+            if (a == "--bundle") {
+                if (i + 1 >= args.size) {
+                    eprintln("用法: cj-tauri create <项目名> --template ohos [--bundle <bundleName>]")
+                    return 1
+                }
+                bundle = args[i + 1]
+                i = i + 2
+                continue
+            }
+            if (a == "--label") {
+                if (i + 1 >= args.size) {
+                    eprintln("用法: cj-tauri create <项目名> --template ohos [--label <应用名>]")
+                    return 1
+                }
+                label = args[i + 1]
                 i = i + 2
                 continue
             }
@@ -64,10 +86,10 @@ main(args: Array<String>): Int64 {
             i = i + 1
         }
         if (name.size == 0) {
-            eprintln("用法: cj-tauri create <项目名> [--template app|vue|react]")
+            eprintln("用法: cj-tauri create <项目名> [--template app|vue|react|ohos]")
             return 1
         }
-        return cmdCreate(name, tpl)
+        return cmdCreate(name, tpl, bundle, label)
     }
     if (sub == "dev") {
         return cmdDev()

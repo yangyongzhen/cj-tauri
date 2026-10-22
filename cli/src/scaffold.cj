@@ -1,8 +1,8 @@
 /**
  * cj-tauri CLI：项目脚手架（create）
  *
- * 模板位于 <框架根>/cli/templates/app，占位符形如 {{PROJECT_NAME}}；
- * 递归拷贝 + 文本渲染，生成一个可直接 `cj-tauri dev` 的应用。
+ * 模板位于 <框架根>/cli/templates/<模板目录>，占位符形如 {{PROJECT_NAME}}；
+ * 递归拷贝 + 文本渲染，生成一个可直接 `cj-tauri dev`（桌面）或 `bash build-hap.sh`（鸿蒙）的应用。
  */
 package cli
 
@@ -17,14 +17,21 @@ public class TemplateVars {
     let nativeDir: String
     let stdxDir: String
     let targetSection: String
+    /** 鸿蒙应用的安装 ID（bundleName），桌面模板不用 */
+    let bundleName: String
+    /** 应用显示名（桌面模板用项目名，鸿蒙写进 string.json） */
+    let appLabel: String
 
-    public init(projectName: String, packageName: String, frameworkRoot: String, stdxDir: String) {
+    public init(projectName: String, packageName: String, frameworkRoot: String, stdxDir: String,
+                bundleName: String, appLabel: String) {
         this.projectName = projectName
         this.packageName = packageName
         this.frameworkRoot = frameworkRoot
         this.nativeDir = joinPath(frameworkRoot, "native")
         this.stdxDir = stdxDir
         this.targetSection = buildTargetSection(joinPath(frameworkRoot, "native"), stdxDir)
+        this.bundleName = bundleName
+        this.appLabel = appLabel
     }
 }
 
@@ -62,7 +69,33 @@ func renderTemplate(content: String, v: TemplateVars): String {
     out = out.replace("{{FRAMEWORK_ROOT}}", v.frameworkRoot)
     out = out.replace("{{NATIVE_DIR}}", v.nativeDir)
     out = out.replace("{{STDX_DIR}}", v.stdxDir)
+    out = out.replace("{{BUNDLE_NAME}}", v.bundleName)
+    out = out.replace("{{APP_LABEL}}", v.appLabel)
     return out
+}
+
+/**
+ * 模板里哪些文件必须**按字节原样拷**
+ *
+ * 模板要带图标（`resources/base/media/` 下的 png），而 `readText` 走 UTF-8——二进制过一遍
+ * 文本渲染会当场损坏（就算侥幸没崩，png 也变得打不开，要到装到设备上才看得见白方块）。
+ * 判据只看扩展名：模板里不需要「文本渲染的二进制」，真需要再另说。
+ */
+func isBinaryTemplateFile(name: String): Bool {
+    let b = name.toArray()
+    let out = ArrayList<UInt8>()
+    for (i in 0..b.size) {
+        out.add(toLowerByte(b[i]))
+    }
+    let lower = String.fromUtf8(out.toArray())
+    let exts = ["png", "jpg", "jpeg", "gif", "webp", "ico", "ttf", "otf", "woff", "woff2",
+                "so", "dll", "a", "lib", "hap", "zip", "gz", "pdf", "wav", "mp3", "mp4"]
+    for (ext in exts) {
+        if (lower.endsWith("." + ext)) {
+            return true
+        }
+    }
+    return false
 }
 
 /** 项目名 → 仓颉包名（lowerCamelCase）：my-app → myApp */
@@ -103,7 +136,22 @@ func packageNameFrom(name: String): Option<String> {
     return Some(String.fromUtf8(out.toArray()))
 }
 
-/** 递归拷贝模板目录：目录建目录、文件渲染后写出 */
+/**
+ * 按字节覆盖写
+ *
+ * 模板里的图片不能走 `writeText`：`readText` 是 UTF-8 解码，读 png 当场抛
+ * `IllegalArgumentException: Invalid unicode scalar value`（create 直接崩、目录留半成品）。
+ */
+func writeBytes(p: String, data: Array<UInt8>): Unit {
+    if (exists(p)) {
+        remove(p)
+    }
+    let f = File.create(p)
+    f.write(data)
+    f.close()
+}
+
+/** 递归拷贝模板目录：目录建目录、文本渲染后写出、二进制原样拷 */
 func copyTree(src: String, dst: String, v: TemplateVars): Int64 {
     var count = 0
     for (info in listDir(src)) {
@@ -116,6 +164,9 @@ func copyTree(src: String, dst: String, v: TemplateVars): Int64 {
         if (info.isDirectory()) {
             ensureDir(d)
             count = count + copyTree(s, d, v)
+        } else if (isBinaryTemplateFile(nm)) {
+            writeBytes(d, File.readFrom(s))
+            count = count + 1
         } else {
             writeText(d, renderTemplate(readText(s), v))
             count = count + 1
@@ -126,13 +177,51 @@ func copyTree(src: String, dst: String, v: TemplateVars): Int64 {
 
 /** 模板别名 → 仓库里的模板目录名（缺省 app，0.3.x 的老用法不受影响） */
 func templateDirName(tpl: String): Option<String> {
-    match (tpl) {
-        case "app" => Some("app")          // 内联 HTML 单文件，零 Node 依赖
-        case "vanilla" => Some("app")
-        case "vue" => Some("app-vue")      // Vue 3 + Vite：dev 走 HMR，发布产单文件
-        case "react" => Some("app-react")  // React 18 + Vite
-        case _ => None
+    if (tpl == "app" || tpl == "vanilla") {
+        return Some("app")          // 内联 HTML 单文件，零 Node 依赖
     }
+    if (tpl == "vue") {
+        return Some("app-vue")      // Vue 3 + Vite：dev 走 HMR，发布产单文件
+    }
+    if (tpl == "react") {
+        return Some("app-react")    // React 18 + Vite
+    }
+    if (tpl == "ohos" || tpl == "ohos-pc" || tpl == "harmonyos" || tpl == "harmonyos-pc") {
+        return Some("ohos-pc")      // 鸿蒙 PC（2in1）：ArkWeb 宿主 + build-hap.sh
+    }
+    return None
+}
+
+/** 该项目是不是鸿蒙脚手架（模板目录名即判据，别名在 templateDirName 里已归一到 ohos-pc） */
+func isOhosScaffoldTemplate(tplDir: String): Bool {
+    return baseName(tplDir) == "ohos-pc"
+}
+
+/**
+ * 项目名 → 缺省 bundleName（`com.example.<小写下划线名>`）
+ *
+ * 鸿蒙要求 bundleName 每一段以字母开头、只含字母数字下划线，且至少三段；
+ * 项目名里的 `-` `.` 之类一律折成 `_`，数字开头补 `app` 前缀。用户可以用 `--bundle` 覆盖。
+ */
+func bundleNameFrom(projectName: String): String {
+    let b = projectName.toArray()
+    let out = ArrayList<UInt8>()
+    for (i in 0..b.size) {
+        let c = toLowerByte(b[i])
+        if (isAsciiAlpha(c) || isAsciiDigit(c)) {
+            out.add(c)
+        } else {
+            out.add(0x5F) // '_'
+        }
+    }
+    var s = String.fromUtf8(out.toArray())
+    if (s.size > 0 && isAsciiDigit(s.toArray()[0])) {
+        s = "app" + s
+    }
+    if (s.size == 0) {
+        s = "app"
+    }
+    return "com.example." + s
 }
 
 /** 解析模板目录：先查别名表，查不到就把参数当模板目录名直接用（方便自己往仓库里加模板） */
@@ -171,10 +260,10 @@ func availableTemplates(fwRoot: String): String {
     return out
 }
 
-func cmdCreate(nameArg: String, tpl: String): Int64 {
+func cmdCreate(nameArg: String, tpl: String, bundleArg: String, labelArg: String): Int64 {
     let targetDir = stripTrailingSep(nameArg)
     if (targetDir.size == 0) {
-        eprintln("用法: cj-tauri create <项目名>")
+        eprintln("用法: cj-tauri create <项目名> [--template app|vue|react|ohos]")
         return 1
     }
     let projectName = baseName(targetDir)
@@ -198,26 +287,38 @@ func cmdCreate(nameArg: String, tpl: String): Int64 {
         eprintln("          请设置环境变量 CJ_TAURI_ROOT 指向 cj-tauri 仓库根目录")
         return 1
     }
-    var stdx = ""
-    if (let Some(s) <- resolveStdx(fwRoot, None)) {
-        stdx = s
-    } else {
-        eprintln("[cj-tauri] 错误: 找不到 stdx 目录")
-        eprintln("          请设置环境变量 CANGJIE_STDX 指向 stdx 动态库目录（含 stdx.encoding.json）")
-        return 1
-    }
+    // 模板先解析：鸿蒙模板**不吃桌面 stdx**（编 hap 时由 build-hap.sh 用 CANGJIE_STDX_OHOS），
+    // 所以它不能因为本机没配 CANGJIE_STDX 就被拦下。
     var tplDir = ""
     if (let Some(d) <- resolveTemplateDir(fwRoot, tpl)) {
         tplDir = d
     } else {
         eprintln("[cj-tauri] 错误: 未知模板 '${tpl}'")
         eprintln("          可用模板: ${availableTemplates(fwRoot)}")
-        eprintln("          别名: app（内联单文件，缺省）/ vue / react")
+        eprintln("          别名: app（内联单文件，缺省）/ vue / react / ohos")
+        return 1
+    }
+    let ohos = isOhosScaffoldTemplate(tplDir)
+    var stdx = ""
+    if (let Some(s) <- resolveStdx(fwRoot, None)) {
+        stdx = s
+    } else if (!ohos) {
+        eprintln("[cj-tauri] 错误: 找不到 stdx 目录")
+        eprintln("          请设置环境变量 CANGJIE_STDX 指向 stdx 动态库目录（含 stdx.encoding.json）")
         return 1
     }
     warnIfSpacey("框架", fwRoot)
 
-    let v = TemplateVars(projectName, pkg, fwRoot, stdx)
+    var bundle = bundleArg
+    if (bundle.size == 0) {
+        bundle = bundleNameFrom(projectName)
+    }
+    var label = labelArg
+    if (label.size == 0) {
+        label = projectName
+    }
+
+    let v = TemplateVars(projectName, pkg, fwRoot, stdx, bundle, label)
     ensureDir(targetDir)
     let count = copyTree(tplDir, targetDir, v)
 
@@ -225,6 +326,22 @@ func cmdCreate(nameArg: String, tpl: String): Int64 {
     println("")
     println("  项目名   : ${projectName}")
     println("  模板     : ${baseName(tplDir)}")
+    if (ohos) {
+        println("  应用名   : ${label}")
+        println("  bundle   : ${bundle}")
+        println("  框架依赖 : ${fwRoot}")
+        println("")
+        println("下一步:")
+        println("  cd ${targetDir}")
+        println("  export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
+        println("  bash build-hap.sh            # 编 hap")
+        println("  bash build-hap.sh --install  # 编完装到设备并拉起")
+        println("")
+        println("提示: 模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs")
+        println("      勾「Automatically generate signature」（要登录华为账号）；不签名只能编出")
+        println("      *-unsigned.hap，装不进设备。")
+        return 0
+    }
     println("  仓颉包名 : ${pkg}")
     println("  框架依赖 : ${fwRoot}")
     println("  stdx     : ${stdx}")

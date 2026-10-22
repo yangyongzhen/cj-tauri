@@ -28,6 +28,7 @@
     "notes:env",
     "theme:apply",
     "linenos:sync",
+    "aipanel:sync",
     "titlebar:sync",
     "cjh:status",
     "cjh:start",

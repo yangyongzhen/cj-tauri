@@ -9,7 +9,7 @@ package cjTauri
  *   - cli/src/project.cj      的 cliVersion()
  *   - CHANGELOG.md            顶部第一个已发版段
  */
-public let CJ_TAURI_VERSION = "1.1.1"
+public let CJ_TAURI_VERSION = "1.1.2"
 
 /**
  * IPC 报文协议版本（报文形状是跨层契约，加版本字段是协议治理惯例）：事件 / 回执信封的 `protocol` 字段

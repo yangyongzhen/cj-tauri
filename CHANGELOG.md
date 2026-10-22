@@ -14,6 +14,19 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [1.1.2] - 2026-10-23
+
+（修正 1.1.1 的打包瑕疵：包里的预编译 CLI 是 1.1.0 那次构建留下的产物，装上后 `npx cj-tauri --version`
+回 `1.1.0`，看着像装错了版本。npm 的版本号发布即被占用、unpublish 之后同号不能重发，故顺延末位。）
+
+### Fixed
+
+- `scripts/npm-pack.sh` 在把预编译 CLI 塞进 tarball **之前核对它自报的版本**（`<cli> --version` 的末段
+  vs `npm/package.json` 的 `version`）：不符即中止，并提示先 `cd cli && cjpm build` 重编；
+  产物跑不起来（缺仓颉运行时库）时只告警不中止——宁可少一层校验，也不要把打包卡在环境问题上。
+  此前完全不校验，而 `cli/target/release/bin/main.exe` 是上一次构建留下的，改了版本号却没重编就会发布错版本。
+- 重编 CLI 后重发 1.1.2，`npx cj-tauri --version` 与包版本一致。
+
 ## [1.1.1] - 2026-10-23
 
 （末位发布：只补文档与包元数据，不改行为。起因是 npm 包页面的介绍里，**鸿蒙 PC 工程怎么创建一个字都没提**——

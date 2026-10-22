@@ -70,13 +70,27 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 启动那刻 cjh 不在就永远拿不到端点（Windows 双击的 GUI 连设环境变量的地方都没有），所以安装结果必须由
 应用自己接住，不能只提示一句「未连接」。挑过的路径记进存档，下次进 Agent 不再问。
 
-引导卡上排第一个的是「**一键部署并启动（推荐）**」，走 `cjh:deploy`：从仓库自带的
-`vendor/cjh/cjh-v<版本>-linux-x64.tar.gz` 解出 cjh（**先按同目录的 `SHA256SUMS` 校验，对不上就不部署**，
-全程不走网络），chmod 后当场拉起并接上，返回形状与 `cjh:start` 对齐
-（`{ok, reused, port, apiUrl, wsUrl}`）。失败时**说清楚卡在哪一步**——安装包找不到 / 校验失败 /
-部署完 10 秒没就绪（这时连"最常见原因是这份二进制与本机不兼容（例如要更新的 glibc）"一起讲），
-并按引导卡第 2/3 步回落手动安装。第 2 步里就带着下载页地址与**按当前平台**给的产物名，
-用户不用自己猜该下哪个包。这条路只在 Linux 落地，其他平台如实拒绝、仍走「选择 cjh 可执行文件…」。
+引导卡上排第一个的是「**一键部署并启动（推荐）**」，走 `cjh:deploy`：从仓库自带的安装包解出 cjh
+（**先按同目录的 `SHA256SUMS` 校验，对不上就不部署**，全程不走网络），然后当场拉起并接上，
+返回形状与 `cjh:start` 对齐（`{ok, reused, port, apiUrl, wsUrl}`）。失败时**说清楚卡在哪一步**——
+安装包找不到 / 校验失败 / 解包失败（回包里直接带真因：找不到解包工具、解包后没找到二进制或缺运行时库）/
+部署完 10 秒没就绪（这时连"最常见原因是这份二进制与本机不兼容"一起讲，Windows 侧点名 SmartScreen / 杀软 /
+缺 VC 运行时，Linux 侧点名 glibc），并按引导卡第 2/3 步回落手动安装。第 2 步里就带着下载页地址与
+**按当前平台**给的产物名，用户不用自己猜该下哪个包。
+
+两平台都落地，差别只在「装哪儿、怎么解包」（其余流程共用同一份代码）：
+
+| | Linux | Windows |
+|---|---|---|
+| 安装包 | `vendor/cjh/cjh-v<版本>-linux-x64.tar.gz` | `vendor/cjh/cjh-v<版本>-windows-x64-selfcontained.zip` |
+| 安装目录 | `~/.local/share/cj-ai-chat/` | `%LOCALAPPDATA%\cj-ai-chat\cjh\` |
+| 解包 | 系统 `tar -xzf` + `chmod +x` | 系统自带 bsdtar（`%SystemRoot%\System32\tar.exe`，Win10 1803+） |
+| 拉起 | `std.process.launch`（能收退出码） | 框架 `launchHidden`（`DETACHED_PROCESS`，只留 pid） |
+
+Windows 侧两个坑写在这里省得再查：① 解包**必须用绝对路径的 bsdtar**，从 Git Bash 起的应用 PATH 里
+MSYS 的 GNU tar 排在前面，它不认 zip；② zip 里 4 个运行时 DLL（`libcangjie-runtime` / `libboundscheck` /
+`libssl-3` / `libcrypto-3`）不在 cjh 的 PE 导入表里、是按名字 `LoadLibrary` 的，解包后逐个点名核对，
+缺一个就当场判失败——不然只会表现成「部署看着成功、cjh 一起就崩」。
 
 `src/cjh_host.cj` 只管**生命周期**，不参与数据面：
 
@@ -136,20 +150,57 @@ cd dist-linux/ai-chat-linux-x64 && ./run.sh
 被注入的页面**没法自行加白**：确认框是原生的、页面点不了它；清单里的 `deny` 也掀不掉
 （判定顺序始终是先 deny 后 allow）。
 
+## 单文件包（一个 exe、零随行文件）
+
+```bash
+bash scripts/pack-win-single.sh examples/ai-chat     # 产物：examples/ai-chat/dist-single/ai-chat.exe
+```
+
+产物是**一个文件**（实测 10.6 MB，`Subsystem = 00000002` 即 Windows GUI，双击不弹控制台；
+导入表只有 msvcrt / KERNEL32 / WS2_32 / SHELL32 / dbghelp / ole32 / comdlg32 / USER32 / CRYPT32 这些系统库）。
+页面、highlight.js 与主题、`capabilities/app.json` 都 base64 编进二进制，运行时不再读 `ui/` 与 `capabilities/`。
+
+三件套（本示例已接好，新示例照抄）：`src/packed_assets.cj`（空存根，打包器整体覆盖它）、
+`src/packed_resources.cj`（`decodeBase64` / `splitBy` / `textOrFile` / `vendorSegments`）、
+`ui/vendor/pack-files.txt`（vendor 清单，**行序即契约**——与打包器的拼接序、`vendorSegments()` 的取用序三方对齐）。
+判据固定是「base64 非空即内嵌、否则读盘」，所以仓库内正常构建的行为一点没变。
+
+实测（2026-10-23，Windows）：把 exe 单独拷进一个**空目录**启动，窗口与页面照常（会话列表、输入框、
+高亮配色都在），日志里是一行 `[cj-ai-chat] 能力清单来自内嵌资源：1 份` + `host created` + 7 个插件装配完成。
+
+两件要提前知道的事：
+
+- **单文件包不含 cjh 安装包**（那份 13 MB 的 zip 没有编进 exe，打包器只内嵌页面 / vendor / 清单）。
+  所以引导卡第 1 步「一键部署并启动」在这个产物里会如实报「找不到 cjh 安装包 … ——
+  请确认在 examples/ai-chat 目录下启动应用，或设 `CJ_AICHAT_CJH_BUNDLE` 指向它」；
+  要么按提示把 zip 路径给它，要么走第 2/3 步手动指定 cjh。
+- **双击启动时日志落盘不生效**：C 桥是把 stderr `dup2` 到日志文件的，而 GUI 子系统双击时 stderr 句柄无效，
+  文件会被建出来但一行都写不进（实测 0 字节；同一份 exe 带 `2> err.txt` 起就正常，日志 605 行、`err.txt` 反而 0 字节）。
+  要现场日志就用 `ai-chat.exe 2> ai-chat.log` 启动。
+
 ## 自检
 
 设 `CJ_AICHAT_PROBE=1` 启动即注入页内自检，断言经 `report` 回投到 stderr（明细行序不保证，
 按**计数**对账：PASS 明细条数对上断言总数、`failed` = 0）。源码里目前共 **73 处断言**；
 本机隔离副本实跑（cjh 空配置）是 **65 条明细 PASS、SELFCHECK 侧 0 FAIL**——差额是条件分支
-（依赖已配置 cjh / 已配技能那几条）没走到，不是漏跑。另有三条独立探针行（都不进自检计数）：
+（依赖已配置 cjh / 已配技能那几条）没走到，不是漏跑。另有四条独立探针行（都不进自检计数）：
 `CJH-GUIDE`（引导三态：缺 cjh 出卡、产物名按平台、**不得**假装端点已就绪；给了路径则当场拉起并接上）、
-`CJH-PANELS`、`CJH-CHAT`——本轮实机是 `CJH-PANELS 4/4`、`CJH-CHAT deltas=1 done=1 err=0`。
+`CJH-DEPLOY`、`CJH-PANELS`、`CJH-CHAT`——本轮实机是 `CJH-PANELS 4/4`、`CJH-CHAT deltas=1 done=1 err=0`。
 **接上空配置的 cjh 时后两条会掉**（那时如实报 2/4、无 delta，不当成通过）：`CJH-CHAT` 的判据是
 「有没有 WS 帧回来」，而一个没有 provider 的 cjh 收得下 `chat` 帧、回不出帧（会话文件里只有 system + user）。
 
+`CJH-DEPLOY` 走**自己的开关** `CJ_AICHAT_PROBE_DEPLOY=1`（`main.cj` 里注入
+`window.__AICHAT_PROBE_DEPLOY__`，桥就绪后 1200ms 跑一次 `cjh:deploy`）：它要真的装一份 cjh 并起进程，
+和「自检要求先没有 cjh」的前提互斥，所以**必须与 `CJ_AICHAT_PROBE=1` 分两轮跑**。判据两条：
+`CJH-DEPLOY PASS deploy ok=true reused=<false|true> deployed=<路径> api=yes` 与紧随其后的
+`CJH-DEPLOY PASS status state=running api=yes`；`reused=true` 那一轮表示端口上已有 cjh（不再解包、不再起进程）。
+
 ## 已知限制
 
-- **Windows 未实机验证**（如实说明）；
+- **Windows 已实机跑通**（2026-10-23，WebView2）：一键部署从全新状态走完「SHA256 校验 → bsdtar 解包 →
+拉起 cjh → `/api/health` 200」，凭证是 `CJH-DEPLOY PASS deploy ok=true reused=false deployed=…cjh-v1.5.3-windows-x64.exe api=yes`
+加 `CJH-DEPLOY PASS status state=running api=yes`；端口上已有 cjh 时同一探针报 `reused=true`（不解包、不起第二份）。
+**本机 GUI 子系统下应用自己的 stderr 收不到**（重定向也是 0 字节），所以这条链的取证只看页内探针回投的日志行；
 - 引导卡上「选择 cjh 可执行文件…」那一步走的是**原生文件框**（阻塞模态）：无人值守的实机脚本点不了它，
   自动化取证走的是它背后同一个 `cjhStartWith()`（命令链一致），对话框本身留人点验；
 - MCP 面板**只读**（2026-10-20 起撤掉「编辑配置」入口）：要改配置直接改 cjh 自己的 `settings.json`，

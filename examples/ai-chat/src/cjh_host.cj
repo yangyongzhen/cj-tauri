@@ -6,6 +6,10 @@ import stdx.crypto.digest.*   // 具体实现类 SHA256 在 stdx 侧（std.crypt
                               // 接口与泛型函数——两个包各出一样东西，都得 import）
 import std.env.*
 import std.fs.*
+// SubProcess / launch 只在非 Windows 分支用（Windows 走框架的 launchHidden），
+// 所以 import 也跟着同一条 @When 门禁——不这么做，Windows 构建会多一条
+// `unused import` 警告，而按警告把 import 删掉 Linux 侧当场编炸（AGENTS §4）
+@When[os != "Windows"]
 import std.process.*
 import cjTauri.*           // bytesToHex（src/hexutil.cj）：摘要字节转十六进制
 import stdx.encoding.json.*
@@ -38,7 +42,17 @@ import stdx.net.http.*
 public let CJH_DEFAULT_PORT: Int64 = 8765
 
 /** 全局持有 spawn 出来的子进程：只有 main() 装配期写一次、quit 收尾读一次，
-    不做并发保护（AGENTS §2：不给「不会发生的并发」上锁） */
+    不做并发保护（AGENTS §2：不给「不会发生的并发」上锁）。
+
+    句柄类型按平台分叉：Linux 保持 `std.process` 的 SubProcess（留着 cjh 自己的 stdout /
+    stderr 与退出码，那条路已实机验过，不为统一而改动它）；Windows 用框架的 `launchHidden`
+    （BackgroundProcess，只留 pid）——产物是 GUI 子系统、没有控制台，用 `launch` 拉起控制台
+    程序 cjh 会让 Windows 给**子进程**单独配一个控制台窗口（AGENTS §4，cjnote 实机踩过）。
+    代价是 Windows 侧拿不到 cjh 的退出码与输出：本文件对 cjh 的判定本来就只看 HTTP 健康检查，
+    不依赖它们。 */
+@When[os == "Windows"]
+public var gCjhProc: Option<BackgroundProcess> = None
+@When[os != "Windows"]
 public var gCjhProc: Option<SubProcess> = None
 /** true = cjh 是本应用拉起的（退出时要收尾）；false = 本来就在跑（别动人家的） */
 public var gCjhOwned: Bool = false
@@ -182,6 +196,11 @@ public func ensureCjhWeb(): Bool {
     return spawnCjhWeb(bin)
 }
 
+/** 拉起 cjh web 的参数（两平台同源；`--bind` 的理由见下面那段说明） */
+func cjhWebArgs(): Array<String> {
+    return ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"]
+}
+
 /**
  * 按指定路径拉起 cjh web 并等健康检查（100ms 一步，最多 10 秒——cjh web 启动要装 Agent 栈，
  * 秒级是正常量级）。**这里的阻塞只落在命令 worker 线程上**：命令分发本来就是异步的
@@ -197,38 +216,92 @@ public func ensureCjhWeb(): Bool {
  * 所以这里收到回环。**注意只对本应用 spawn 的实例生效**：用户自己起的 cjh（被复用那条路）
  * 绑定仍由用户决定，框架不去改别人的进程。
  */
-func spawnCjhWeb(bin: String): Bool {
-    if (let Some(old) <- gCjhProc) {
-        terminateCjhProc(old)
-        gCjhProc = None
-    }
-    var proc: SubProcess
-    try {
-        proc = launch(bin, ["web", "--port", cjhPort().toString(), "--bind", "127.0.0.1"])
-    } catch (e: Exception) {
-        eprintln("[cj-ai-chat] 启动 cjh web 失败：${e}")
-        return false
-    }
-    gCjhProc = Some(proc)
-    let port = cjhPort()
+
+/** 等就绪的三态。抽成枚举 + 一个共享的等待循环，是为了别把「100ms 一步等 10 秒」
+    按平台抄两遍——两平台的差异只在**怎么起进程、怎么判还活着**，等待逻辑是同一件事 */
+enum CjhWait {
+    | Ready
+    | Died
+    | Timeout
+}
+
+/** 100ms 一步、最多 10 秒（cjh web 启动要装 Agent 栈，秒级是正常量级）。
+    `alive` 由各平台给：SubProcess 与 BackgroundProcess 的存活查询口径不同 */
+func awaitCjhReady(port: Int64, alive: () -> Bool): CjhWait {
     var waited: Int64 = 0
     while (waited < 10000) {
         if (cjhHealthy(port)) {
-            gCjhOwned = true
             eprintln("[cj-ai-chat] cjh web 已就绪（port=${port}，等了 ${waited}ms）")
-            return true
+            return CjhWait.Ready
         }
-        if (!proc.isAlive()) {
-            eprintln("[cj-ai-chat] cjh web 进程退出（exit=${proc.wait()}）——检查这个可执行文件与 cjh 配置")
-            gCjhProc = None
-            return false
+        if (!alive()) {
+            return CjhWait.Died
         }
         sleep(Duration.millisecond * 100)
         waited += 100
     }
     eprintln("[cj-ai-chat] cjh web 启动后 10s 健康检查仍不通——按不可用处理（进程留着，页面可重试）")
-    gCjhOwned = true
-    return false
+    return CjhWait.Timeout
+}
+
+@When[os != "Windows"]
+func spawnCjhWeb(bin: String): Bool {
+    if (let Some(old) <- gCjhProc) {
+        terminateCjhProc(old)
+        gCjhProc = None
+    }
+    var launched: Option<SubProcess> = None
+    try {
+        launched = Some(launch(bin, cjhWebArgs()))
+    } catch (e: Exception) {
+        eprintln("[cj-ai-chat] 启动 cjh web 失败：${e}")
+        return false
+    }
+    // 化出不可变绑定再进等待循环：lambda 不能捕获可变的局部变量
+    let proc = launched.getOrThrow()
+    gCjhProc = Some(proc)
+    match (awaitCjhReady(cjhPort(), { => proc.isAlive() })) {
+        case CjhWait.Ready =>
+            gCjhOwned = true
+            return true
+        case CjhWait.Died =>
+            eprintln("[cj-ai-chat] cjh web 进程退出（exit=${proc.wait()}）——检查这个可执行文件与 cjh 配置")
+            gCjhProc = None
+            return false
+        case CjhWait.Timeout =>
+            gCjhOwned = true
+            return false
+    }
+}
+
+@When[os == "Windows"]
+func spawnCjhWeb(bin: String): Bool {
+    if (let Some(old) <- gCjhProc) {
+        terminateCjhProc(old)
+        gCjhProc = None
+    }
+    let held = launchHidden(bin, cjhWebArgs())
+    if (let None <- held) {
+        // 起不来时 C 桥已在 stderr 留了原因（含程序路径），这里只补应用侧上下文
+        eprintln("[cj-ai-chat] 启动 cjh web 失败（${bin}）")
+        return false
+    }
+    let proc = held.getOrThrow()
+    gCjhProc = Some(proc)
+    match (awaitCjhReady(cjhPort(), { => proc.isAlive() })) {
+        case CjhWait.Ready =>
+            gCjhOwned = true
+            eprintln("[cj-ai-chat] cjh web pid=${proc.processId()}")
+            return true
+        case CjhWait.Died =>
+            eprintln("[cj-ai-chat] cjh web 进程退出（launchHidden 只留 pid，拿不到退出码）" +
+                "——检查这个可执行文件与 cjh 配置")
+            gCjhProc = None
+            return false
+        case CjhWait.Timeout =>
+            gCjhOwned = true
+            return false
+    }
 }
 
 /** 应用退出时收尾：只终止**自己拉起的** cjh（复用的不动——那是用户自己的实例） */
@@ -242,6 +315,16 @@ public func shutdownCjh(): Unit {
     }
 }
 
+/** Windows：`stop()` 就是 TerminateProcess，幂等；没有 wait 可取退出码（也没打算取） */
+@When[os == "Windows"]
+func terminateCjhProc(p: BackgroundProcess): Unit {
+    if (p.isAlive()) {
+        eprintln("[cj-ai-chat] 收尾：终止 cjh web（pid=${p.processId()}）")
+        p.stop()
+    }
+}
+
+@When[os != "Windows"]
 func terminateCjhProc(p: SubProcess): Unit {
     if (p.isAlive()) {
         eprintln("[cj-ai-chat] 收尾：终止 cjh web")
@@ -253,48 +336,126 @@ func terminateCjhProc(p: SubProcess): Unit {
 }
 
 /* ===== 一键部署（cjh:deploy）=====
- * 仓库里 vendor/cjh/ 自带 cjh 的产物（tar.gz 单文件二进制 + SHA256SUMS），一键部署
- * 就是「校验 → 解包 → chmod → 拉起」四步本地操作，**不走网络**：下载页直链要登录态、
+ * 仓库里 vendor/cjh/ 自带 cjh 的产物（两个平台各一份 + SHA256SUMS），一键部署就是
+ * 「校验 → 解包 → 授权 → 拉起」四步本地操作，**不走网络**：下载页直链要登录态、
  * 版本漂移还得跟着改文案，而 vendor 这份与引导卡文案里的 CJH_VER 同步维护，够稳。
  *
- * 安装位置固定在 $HOME/.local/share/cj-ai-chat/cjh：装一次后 cjhBinSaved 会记住路径，
+ * 安装位置固定在应用数据目录（见 cjhInstallDir）：装一次后 cjhBinSaved 会记住路径，
  * 下次进 Agent 直接复用（cjhEnterAgent 的 bin 优先级），不会重复解包——cjh 正在跑时
- * tar 原地覆盖会 ETXTBSY，已部署就跳过解包是硬要求不是优化。
- * Windows 产物是 selfcontained zip（解压还有运行时 DLL 的目录结构），解包那步没有
- * 仓颉侧现成库，先如实拒绝并回落「手动选择可执行文件」，不假装能装。
+ * 原地覆盖会失败（Linux 是 ETXTBSY），已部署就跳过解包是硬要求不是优化。
+ *
+ * 两个平台的**产物形态不同**，所以解包那一步也分叉：
+ *   Linux   —— 官方 dist 重打成的单成员 tar.gz（就一个二进制），`tar -xzf` + `chmod +x`
+ *   Windows —— 官方自包含 zip（cjh.exe + 4 个按名字 LoadLibrary 的运行时 DLL，必须解在
+ *              同一个目录），交给系统自带的 bsdtar（`%SystemRoot%\System32\tar.exe`）；
+ *              仓颉侧没有 zip 库，也不值得为一个本地操作引一个
+ * 「解包出来的二进制」名字跟着 bundle 走、不 rename：改名只会多一个失败点（实测 chmod
+ * 按裸名找就炸了）。cjhBinSaved 记的是完整路径，名字带不带版本对后续启动无影响。
  */
 
-let CJH_BUNDLE_REL = "vendor/cjh/cjh-v1.5.3-linux-x64.tar.gz"
-// 摘要跟着包换：vendor 那份就是官方 v1.5.3 的产物（二进制最高只要 GLIBC_2.34，本机 2.35 直接跑得起来；
-// 上一版那个官方包要 GLIBC_2.38、本机跑不起来才不得不本地重建）——① 换包 ② 这里同步，
-// 漏一处就是「校验失败，不部署」）
-let CJH_BUNDLE_SHA256 = "604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e"
-let CJH_DEPLOY_DIR_REL = ".local/share/cj-ai-chat"
-// tar 包里的二进制名带版本号（tar tzf 可证）：解包后就叫这个名，不 rename——
-// 部署二进制的名字跟着 bundle 走，改名那步只会多一个失败点（实测 chmod 按裸名找就炸了）。
-// cjhBinSaved 记的是完整路径，名字带不带版本对后续启动无影响。
-let CJH_DEPLOYED_BIN = "cjh-v1.5.3-linux-x64"
+/** 随包安装包的相对路径（按平台各一份） */
+@When[os == "Windows"]
+func cjhBundleRel(): String {
+    return "vendor/cjh/cjh-v1.5.3-windows-x64-selfcontained.zip"
+}
+
+@When[os != "Windows"]
+func cjhBundleRel(): String {
+    return "vendor/cjh/cjh-v1.5.3-linux-x64.tar.gz"
+}
+
+/* 摘要跟着包换：与 vendor/cjh/SHA256SUMS 里对应那一行逐字一致（① 换包 ② 这里同步，
+   漏一处就是「校验失败，不部署」）。Linux 那份是官方 v1.5.3 的 dist/cjh-linux-x64
+   重打成的单成员 tar.gz（最高只要 GLIBC_2.34，本机 2.35 能跑；上一版那个官方包要
+   GLIBC_2.38、本机跑不起来才不得不本地重建） */
+@When[os == "Windows"]
+func cjhBundleSha256(): String {
+    return "c861a762e408347031c41073073a4587bade54f3d3878d0d9fc1b752659287a2"
+}
+
+@When[os != "Windows"]
+func cjhBundleSha256(): String {
+    return "604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e"
+}
+
+/** 解包出来的二进制名（Linux `tar tzf` / Windows `tar -tf` 都能证：包里就是这两个名字） */
+@When[os == "Windows"]
+func cjhDeployedBinName(): String {
+    return "cjh-v1.5.3-windows-x64.exe"
+}
+
+@When[os != "Windows"]
+func cjhDeployedBinName(): String {
+    return "cjh-v1.5.3-linux-x64"
+}
+
+@When[os == "Windows"]
+func cjhPathSep(): String {
+    return "\\"
+}
+
+@When[os != "Windows"]
+func cjhPathSep(): String {
+    return "/"
+}
+
+/** 取第一个非空环境变量的值（一个都没有就回空串） */
+func firstNonEmptyEnv(names: Array<String>): String {
+    for (n in names) {
+        if (let Some(v) <- getVariable(n)) {
+            if (v.size > 0) {
+                return v
+            }
+        }
+    }
+    return ""
+}
+
+/** 安装目录拿不到时给人看的那半句（各平台变量名不同，别把两个都写上让人猜） */
+@When[os == "Windows"]
+func cjhInstallDirHint(): String {
+    return "LOCALAPPDATA 环境变量为空"
+}
+
+@When[os != "Windows"]
+func cjhInstallDirHint(): String {
+    return "HOME 环境变量为空"
+}
 
 /** vendor bundle 的路径：环境变量 CJ_AICHAT_CJH_BUNDLE 可覆写（打包产物里 vendor 不在
     工作目录旁时，部署者把 bundle 放别处再指过来），缺省按工作目录相对路径找 */
 func cjhBundlePath(): String {
     match (getVariable("CJ_AICHAT_CJH_BUNDLE")) {
         case Some(p) => return p
-        case None => return CJH_BUNDLE_REL
+        case None => return cjhBundleRel()
     }
 }
 
-/** 部署后的安装目录：$HOME/.local/share/cj-ai-chat。HOME 拿不到（极端环境）返回空串，
-    调用方据此如实报错 */
+/**
+ * 部署后的安装目录；拿不到就回空串（调用方据此如实报错）：
+ *   Linux   —— `$HOME/.local/share/cj-ai-chat`
+ *   Windows —— `%LOCALAPPDATA%\cj-ai-chat\cjh`
+ *
+ * **Windows 这一侧绝不能读 HOME**：Git Bash 的 HOME 是 `/c/Users/x` 这种 POSIX 形式，
+ * 原生 Win32 API 会把它当「当前盘根目录下的 c/Users/x」——目录静默建到别处，表象是
+ * 「装完了却找不到」（AGENTS §4 有同族坑）。LOCALAPPDATA 是原生形式，直接用。
+ */
+@When[os == "Windows"]
 func cjhInstallDir(): String {
-    match (getVariable("HOME")) {
-        case Some(h) =>
-            if (h.size == 0) {
-                return ""
-            }
-            return h + "/" + CJH_DEPLOY_DIR_REL
-        case None => return ""
+    let base = firstNonEmptyEnv(["LOCALAPPDATA", "USERPROFILE"])
+    if (base.size == 0) {
+        return ""
     }
+    return base + "\\cj-ai-chat\\cjh"
+}
+
+@When[os != "Windows"]
+func cjhInstallDir(): String {
+    let home = firstNonEmptyEnv(["HOME"])
+    if (home.size == 0) {
+        return ""
+    }
+    return home + "/.local/share/cj-ai-chat"
 }
 
 /** 对 bundle 做 SHA256 校验：读全量文件算摘要，与入库常量比对。失败给一行 stderr（带两个
@@ -308,53 +469,159 @@ func cjhBundleVerified(bundle: String): Bool {
         return false
     }
     let hex = bytesToHex(digest(SHA256(), bytes))   // 新签名：算法实例 + 输入（旧 digest<T> 已废弃）
-    if (hex != CJH_BUNDLE_SHA256) {
-        eprintln("[cj-ai-chat] cjh bundle SHA256 不符：expected=${CJH_BUNDLE_SHA256} got=${hex}")
+    if (hex != cjhBundleSha256()) {
+        eprintln("[cj-ai-chat] cjh bundle SHA256 不符：expected=${cjhBundleSha256()} got=${hex}")
         return false
     }
     return true
 }
 
 /** 解包 + chmod（外部 tar/chmod：Linux 上 tar 必在，gzip+tar 的仓颉 API 链路不值得为
-    一个本地操作引入）。任一步失败都带 stderr 留痕并返回 false */
-func cjhExtractBundle(bundle: String, installDir: String): Bool {
+    一个本地操作引入）。任一步失败都带 stderr 留痕并回传原因（None = 成功） */
+@When[os != "Windows"]
+func cjhExtractBundle(bundle: String, installDir: String): Option<String> {
     try {
         Directory.create(Path(installDir))
     } catch (e: Exception) {
         let _ = e   // 已存在会抛？保守处理：能读就继续
     }
-    try {
-        let f = File(Path(installDir), OpenMode.Read)
-        f.close()
-    } catch (e: Exception) {
-        eprintln("[cj-ai-chat] 安装目录建不出来：${installDir}（${e}）")
-        return false
+    if (!exists(Path(installDir))) {
+        let why = "安装目录建不出来：${installDir}（创建后仍不存在）"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
     }
     var proc: SubProcess
     try {
         proc = launch("tar", ["-xzf", bundle, "-C", installDir])
     } catch (e: Exception) {
-        eprintln("[cj-ai-chat] 启动 tar 解包失败：${e}")
-        return false
+        let why = "启动 tar 解包失败：${e}"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
     }
     let code = proc.wait()
     if (code != 0) {
-        eprintln("[cj-ai-chat] tar 解包失败 exit=${code}（bundle=${bundle} -> ${installDir}）")
-        return false
+        let why = "tar 解包失败 exit=${code}（bundle=${bundle} -> ${installDir}）"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
     }
     var chmod: SubProcess
     try {
-        chmod = launch("chmod", ["+x", installDir + "/" + CJH_DEPLOYED_BIN])
+        chmod = launch("chmod", ["+x", installDir + "/" + cjhDeployedBinName()])
     } catch (e: Exception) {
-        eprintln("[cj-ai-chat] 启动 chmod 失败：${e}")
-        return false
+        let why = "启动 chmod 失败：${e}"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
     }
     let ccode = chmod.wait()
     if (ccode != 0) {
-        eprintln("[cj-ai-chat] chmod +x 失败 exit=${ccode}")
-        return false
+        let why = "chmod +x 失败 exit=${ccode}"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
     }
-    return true
+    return None
+}
+
+/** 随包 zip 里那 4 个「按名字 LoadLibrary」的运行时 DLL：cjh.exe 的 PE 导入表里没有它们，
+    缺了只在启动时炸（AGENTS §4 同族坑），所以解包后逐个点名核对 */
+@When[os == "Windows"]
+let CJH_WIN_RUNTIME_DLLS: Array<String> = [
+    "libcangjie-runtime.dll", "libboundscheck.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll"
+]
+
+/**
+ * Windows 版解包：zip 交给系统自带的 bsdtar（`%SystemRoot%\System32\tar.exe`，Win10 1803+
+ * 起标配；仓颉侧没有 zip 库，也不值得为一个本地操作引一个）。三个讲究：
+ *
+ * ① 用**绝对路径**调，别写裸 `tar`——从 Git Bash 起应用时 PATH 里 MSYS 的 GNU tar 排在前面，
+ *    它不认 zip（`This does not look like a tar archive`），而报错长得像「包坏了」；
+ * ② 走 `launchHidden` 而不是 `launch`：产物是 GUI 子系统，拉起控制台程序会让 Windows 给
+ *    tar 配一个控制台窗口（AGENTS §4）；代价是拿不到它的退出码，所以判据改成「产物真的
+ *    落盘了」——比退出码更直接（解不全的 zip 会让这几条检查失败）；
+ * ③ 不需要 chmod：Windows 没有可执行位，NTFS 上解出来就能跑。
+ */
+@When[os == "Windows"]
+func cjhExtractBundle(bundle: String, installDir: String): Option<String> {
+    try {
+        Directory.create(Path(installDir))
+    } catch (e: Exception) {
+        let _ = e   // 已存在会抛：能读就继续（下面还有一次可读性检查）
+    }
+    // 判据是「目录真的在」，**不要**用 `File(Path(dir), OpenMode.Read)` 去开它：
+    // Windows 对目录 open 直接回 Access is denied（Linux 上 open(O_RDONLY) 目录能过，
+    // 所以这条错只在 Windows 侧炸——2026-10-23 实测，一键部署首轮就是这么被挡下的）
+    if (!exists(Path(installDir))) {
+        let why = "安装目录建不出来：${installDir}（创建后仍不存在）"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
+    }
+    let tarExe = cjhWindowsTarExe()
+    if (!fileReadable(tarExe)) {
+        let why = "找不到系统 bsdtar：${tarExe}（Win10 1803+ 才自带；" +
+            "也可以手动解压 vendor 里那份 zip 后用「选择 cjh 可执行文件…」）"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
+    }
+    match (launchHidden(tarExe, ["-xf", bundle, "-C", installDir])) {
+        case Some(p) =>
+            // 解包 7.9MB 是亚秒级；给到 30s 是给慢盘留余量。等它退出，但不取退出码（拿不到）
+            var waited: Int64 = 0
+            while (waited < 30000) {
+                if (!p.isAlive()) {
+                    break
+                }
+                sleep(Duration.millisecond * 100)
+                waited += 100
+            }
+            if (p.isAlive()) {
+                let why = "bsdtar 解包 30s 没结束（bundle=${bundle}）"
+                eprintln("[cj-ai-chat] ${why}")
+                p.stop()
+                return Some(why)
+            }
+        case None =>
+            // C 桥已在 stderr 留了原因（含程序路径），这里只补应用侧上下文
+            let why = "启动解包工具失败：${tarExe}（C 桥的 spawn 没拿到 pid）"
+            eprintln("[cj-ai-chat] ${why}")
+            return Some(why)
+    }
+    // 判据是产物：zip 里 5 个文件都得躺着，缺一个就说明解包没走完
+    let bin = installDir + cjhPathSep() + cjhDeployedBinName()
+    if (!fileReadable(bin)) {
+        let why = "解包后没找到 ${bin}（bundle=${bundle}）——zip 不完整、被拦下，或解包工具静默失败"
+        eprintln("[cj-ai-chat] ${why}")
+        return Some(why)
+    }
+    for (dll in CJH_WIN_RUNTIME_DLLS) {
+        let p = installDir + cjhPathSep() + dll
+        if (!fileReadable(p)) {
+            let why = "解包后缺运行时库 ${p}——cjh.exe 起不来（按名字 LoadLibrary）"
+            eprintln("[cj-ai-chat] ${why}")
+            return Some(why)
+        }
+    }
+    return None
+}
+
+/** 系统 bsdtar 的绝对路径（`SystemRoot` 缺了就按最常见的 `C:\Windows` 兜底） */
+@When[os == "Windows"]
+func cjhWindowsTarExe(): String {
+    let root = firstNonEmptyEnv(["SystemRoot", "windir"])
+    if (root.size == 0) {
+        return "C:\\Windows\\System32\\tar.exe"
+    }
+    return root + "\\System32\\tar.exe"
+}
+
+/** 「装好了却没起来」最常见的那半句原因（各平台的失败面不同：Linux 多半是 glibc 版本，
+    Windows 多半是 VC 运行时 / 杀软 / 缺 DLL——笼统写成一半反而让人白查） */
+@When[os == "Windows"]
+func cjhStartFailHint(): String {
+    return "这份二进制与本机不兼容（例如被 SmartScreen / 杀软拦下、缺 VC 运行时），或启动即崩"
+}
+
+@When[os != "Windows"]
+func cjhStartFailHint(): String {
+    return "这份二进制与本机不兼容（例如它要求更新的 glibc），或启动即崩"
 }
 
 /**
@@ -372,15 +639,15 @@ func cjhDeployAndStart(): JsonObject {
         putEndpoints(obj, port)
         return obj
     }
-    // Linux 才做一键部署（见文件头说明）；平台判断用本机实况而不是编译期——
-    // 命令跑在 worker 线程，tar / HOME 判据在这台机器上就是真的
+    // 两平台都做一键部署，差别只在「装哪儿、怎么解包」（见 cjhInstallDir / cjhExtractBundle）；
+    // 命令跑在 worker 线程，这里读的环境变量就是这台机器上真的
     let installDir = cjhInstallDir()
     if (installDir.size == 0) {
         obj.put("ok", JsonBool(false))
-        obj.put("error", JsonString("拿不到 HOME 环境变量，没法确定安装目录——请用「选择 cjh 可执行文件…」手动指定"))
+        obj.put("error", JsonString("拿不到安装目录（${cjhInstallDirHint()}）——请用「选择 cjh 可执行文件…」手动指定"))
         return obj
     }
-    var bin = installDir + "/" + CJH_DEPLOYED_BIN
+    let bin = installDir + cjhPathSep() + cjhDeployedBinName()
     if (!fileReadable(bin)) {
         // 还没部署过才动 bundle：已在跑 / 已装过都跳过解包（ETXTBSY + 幂等）
         let bundle = cjhBundlePath()
@@ -394,10 +661,14 @@ func cjhDeployAndStart(): JsonObject {
             obj.put("error", JsonString("cjh 安装包校验失败（SHA256 不符）——不部署来路不明的二进制，请重新取一份 vendor/cjh/ 的产物"))
             return obj
         }
-        if (!cjhExtractBundle(bundle, installDir)) {
-            obj.put("ok", JsonBool(false))
-            obj.put("error", JsonString("解包/授权失败，详见应用日志（tar 或 chmod 那一步）"))
-            return obj
+        // 具体失败点（tar / chmod / bsdtar / 缺 DLL）由 cjhExtractBundle 回传，一并带给页面：
+        // 只写一句「解包失败」等于让人去猜（Windows 首轮就是这样看不出真因的）
+        match (cjhExtractBundle(bundle, installDir)) {
+            case Some(why) =>
+                obj.put("ok", JsonBool(false))
+                obj.put("error", JsonString("解包/安装失败：${why}"))
+                return obj
+            case None => ()
         }
         eprintln("[cj-ai-chat] cjh bundle 已部署到 ${bin}")
     }
@@ -409,9 +680,8 @@ func cjhDeployAndStart(): JsonObject {
         return obj
     }
     obj.put("ok", JsonBool(false))
-    obj.put("error", JsonString("部署完成但 cjh 没在 10 秒内就绪——最常见原因是这份二进制与本机不兼容" +
-        "（例如它要求更新的 glibc），或启动即崩，真实原因见应用日志；" +
-        "可从下载页换本机可用的版本后用「选择 cjh 可执行文件…」手动接上"))
+    obj.put("error", JsonString("部署完成但 cjh 没在 10 秒内就绪——最常见原因是" + cjhStartFailHint() + "，" +
+        "真实原因见应用日志；可从下载页换本机可用的版本后用「选择 cjh 可执行文件…」手动接上"))
     return obj
 }
 

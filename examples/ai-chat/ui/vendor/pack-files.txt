@@ -1,0 +1,2 @@
+ui/vendor/highlight.min.js
+ui/vendor/github-dark.min.css

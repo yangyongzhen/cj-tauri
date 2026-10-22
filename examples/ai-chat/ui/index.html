@@ -1690,12 +1690,27 @@ function cjhFillGuideDownload() {
   });
 }
 
+/* 一键部署装到哪儿：与后端 cjhInstallDir() 同一份口径（Windows 走 LOCALAPPDATA，
+ * Linux 走 XDG 那一套）。写死一个平台的路径会让对面平台的用户照着去找、找不到。 */
+function cjhInstallDirLabel(platform) {
+  var p = String(platform || '').toLowerCase();
+  return p.indexOf('win') === 0 ? '%LOCALAPPDATA%\\cj-ai-chat\\cjh' : '~/.local/share/cj-ai-chat/';
+}
+
 /* 第 1 步：说明一键部署会做什么（仓库自带安装包，本地校验解包，不走网络） */
 function cjhFillGuideDeploy() {
   var line = $('gdDeployLine');
   if (!line) { return; }
-  line.innerHTML = '点上面的按钮即可：<b>应用自带 cjh 安装包</b>（SHA256 校验后解包到 <b>~/.local/share/cj-ai-chat/</b> 并启动），' +
-    '不需要手动下载。启动后 Agent 对话会<b>自动带上你已配置的服务商</b>（地址 / 密钥 / 模型随每轮对话下发给 cjh）。';
+  var tail = '并启动），不需要手动下载。启动后 Agent 对话会<b>自动带上你已配置的服务商</b>' +
+    '（地址 / 密钥 / 模型随每轮对话下发给 cjh）。';
+  // 平台名是异步拿的（system:version）：先给一句不带路径的，拿到再补上具体目录
+  line.innerHTML = '点上面的按钮即可：<b>应用自带 cjh 安装包</b>（SHA256 校验后解包并启动），' + tail;
+  cjhLoadPlatform().then(function (p) {
+    var cur = $('gdDeployLine');
+    if (!cur) { return; }                            // 引导已撤（回包晚到）
+    cur.innerHTML = '点上面的按钮即可：<b>应用自带 cjh 安装包</b>（SHA256 校验后解包到 <b>' +
+      cjhInstallDirLabel(p) + '</b> ' + tail;
+  });
 }
 
 /* 一键部署并启动：后端完成「SHA256 校验 → 解包 → chmod → 拉起」。
@@ -1726,6 +1741,35 @@ function cjhDeployAndStart() {
     cjhGuideTrace('deploy rejected: ' + msg);
     cjhGuideLog('一键部署失败：' + msg + ' —— 可改用下面的手动安装（第 2/3 步）。');
     cjhStateUi(false, 'cjh：部署失败');
+  });
+}
+
+/* 一键部署探针（CJ_AICHAT_PROBE_DEPLOY=1）：无人值守走「部署按钮」背后那条命令链，
+ * 依次验 校验 → 解包 → 拉起 → 健康检查，各留一行 PASS/FAIL 到 stderr 通道。
+ * **不在 selfcheck 里**——自检那一轮要求「先没有 cjh」，这一轮要真的装一份并起进程，
+ * 两轮必须分开跑（见 README 的取证小节）。 */
+function probeDeploy() {
+  var dlog = function (line) {
+    window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-DEPLOY ' + line }).catch(function () {});
+  };
+  var t0 = Date.now();
+  window.__CJ_TAURI__.invoke('cjh:deploy', {}).then(function (r) {
+    var okd = !!(r && r.ok);
+    dlog((okd ? 'PASS' : 'FAIL') + ' deploy ok=' + okd +
+         ' reused=' + (r && r.reused ? 'true' : 'false') +
+         ' deployed=' + (r && r.deployed ? String(r.deployed).slice(-24) : '-') +
+         ' api=' + (r && r.apiUrl ? 'yes' : 'no') + ' ms=' + (Date.now() - t0));
+    if (!okd) { dlog('FAIL reason=' + String((r && r.error) || '未知').slice(0, 160)); }
+    // 部署完再独立查一次三态：命令自己回 ok 也可能是「起了一半」，状态要对得上
+    return window.__CJ_TAURI__.invoke('cjh:status', {});
+  }).then(function (st) {
+    var state = (st && st.state) || '?';
+    dlog((state === 'running' ? 'PASS' : 'FAIL') + ' status state=' + state +
+         ' api=' + (st && st.apiUrl ? 'yes' : 'no'));
+    dlog('DONE');
+  }).catch(function (e) {
+    dlog('FAIL reject ' + String(e && e.message).slice(0, 120));
+    dlog('DONE');
   });
 }
 
@@ -3289,6 +3333,8 @@ function selfcheck() {
     // 起跑时机要早于 CJH-CHAT(1500)，否则那条 WS 探针起跑时端点还没接上、静默返回（实测：晚到
     // 就没有 CJH-CHAT 那一行）——本轮拉起的后端得来得及让后面几条探针一并跑起来。
     setTimeout(function () {
+      // 部署轮（CJ_AICHAT_PROBE_DEPLOY）不走这一条：见上头那段「互斥的两轮」
+      if (window.__AICHAT_PROBE_DEPLOY__) { return; }
       var glog = function (line) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] CJH-GUIDE ' + line }).catch(function () {}); };
       var inv = function (cmd, args) { return window.__CJ_TAURI__.invoke(cmd, args); };
       var probeBin = window.__AICHAT_PROBE_BIN__ || '';
@@ -3549,6 +3595,8 @@ waitForBridge().then(function () {
     if (ev.isComposing || ev.keyCode === 229) { return; }
     if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); }
   });
+  // 一键部署探针：桥就绪后单独跑一轮（探针定义在上面的 probeDeploy，不进 selfcheck）
+  if (window.__AICHAT_PROBE_DEPLOY__) { setTimeout(probeDeploy, 1200); }
   loadState().then(function () {
     if (convs.length === 0) { newConv(); } else { renderConvs(); renderMsgs(); }
     if (window.location.search.indexOf('selfcheck') !== -1 || window.__CJ_TAURI_SELF_CHECK__) {

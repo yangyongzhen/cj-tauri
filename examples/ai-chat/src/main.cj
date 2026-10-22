@@ -38,35 +38,30 @@ func envOr(name: String, fallback: String): String {
 }
 
 /** 读前端页面（工作目录 = 工程根：capabilities/ 与 ui/ 按相对路径读）。
-    vendor 库在装配期读盘内联进占位符——run(html) 的页面没有真实来源，
-    `<script src>` 相对路径取不到文件（markdown-notes 同款机制）。 */
+    vendor 库在装配期内联进占位符——run(html) 的页面没有真实来源，
+    `<script src>` 相对路径取不到文件（markdown-notes 同款机制）。
+    单文件产物里没有随行文件：页面与 vendor 都可能在二进制里（`packed_resources.cj`）。 */
 func loadUi(): String {
-    var bytes: Array<Byte> = []
-    try {
-        bytes = File.readFrom(UI_PATH)
-    } catch (e: Exception) {
-        throw Exception("读不到前端页面 ${UI_PATH}（${e}）——请在 examples/ai-chat 目录下启动")
-    }
-    return inlineVendor(String.fromUtf8(bytes))
+    let raw = textOrFile(PACKED_UI_B64, UI_PATH, "前端页面")
+    return inlineVendor(raw)
 }
 
-/** 把 vendor 库内联进页面占位符。库缺失不致命——高亮退化为无色纯文本，
-    不该启动失败，每份读不到只留一行 stderr。 */
+/** 把 vendor 库内联进页面占位符（顺序见 `vendorSegments()` 的契约）。
+    库缺失不致命——高亮退化为无色纯文本，不该启动失败，每份读不到只留一行 stderr。 */
 func inlineVendor(html: String): String {
+    let segs = vendorSegments()
     var js = ""
-    try {
-        js += String.fromUtf8(File.readFrom("ui/vendor/highlight.min.js")) + "\n"
-    } catch (e: Exception) {
-        eprintln("[cj-ai-chat] vendor 库缺失 ui/vendor/highlight.min.js（代码无高亮）：${e}")
+    var css = ""
+    if (segs.size > 0) {
+        js = segs[0]
     }
-    var out = html.replace("/*__VENDOR_JS__*/", js)
-    try {
-        let css = String.fromUtf8(File.readFrom("ui/vendor/github-dark.min.css"))
-        out = out.replace("/*__VENDOR_CSS__*/", css)
-    } catch (e: Exception) {
-        eprintln("[cj-ai-chat] vendor 样式缺失 ui/vendor/github-dark.min.css（高亮无配色）：${e}")
+    if (segs.size > 1) {
+        css = segs[1]
     }
-    return out
+    if (js.size > 0) {
+        js = js + "\n"
+    }
+    return html.replace("/*__VENDOR_JS__*/", js).replace("/*__VENDOR_CSS__*/", css)
 }
 
 /** 读托盘图标（可选）：仓里没有现成 png 就用主题默认（托盘照样出，无阻塞） */
@@ -209,6 +204,19 @@ main(): Int64 {
         }
     }
 
+    // 一键部署探针（CJ_AICHAT_PROBE_DEPLOY=1）：只注入开关，页面走 cjh:deploy 全链路
+    // （校验 → 解包 → 拉起 → 健康检查）。与上面的自检**两轮分开跑**：那一轮不装任何东西，
+    // 这一轮要真的落一份到安装目录并起进程——同时跑会互相读到对方装到一半的状态。
+    if (envOr("CJ_AICHAT_PROBE_DEPLOY", "") == "1") {
+        let js = "window.__AICHAT_PROBE_DEPLOY__ = true;\n"
+        match (app.hostOf("main")) {
+            case Some(host) =>
+                host.addInitScript(js)
+                eprintln("[cj-ai-chat] 一键部署探针已注入")
+            case None => eprintln("[cj-ai-chat] 部署探针：主窗未登记，配置没注入")
+        }
+    }
+
     // 页面用 run(html) 内联（clipboard-history 同款）：runUrl 的相对路径 WebKit 解析不了
     // （实机踩过：页面显示 The URL can't be shown），file:// 绝对路径可用但内联更省事——
     // 本页面零外部资源（无图片/无 vendor），内联无副作用。
@@ -216,6 +224,20 @@ main(): Int64 {
     let persistedHosts = applyPersistedAllowedHosts(app)
     if (persistedHosts > 0) {
         eprintln("[cj-ai-chat] 已叠加本机 allow 清单：${persistedHosts} 个主机")
+    }
+
+    // 单文件产物没有随行的 capabilities/：清单编在二进制里，逐个挂上去。
+    // 一旦调用 addCapabilityJson 就不再自动扫描（框架约定），所以这条分支只在打包产物里生效。
+    if (PACKED_CAPS_B64.size > 0) {
+        var caps = 0
+        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+            if (part.size == 0) {
+                continue
+            }
+            let _ = app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+            caps += 1
+        }
+        eprintln("[cj-ai-chat] 能力清单来自内嵌资源：${caps} 份")
     }
 
     let html = loadUi()

@@ -286,6 +286,7 @@ public class AiChatCommand <: CommandHandler {
             let chunk = Array<Byte>(8192, repeat: 0)
             let pending = ArrayList<Byte>()
             var lineBuf = ""
+            let sent = ArrayList<String>()
             var n = resp.body.read(chunk)
             while (n > 0) {
                 if (received + n > AI_CHAT_MAX_BYTES) {
@@ -308,9 +309,10 @@ public class AiChatCommand <: CommandHandler {
                                 lineBuf = lineBuf[idx + 1..lineBuf.size]
                                 match (sseDeltaOf(line)) {
                                     case Some(d) =>
-                                        if (d.size > 0) {
-                                            chars += d.size
-                                            ipc.emit("ai:chunk", aiChunkPayload(d, false))
+                                        let inc = aiIncrementOf(d, sent)
+                                        if (inc.size > 0) {
+                                            chars += inc.size
+                                            ipc.emit("ai:chunk", aiChunkPayload(inc, false))
                                         }
                                     case None => ()
                                 }
@@ -326,9 +328,10 @@ public class AiChatCommand <: CommandHandler {
             if (lineBuf.size > 0) {
                 match (sseDeltaOf(lineBuf)) {
                     case Some(d) =>
-                        if (d.size > 0) {
-                            chars += d.size
-                            ipc.emit("ai:chunk", aiChunkPayload(d, false))
+                        let inc = aiIncrementOf(d, sent)
+                        if (inc.size > 0) {
+                            chars += inc.size
+                            ipc.emit("ai:chunk", aiChunkPayload(inc, false))
                         }
                     case None => ()
                 }
@@ -585,6 +588,60 @@ func aiChoiceDeltaOf(obj: JsonObject): Option<String> {
     }
 }
 
+/** delta 形态状态：`state[0]` = 已发出的累积文本，`state[1]` = 判定出的形态（""/"inc"/"cum"）。
+ * 用容器装——仓颉的 lambda 不能捕获可变局部变量 */
+func aiSentOf(state: ArrayList<String>): String {
+    if (state.size > 0) {
+        return state.get(0).getOrThrow()
+    }
+    return ""
+}
+
+func aiModeOf(state: ArrayList<String>): String {
+    if (state.size > 1) {
+        return state.get(1).getOrThrow()
+    }
+    return ""
+}
+
+func aiSetState(state: ArrayList<String>, sent: String, mode: String) {
+    state.clear()
+    state.add(sent)
+    state.add(mode)
+}
+
+/**
+ * 把一块 `delta.content` 折成页面该追加的**增量**（页面是 `acc += delta` 的累积拼接）。
+ *
+ * 形态**只判定一次**、随后锁定——不能每帧都猜：正常增量流里相邻两帧内容相同时（「哈」「哈」、
+ * 连续两个句号），逐帧猜测会把它当成「重复帧」丢掉，宁可少重复也别吞正文。
+ * 判定依据：第二块若以第一块为前缀且更长 ⇒ 累积式（网关照抄「从头到现在的全文」），
+ * 否则锁定增量式（OpenAI 标准）。累积式实测来源：taotoken.net 的部分模型。
+ */
+func aiIncrementOf(full: String, state: ArrayList<String>): String {
+    if (full.size == 0) {
+        return ""
+    }
+    let sent = aiSentOf(state)
+    if (sent.size == 0) {
+        aiSetState(state, full, "")
+        return full
+    }
+    let mode = aiModeOf(state)
+    if (mode == "cum" || (mode.size == 0 && full.size > sent.size && full.startsWith(sent))) {
+        // 累积式：真正的新内容在已发长度之后；长度没长（同文重发）就没有新内容
+        let inc = if (full.size > sent.size) {
+            full[sent.size..full.size]
+        } else {
+            ""
+        }
+        aiSetState(state, full, "cum")
+        return inc
+    }
+    aiSetState(state, sent + full, "inc")
+    return full
+}
+
 /**
  * 取走 `pending` 里**完整**的 UTF-8 序列并转文本，末尾不完整的那几字节留在原地。
  *
@@ -626,20 +683,21 @@ func aiTakeCompleteUtf8(pending: ArrayList<Byte>): String {
         }
         i--
     }
-    if (keep == Int64(pending.size)) {
+    if (keep >= Int64(pending.size)) {
         return ""
     }
     let cut = pending.size - keep
-    let take = ArrayList<Byte>()
-    var j: Int64 = 0
-    while (j < cut) {
-        take.add(pending.get(j).getOrThrow())
-        j++
+    if (cut <= 0) {
+        return ""
     }
-    while (pending.size > cut) {
-        pending.remove(at: pending.size - 1)
-    }
-    return String.fromUtf8(take.toArray())
+    let out = String.fromUtf8(pending.toArray()[0..cut])
+    // 移除已发走的部分（ArrayList.remove 收 Range）。Range 在本机工具链上是**右开**的
+    // （a[0..3] 取 3 个、remove(0..2) 移 2 个），所以这里必须写 0..cut。
+    // 写成 0..(cut-1) 会少移 1 字节：上一个序列的末字节留在 pending 里，下一轮拼出来的
+    // 字节序列非法，fromUtf8 当场抛 IllegalArgumentException；而**多移**或**移错**则会让同一批
+    // 字节被下一轮再读一遍——现象是同一帧被解析两次、页面把回答叠成重复段落（2026-10-22 实测）。
+    pending.remove(0..cut)
+    return out
 }
 
 /** 读响应体开头若干字节转文本（错误体用：服务商的报错就是给人看的一句话，截断够用） */

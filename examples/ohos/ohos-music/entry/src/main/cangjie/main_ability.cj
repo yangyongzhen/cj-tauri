@@ -46,7 +46,7 @@ class MainAbility <: UIAbility {
 
     public override func onWindowStageCreate(windowStage: WindowStage): Unit {
         Hilog.info(1, "CjMusic", "MainAbility onWindowStageCreate.")
-        this.applyDesktopWindowSize(windowStage)
+        this.logDefaultWindowRect(windowStage)
         // 等框架把宿主登记上再建树：组件的 build() 只有在该 label 有宿主、页面地址非空时才渲染
         // `Web`。等不到也照常 loadContent——页面会自己报桥缺失，比静默白屏好排查。
         this.waitAndLogHost(DEFAULT_WINDOW_LABEL)
@@ -54,28 +54,29 @@ class MainAbility <: UIAbility {
     }
 
     /**
-     * 把主窗放大到「桌面应用」的量级并居中
+     * 不干预窗口尺寸：**直接用系统弹出来时给的那个矩形**
      *
-     * **`resize()` 收的是像素，不是 vp**（2026-10-22 实测：传 1440×900 后窗口矩形就是
-     * `[515 281 1440 900]`，而屏幕是 3120×2080 px——只占屏宽 46%，看着像小窗；
-     * 若按 vp 理解会以为已经给了 1440×900 vp）。所以这里一律先读屏幕像素再折算，
-     * 不写死数字：换分辨率 / 换设备都自动合适。取 86%×84% 是为侧边、顶栏与任务栏留余量。
+     * 这里原先自己 `resize()` 定尺寸（先按屏幕比例 86%×84% = 2683×1747、后按逻辑 1000×700 vp），
+     * 两版都在跟平台的默认窗口抢方向盘。实测系统本来就按桌面形态给一扇约 2/3 屏宽的窗：
+     * 3120×2080 的屏上初始矩形 `[515 281 2090 1394]`（2090×1394 px ≈ 1100×734 vp），
+     * 而我们的 resize 紧接着把它改成 1900×1330——于是屏上看到的是「先弹一个尺寸、随即变成另一个」。
+     * 用户裁定按系统弹出时的尺寸来（2026-10-22），所以这里只**读取并记录**，不再 resize / moveWindowTo。
+     * 前提是 `deviceTypes: 2in1` + `entry/build-profile.json5` 的 `cangjieOptions.checkDeviceTypes=false`
+     * ——写成 phone/tablet 时系统按手机应用塞进竖屏兼容窗（约 600 宽），那时才需要自己定尺寸。
      */
-    private func applyDesktopWindowSize(windowStage: WindowStage): Unit {
+    private func logDefaultWindowRect(windowStage: WindowStage): Unit {
         try {
             let screen = getDefaultDisplaySync()
             let screenW = Int64(screen.width)
             let screenH = Int64(screen.height)
-            let w = UInt32(screenW * 86 / 100)
-            let h = UInt32(screenH * 84 / 100)
+            // `densityPixels` 是 **Float32**（.cj.d 里看着像 Float64），先化成整数百分比再参与运算。
+            let densityRaw = screen.densityPixels
+            let densityPct = Int64(densityRaw * 100.0)
             let mainWin = windowStage.getMainWindow()
-            mainWin.resize(w, h)
-            mainWin.moveWindowTo(Int32((screenW - Int64(w)) / 2), Int32((screenH - Int64(h)) / 2))
-            // 事后查询复核：resize 不抛异常不代表尺寸生效（宿主 API 的「我调过了」不算凭证）
             let r = mainWin.getWindowProperties().windowRect
-            Hilog.info(1, "CjMusic", "main window sized ${w}x${h} px on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
+            Hilog.info(1, "CjMusic", "main window keeps system default ${r.width}x${r.height} px at density ${densityPct}% on screen ${screenW}x${screenH}, rect=[${r.left} ${r.top} ${r.width} ${r.height}]")
         } catch (e: Exception) {
-            Hilog.info(1, "CjMusic", "main window sizing failed: ${e}")
+            Hilog.info(1, "CjMusic", "main window geometry read failed: ${e}")
         }
     }
 

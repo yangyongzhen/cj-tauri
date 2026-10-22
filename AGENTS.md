@@ -604,15 +604,18 @@
   第二扇窗的组件 `aboutToAppear` 读到的 `currentUrl()` 仍是空串 → 永不建 `Web` → 白屏死锁，
   与单窗口那条是同一条链。判据：hilog 里 `host pageUrl label=<label>` 与 `page begin label=<label>`
   **每个 label 各一行**（页面文件名是 `cj-tauri-<label>.html`，两窗不会共用一份）。
-- **鸿蒙侧窗口默认尺寸按「逻辑尺寸 × 密度」给，别按屏幕比例给**（2026-10-22 用户反馈「开窗有点大」后改的）：
-  `resize()` 收 px，按屏幕 86%×84% 取在 3120×2080 上就是 2683×1747——**等于一开窗就最大化**，
-  而且比例法让窗口随屏幕变大，不是「一扇常规大小的窗」。落法是取 1000×700 vp（≈ `WindowConfig`
-  默认 900×640 那档）×`display.densityPixels`，再按屏幕 82% 封顶（小屏不越界）后居中。
-  两个判据性质的点：① 本机密度是 **190% 不是 200%**（`screen.width` 给物理 px，逻辑宽 3120/1.9≈1642 vp），
-  「2 倍屏」想当然会算错；② `densityPixels` 是 **Float32**（`.cj.d` 里看着像 Float64），
-  `Float64(x) * density` 报 `invalid binary operator on 'Float64' and 'Float32'`，并且**连带把同一行的
-  `Hilog.info` 报成「参数列表不匹配」**（看着像日志写法错，实为类型错的下游）——先化成整数百分比再算。
-  尺寸日志把 `want` / `cap` / 密度一起打出来，才分得清「按 vp 折算的」与「被 82% 夹住的」。
+- **鸿蒙侧默认别自己 resize 窗口：系统给的窗就是答案，多改一次就是屏上一次可见跳变**（2026-10-22 用户裁定）：
+  `deviceTypes: 2in1` + `cangjieOptions.checkDeviceTypes=false` 之后系统本来就按桌面形态给一扇约 2/3 屏宽的窗
+  （本机 3120×2080 读到 `[515 281 2090 1394]`，即 2090×1394 px ≈ 1100×734 vp）。此前两版自定尺寸都在跟平台
+  抢方向盘——屏幕 86%×84% 在 3120×2080 上是 2683×1747（**等于一开窗就最大化**），改成逻辑 1000×700 vp ×密度
+  又得到 1900×1330；更糟的是「系统先按默认建窗、我们的 resize 紧接着改它」，于是屏上表现为**窗口先弹一个尺寸、
+  随即跳成另一个**，用户问的就是「为何后来又变了」。落法（模板与 ohos-music / ohos-movie 同口径）：
+  `onWindowStageCreate` 里**不 resize、不 moveWindowTo**，只用 `logDefaultWindowRect()` 读一行矩形打 hilog
+  当凭证；应用真要固定尺寸才自己调。两个仍然成立的判据：① `resize()` 收 px 不收 vp（写 vp 量级会得到很小的窗）；
+  ② `densityPixels` 是 **Float32**（`.cj.d` 里看着像 Float64），`Float64(x) * density` 报
+  `invalid binary operator on 'Float64' and 'Float32'`，并且**连带把同一行的 `Hilog.info` 报成「参数列表不匹配」**
+  （看着像日志写法错，实为类型错的下游）——先化成整数百分比再算。取证手法同族一条：**要判断「窗口有没有被改过」
+  就得在 resize 之前也打一行初始矩形**，只打最终值的话「屏上看到的两次尺寸」无从对账。
 - **多窗口「不串台」的判据是「原生归属 == 页面自认」逐条成立**：页面报一条自带 `me`（它读到的
   `__CJ_TAURI_LABEL__`）的命令，原生把报文里的 `window`（`IpcContext.window`）打进**同一行** hilog——
   `window == me` 全部成立才算路由正确；定向投递必须**发给对面窗口**（发给自己在错误实现下也能通过，

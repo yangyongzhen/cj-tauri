@@ -66,7 +66,17 @@ jobs:
       - name: 发布
         # 不打 --provenance：trusted publishing 会自动附带 provenance（公开仓库 + 公开包）
         # 路径必须带 ./ 前缀：不带时 npm 把 dist-npm/…tgz 当成 git spec 去 ls-remote（实测 v1.0.0 首跑踩坑）
-        run: npm publish ./dist-npm/cj-tauri-*.tgz --access public --registry=https://registry.npmjs.org/
+        # 幂等：该版本已经在 registry 上时跳过。这一版常常是手工 `npm stage publish` 发的
+        # （Windows 侧要带 prebuilt/，CI 打不出来），此时再 `npm publish` 会被拒
+        # （`cannot publish over the previously published versions`）把作业判红——
+        # 而 tag 本身仍应推上去（版本已存在恰恰说明这个 tag 是对的）。
+        run: |
+          PKG="$(node -p "require('./npm/package.json').version")"
+          if npm view "cj-tauri@${PKG}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "cj-tauri@${PKG} 已在 registry 上，跳过发布"
+          else
+            npm publish ./dist-npm/cj-tauri-*.tgz --access public --registry=https://registry.npmjs.org/
+          fi
 
       - name: 核对
         run: npm view cj-tauri version --registry=https://registry.npmjs.org/

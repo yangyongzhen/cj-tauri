@@ -1,4 +1,4 @@
-package cjTauri
+package cjTauri.platform
 
 import std.fs.*
 

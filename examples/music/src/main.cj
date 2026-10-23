@@ -2,6 +2,8 @@ package music_app
 
 import stdx.encoding.json.*
 import cjTauri.*
+// PageSource 等契约在 cjTauri.platform 子包（src/platform/）：子包不随父包 import 可见
+import cjTauri.platform.*
 // StoreBackend（收藏库的存储本体）定义在 store 插件子包里：`import cjTauri.*` 只给核心包，
 // 子包不会随之可见——少了这一行，`StoreBackend` 会被判成未声明类型（RFC-003 第 2 期迁移漏项）。
 import cjTauri.plugins.store.*

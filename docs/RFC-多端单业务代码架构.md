@@ -446,14 +446,17 @@ v1 草案写"`dataDir` = cwd"，这是为现状低头。新项目的合理语义
 
 ### 5.3 `@When` 的合法落点
 
-全库只允许两类文件出现平台名匹配：
+全库只允许三类文件出现平台名匹配：
 
-1. `src/platform_discover.cj`（`Platform.discover()` 的唯一实现；批次 0 实测 cjpm 子目录必须是独立子包，会造成父包↔子包循环依赖，故摊平进 `src/` 根包）；
-2. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
+1. `src/platform/platform_discover.cj`（`Platform.discover()` 的唯一实现，`package cjTauri.platform`）；
+2. 插件子包的平台差异实现（`src/plugins/*/`，如 shell 的 Linux/Windows 分支差异——AGENTS §2 的规矩）；
+3. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
 
-CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform_discover.cj'` 必须为空。
+CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform/' | grep -v 'src/plugins/'` 必须为空。
 
-**这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `HostProvider` 注册表），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。若后续根包里的"每端默认值"继续膨胀，演进路径是：契约与注册表留根包（稳定 API），discover 的每端默认实现挪进子包 `cjTauri.platform.defaults`，借顶层 `let` 初始化（`package_global_init`，仓库测试里 `let TEST_SINK_LOCK = Mutex()` 已证明顶层初始化会执行）自注册进注册表，骨架依赖该子包即可——无循环依赖、launcher 仍是两行。此路径待批次 1 验证顶层初始化时序后再启用。
+**这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `AssetResolver`），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。
+
+> **再拆已落地（批次 3 补记）**：契约不再摊平在根包。批次 0 曾实测「cjpm 子目录必须是独立子包，父↔子互引即循环依赖」，当时摊平；批次 3 用最小实验复验了该结论（互引构建失败、单向引用正常——`plugins/*` 子包能活正是单向），并逐文件测量依赖边界：7 个契约文件中 6 个对父包零引用，`discover` 仅 1 处父引用（`TauriApp.devUrl()`，3 行环境变量读取）可脱钩。于是 6 个契约 + `discover` 折进 `src/platform/` 子包（`package cjTauri.platform`），`platform_host_provider.cj` 留根包——它是平台层唯一必须引用 `WebViewHost` 与三个内置宿主构造器的文件，折不进。业务侧多一行 `import cjTauri.platform.*`（生成物由生成器自动带上）。后续演进路径不变：discover 的每端默认实现若继续膨胀，可再拆 `cjTauri.platform.defaults`（顶层 `let` 初始化自注册，先例是测试里的 `let TEST_SINK_LOCK = Mutex()`）。
 
 ## 6. 资产：编译期定型
 
@@ -603,7 +606,7 @@ public class AppSpec {
 | 页面资产必须存在 | 生成器校验 `[assets] page` | 生成期失败 |
 | 应用 id 可无损映射三端 | `cj-tauri check` | CI 失败 |
 | 骨架无漂移 | `cj-tauri check`（哈希比对） | CI 失败 |
-| 业务无平台知识 | `grep '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空 | CI 失败 |
+| 业务无平台知识 | `grep -r '@When\[os' src/ \| grep -v 'src/platform/' \| grep -v 'src/plugins/'` 为空 | CI 失败 |
 
 这些项以前靠评审与记忆，现在靠工具。**"业务零平台知识"能被 CI 判定，是这套设计成立的标志**。
 
@@ -703,7 +706,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 
 | # | 判据 | 检查手段 |
 | --- | --- | --- |
-| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空；`import kit.` 为空 |
+| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v 'src/platform/' \| grep -v 'src/plugins/'` 为空；`import kit.` 为空 |
 | 2 | 应用身份单一真相 | `grep -rn 'bundleName\|applicationId\|CFBundleIdentifier' .` 只命中 `targets/` 生成物与清单 |
 | 3 | 装配唯一且无参 | `grep -rn 'TauriApp(' src/` 只在 `build()`；`build` 签名无参数 |
 | 4 | 漏声明编不过 | 反向测试：新加一条命令但不改 `capabilities/*.json` → **编译失败** |

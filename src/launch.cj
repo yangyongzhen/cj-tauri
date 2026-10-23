@@ -1,5 +1,7 @@
 package cjTauri
 
+import cjTauri.platform.*
+
 /**
  * 三段式 API 的第二段（批次 3，RFC-002 §4.2）
  *

@@ -31,6 +31,8 @@ public class AppSpec {
     public var assetResolver: Option<AssetResolver> = None
     /** 能力清单目录：显式挂载 = 框架不自动扫描（目录缺失时安静返回 0，不报错） */
     public var capabilitiesDir: String = ""
+    /** 能力清单 JSON 原文列表（批次 3-PR3）：给没有目录概念的端（鸿蒙 rawfile）；与目录可并存 */
+    public var capabilityJsons: ArrayList<String> = ArrayList<String>()
     /** 命令装配点：拿到装配中的 TauriApp 后 register（字段名带 Fn：仓颉字段与方法同命名空间，不能与构造器 wire() 重名） */
     public var wireFn: Option<(TauriApp) -> Unit> = None
 
@@ -58,6 +60,12 @@ public class AppSpec {
 
     public func capabilities(dir: String): AppSpec {
         this.capabilitiesDir = dir
+        return this
+    }
+
+    /** 挂载一份能力清单 JSON（多份多次调用；与 capabilities 目录不互斥） */
+    public func capabilityJson(json: String): AppSpec {
+        this.capabilityJsons.add(json)
         return this
     }
 

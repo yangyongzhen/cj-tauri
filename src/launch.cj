@@ -1,6 +1,7 @@
 package cjTauri
 
 import cjTauri.platform.*
+import stdx.encoding.json.JsonValue
 
 /**
  * 三段式 API 的第二段（批次 3，RFC-002 §4.2）
@@ -48,6 +49,10 @@ public func assemble(spec: AppSpec): TauriApp {
     }
     if (spec.capabilitiesDir.size > 0) {
         app.loadCapabilities(spec.capabilitiesDir)
+    }
+    // 能力清单 JSON 走与显式挂载同一入口：鸿蒙胶水把 rawfile 原文传进来（批次 3-PR3）
+    for (j in spec.capabilityJsons) {
+        app.addCapabilityJson(JsonValue.fromStr(j))
     }
     if (spec.wireFn.isSome()) {
         let f = spec.wireFn.getOrThrow()

@@ -1,8 +1,8 @@
 /**
  * 批次 2（RFC-002 §7.2）：cj-tauri check / sync
  *
- * check：清单静态校验 + 文件系统检查（entry/资产根/page）+ 骨架漂移检测；
- * sync：按清单派生 targets/desktop 骨架（幂等：重跑只覆盖生成物）。
+ * check：清单静态校验 + 文件系统检查（entry/资产根/page）+ 骨架漂移检测（desktop/ohos）；
+ * sync：按清单派生 targets/desktop + targets/ohos 骨架（幂等：重跑只覆盖生成物）。
  * 清单不设 [plugins] 段——插件真相是业务 build() 装配（RFC §4.6.7），插件依赖生成随批次 3。
  */
 package cli
@@ -96,6 +96,7 @@ func cmdCheck(): Int64 {
         case Some(fw) =>
             let drift = checkDesktopDrift(m, fw)
             failed = drift || failed
+            failed = checkOhosDrift(m, fw) || failed
         case None =>
             eprintln("[cj-tauri] 提示：未定位到框架根（CJ_TAURI_ROOT），跳过骨架漂移检查")
     }
@@ -222,6 +223,11 @@ func checkThreeWay(m: Manifest): Bool {
                 if (hosts.size > 0 && !hosts.contains(hostKind)) {
                     eprintln("[cj-tauri] 提示：插件 ${pname} 声明不支持当前宿主（${hostKind}，声明 ${joinComma(hosts)}）——该端应以桩如实失败「端不支持」（P-2）")
                 }
+                // ohos 端可用性汇总（P-2，批次 3-PR3）：check 跑在桌面，但要为「sync ohos 之后
+                // 这些插件会变成桩」提前给一句可照做的提示——编译能过，运行期调用报「端不支持」
+                if (hosts.size > 0 && !hosts.contains("arkweb")) {
+                    eprintln("[cj-tauri] 提示：插件 ${pname} 无 ohos 端实现（声明 ${joinComma(hosts)}）——sync ohos 后为 P-1 桩，运行期调用将报「端不支持」")
+                }
             }
         }
     }
@@ -287,7 +293,7 @@ func cmdSync(args: Array<String>): Int64 {
         let a = args[i]
         if (a == "--framework") {
             if (i + 1 >= args.size) {
-                eprintln("用法: cj-tauri sync desktop [--framework <框架根路径>]")
+                eprintln("用法: cj-tauri sync [desktop|ohos] [--framework <框架根路径>]")
                 return 1
             }
             i += 1
@@ -297,8 +303,8 @@ func cmdSync(args: Array<String>): Int64 {
         }
         i += 1
     }
-    if (target != "desktop") {
-        eprintln("批次 2 仅支持 desktop（ohos/macos/android 随批次 3 起接入）。用法: cj-tauri sync desktop")
+    if (target != "" && target != "desktop" && target != "ohos") {
+        eprintln("用法: cj-tauri sync [desktop|ohos] [--framework <框架根路径>]")
         return 1
     }
     let mOpt = loadValidatedManifest()
@@ -317,10 +323,174 @@ func cmdSync(args: Array<String>): Int64 {
                     return 1
             }
     }
-    ensureDir("targets/desktop/src")
-    writeText("targets/desktop/cjpm.toml", m.renderDesktopToml(fwRoot, cliVersion()))
-    writeText("targets/desktop/src/main.cj", m.renderDesktopMain(cliVersion()))
-    println("[cj-tauri] 已生成 targets/desktop/cjpm.toml 与 targets/desktop/src/main.cj（launcher 调 ${m.pkg}.build()）")
-    println("[cj-tauri] 下一步：cd targets/desktop && cjpm build（需 CANGJIE_STDX 指向 stdx dynamic/stdx）")
-    return 0
+    var code = 0
+    if (target == "" || target == "desktop") {
+        ensureDir("targets/desktop/src")
+        writeText("targets/desktop/cjpm.toml", m.renderDesktopToml(fwRoot, cliVersion()))
+        writeText("targets/desktop/src/main.cj", m.renderDesktopMain(cliVersion()))
+        println("[cj-tauri] 已生成 targets/desktop/cjpm.toml 与 targets/desktop/src/main.cj（launcher 调 ${m.pkg}.build()）")
+        println("[cj-tauri] 下一步：cd targets/desktop && cjpm build（需 CANGJIE_STDX 指向 stdx dynamic/stdx）")
+    }
+    if (target == "" || target == "ohos") {
+        code = syncOhos(m, fwRoot)
+    }
+    return code
+}
+
+// ---------- ohos 骨架（批次 3-PR3，RFC §7.3） ----------
+
+/** 能力清单文件名单：[capabilities] 目录下 .json 的 basename（sync 生成与 check 漂移共用） */
+func listCapsFiles(dir: String): ArrayList<String> {
+    let out = ArrayList<String>()
+    if (!exists(dir)) {
+        return out
+    }
+    var entries: Array<FileInfo>
+    try {
+        entries = Directory.readFrom(dir)
+    } catch (e: Exception) {
+        return out
+    }
+    for (info in entries) {
+        if (info.isDirectory()) {
+            continue
+        }
+        let path = info.path.toString()
+        if (path.endsWith(".json")) {
+            out.add(baseName(path))
+        }
+    }
+    return out
+}
+
+/** 资产递归拷贝：资产根目录整体拷入 rawfile 目录（字节级、二进制安全——RFC §7.3 的 rawfile 资产注入口） */
+func copyAssetsToRawfile(srcRoot: String, dstRoot: String): Int64 {
+    if (!exists(srcRoot)) {
+        eprintln("[cj-tauri] 错误：资产根不存在：${srcRoot}")
+        return 0
+    }
+    ensureDir(dstRoot)
+    var count = 0
+    for (info in listDir(srcRoot)) {
+        let nm = baseName(info.path.toString())
+        if (nm.size == 0) {
+            continue
+        }
+        let s = joinPath(srcRoot, nm)
+        let d = joinPath(dstRoot, nm)
+        if (info.isDirectory()) {
+            count = count + copyAssetsToRawfile(s, d)
+        } else {
+            writeBytes(d, File.readFrom(s))
+            count = count + 1
+        }
+    }
+    return count
+}
+
+/**
+ * ohos 骨架派生：ohos-pc 模板整体拷渲染（静态物 + 图标）+ 4 个清单派生文件覆盖 + rawfile 资产注入。
+ * 幂等对齐 desktop：重跑覆盖生成物，rawfile 每次从 assets/ 全量重建。
+ */
+func syncOhos(m: Manifest, fwRoot: String): Int64 {
+    let tplDirOpt = resolveTemplateDir(fwRoot, "ohos")
+    match (tplDirOpt) {
+        case None =>
+            eprintln("[cj-tauri] 未找到 ohos 模板：${fwRoot}/cli/templates/ohos-pc（框架根定位有误？）")
+            return 1
+        case Some(tplDir) =>
+            // 模板占位符取清单值：bundle=id、label=name；stdx 不参与（build-hap.sh 用 CANGJIE_STDX_OHOS）
+            let v = TemplateVars(m.name, m.pkg, fwRoot, "", m.appId, m.name)
+            ensureDir("targets/ohos")
+            let count = copyTree(tplDir, "targets/ohos", v)
+            // 4 个清单派生文件覆盖模板（check 的漂移检测复用同一批渲染器，二者必然一致）
+            writeText("targets/ohos/AppScope/app.json5", m.renderOhosAppJson(cliVersion()))
+            writeText("targets/ohos/entry/cjpm.toml", m.renderOhosEntryToml(fwRoot, cliVersion()))
+            let capsFiles = listCapsFiles(m.capabilitiesDir)
+            writeText("targets/ohos/entry/src/main/cangjie/app_host.cj", m.renderOhosAppHost(cliVersion(), capsFiles))
+            writeText("targets/ohos/entry/src/main/cangjie/main_ability.cj", m.renderOhosMainAbility(cliVersion()))
+            // rawfile 资产注入口：清掉模板自带的演示资产，按 assets/ 原样拷入（字节级）
+            let rawfileDir = "targets/ohos/entry/src/main/resources/rawfile"
+            if (exists(rawfileDir + "/index.html")) {
+                remove(rawfileDir + "/index.html")
+            }
+            if (exists(rawfileDir + "/capabilities.json")) {
+                remove(rawfileDir + "/capabilities.json")
+            }
+            let copied = copyAssetsToRawfile(m.assetsRoot, rawfileDir)
+            println("[cj-tauri] 已生成 targets/ohos：模板 ${count} 文件 + 清单派生 4 文件 + rawfile ${copied} 资产")
+            println("[cj-tauri] 下一步：export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
+            println("          cd targets/ohos && bash build-hap.sh")
+            return 0
+    }
+}
+
+/** ohos 骨架漂移：targets/ohos 存在才查（opt-in，不阻塞纯桌面应用）；4 派生文件 + rawfile 资产一致性 */
+func checkOhosDrift(m: Manifest, fwRoot: String): Bool {
+    if (!exists("targets/ohos/entry/cjpm.toml")) {
+        eprintln("[cj-tauri] 提示：ohos 骨架未生成（应用要接鸿蒙端时运行 cj-tauri sync ohos）")
+        return false
+    }
+    let ver = cliVersion()
+    let capsFiles = listCapsFiles(m.capabilitiesDir)
+    var failed = false
+    failed = sameGeneratedFile("targets/ohos/AppScope/app.json5", m.renderOhosAppJson(ver), failed)
+    failed = sameGeneratedFile("targets/ohos/entry/cjpm.toml", m.renderOhosEntryToml(fwRoot, ver), failed)
+    failed = sameGeneratedFile("targets/ohos/entry/src/main/cangjie/app_host.cj", m.renderOhosAppHost(ver, capsFiles), failed)
+    failed = sameGeneratedFile("targets/ohos/entry/src/main/cangjie/main_ability.cj", m.renderOhosMainAbility(ver), failed)
+    // rawfile 资产：page 必须与资产根字节一致；能力文件名单必须与清单目录一致
+    let rawfileDir = "targets/ohos/entry/src/main/resources/rawfile"
+    let pageSrc = m.assetsRoot + "/" + m.page
+    let pageDst = rawfileDir + "/" + m.page
+    if (exists(pageSrc)) {
+        if (!exists(pageDst) || !bytesEqual(File.readFrom(pageSrc), File.readFrom(pageDst))) {
+            eprintln("[cj-tauri] 骨架漂移：${pageDst} 与 ${pageSrc} 不一致（重跑 cj-tauri sync ohos）")
+            failed = true
+        }
+    }
+    let capsDstDir = rawfileDir + "/capabilities"
+    for (f in capsFiles) {
+        if (!exists(capsDstDir + "/" + f)) {
+            eprintln("[cj-tauri] 骨架漂移：缺 ${capsDstDir}/${f}（重跑 cj-tauri sync ohos）")
+            failed = true
+        }
+    }
+    if (exists(capsDstDir)) {
+        for (info in listDir(capsDstDir)) {
+            if (info.isDirectory()) {
+                continue
+            }
+            let nm = baseName(info.path.toString())
+            if (!capsFiles.contains(nm)) {
+                eprintln("[cj-tauri] 骨架漂移：rawfile/capabilities 有残留文件 ${nm}（重跑 cj-tauri sync ohos）")
+                failed = true
+            }
+        }
+    }
+    return failed
+}
+
+/** 生成物比对：缺失 = 漂移，内容不一致 = 漂移 */
+func sameGeneratedFile(path: String, expect: String, failed: Bool): Bool {
+    if (!exists(path)) {
+        eprintln("[cj-tauri] 骨架漂移：缺生成文件 ${path}（重跑 cj-tauri sync ohos）")
+        return true
+    }
+    if (readText(path) != expect) {
+        eprintln("[cj-tauri] 骨架漂移：${path} 与生成器输出不一致（重跑 cj-tauri sync ohos）")
+        return true
+    }
+    return failed
+}
+
+func bytesEqual(a: Array<UInt8>, b: Array<UInt8>): Bool {
+    if (a.size != b.size) {
+        return false
+    }
+    for (i in 0..a.size) {
+        if (a[i] != b[i]) {
+            return false
+        }
+    }
+    return true
 }

@@ -149,7 +149,7 @@ public func build(): AppSpec {                       // 示意写法；落地用
 
 为什么不像 v1 草案那样 `build(env, assets)`：参数一旦进签名，就等于承认"业务需要知道资产从哪来、目录在哪"——**而这恰恰是本方案要消灭的知识**。测试需要注入上下文时用 `launch(spec, context: Some(fake))`，不影响业务签名。
 
-> **批次 2 过渡契约**：`AppSpec` / `launch(spec)` 随批次 3 落地。在此之前，`sync` 生成的 launcher 直接调业务的 `build(): TauriApp`（批次 1 已交付的 API）+ `assets(resolver)` + `run(Asset)`；批次 3 切换时由 `sync` 重新生成 launcher，业务侧只把 `build()` 的返回换成 `AppSpec` 即可。
+> **批次 3-PR1 落地形态**（替代批次 2 过渡契约）：`build(): AppSpec` + `launch(spec)` 已交付（`src/app_spec.cj` / `src/launch.cj`）。与示意写法的两处偏差，照实记录：① 命令装配点是 `wire` 闭包（业务命令多需要 app 自身，如 `music:quit`）——§4.4 的编译期命令表（generated registry）是批次 3 的后续 PR，届时 `wire` 收敛为类型化 `commands:` 字段；② `launch(spec)` / `launchWith(spec, context)` 两个重载代替默认参数（当前工具链不用默认参数）。批次 2 的过渡 launcher（`build(): TauriApp`）由 `sync` 重新生成后废弃，业务侧把 `build()` 的返回换成 `AppSpec` 即完成切换。
 
 ### 4.2 `launch()`：框架内部按目标分派
 

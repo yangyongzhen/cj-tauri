@@ -18,7 +18,7 @@ let MUSIC_UI_PATH = "ui/index.html"
 let MUSIC_LIBRARY_PATH = "music-library.local.json"
 
 /**
- * 把前端页面读成 HTML 字符串交给 `run()`
+ * 把前端页面读成 HTML 字符串
  *
  * 为什么页面独立成 `ui/index.html` 而不是内联进仓颉的三引号字符串（框架其他示例的写法）：
  * 这个应用的前端是一整页 UI（四个视图 + 播放器 + 歌词 + 弹窗 + 样式），内联会同时踩两个坑——
@@ -34,8 +34,15 @@ func loadMusicUi(): String {
     return textOrFile(PACKED_UI_B64, MUSIC_UI_PATH, "前端页面")
 }
 
-main(): Int64 {
-    eprintln("[music] main start")
+/**
+ * 应用装配（批次 3，RFC-002 §4.1）：`build()` 纯声明 + `wire` 命令装配点
+ *
+ * 迁移说明（本 PR 只换装配形态，行为不变）：
+ * - 原 main() 里的装配全部搬进 build()，main() 收敛为 launch(build())；
+ * - 页面仍走 PACKED_UI_B64/textOrFile 双路（单文件打包机制随批次 4 重写，见 §6 资产模型）；
+ * - 平台知识为零：launch() 在框架侧按目标分派（§4.2）。
+ */
+public func build(): AppSpec {
     eprintln("[music] 后台接口：${musicApiBase()}（可用环境变量 CJ_MUSIC_API 覆盖）")
     eprintln("[music] 本机收藏库：${MUSIC_LIBRARY_PATH}")
 
@@ -51,40 +58,46 @@ main(): Int64 {
     // 1280×820：三栏（导航 212 / 内容自适应 / 正在播放 320）在这个宽度下不用折行，与 examples/movie 同尺寸
     let winCfg = WindowConfig("仓颉爱音乐 · cj-tauri", 1280, 820)
 
-    // 这里刻意不用链式写法：`music:quit` 要拿到 app 自己（无人值守自检靠它收尾）——
-    // 与 examples/typing-poem 的 `typing:quit` 同一套装配顺序。
-    var app = TauriApp().window(winCfg)
-    // 存储插件：StoreBackend 由它提供（上面收藏库那两行直接 new 它）。装配必须在 run() 之前——
-    // 页面前命令表要定稿；前端不直连 store:* 命令，所以能力清单里不必声明。
-    app.plugin(StorePlugin())
-    app.register("music:hot", MusicHotCommand())
-    app.register("music:search", MusicSearchCommand())
-    app.register("music:menus", MusicMenusCommand())
-    app.register("music:lyric", MusicLyricCommand())
-    app.register("music:image", MusicImageCommand())
-    app.register("music:share", MusicShareCommand())
-    app.register("fav:get", FavGetCommand(store))
-    app.register("fav:set", FavSetCommand(store))
-    app.register("music:config", MusicConfigCommand(store))
-    app.register("music:quit", MusicQuitCommand(app))
-    app.register("report", ReportCommand())
+    // 命令注册放在 wire 闭包里：框架把装配中的 TauriApp 传进来——
+    // `music:quit` 要拿到 app 自己（无人值守自检靠它收尾），闭包参数正好补上这一环。
+    let spec = AppSpec()
+        .page(PageSource.Inline(loadMusicUi()))
+        .window(winCfg)
+        .plugin(StorePlugin())
+        .wire({ app =>
+            // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
+            // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
+            if (PACKED_CAPS_B64.size > 0) {
+                // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
+                // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
+                var k: Int64 = 0
+                for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
+                    app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
+                    k += 1
+                }
+                eprintln("[music] 能力清单来自内嵌资源（${k} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
+            }
+            app.register("music:hot", MusicHotCommand())
+            app.register("music:search", MusicSearchCommand())
+            app.register("music:menus", MusicMenusCommand())
+            app.register("music:lyric", MusicLyricCommand())
+            app.register("music:image", MusicImageCommand())
+            app.register("music:share", MusicShareCommand())
+            app.register("fav:get", FavGetCommand(store))
+            app.register("fav:set", FavSetCommand(store))
+            app.register("music:config", MusicConfigCommand(store))
+            app.register("music:quit", MusicQuitCommand(app))
+            app.register("report", ReportCommand())
+        })
+    spec.name = "仓颉爱音乐 · cj-tauri"
+    return spec
+}
 
-    // 能力清单：内嵌优先（单文件产物没有随行的 capabilities/），否则交给 run() 自动扫描目录。
-    // 框架契约是「显式挂载即不自动扫描」，所以两条路互斥、不会叠加或打架。
-    if (PACKED_CAPS_B64.size > 0) {
-        // 打包器把每个 capabilities/*.json 各自 base64、再用 "," 拼起来（base64 表里没有逗号）；
-        // 逐个挂载而不是拼成一份 json——每份清单在框架里本来就是一个独立的 Capability。
-        var n: Int64 = 0
-        for (part in splitBy(PACKED_CAPS_B64, 44u8)) {
-            app.addCapabilityJson(JsonValue.fromStr(decodeBase64(part)))
-            n += 1
-        }
-        eprintln("[music] 能力清单来自内嵌资源（${n} 份，共 ${PACKED_CAPS_B64.size} 字节 base64）")
-    }
-
-    let html = loadMusicUi()
-    eprintln("[music] 前端页面已载入：${MUSIC_UI_PATH}（${html.size} 字节）")
-    app.run(html)
+main(): Int64 {
+    eprintln("[music] main start")
+    let spec = build()
+    eprintln("[music] 装配完成：${spec.name}")
+    launch(spec)
     eprintln("[music] after run")
     return 0
 }

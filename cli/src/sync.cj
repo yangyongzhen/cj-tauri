@@ -125,8 +125,10 @@ func cmdCheck(): Int64 {
  * 它们的漏声明照旧由运行时能力门禁拒绝；导出形态将来再扩展。
  */
 func checkThreeWay(m: Manifest): Bool {
-    // cjpm 可执行工程的二进制恒名 main（music / CLI 同口径），与模块名无关
-    let binPath = "targets/desktop/target/release/bin/main"
+    // cjpm 可执行工程的二进制恒名 main（music / CLI 同口径），与模块名无关；
+    // 但 Windows 产物带 `.exe`（cjc 不补后缀，cmd 也不认无后缀名），裸名判定会让
+    // 三方比对在 Windows 上恒被跳过——后缀与构建侧同源取（AGENTS §4「三处同源」）
+    let binPath = "targets/desktop/target/release/bin/main" + exeSuffix()
     if (!exists(binPath)) {
         eprintln("[cj-tauri] 提示：跳过三方比对（桌面骨架未构建：${binPath}；cd targets/desktop && cjpm build 后重跑）")
         return false

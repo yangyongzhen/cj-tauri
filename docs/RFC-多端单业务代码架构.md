@@ -396,7 +396,7 @@ check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
 | --- | --- |
 | 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
 | 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
-| 批次 3 | 已落地（PR1-PR3）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11） |
+| 批次 3 | 已落地（PR1-PR4）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；create 模板迁移新形态（PR4：app/app-vue/app-react 与 `--template ohos` 统一生成「清单 + 业务 static 包 + assets/」工程，`ohos-pc` 目录改名 `ohos-skeleton` 作 sync 骨架源，CLI 新旧双轨兼容，三方比对补权限集单层展开对齐运行时；§7.3）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11），`examples/music` 布局迁移（新形态首个完整示例，music-next） |
 | 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
 
 ## 5. L0 适配层（每端唯一手写处）
@@ -561,7 +561,9 @@ cj-tauri check                              # 校验清单 + 骨架漂移 + 资�
 
 这一栏"绝不允许"就是现状 `build-hap.sh:61` 的反面：**骨架永远是外壳，业务永远只有一份**。
 
-**ohos 骨架的落地策略（批次 3-PR3）**：`sync ohos` = ohos-pc 模板整体拷渲染（静态物 + 图标，字节级拷贝）+ 4 个清单派生文件覆盖（`AppScope/app.json5` 的 bundleName/vendor/versionName；`entry/cjpm.toml` 的框架 + 业务路径依赖与 version；`entry/src/main/cangjie/app_host.cj` 胶水 = rawfile 解析器 + page + 能力清单挂载 + `launchWith(mobile)`；`main_ability.cj` 生命周期）+ rawfile 资产注入（`assets/` 原样拷入，字节级、二进制安全）。幂等：重跑覆盖生成物，rawfile 每次从 `assets/` 全量重建。漂移检测复用同一批渲染器（`check` 重算期望值比对），生成与校验天然一致。入口模块名恒为 `ohos_app_cangjie_entry`（`module.json5` 的 srcEntry 钉死，不参与清单命名）；`entry/cjpm.toml` 用相对路径 `../../..` 依赖业务包（业务代码一份、骨架永不复制）；鸿蒙版 stdx 走 `build-hap.sh` 的 `CANGJIE_STDX_OHOS` 在骨架根建 `stdx` 联接（`../stdx` 相对路径——hvigor 只替换它自己的模板变量，其余 `${...}` 变空串会让整条 path-option 失效，模板的实测教训原样保留）。
+**ohos 骨架的落地策略（批次 3-PR3，模板命名批次 3-PR4 定稿）**：`sync ohos` = `cli/templates/ohos-skeleton/` 整体拷渲染（静态物 + 图标，字节级拷贝）+ 4 个清单派生文件覆盖（`AppScope/app.json5` 的 bundleName/vendor/versionName；`entry/cjpm.toml` 的框架 + 业务路径依赖与 version；`entry/src/main/cangjie/app_host.cj` 胶水 = rawfile 解析器 + page + 能力清单挂载 + `launchWith(mobile)`；`main_ability.cj` 生命周期）+ rawfile 资产注入（`assets/` 原样拷入，字节级、二进制安全）。幂等：重跑覆盖生成物，rawfile 每次从 `assets/` 全量重建。漂移检测复用同一批渲染器（`check` 重算期望值比对），生成与校验天然一致。入口模块名恒为 `ohos_app_cangjie_entry`（`module.json5` 的 srcEntry 钉死，不参与清单命名）；`entry/cjpm.toml` 用相对路径 `../../..` 依赖业务包（业务代码一份、骨架永不复制）；鸿蒙版 stdx 走 `build-hap.sh` 的 `CANGJIE_STDX_OHOS` 在骨架根建 `stdx` 联接（`../stdx` 相对路径——hvigor 只替换它自己的模板变量，其余 `${...}` 变空串会让整条 path-option 失效，模板的实测教训原样保留）。
+
+**create 的模板形态（批次 3-PR4）**：桌面三模板（app / app-vue / app-react）与 `create --template ohos`（别名 ohos-pc / harmonyos*，鸿蒙生态不止 PC，命名不绑设备形态）全部生成**同一个统一工程**：`cj-tauri.toml` 清单（单一真相：id 即桌面安装 ID 亦鸿蒙 bundleName）+ 业务 static 包（`output-type = "static"`，骨架以 path 依赖引用，业务代码只有一份）+ `assets/`（`ui/` 前端 + `capabilities/` 清单）。`create --template ohos` 与 `app` 的差异只剩下一步提示（`CANGJIE_STDX_OHOS` + `targets/ohos` 的 build-hap.sh + 签名说明）。骨架一律由 `cj-tauri sync` 派生到 `targets/`（desktop + ohos）。CLI 命令双轨兼容：工程根有 `cj-tauri.toml` 判新形态（产物在 `targets/desktop/target/release/bin`、前端在 `assets/ui`），否则走旧路径（music 等存量示例不受影响）。配套修正：清单 id 校验对齐鸿蒙 bundleName 规范（段字母开头、只含小写字母/数字/下划线——`bundleNameFrom` 生成的 `com.example.pr4_app` 段此前会被误拒）；三方比对补权限集单层展开（`permissions: ["menu:state"]` 与明文 commands 同权，对齐 `CapabilityRegistry` 运行时语义，修误报）；旧模板「用 `MenuPlugin` 却不 import `cjTauri.plugins.menu`」的带病缺陷随迁移修复（插件子包符号必须显式 import）。
 
 ## 8. 窗口、托盘、插件：都是声明
 
@@ -744,9 +746,9 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 - `src/host_factory.cj`：现有单槽宿主注入，v2 由 `registerHost` 取代
 - `src/capability.cj:182`（`CapabilityRegistry`）：运行时能力校验，v2 保留（scope 判定仍是数据）
 - `src/app.cj:61`（`window`）、`:432`（`addCapabilityJson`）、`:441`（`loadCapabilities`）、`:546`（`run`）、`:567`（`runUrl`）、`:588`（manifest 导出）
-- `cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据
-- `cli/templates/ohos-pc/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生
-- `examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因）
+- ~~`cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据~~（批次 3-PR4 已实现：应用身份 = 清单 `[app] id`，全形态统一携带）
+- ~~`cli/templates/ohos-pc/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生~~（批次 3-PR3 已实现：`renderOhosAppJson` 按清单渲染）
+- `examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因；create 模板已在批次 3-PR4 改 static，music 布局迁移在 music-next 跟进）
 - `examples/ohos/ohos-music/build-hap.sh:61`：`sed` 改包名复制业务，v2 删除该路径
 - `docs/架构演进-多平台与多窗口.md`：句柄/注册表/label 路由的前序设计
 

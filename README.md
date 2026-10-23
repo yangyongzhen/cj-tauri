@@ -163,8 +163,9 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有四个脚手架模板
-（app / app-vue / app-react / ohos-pc）。
+`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有三个脚手架模板
+（app / app-vue / app-react，均为 `cj-tauri.toml` 清单 + 业务 static 包 + `assets/` 的新形态，
+骨架由 `cj-tauri sync` 派生；鸿蒙工程用 `create --template ohos` 生成同款统一工程）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：

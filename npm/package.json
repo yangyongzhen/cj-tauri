@@ -18,7 +18,9 @@
     "scaffold",
     "cross-platform",
     "windows",
-    "linux"
+    "linux",
+    "ohos",
+    "harmonyos"
   ],
   "license": "MIT",
   "bin": {

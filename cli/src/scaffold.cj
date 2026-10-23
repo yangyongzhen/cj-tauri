@@ -2,7 +2,9 @@
  * cj-tauri CLI：项目脚手架（create）
  *
  * 模板位于 <框架根>/cli/templates/<模板目录>，占位符形如 {{PROJECT_NAME}}；
- * 递归拷贝 + 文本渲染，生成一个可直接 `cj-tauri dev`（桌面）或 `bash build-hap.sh`（鸿蒙）的应用。
+ * 递归拷贝 + 文本渲染，生成「新形态」工程（cj-tauri.toml 清单 + 业务 static 包 + assets/），
+ * 骨架由 cj-tauri sync 派生（RFC-002 §7）：桌面 cj-tauri dev，鸿蒙 targets/ohos 的 build-hap.sh。
+ * ohos-skeleton 目录是 cj-tauri sync ohos 的 DevEco 骨架源，不是 create 模板。
  */
 package cli
 
@@ -186,15 +188,21 @@ func templateDirName(tpl: String): Option<String> {
     if (tpl == "react") {
         return Some("app-react")    // React 18 + Vite
     }
+    // 鸿蒙生态（PC / 手机 / 平板）：新形态是统一工程，模板内容同 app——
+    // 清单决定目标端，骨架由 cj-tauri sync ohos 派生；旧 ohos-pc 命名保留兼容
     if (tpl == "ohos" || tpl == "ohos-pc" || tpl == "harmonyos" || tpl == "harmonyos-pc") {
-        return Some("ohos-pc")      // 鸿蒙 PC（2in1）：ArkWeb 宿主 + build-hap.sh
+        return Some("app")
+    }
+    // 内部用：cj-tauri sync ohos 的骨架源（DevEco 工程，不是 create 模板）
+    if (tpl == "ohos-skeleton") {
+        return Some("ohos-skeleton")
     }
     return None
 }
 
-/** 该项目是不是鸿蒙脚手架（模板目录名即判据，别名在 templateDirName 里已归一到 ohos-pc） */
-func isOhosScaffoldTemplate(tplDir: String): Bool {
-    return baseName(tplDir) == "ohos-pc"
+/** create --template 参数是否鸿蒙生态（下一步提示用；新形态下不能按目录名判） */
+func isOhosTemplate(tpl: String): Bool {
+    return tpl == "ohos" || tpl == "ohos-pc" || tpl == "harmonyos" || tpl == "harmonyos-pc"
 }
 
 /**
@@ -287,26 +295,25 @@ func cmdCreate(nameArg: String, tpl: String, bundleArg: String, labelArg: String
         eprintln("          请设置环境变量 CJ_TAURI_ROOT 指向 cj-tauri 仓库根目录")
         return 1
     }
-    // 模板先解析：鸿蒙模板**不吃桌面 stdx**（编 hap 时由 build-hap.sh 用 CANGJIE_STDX_OHOS），
-    // 所以它不能因为本机没配 CANGJIE_STDX 就被拦下。
+    // 模板先解析。新形态业务 toml 的 stdx 走 ${CANGJIE_STDX} 环境变量
+    // （cjpm 构建期替换），create 不再需要解析 stdx
     var tplDir = ""
+    var dirName = ""
     if (let Some(d) <- resolveTemplateDir(fwRoot, tpl)) {
         tplDir = d
+        dirName = baseName(d)
     } else {
         eprintln("[cj-tauri] 错误: 未知模板 '${tpl}'")
         eprintln("          可用模板: ${availableTemplates(fwRoot)}")
         eprintln("          别名: app（内联单文件，缺省）/ vue / react / ohos")
         return 1
     }
-    let ohos = isOhosScaffoldTemplate(tplDir)
-    var stdx = ""
-    if (let Some(s) <- resolveStdx(fwRoot, None)) {
-        stdx = s
-    } else if (!ohos) {
-        eprintln("[cj-tauri] 错误: 找不到 stdx 目录")
-        eprintln("          请设置环境变量 CANGJIE_STDX 指向 stdx 动态库目录（含 stdx.encoding.json）")
+    if (dirName == "ohos-skeleton") {
+        eprintln("[cj-tauri] 错误: ohos-skeleton 是 cj-tauri sync ohos 的骨架源，不能用于 create")
+        eprintln("          创建鸿蒙工程请用: cj-tauri create ${nameArg} --template ohos")
         return 1
     }
+    let ohos = isOhosTemplate(tpl)
     warnIfSpacey("框架", fwRoot)
 
     var bundle = bundleArg
@@ -318,44 +325,45 @@ func cmdCreate(nameArg: String, tpl: String, bundleArg: String, labelArg: String
         label = projectName
     }
 
-    let v = TemplateVars(projectName, pkg, fwRoot, stdx, bundle, label)
+    let v = TemplateVars(projectName, pkg, fwRoot, "", bundle, label)
     ensureDir(targetDir)
     let count = copyTree(tplDir, targetDir, v)
 
     println("[cj-tauri] 已创建项目 ${targetDir}/（${count} 个文件）")
     println("")
     println("  项目名   : ${projectName}")
-    println("  模板     : ${baseName(tplDir)}")
+    println("  模板     : ${tpl}")
+    println("  仓颉包名 : ${pkg}")
+    println("  框架依赖 : ${fwRoot}")
     if (ohos) {
         println("  应用名   : ${label}")
         println("  bundle   : ${bundle}")
-        println("  框架依赖 : ${fwRoot}")
-        println("")
-        println("下一步:")
-        println("  cd ${targetDir}")
-        println("  export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
-        println("  bash build-hap.sh            # 编 hap")
-        println("  bash build-hap.sh --install  # 编完装到设备并拉起")
-        println("")
-        println("提示: 模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs")
-        println("      勾「Automatically generate signature」（要登录华为账号）；不签名只能编出")
-        println("      *-unsigned.hap，装不进设备。")
-        return 0
     }
-    println("  仓颉包名 : ${pkg}")
-    println("  框架依赖 : ${fwRoot}")
-    println("  stdx     : ${stdx}")
     println("")
     println("下一步:")
     println("  cd ${targetDir}")
-    println("  cj-tauri dev          # 构建 C 桥 + 编译 + 启动窗口")
-    println("  cj-tauri build        # 仅构建")
-    println("")
-    println("提示: cjpm.toml 里的路径是本机绝对路径；换机器需重新执行 create 或手改这两处。")
-    if (exists(joinPath(joinPath(targetDir, "ui"), "package.json"))) {
+    println("  cj-tauri sync          # 按清单派生 targets/ 骨架（desktop + ohos）")
+    if (dirName == "app-vue" || dirName == "app-react") {
+        println("  cd assets/ui && npm install && cd ../..   # 前端依赖（需 Node.js）")
+        println("  cj-tauri dev           # 起 Vite dev server（热更新）+ 编译 + 启动窗口")
+    } else {
+        println("  cj-tauri dev           # 构建 C 桥 + 编译 + 启动窗口")
+    }
+    if (ohos) {
+        println("  鸿蒙端: export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
+        println("          cd targets/ohos && bash build-hap.sh [--install]")
         println("")
-        println("提示: 该模板前端用 Vite；首次 cj-tauri dev 会自动 npm install 并起 dev server")
-        println("      （页面走 CJ_TAURI_DEV_URL，改 ui/src 下的前端源码不重启应用就能看到效果）。")
+        println("  提示: 模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs")
+        println("        勾「Automatically generate signature」（要登录华为账号）；不签名只能编出")
+        println("        *-unsigned.hap，装不进设备。")
+    } else {
+        println("")
+        println("  提示: cjpm.toml 里的框架路径是本机绝对路径；换机器需重新执行 create 或手改这一处。")
+    }
+    if (exists(joinPath(joinPath(joinPath(targetDir, "assets"), "ui"), "package.json"))) {
+        println("")
+        println("  提示: 该模板前端用 Vite；首次 cj-tauri dev 会自动 npm install 并起 dev server")
+        println("        （页面走 CJ_TAURI_DEV_URL，改 assets/ui/src 下的前端源码不重启应用就能看到效果）。")
     }
     return 0
 }

@@ -115,7 +115,8 @@ func cmdCheck(): Int64 {
  * ②③ 由 CJ_TAURI_MANIFEST=json 无头导出一起带出（插件数组，与启动日志同款形态）。
  *
  * 规则：
- *   - 已注册的插件命令未在 capabilities 声明 → 失败（「漏声明编不过」的运行时兜底）
+ *   - 已注册的插件命令未在 capabilities 声明 → 失败（「漏声明编不过」的运行时兜底）；
+ *     capabilities 的 permissions 命名权限集按插件自描述单层展开后与明文 commands 同权（对齐运行时）
  *   - requiredCapability 不在 capabilities 目录 → 失败
  *   - supportedHosts 不含当前宿主 → 提示（P-2：该端应以桩如实失败「端不支持」）
  *   - 骨架未构建 → 提示跳过（不阻塞，构建后重跑即生效）
@@ -130,9 +131,10 @@ func checkThreeWay(m: Manifest): Bool {
         eprintln("[cj-tauri] 提示：跳过三方比对（桌面骨架未构建：${binPath}；cd targets/desktop && cjpm build 后重跑）")
         return false
     }
-    // ① 能力声明：commands 全名集合 + identifier 集合
+    // ① 能力声明：commands 全名集合 + identifier 集合 + permissions 引用的集名
     let declared = ArrayList<String>()
     let identifiers = ArrayList<String>()
+    let permSetNames = ArrayList<String>()
     if (exists(m.capabilitiesDir)) {
         var entries: Array<FileInfo>
         try {
@@ -172,6 +174,9 @@ func checkThreeWay(m: Manifest): Bool {
             for (c in jsonStrArray(obj.get("commands"))) {
                 declared.add(c)
             }
+            for (s in jsonStrArray(obj.get("permissions"))) {
+                permSetNames.add(s)
+            }
         }
     }
     // ②③ 无头导出（子进程继承环境；json 模式只打印插件数组后退出）
@@ -196,6 +201,29 @@ func checkThreeWay(m: Manifest): Bool {
         return true
     }
     let hostKind = localHostKind()
+    // 权限集单层展开（与运行时 CapabilityRegistry 同语义，见 src/capability.cj「单层展开」注释）：
+    // 清单引用的每个集名，到插件自描述的 permissions（集全名 → 成员全名）里按名取成员并入 declared。
+    // 成员若又是集名不再展开（避免环）。
+    for (setName in permSetNames) {
+        for (i in 0..pluginsArr.size()) {
+            var pobj: JsonObject
+            try {
+                pobj = pluginsArr.get(i).getOrThrow().asObject()
+            } catch (e: Exception) {
+                continue
+            }
+            if (let Some(permVal) <- pobj.get("permissions")) {
+                let permObj = permVal.asObject()
+                if (let Some(membersVal) <- permObj.get(setName)) {
+                    for (mm in jsonStrArray(membersVal)) {
+                        if (!declared.contains(mm)) {
+                            declared.add(mm)
+                        }
+                    }
+                }
+            }
+        }
+    }
     var failed = false
     for (i in 0..pluginsArr.size()) {
         var obj: JsonObject
@@ -389,14 +417,14 @@ func copyAssetsToRawfile(srcRoot: String, dstRoot: String): Int64 {
 }
 
 /**
- * ohos 骨架派生：ohos-pc 模板整体拷渲染（静态物 + 图标）+ 4 个清单派生文件覆盖 + rawfile 资产注入。
+ * ohos 骨架派生：ohos-skeleton 模板整体拷渲染（静态物 + 图标）+ 4 个清单派生文件覆盖 + rawfile 资产注入。
  * 幂等对齐 desktop：重跑覆盖生成物，rawfile 每次从 assets/ 全量重建。
  */
 func syncOhos(m: Manifest, fwRoot: String): Int64 {
-    let tplDirOpt = resolveTemplateDir(fwRoot, "ohos")
+    let tplDirOpt = resolveTemplateDir(fwRoot, "ohos-skeleton")
     match (tplDirOpt) {
         case None =>
-            eprintln("[cj-tauri] 未找到 ohos 模板：${fwRoot}/cli/templates/ohos-pc（框架根定位有误？）")
+            eprintln("[cj-tauri] 未找到 ohos 骨架模板：${fwRoot}/cli/templates/ohos-skeleton（框架根定位有误？）")
             return 1
         case Some(tplDir) =>
             // 模板占位符取清单值：bundle=id、label=name；stdx 不参与（build-hap.sh 用 CANGJIE_STDX_OHOS）

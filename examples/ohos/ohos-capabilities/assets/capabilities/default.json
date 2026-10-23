@@ -6,7 +6,9 @@
     "timer",
     "probeLog",
     "system:version",
-    "system:host"
+    "system:host",
+    "clipboard:write",
+    "clipboard:read"
   ],
   "permissions": ["menu:state"],
   "events": ["tick", "menu:click"]

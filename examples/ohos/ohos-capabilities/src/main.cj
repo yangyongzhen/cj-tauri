@@ -2,6 +2,7 @@ package ohosCapabilities
 
 import cjTauri.*
 import cjTauri.plugins.menu.*
+import cjTauri.plugins.clipboard.*
 import stdx.encoding.json.*
 import std.collection.*
 @When[env == "ohos"]
@@ -120,6 +121,9 @@ public func build(): AppSpec {
         // （插件只声明「我提供什么」，**不自动放行**——要能调，就在 capabilities 里引用
         //   permissions: ["menu:state"]，或逐条写 commands）
         .plugin(MenuPlugin())
+        // clipboard 插件：鸿蒙侧走原生 pasteboard（宿主实现见 host_arkweb.cj），
+        // 命令是 clipboard:write / clipboard:read，能力清单里逐条声明才放行
+        .plugin(ClipboardPlugin())
         .wire({ app =>
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())

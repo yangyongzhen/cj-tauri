@@ -385,6 +385,12 @@ public class Manifest {
             "  [profile.test]\n" +
             "\n[target.aarch64-linux-ohos]\n" +
             "  compile-option = \"-B \\\"" + dc + "/build-tools/third_party/llvm/bin\\\" -B \\\"" + dn + "/sysroot/usr/lib/aarch64-linux-ohos\\\" -L \\\"" + dn + "/sysroot/usr/lib/aarch64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/aarch64-linux-ohos\\\" --sysroot \\\"" + dn + "/sysroot\\\"\"\n" +
+            // 剪贴板宿主能力（src/clipboard_bridge.cj 的鸿蒙段）用系统粘贴板原生 C API。
+            // 最终链接发生在**本模块**（output-type = dynamic），所以开关必须写在这儿——
+            // 框架自己的 cjpm.toml 写了也不生效，缺了就是模块里留一堆 `U OH_Pasteboard_*`，
+            // 表现是应用启动即 SIGSEGV（模块加载期解析不到符号）。
+            // 两个库都要：`OH_Pasteboard_*` 在 libpasteboard、`OH_Udmf*` / `OH_Uds*` 在 libudmf。
+            "  link-option = \"-lpasteboard -ludmf\"\n" +
             "[target.aarch64-linux-ohos.bin-dependencies]\n" +
             "  # 鸿蒙版 stdx：相对路径指向骨架根上的 `stdx` 联接（build-hap.sh 用 CANGJIE_STDX_OHOS\n" +
             "  # 建，不入库）。hvigor 只替换它自己的模板变量，写别的 " + "$" + "{...}" + " 会变空串、整条\n" +
@@ -393,6 +399,7 @@ public class Manifest {
             "  package-option = {}\n" +
             "\n[target.x86_64-linux-ohos]\n" +
             "  compile-option = \"-B \\\"" + dc + "/build-tools/third_party/llvm/bin\\\" -B \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/clang/15.0.4/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/x86_64-linux-ohos\\\" --sysroot \\\"" + dn + "/sysroot\\\"\"\n" +
+            "  link-option = \"-lpasteboard -ludmf\"\n" +
             "[target.x86_64-linux-ohos.bin-dependencies]\n" +
             "  path-option = [\"" + x1 + "\", \"" + x2 + "\", \"" + x3 + "\", \"../stdx\"]\n" +
             "  package-option = {}\n"

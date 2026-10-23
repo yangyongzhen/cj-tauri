@@ -1,5 +1,14 @@
 package cjTauri
 
+/**
+ * 鸿蒙侧 pasteboard 的唯一依赖：`LibC.mallocCString` / `malloc` / `free`
+ *
+ * 加 `@When` 门禁是必须的——桌面两平台走 C 桥（下面那段 `cj_bridge_clipboard_*`），
+ * 用不到 LibC；不门禁就会在桌面构建里变成一条 `unused import` 警告（AGENTS §3 零警告）。
+ */
+@When[env == "ohos"]
+import std.posix.*
+
 
 /**
  * 剪贴板 / 通知桥（plugin_clipboard、plugin_notification 的 FFI 面）：
@@ -53,3 +62,172 @@ foreign func cj_bridge_clipboard_free(s: CString): Unit
 @When[env != "ohos"]
 @C
 foreign func cj_bridge_notification_notify(h: CPointer<Unit>, title: CString, body: CString): Int32
+
+/* ==========================================================================
+ * 鸿蒙侧剪贴板：直接 FFI 到原生 pasteboard（`libpasteboard.so`）
+ *
+ * ## 为什么不是 `ohos.pasteboard`
+ *
+ * 仓颉套件里**没有**这个包。查过两套 SDK 的包清单（`api/lib/linux_ohos_aarch64_cjnative/`）：
+ * 6.1（apiVersion 24，`build-hap.sh` 默认选它的那套）的 340 个 ohos 包里没有 pasteboard，
+ * `kit/` 下也没有再导出；只有旧的 5.0（apiVersion 15，Beta2）带 `ohos.pasteboard.cjo`。
+ * 于是在设备上能用的只有原生 C API（`native/sysroot/usr/include/database/pasteboard/`，
+ * 同一 sysroot 里就有 `libpasteboard.so`，`entry/cjpm.toml` 的 `-L` 已指着它）。
+ *
+ * ## 为什么这不算「破坏宿主能力位如实约定」
+ *
+ * 平台差异只落在 `@When[env == "ohos"]` 这一处（AGENTS §2 允许的第二个落点就是条件编译），
+ * 桌面两平台仍走 C 桥同名导出，上层（`WebViewHost.clipboardWriteText/ReadText`）一行都不用分叉。
+ *
+ * ## 权限前提（判据在设备上，不在代码里）
+ *
+ * 写（SetData）不需要权限；**读（GetData）要 `ohos.permission.READ_PASTEBOARD`**
+ * （`udmf_datashare_config.json` 里是 user_grant + system_basic）。普通签名的应用拿不到该权限时，
+ * GetData 不抛异常、只回空数据 / 非 0 状态——所以读路径**只能靠真机实测**判定通没通，
+ * 代码里不许假设它「应该能读」。`arkwebClipboardReadText` 因此对「空 / 被拒 / 非文本」一律回 None。
+ * ========================================================================== */
+
+/** 取本进程的粘贴板句柄（失败回空指针） */
+@When[env == "ohos"]
+@C
+foreign func OH_Pasteboard_Create(): CPointer<Unit>
+
+@When[env == "ohos"]
+@C
+foreign func OH_Pasteboard_Destroy(pasteboard: CPointer<Unit>): Unit
+
+/** 0 = 成功；非 0 = 平台拒绝（状态码见 `oh_pasteboard_err_code.h`） */
+@When[env == "ohos"]
+@C
+foreign func OH_Pasteboard_SetData(pasteboard: CPointer<Unit>, data: CPointer<Unit>): Int32
+
+/** 读：`status` 是出参（`Pasteboard_Status` 的 0 是 E_OK）；返回的 UdmfData 由调用方 Destroy */
+@When[env == "ohos"]
+@C
+foreign func OH_Pasteboard_GetData(pasteboard: CPointer<Unit>, status: CPointer<Int32>): CPointer<Unit>
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfData_Create(): CPointer<Unit>
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfData_Destroy(pThis: CPointer<Unit>): Unit
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfData_AddRecord(pThis: CPointer<Unit>, record: CPointer<Unit>): Int32
+
+/** 取「主纯文本」（不必自己遍历 records）；没有纯文本时回非 0 */
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfData_GetPrimaryPlainText(data: CPointer<Unit>, plainText: CPointer<Unit>): Int32
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfRecord_Create(): CPointer<Unit>
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfRecord_Destroy(pThis: CPointer<Unit>): Unit
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdmfRecord_AddPlainText(pThis: CPointer<Unit>, plainText: CPointer<Unit>): Int32
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdsPlainText_Create(): CPointer<Unit>
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdsPlainText_Destroy(pThis: CPointer<Unit>): Unit
+
+@When[env == "ohos"]
+@C
+foreign func OH_UdsPlainText_SetContent(pThis: CPointer<Unit>, content: CString): Int32
+
+/** 回的是库内自有缓冲（**不要** free），并发的另一次读会让它失效——取到就立刻拷成 String */
+@When[env == "ohos"]
+@C
+foreign func OH_UdsPlainText_GetContent(pThis: CPointer<Unit>): CString
+
+/**
+ * 写文本进系统剪贴板（鸿蒙侧）。true = 平台接受了这次写入。
+ *
+ * 收尾是**显式**的：本机仓颉没有 `defer`（实测 `error: undeclared identifier 'defer'`），
+ * 每个出口都要自己 Destroy，漏一个就是一处泄漏。
+ */
+@When[env == "ohos"]
+public func arkwebClipboardWriteText(text: String): Bool {
+    let pb = unsafe { OH_Pasteboard_Create() }
+    if (unsafe { pb.isNull() }) {
+        return false
+    }
+    let data = unsafe { OH_UdmfData_Create() }
+    let record = unsafe { OH_UdmfRecord_Create() }
+    let plain = unsafe { OH_UdsPlainText_Create() }
+    if (unsafe { data.isNull() } || unsafe { record.isNull() } || unsafe { plain.isNull() }) {
+        unsafe { OH_UdsPlainText_Destroy(plain) }
+        unsafe { OH_UdmfRecord_Destroy(record) }
+        unsafe { OH_UdmfData_Destroy(data) }
+        unsafe { OH_Pasteboard_Destroy(pb) }
+        return false
+    }
+    let content = unsafe { LibC.mallocCString(text) }
+    var ok = false
+    if (unsafe { OH_UdsPlainText_SetContent(plain, content) } == 0) {
+        if (unsafe { OH_UdmfRecord_AddPlainText(record, plain) } == 0) {
+            if (unsafe { OH_UdmfData_AddRecord(data, record) } == 0) {
+                ok = unsafe { OH_Pasteboard_SetData(pb, data) } == 0
+            }
+        }
+    }
+    unsafe { LibC.free(content) }
+    unsafe { OH_UdsPlainText_Destroy(plain) }
+    unsafe { OH_UdmfRecord_Destroy(record) }
+    unsafe { OH_UdmfData_Destroy(data) }
+    unsafe { OH_Pasteboard_Destroy(pb) }
+    return ok
+}
+
+/**
+ * 读系统剪贴板文本（鸿蒙侧）：None = 空 / 非文本 / 平台拒绝（含缺 READ_PASTEBOARD 权限）。
+ *
+ * 三种 None 在页面侧看起来一样，**这是有意的**：WebViewHost 的契约就是 Option，
+ * 平台没给出文本与平台拒绝了读取，对调用方是同一个「没拿到」。要区分得看 hilog 里的
+ * `[cj-bridge] pasteboard read status=` 行（由应用侧 `probeLog` 打，框架侧 eprintln 在设备上不可见）。
+ */
+@When[env == "ohos"]
+public func arkwebClipboardReadText(): Option<String> {
+    let pb = unsafe { OH_Pasteboard_Create() }
+    if (unsafe { pb.isNull() }) {
+        return None
+    }
+    let statusBox = unsafe { LibC.malloc<Int32>(count: 1) }
+    if (unsafe { statusBox.isNull() }) {
+        unsafe { OH_Pasteboard_Destroy(pb) }
+        return None
+    }
+    let statusPtr = unsafe { CPointer<Int32>(statusBox) }
+    unsafe { statusPtr.write(0) }
+    let data = unsafe { OH_Pasteboard_GetData(pb, statusPtr) }
+    var out: Option<String> = None
+    if (!unsafe { data.isNull() }) {
+        let plain = unsafe { OH_UdsPlainText_Create() }
+        if (!unsafe { plain.isNull() }) {
+            if (unsafe { OH_UdmfData_GetPrimaryPlainText(data, plain) } == 0) {
+                let cstr = unsafe { OH_UdsPlainText_GetContent(plain) }
+                if (!unsafe { cstr.isNull() }) {
+                    let value = unsafe { cstr.toString() }
+                    out = Some(value)
+                }
+            }
+            unsafe { OH_UdsPlainText_Destroy(plain) }
+        }
+        unsafe { OH_UdmfData_Destroy(data) }
+    }
+    unsafe { LibC.free(statusBox) }
+    unsafe { OH_Pasteboard_Destroy(pb) }
+    return out
+}

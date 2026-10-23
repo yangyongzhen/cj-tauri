@@ -620,6 +620,28 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   别靠肉眼看缩略图（预览图被缩放、`densityPixels` 还乘了一层），在原图上按「连续 ≥40px 的浅色实心块」
   找弹窗矩形、再在矩形内按深色文字行聚类取行中心——第一轮就是拿缩略图目测，点击落在阴影上，
   弹窗被关掉而日志里一条凭证都没有。
+- **鸿蒙上「调了系统原生 C API 却启动即 SIGSEGV」先查 `DT_NEEDED`，别查代码**（2026-10-24 实测，
+  ohos-capabilities 的剪贴板）：`foreign func` 直连 `libpasteboard.so` / `libudmf.so` 之后，
+  产物里留着一堆 `U OH_Pasteboard_*` / `U OH_Udmf*`，而 `readelf -d` 里根本没有这两个库——
+  模块加载期解析不到符号就崩，表象与「白屏 / 秒退」完全同形。**真因是链接开关没落地**：
+  开关要写在**入口模块**的 `entry/cjpm.toml`（`output-type = "dynamic"`，最终链接在那儿发生），
+  而鸿蒙工程的 `targets/ohos/entry/cjpm.toml` 是**生成物**——`cli/src/manifest.cj` 的
+  `renderOhosEntryToml` 自己拼它，骨架模板里写的那行会被丢掉（**改模板不够，必须改生成器**，
+  两个 arch 段都要）。写进框架自己的 `cjpm.toml` 同样不生效。判据两条：`readelf -d <模块.so>
+  | grep -E "pasteboard|udmf"` 有输出、`nm -D --undefined-only` 里不再有解释不了的 `OH_*`。
+  同族的设备侧误判：库在 `/system/lib64/ndk/`，`ls /system/lib64` 与 `ls …/ndk` 都是
+  Permission denied（目录权限），别读成「设备没有这个库」——用 `hdc shell stat -L <路径>` 查。
+- **鸿蒙权限位先查 `grantMode`/`availableLevel` 再决定要不要声明：`SYSTEM_BASIC` 一律别写进骨架**
+  （2026-10-24 实测，剪贴板读）：`ohos.permission.READ_PASTEBOARD` 是 `USER_GRANT` + `SYSTEM_BASIC`
+  （`hdc shell "atm dump -d -p <权限>"` 可查）。`user_grant` 那一半要求 `module.json5` 里带
+  `reason` + `usedScene`，否则 schema 直接不过；`SYSTEM_BASIC` 那一半要求签名 profile 带 ACL，
+  普通调试证书满足了 schema 也**装不上**：`code:9568289 error: install failed due to grant request
+  permissions failed. PermissionName: ohos.permission.READ_PASTEBOARD`。
+  所以**这类权限写进 `cli/templates/ohos-skeleton/entry/src/main/module.json5` 等于让所有生成的工程
+  都装不上**——能力接口如实返回 `None`（平台状态码 201 `ERR_PERMISSION_ERROR`）、探针记 `SKIP`
+  并写明门槛，才是诚实的落地；「声明了就以为能用」会把装包失败伪装成别的问题。
+  读状态码的取证手法：临时把 `statusBox.read()` 拼进返回值打一轮，拿到数字后立刻撤——
+  否则「读回空」这三个字分不清「没数据」和「没权限」。
 - **鸿蒙侧给 `@Component` 传参只有一种写法：`@Prop` 成员 + 调用点纯调用**（2026-10-19 多窗口实测，
   两种写法报的都是同一句、看着都像「参数写错」）：
   ① 成员写成普通 `var x: String = "…"` 时，宏把它展开成 `ObservedProperty<String>` 形参，外面传

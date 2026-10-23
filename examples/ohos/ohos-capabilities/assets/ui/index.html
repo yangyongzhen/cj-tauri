@@ -148,6 +148,42 @@
       }
       probeSetChecked(true);
 
+      // 剪贴板（宿主 pasteboard）：写一个带时间戳的 token，再读回来逐字比对。
+      //
+      // **写与读在鸿蒙上的准入不同，这是平台事实、不是框架缺陷**（2026-10-24 真机取证）：
+      // 写（`OH_Pasteboard_SetData`）不需要权限，必然成功；
+      // 读（`OH_Pasteboard_GetData`）按头文件要求 `ohos.permission.READ_PASTEBOARD`，
+      // 而该权限是 USER_GRANT + SYSTEM_BASIC——普通应用把它写进 module.json5 后**连装包都失败**
+      // （`bm install` 回 `9568289 ... grant request permissions failed`），需要签名 profile 带 ACL。
+      // 读被拒时平台回状态码 201（`ERR_PERMISSION_ERROR`，已用临时诊断实测），框架如实返回 null。
+      // 所以这里把「null」判成 SKIP 而不是 FAIL：证据要能读出「写通、读被平台挡」这一事实，
+      // 既不把平台门槛冒充成框架成功，也不把平台门槛记成框架回归。
+      function probeClipboard() {
+        if (!tauri.clipboard) {
+          report('FAIL clipboard shim missing (clipboard 插件未注入)');
+          return;
+        }
+        var token = 'cj-tauri-clip-' + Date.now();
+        tauri.clipboard.writeText(token)
+          .then(function () {
+            report('PASS clipboard write ' + token);
+            return tauri.clipboard.readText();
+          })
+          .then(function (text) {
+            if (text === token) {
+              report('PASS clipboard read round-trip ' + text);
+            } else if (text === null || text === undefined) {
+              report('SKIP clipboard read denied-by-platform (needs READ_PASTEBOARD; write verified)');
+            } else {
+              report('FAIL clipboard read round-trip expect=' + token + ' actual=' + text);
+            }
+          })
+          .catch(function (err) {
+            report('FAIL clipboard ' + err.message);
+          });
+      }
+      probeClipboard();
+
       // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
       tauri.listen('menu:click', function (payload) {
         report('PASS menu click id=' + payload.id

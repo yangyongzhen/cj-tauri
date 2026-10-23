@@ -1,0 +1,38 @@
+# 业务包：业务代码的唯一真相（RFC-002 §7.3——骨架永远是外壳，业务只有一份）。
+# output-type = "static"：桌面骨架（targets/desktop）与鸿蒙入口（targets/ohos/entry）
+# 都以 path 依赖引用本包——同一份业务代码，多个目标各编各的产物。
+#
+# 与旧 examples/music 的差异：旧工程自己就是可执行工程（带 webkitgtk 的 link-option）；
+# 新形态里可执行的部分归骨架（sync 生成的 targets/desktop/cjpm.toml 自带 link-option），
+# 业务 static 包不链接任何平台库。
+[package]
+  cjc-version = "1.0.5"
+  name = "music_next"
+  description = "cj-tauri 音乐播放器示例（新形态）：一份业务代码、多端产物；仓颉后端经 stdx.net.http 调后台音乐接口，前端做歌单 / 热门 / 搜索 / 播放 / 同步歌词 / 收藏与歌单分享"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "static"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  # cj-tauri 框架本体（相对路径：examples/music-next → 仓库根）
+  cjTauri = { path = "../.." }
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]
+
+[target.aarch64-linux-ohos]
+  # 鸿蒙目标：交叉编译工具链与 sysroot 由 DevEco 仓颉套件提供，路径全部走环境变量
+  # （与框架根 cjpm.toml 同口径；末尾 --dy-std 不可省，原因见框架根 toml 的鸿蒙段注释）
+  compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\" --dy-std"
+
+[target.aarch64-linux-ohos.bin-dependencies]
+    # stdx 必须用鸿蒙版（CANGJIE_STDX_OHOS，桌面版 ABI 不通）；CANGJIE_OHOS_LIBS 指 DevEco
+    # 套件的 api/lib/linux_ohos_aarch64_cjnative/ohos（仓颉标准库 + ohos API 绑定）
+    path-option = ["${CANGJIE_STDX_OHOS}", "${CANGJIE_OHOS_LIBS}", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}"]

@@ -327,10 +327,12 @@ public class ArkWebHost <: WebViewHost {
         eprintln("[cj-tauri] ArkWeb: menu unsupported (host capability bit is 0)")
     }
 
+    /**
+     * P-1/P-2（RFC §4.6.4）：ohos 宿主没有菜单栏（ArkWeb 窗口形态，无 GTK/Win32 菜单概念），
+     * 菜单状态改动如实报「端不支持」。静默 no-op 会让页面误以为已生效——如实失败才可照做。
+     */
     public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
-        let _ = id
-        let _ = enabled
-        let _ = checked
+        throw CommandException("menu: 菜单状态改动在 ohos 端不支持（该端没有菜单栏，P-1 桩，见 RFC §4.6.4）")
     }
 
     public func setTitlebarSubtitle(text: String): Unit {

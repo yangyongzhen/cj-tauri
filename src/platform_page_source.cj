@@ -1,5 +1,7 @@
 package cjTauri
 
+import std.fs.*
+
 /**
  * 页面来源（RFC-002 §4.3）——取代 run(html) / runUrl(url) 双入口的唯一表达
  *
@@ -16,4 +18,43 @@ public enum PageSource {
     | Url(String)
     /** 开发期前端 dev server（HMR），由 CJ_TAURI_DEV_URL 注入 */
     | DevServer(String)
+}
+
+/** 解析结果：宿主最终执行的动作（纯数据，可测） */
+public enum PageLoad {
+    | StartHtml(String)  // host.start(html)
+    | StartUrl(String)   // host.startUrl(url)
+}
+
+/**
+ * PageSource → PageLoad 的唯一决策点（批次 1，RFC §4.3）
+ *
+ * - Inline / Url / DevServer：直接映射
+ * - Asset：优先走注入的 AssetResolver；未注入时按 cwd 相对路径读盘——与现有模板
+ *   textOrFile 的桌面行为等价，鸿蒙 rawfile / 内嵌常量的实现在批次 2 随清单接入
+ * - 找不到资产：抛可照做的错误，不静默白屏（与 host_factory「不静默回落」同约定）
+ */
+public func resolvePage(source: PageSource, resolver: Option<AssetResolver>): PageLoad {
+    match (source) {
+        case Inline(html) => return PageLoad.StartHtml(html)
+        case Url(url) => return PageLoad.StartUrl(url)
+        case DevServer(url) => return PageLoad.StartUrl(url)
+        case Asset(name) =>
+            match (resolver) {
+                case Some(r) =>
+                    match (r.readText(name)) {
+                        case Some(html) => return PageLoad.StartHtml(html)
+                        case None =>
+                            throw CommandException("资产未找到：${name}（请检查注入的 AssetResolver 与清单 [assets] 配置）")
+                    }
+                case None =>
+                    var text = ""
+                    try {
+                        text = String.fromUtf8(File.readFrom(name))
+                    } catch (e: Exception) {
+                        throw CommandException("资产未找到：${name}（未注入 AssetResolver，按相对路径读盘失败：${e}；鸿蒙 rawfile / 内嵌场景请注入对应解析器）")
+                    }
+                    return PageLoad.StartHtml(text)
+            }
+    }
 }

@@ -47,8 +47,8 @@
 
   <rect x="492" y="500" width="428" height="92" rx="8" fill="#E4C189" filter="url(#sh)"/>
   <text x="706" y="530" font-size="14" font-weight="600" fill="#2D3748" text-anchor="middle">插件命令「&lt;插件名&gt;:&lt;短名&gt;」</text>
-  <text x="706" y="554" font-size="12.5" fill="#3D2E15" text-anchor="middle">clipboard · dialog · fs · menu · notification</text>
-  <text x="706" y="576" font-size="12.5" fill="#3D2E15" text-anchor="middle">serial · shell · store（按需装配 + 清单放行）</text>
+  <text x="706" y="554" font-size="12.5" fill="#3D2E15" text-anchor="middle">clipboard · dialog · fs · http · log · menu · mqtt · notification</text>
+  <text x="706" y="576" font-size="11.5" fill="#3D2E15" text-anchor="middle">redis · serial · shell · sqlite · store · ws（共 15 个子包 · 按需装配 + 清单放行）</text>
 
   <path d="M254 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
   <path d="M706 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
@@ -71,11 +71,12 @@
   <text x="476" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">bridge_win.c</text>
   <text x="476" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">（Win32 消息循环在宿主线程）</text>
 
-  <rect x="626" y="664" width="280" height="136" rx="8" fill="#94A3B8" filter="url(#sh)"/>
-  <text x="766" y="692" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">鸿蒙 · ArkWeb（架构预留）</text>
-  <text x="766" y="720" font-size="12" fill="#F1F5F9" text-anchor="middle">条件编译位 + 契约 README</text>
-  <text x="766" y="744" font-size="12" fill="#F1F5F9" text-anchor="middle">能力位如实报 0</text>
-  <text x="766" y="768" font-size="12" fill="#F1F5F9" text-anchor="middle">未实机验证</text>
+  <rect x="626" y="664" width="280" height="136" rx="8" fill="#4CA497" filter="url(#sh)"/>
+  <text x="766" y="692" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">鸿蒙 · ArkWeb</text>
+  <text x="766" y="718" font-size="12" fill="#E6F5F2" text-anchor="middle">src/host_arkweb.cj（宿主编排）</text>
+  <text x="766" y="740" font-size="12" fill="#E6F5F2" text-anchor="middle">应用侧 ArkUI：Web + javaScriptProxy</text>
+  <text x="766" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">真机闭环：版本往返 · 多窗口 label</text>
+  <text x="766" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">宿主能力位仍如实报 0 · C 桥未落地</text>
 
   <path d="M480 878 V 900" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
   <text x="492" y="895" font-size="12" fill="#64748B">cj_bridge_* 同名同签名</text>

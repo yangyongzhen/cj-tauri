@@ -299,6 +299,16 @@
           </p>
         </article>
       </div>
+
+      <p class="note" data-en="The same code is not written twice per target either: the project root stays the only business copy, and the target skeletons are derived from it.">
+        同一份代码也不会按端各写一遍：工程根永远是唯一的业务代码，目标端骨架由 <code>sync</code> 从它派生。
+      </p>
+      <figure class="arch reveal" style="margin-top:14px">
+        <img src="assets/architecture-multiplatform.png" width="2440" height="1800"
+             alt="cj-tauri 一份代码多端产物：工程根只有一份业务代码（src/main.cj 的 build()、assets/ui 前端、assets/capabilities 能力清单），cj-tauri.toml 是单一真相，CLI 的 sync 据此派生 targets/desktop 与 targets/ohos 两套骨架，分别落到 WebKitGTK / WebView2 / ArkWeb"
+             data-en-alt="cj-tauri one codebase, many targets: the project root holds the single business copy (build() in src/main.cj, the frontend under assets/ui, the capability manifests under assets/capabilities); cj-tauri.toml is the single source of truth and the CLI's sync derives the targets/desktop and targets/ohos skeletons that land on WebKitGTK, WebView2 and ArkWeb">
+        <figcaption class="arch__cap" data-en="Source: docs/images/architecture-multiplatform.png (versioned with the code)">图片来源：<code>docs/images/architecture-multiplatform.png</code>（与代码同仓版本化）</figcaption>
+      </figure>
     </div>
   </section>
   <!-- ==================== 代码 ==================== -->

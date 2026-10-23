@@ -94,8 +94,9 @@ while IFS='|' read -r copy src; do
   fi
 done <<'SAME_SRC'
 assets/architecture.svg|docs/images/architecture.svg
+assets/architecture-multiplatform.png|docs/images/architecture-multiplatform.png
 SAME_SRC
-[ "$drift" -eq 0 ] && ok "与 docs/ 同源的拷贝都是最新的（architecture.svg）"
+[ "$drift" -eq 0 ] && ok "与 docs/ 同源的拷贝都是最新的（architecture.svg / architecture-multiplatform.png）"
 
 # ---------- 2. 零外部依赖 --------------------------------------------------
 # 会发起网络请求的标签（script/link/img）不许指向任何外部地址：

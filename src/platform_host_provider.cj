@@ -52,3 +52,19 @@ public func pickHost(label: String, target: TargetInfo): Option<WebViewHost> {
         case None => return None
     }
 }
+
+/**
+ * 装配层的宿主解析（批次 1 接线，RFC §5.4）：注册表优先，内置实现兜底
+ *
+ * app.cj 的 TauriApp 构造与 addWindow 都走这里；原有 @When 门禁的 createHost
+ * 三分支原样保留为兜底（桌面 WebKit/WebView2、鸿蒙 ArkWeb），既有行为不变。
+ * 注册表的优先级 > 0 才参与，因此「应用显式注册」永远压过内置默认。
+ * （public：装配层与测试子包 cjTauri.tests 都要引用；业务侧正常不会直接调用。）
+ */
+public func resolveHost(label: String): WebViewHost {
+    let target = Platform.guessTarget()
+    match (pickHost(label, target)) {
+        case Some(h) => return h
+        case None => return createHost(label)
+    }
+}

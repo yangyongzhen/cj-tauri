@@ -98,3 +98,97 @@ func hostRegistryPicksHighestPriority(): Unit {
     // 胜出者必须是优先级 10 的实现（create 真实执行，label 透传）
     @Expect(picked.getOrThrow().label(), "main")
 }
+
+// ---- 批次 1：PageSource → PageLoad 决策 ----
+
+@Test
+func resolvePageInlineAndUrl(): Unit {
+    match (resolvePage(PageSource.Inline("<p>hi</p>"), None)) {
+        case StartHtml(html) => @Expect(html, "<p>hi</p>")
+        case _ => @Expect(false, true)
+    }
+    match (resolvePage(PageSource.Url("https://example.com"), None)) {
+        case StartUrl(url) => @Expect(url, "https://example.com")
+        case _ => @Expect(false, true)
+    }
+    // DevServer 与 Url 同路：都走 startUrl
+    match (resolvePage(PageSource.DevServer("http://127.0.0.1:5173"), None)) {
+        case StartUrl(url) => @Expect(url, "http://127.0.0.1:5173")
+        case _ => @Expect(false, true)
+    }
+}
+
+/** 返回固定内容的解析器 */
+class StubResolver <: AssetResolver {
+    let table: HashMap<String, String>
+    init(table: HashMap<String, String>) {
+        this.table = table
+    }
+    public func readText(name: String): Option<String> {
+        return table.get(name)
+    }
+    public func exists(name: String): Bool {
+        return table.contains(name)
+    }
+}
+
+@Test
+func resolvePageAssetViaResolver(): Unit {
+    let t = HashMap<String, String>()
+    t.add("ui/index.html", "<html>ok</html>")
+    let src = resolvePage(PageSource.Asset("ui/index.html"), Some(StubResolver(t)))
+    match (src) {
+        case StartHtml(html) => @Expect(html, "<html>ok</html>")
+        case _ => @Expect(false, true)
+    }
+}
+
+@Test
+func resolvePageAssetMissingThrowsReadableError(): Unit {
+    let t = HashMap<String, String>()
+    var msg = ""
+    try {
+        let _ = resolvePage(PageSource.Asset("no/such.html"), Some(StubResolver(t)))
+    } catch (e: Exception) {
+        msg = e.message
+    }
+    @Expect(msg.contains("no/such.html"), true)
+}
+
+@Test
+func resolvePageAssetNoResolverReadsFromCwd(): Unit {
+    // 未注入解析器：按 cwd 相对路径读盘（与模板 textOrFile 桌面行为等价）。
+    // 测试 cwd = 仓库根，读一个确定存在的文件验证「读到了」而非白屏。
+    let src = resolvePage(PageSource.Asset("cjpm.toml"), None)
+    match (src) {
+        case StartHtml(html) => @Expect(html.size > 0, true)
+        case _ => @Expect(false, true)
+    }
+}
+
+// ---- 批次 1：guessTarget 与 resolveHost 接线 ----
+
+@Test
+func guessTargetDesktopFields(): Unit {
+    let t = Platform.guessTarget()
+    @Expect(t.display, "desktop")
+    @Expect(t.hostKind, "webkitgtk")
+    @Expect(t.os, "Linux")   // env != ohos 的桌面目标
+}
+
+/** 注册表有匹配时，resolveHost 必须取注册表而不是内置宿主 */
+class WinProvider <: HostProvider {
+    public func priority(target: TargetInfo): Int64 {
+        return 5
+    }
+    public func create(label: String, target: TargetInfo): WebViewHost {
+        return FakeHost(label)
+    }
+}
+
+@Test
+func resolveHostPrefersRegistryOverBuiltin(): Unit {
+    registerHost(WinProvider())
+    let h = resolveHost("registry-win")
+    @Expect(h.label(), "registry-win")
+}

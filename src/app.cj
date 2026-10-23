@@ -3,6 +3,7 @@ package cjTauri
 import std.collection.*
 import std.env.*
 import stdx.encoding.json.*
+import cjTauri.platform.*
 
 /**
  * 附加窗口的登记项（试验性 API `TauriApp.addWindow` 的装配状态）

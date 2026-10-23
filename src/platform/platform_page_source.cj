@@ -1,4 +1,4 @@
-package cjTauri
+package cjTauri.platform
 
 import std.fs.*
 
@@ -34,6 +34,16 @@ public enum PageLoad {
  *   textOrFile 的桌面行为等价，鸿蒙 rawfile / 内嵌常量的实现在批次 2 随清单接入
  * - 找不到资产：抛可照做的错误，不静默白屏（与 host_factory「不静默回落」同约定）
  */
+
+/** 资产解析异常：message 即面向用户的措辞。子包不引用根包的 CommandException
+ *  （那会构成父↔子互引），独立定义；传播路径与原先一致（run() 路径上无人
+ *  按具体类型捕获，message 原样抛到顶层） */
+public class AssetResolutionException <: Exception {
+    public init(msg: String) {
+        super(msg)
+    }
+}
+
 public func resolvePage(source: PageSource, resolver: Option<AssetResolver>): PageLoad {
     match (source) {
         case Inline(html) => return PageLoad.StartHtml(html)
@@ -45,14 +55,14 @@ public func resolvePage(source: PageSource, resolver: Option<AssetResolver>): Pa
                     match (r.readText(name)) {
                         case Some(html) => return PageLoad.StartHtml(html)
                         case None =>
-                            throw CommandException("资产未找到：${name}（请检查注入的 AssetResolver 与清单 [assets] 配置）")
+                            throw AssetResolutionException("资产未找到：${name}（请检查注入的 AssetResolver 与清单 [assets] 配置）")
                     }
                 case None =>
                     var text = ""
                     try {
                         text = String.fromUtf8(File.readFrom(name))
                     } catch (e: Exception) {
-                        throw CommandException("资产未找到：${name}（未注入 AssetResolver，按相对路径读盘失败：${e}；鸿蒙 rawfile / 内嵌场景请注入对应解析器）")
+                        throw AssetResolutionException("资产未找到：${name}（未注入 AssetResolver，按相对路径读盘失败：${e}；鸿蒙 rawfile / 内嵌场景请注入对应解析器）")
                     }
                     return PageLoad.StartHtml(text)
             }

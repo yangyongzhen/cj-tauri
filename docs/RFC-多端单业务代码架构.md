@@ -325,10 +325,12 @@ v1 草案写"`dataDir` = cwd"，这是为现状低头。新项目的合理语义
 
 全库只允许两类文件出现平台名匹配：
 
-1. `src/platform/discover.cj`（`Platform.discover()` 的唯一实现）；
+1. `src/platform_discover.cj`（`Platform.discover()` 的唯一实现；批次 0 实测 cjpm 子目录必须是独立子包，会造成父包↔子包循环依赖，故摊平进 `src/` 根包）；
 2. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
 
-CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform/'` 必须为空。
+CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform_discover.cj'` 必须为空。
+
+**这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `HostProvider` 注册表），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。若后续根包里的"每端默认值"继续膨胀，演进路径是：契约与注册表留根包（稳定 API），discover 的每端默认实现挪进子包 `cjTauri.platform.defaults`，借顶层 `let` 初始化（`package_global_init`，仓库测试里 `let TEST_SINK_LOCK = Mutex()` 已证明顶层初始化会执行）自注册进注册表，骨架依赖该子包即可——无循环依赖、launcher 仍是两行。此路径待批次 1 验证顶层初始化时序后再启用。
 
 ## 6. 资产：编译期定型
 
@@ -478,7 +480,7 @@ public class AppSpec {
 | 页面资产必须存在 | 生成器校验 `[assets] page` | 生成期失败 |
 | 应用 id 可无损映射三端 | `cj-tauri check` | CI 失败 |
 | 骨架无漂移 | `cj-tauri check`（哈希比对） | CI 失败 |
-| 业务无平台知识 | `grep '@When\[os' src/ \| grep -v src/platform/` 为空 | CI 失败 |
+| 业务无平台知识 | `grep '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空 | CI 失败 |
 
 这些项以前靠评审与记忆，现在靠工具。**"业务零平台知识"能被 CI 判定，是这套设计成立的标志**。
 
@@ -567,6 +569,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 5. **同一份业务产出两个 app（白标）**：清单与源码解耦后理论上支持（两份清单 + 同一 `src/`），是否要在 v1 就支持？
 6. **移动端多窗口语义**：`windows` 在移动端如何映射（多任务 / 分屏 / 单窗切换）需要真实需求驱动。
 7. **托盘/菜单在移动端**：是忽略、还是映射成侧栏？倾向忽略 + 日志，但要评估"业务以为有"的误判风险。
+8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
 
 ## 14. 验收判据（可机械化）
 
@@ -574,7 +577,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 
 | # | 判据 | 检查手段 |
 | --- | --- | --- |
-| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v src/platform/` 为空；`import kit.` 为空 |
+| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空；`import kit.` 为空 |
 | 2 | 应用身份单一真相 | `grep -rn 'bundleName\|applicationId\|CFBundleIdentifier' .` 只命中 `targets/` 生成物与清单 |
 | 3 | 装配唯一且无参 | `grep -rn 'TauriApp(' src/` 只在 `build()`；`build` 签名无参数 |
 | 4 | 漏声明编不过 | 反向测试：新加一条命令但不改 `capabilities/*.json` → **编译失败** |

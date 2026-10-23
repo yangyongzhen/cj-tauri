@@ -1,0 +1,25 @@
+# cj-tauri 应用清单——整个工程的单一真相（RFC-002 §7）。
+# cj-tauri sync 从这里派生 targets/ 骨架（desktop/ohos）；cj-tauri check 校验它并检测骨架漂移。
+[app]
+  name = "music-next"
+  version = "0.1.0"
+  # 应用标识：桌面是安装 ID，鸿蒙直接是 bundleName（每段须字母开头、只含字母数字下划线）
+  # 注意：与 examples/ohos 两个工程共用的调试签名包名 com.yang.testcj 不同——
+  # 鸿蒙端首次构建要在 DevEco 里对本包名重新「自动签名」（见 README）
+  id = "com.example.music_next"
+  # 业务包名（cjpm 约束①：toml 模块名必须等于源包名）
+  package = "music_next"
+
+[[windows]]
+  label = "main"
+  title = "仓颉爱音乐 · cj-tauri"
+  # 1280×820：三栏（导航 212 / 内容自适应 / 正在播放 320）在这个宽度下不用折行，与旧 music 同尺寸
+  width = 1280
+  height = 820
+
+[assets]
+  # 骨架 launcher 加载的页面（相对资产根 assets/）
+  page = "ui/index.html"
+
+[capabilities]
+  dir = "assets/capabilities"

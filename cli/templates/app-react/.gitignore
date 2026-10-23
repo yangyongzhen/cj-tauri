@@ -1,17 +1,17 @@
 # 构建产物（工程根 + 各骨架）
 target/
 cjpm.lock
-targets/**/target/
-targets/**/cjpm.lock
+
+# 每端派生骨架 targets/<端>/ 由 `cj-tauri sync` 从 cj-tauri.toml 生成，
+# 内含本机绝对路径（框架 / stdx 的 path 依赖），换机器即失效，一律不入库。
+# 克隆后先跑一次 `cj-tauri sync`，再用 `cj-tauri check` 比对是否漂移。
+# 其下的 target/ 构建产物、鸿蒙的 .buildlog/ 与本地 stdx 软链自然一并忽略。
+targets/
 
 # 前端（Vite 模板）
 assets/ui/node_modules/
 assets/ui/dist/
 assets/ui/dev-server.log
-
-# 鸿蒙骨架：build-hap.sh 的构建日志与本地 stdx 联接（不入库）
-targets/ohos/.buildlog/
-targets/ohos/stdx/
 
 # 平台动态库 / 对象文件
 *.o

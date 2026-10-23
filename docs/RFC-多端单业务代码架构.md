@@ -11,7 +11,7 @@
 3. **能力在编译期成为类型**：命令与 capability 声明由构建期生成的注册表绑定，**漏声明 = 编译错误**，而不是运行时读 `capabilities/*.json` 才发现（现状 `src/app.cj:441` 是运行时读盘）。
 4. **业务侧零 `@When`**：平台差异不再由 OS 名分支表达，而由**能力探测**表达（`ctx.supports(Tray)` / `sandboxed` / `PageSource` 自适）。业务代码里出现 `os == "Windows"` 视为设计缺陷。
 5. **资产编译期定型**：构建期生成类型化资产表（`const` + 生成器校验），业务拿到的是常量而非字符串键；前端页面用统一的 `PageSource` 四态表达，取代"读盘 / 内嵌"两套业务分支。
-6. **骨架是派生物**：每端一份 `targets/<target>/`，由清单 + 模板生成，可入库、可 `--check` 比对、可整目录丢弃重建。业务目录里不允许出现任何平台文件。
+6. **骨架是派生物**：每端一份 `targets/<target>/`，由清单 + 模板生成、可 `--check` 比对、可整目录丢弃重建。**默认不入库**（批次 3 收尾修正）：生成出的 `cjpm.toml` 里框架与 stdx 是**本机绝对路径**的 path 依赖，入库即换机器失效，`.gitignore` 一律忽略 `targets/`，克隆后先 `sync` 再 `check`。业务目录里不允许出现任何平台文件。
 7. **多窗口是一等公民**：`windows = [...]` 是清单的一部分（桌面多窗、移动端多任务/分屏），不再是试验性的 `addWindow`。
 
 代价与边界：每端仍需要一个 `WebViewHost` 实现与原生桥（这是唯一必须手写的部分）；macOS/Android 目标名已被 `cjc 1.2.0` 接受但生态未验证，本文只保证"接得进来"，不承诺可用。
@@ -396,7 +396,7 @@ check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
 | --- | --- |
 | 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
 | 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
-| 批次 3 | 已落地（PR1-PR4）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；create 模板迁移新形态（PR4：app/app-vue/app-react 与 `--template ohos` 统一生成「清单 + 业务 static 包 + assets/」工程，`ohos-pc` 目录改名 `ohos-skeleton` 作 sync 骨架源，CLI 新旧双轨兼容，三方比对补权限集单层展开对齐运行时；§7.3）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11），`examples/music` 布局迁移（新形态首个完整示例，music-next） |
+| 批次 3 | 已落地（PR1-PR4）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；create 模板迁移新形态（PR4：app/app-vue/app-react 与 `--template ohos` 统一生成「清单 + 业务 static 包 + assets/」工程，`ohos-pc` 目录改名 `ohos-skeleton` 作 sync 骨架源，CLI 新旧双轨兼容，三方比对补权限集单层展开对齐运行时；§7.3）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11）；`examples/music` 布局迁移 = music-next 已落地（新形态首个完整示例：`cj-tauri.toml` + 业务 static 包 `music_next` + `assets/`，命令层四文件与前端逐字节拷贝自旧示例、行为不变；`sync` 双端 + 桌面实编 + `check` 三方比对 + xvfb 冒烟全通过，验收日志见 `examples/music-next/README.md`；顺带摘除旧 music 冗余的 `StorePlugin` 挂载，见 `examples/music-next/src/main.cj` 注释） |
 | 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
 
 ## 5. L0 适配层（每端唯一手写处）
@@ -523,7 +523,7 @@ my-app/
 ├── assets/                    # 页面、图标、能力声明
 │   ├── ui/index.html
 │   └── capabilities/default.json
-└── targets/                   # 每端一份派生骨架（可入库、可整删重建）
+└── targets/                   # 每端一份派生骨架（默认不入库、可整删重建）
     ├── desktop/               #   cjpm.toml(可执行) + 依赖 ../.. + 包脚本
     ├── ohos/                  #   AppScope/ + entry/ + hvigor + build-hap.sh
     ├── macos/                 #   Package.swift + Info.plist + WKWebView 胶水
@@ -748,7 +748,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 - `src/app.cj:61`（`window`）、`:432`（`addCapabilityJson`）、`:441`（`loadCapabilities`）、`:546`（`run`）、`:567`（`runUrl`）、`:588`（manifest 导出）
 - ~~`cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据~~（批次 3-PR4 已实现：应用身份 = 清单 `[app] id`，全形态统一携带）
 - ~~`cli/templates/ohos-pc/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生~~（批次 3-PR3 已实现：`renderOhosAppJson` 按清单渲染）
-- `examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因；create 模板已在批次 3-PR4 改 static，music 布局迁移在 music-next 跟进）
+- ~~`examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因；create 模板已在批次 3-PR4 改 static，music 布局迁移在 music-next 跟进）~~（music-next 已落地：业务包 static、骨架 path 依赖；旧 music 保留为旧形态行为基线）
 - `examples/ohos/ohos-music/build-hap.sh:61`：`sed` 改包名复制业务，v2 删除该路径
 - `docs/架构演进-多平台与多窗口.md`：句柄/注册表/label 路由的前序设计
 

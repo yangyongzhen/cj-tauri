@@ -23,14 +23,29 @@ public interface HostProvider {
 private var HOST_PROVIDERS: ArrayList<HostProvider> = ArrayList<HostProvider>()
 
 /** 注册宿主提供者：**必须在构造 TauriApp() 之前**（宿主在字段初始化时就创建，
- *  与 setHostFactory 同一约束）；幂等性由调用方保证，重复注册按优先级取胜者 */
-public func registerHost(provider: HostProvider): Unit {
+ *  与 setHostFactory 同一约束）；幂等性由调用方保证，重复注册按优先级取胜者。
+ *  返回注册下标（测试反注册用） */
+public func registerHost(provider: HostProvider): Int64 {
+    let idx = HOST_PROVIDERS.size
     HOST_PROVIDERS.add(provider)
+    return idx
 }
 
 /** 已注册数量（自检 / 测试用） */
 public func hostProviderCount(): Int64 {
     return HOST_PROVIDERS.size
+}
+
+/**
+ * 反注册（测试用）：全局注册表是进程级的，用例注册的探针宿主不清走会污染后续用例
+ * （优先级平局 / 抢占都取决于注册先后）。业务侧没有场景该调它。
+ * 接口引用没有可用的相等比较（`!=` 与 `equal` 都不提供），所以按注册下标定位。
+ */
+public func unregisterHost(index: Int64): Unit {
+    if (index >= 0 && index < HOST_PROVIDERS.size) {
+        // remove 收区间（start 含、end 不含）：单元素 = index..index+1
+        HOST_PROVIDERS.remove(index..index + 1)
+    }
 }
 
 /**

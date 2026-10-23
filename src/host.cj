@@ -2,6 +2,7 @@ package cjTauri
 
 import std.collection.*
 import stdx.encoding.json.*
+import cjTauri.platform.*
 
 /**
  * WebView 宿主层（对标 Tauri 2 的 tao + wry 抽象）
@@ -98,22 +99,24 @@ public interface WebViewHost {
     func label(): String
 
     /**
-     * 启动宿主：创建窗口 + WebView，加载 HTML，进入事件循环
-     */
-    func start(html: String): Unit
-
-    /**
-     * 按 URL 启动宿主（http(s):// 或 file://）
+     * 加载页面（唯一入口，RFC §4.3）：Inline / Url / DevServer / Asset 四态
      *
-     * 与 start(html) 二选一：同一次启动里两者都设时 URL 优先。
+     * 原 start(html) / startUrl(url) 双入口在此收敛。Asset 怎么落地是 L0 的事（RFC §6.2）：
+     * 桌面经注入的 AssetResolver 读盘（未注入时按 cwd 相对路径读，与批次 1 行为等价），
+     * 鸿蒙由胶水印化的 rawfile 解析成 HTML 再落沙箱以 file:// 加载。
      * URL 页面有真实来源，相对路径资源、动态 import、前端路由才成立（file:// 下禁止 fetch/XHR）。
      */
-    func startUrl(url: String): Unit
+    func load(source: PageSource): Unit
+
+    /**
+     * 注入资产解析器（装配层在 load 之前调用；None = 各端默认读盘策略）
+     */
+    func setAssetResolver(resolver: Option<AssetResolver>): Unit
 
     /**
      * 注册一段「页面脚本执行前」注入的初始化脚本（多次调用按注册顺序注入）
      *
-     * 必须在 start() / startUrl() 之前调用：宿主创建 WebView 时一次性交给 C 桥，桥以
+     * 必须在 load() 之前调用：宿主创建 WebView 时一次性交给 C 桥，桥以
      * document-start 注入（WebKit user script / WebView2 AddScriptToExecuteOnDocumentCreated）。
      * 因此它对 HTML 与 URL 两种页面来源**一视同仁**——插件的 jsShim 走的就是这条通道（RFC §5.4 的 v2 方案），
      * 不再靠字符串拼 HTML。空串忽略；脚本是普通 JS 片段，不要自带 <script> 标签。
@@ -128,12 +131,12 @@ public interface WebViewHost {
     func reload(): Unit
 
     /**
-     * 应用窗口配置（标题 / 尺寸）；必须在 start() 之前调用，宿主据此创建窗口
+     * 应用窗口配置（标题 / 尺寸）；必须在 load() 之前调用，宿主据此创建窗口
      */
     func setWindowConfig(config: WindowConfig): Unit
 
     /**
-     * 是否允许打开开发者工具；必须在 start() 之前调用
+     * 是否允许打开开发者工具；必须在 load() 之前调用
      */
     func setDevTools(enabled: Bool): Unit
 
@@ -175,7 +178,7 @@ public interface WebViewHost {
 
     /**
      * 设置拖放策略（RFC-002 §5）：enabled=false 平台不注册 drop target。
-     * 必须在 `start()` / `startUrl()` 之前调用（Linux 建 view 时决定挂不挂 drag dest）；
+     * 必须在 `load()` 之前调用（Linux 建 view 时决定挂不挂 drag dest）；
      * 之后调用在未就绪时只记 pending、建窗生效，已就绪平台投 UI 线程重挂。
      * 平台没有该能力（能力位不含 `CJ_CAP_DRAG_DROP`）时宿主只记日志，不报错。
      */
@@ -217,7 +220,7 @@ public interface WebViewHost {
      *
      * enabled=true 时，用户在标题栏点「最小化」不再缩到任务栏，而是**隐藏窗口**
      * （= `setWindowVisible(false)` 的效果）；还原走应用自己的托盘菜单 / 全局快捷键。
-     * 必须在 `start()` / `startUrl()` 之前调用（窗口过程要在建窗时就知道这条策略）。
+     * 必须在 `load()` 之前调用（窗口过程要在建窗时就知道这条策略）。
      * 真到最小化那一刻，平台会复核托盘是否**真的**装上了（能力位不含 `CJ_CAP_TRAY`，
      * 或应用压根没调 `setTray`）：没装就如实降级为普通最小化并打一行 stderr——
      * 窗口藏起来却没有任何还原入口，是比「不支持」更糟的结果。
@@ -246,7 +249,7 @@ public interface WebViewHost {
      *
      * 多窗口下按宿主身份路由（C 侧回调首参是句柄），所以每扇窗口装自己的——回调不带参数，
      * 因为「是哪扇窗」在装配时就已确定（应用可经 `app.hostOf(label)` 逐窗安装）。
-     * 与 `setShellHandler` 同为**可变槽位**：在 `start()` 之后再装同样生效（路由闭包读字段，不是快照）。
+     * 与 `setShellHandler` 同为**可变槽位**：在 `load()` 之后再装同样生效（路由闭包读字段，不是快照）。
      */
     func setDestroyHandler(handler: () -> Unit): Unit
 
@@ -255,7 +258,7 @@ public interface WebViewHost {
      *
      * filter 是「描述|模式|描述|模式」拼串（Windows 惯例；GTK 端按同一格式解析），
      * 例如 "文本文件|*.txt|所有文件|*.*"；空串表示不限制。
-     * 必须在 start() / startUrl() 之后调用——对话框要拿已创建的应用窗口当父窗口。
+     * 必须在 load() 之后调用——对话框要拿已创建的应用窗口当父窗口。
      */
     func showFileDialog(save: Bool, title: String, filter: String): String
 
@@ -275,7 +278,7 @@ public interface WebViewHost {
      * GTK 是另一个 chooser action，Windows 更是另一套 API（`IFileOpenDialog` +
      * `FOS_PICKFOLDERS`，`GetOpenFileName` 没有这个能力）。桥侧两者共用同名同签名的
      * `cj_bridge_show_dialog`，以 kind=6 区分（与文件类 / 消息类并列，见 `dlg_req`）。
-     * 与 `showFileDialog` 同规矩：必须在 start() / startUrl() 之后调用（要拿应用窗口当父窗口）。
+     * 与 `showFileDialog` 同规矩：必须在 load() 之后调用（要拿应用窗口当父窗口）。
      */
     func showFolderDialog(title: String): String
 
@@ -290,7 +293,7 @@ public interface WebViewHost {
     /**
      * 写文本进系统剪贴板（上限 8 MiB，C 侧 core 校验）
      *
-     * 与对话框同类：宿主能力，要在 start() 之后调用（未就绪时返回 false）。
+     * 与对话框同类：宿主能力，要在 load() 之后调用（未就绪时返回 false）。
      */
     func clipboardWriteText(text: String): Bool
 
@@ -378,7 +381,7 @@ public interface AppHost {
  * C 侧所有回调的入口都是模块级 @C 函数（每个宿主注册的是同一个函数指针），句柄是唯一能分辨
  * 「哪个窗口」的凭据——三类回调都按句柄查表，查到谁就派发给谁。
  *
- * 闭包都是可变的：读的是宿主实例的字段（不是快照），所以应用在 `start()` 之后再调
+ * 闭包都是可变的：读的是宿主实例的字段（不是快照），所以应用在 `load()` 之后再调
  * `setShellHandler` / `setDestroyHandler` 同样生效。
  */
 class HostRoute {

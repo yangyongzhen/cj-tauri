@@ -43,6 +43,10 @@ import stdx.encoding.json.JsonArray
 @When[env == "ohos"]
 import stdx.encoding.json.JsonString
 
+// 页面来源契约（load(source) 收敛，RFC §4.3）：Asset 由胶水注入的 rawfile 解析器材化
+@When[env == "ohos"]
+import cjTauri.platform.*
+
 /**
  * 鸿蒙宿主的进程级运行时：沙箱目录、各窗口宿主、跨线程队列开关
  *
@@ -175,6 +179,8 @@ let CJ_ARKWEB_DIALOG_POLL_MS: Int64 = 20
 @When[env == "ohos"]
 public class ArkWebHost <: WebViewHost {
     private let windowLabel: String
+    // 资产解析器：胶水在 load 前注入（rawfile 材化）；鸿蒙没有 cwd 读盘兜底
+    private var assetResolver: Option<AssetResolver> = None
 
     /* 页面来源：start(html) 先存 html、落盘后 pageUrl 才成立；startUrl 直接定 pageUrl。 */
     private var pageHtml: String = ""
@@ -249,7 +255,37 @@ public class ArkWebHost <: WebViewHost {
     }
 
     /**
-     * 注册预执行脚本（必须早于 start / startUrl，与桌面同一契约）
+     * 加载页面（唯一入口，RFC §4.3）
+     *
+     * 与桌面的差异：Asset **没有 cwd 读盘兜底**——hap 里没有工程目录，资产只能来自
+     * 胶水注入的 resolver（rawfile 材化）。缺注入或资产缺失时如实报错，不静默白屏。
+     */
+    public func load(source: PageSource): Unit {
+        match (source) {
+            case Inline(html) => this.start(html)
+            case Url(url) => this.startUrl(url)
+            case DevServer(url) => this.startUrl(url)
+            case Asset(name) =>
+                match (this.assetResolver) {
+                    case Some(r) =>
+                        match (r.readText(name)) {
+                            case Some(html) => this.start(html)
+                            case None =>
+                                throw AssetResolutionException("资产未找到：${name}（胶水注入的 rawfile 里没有这个资产，检查清单 [assets] 与骨架 rawfile 拷贝）")
+                        }
+                    case None =>
+                        throw AssetResolutionException("资产 ${name} 未注入 AssetResolver（鸿蒙侧胶水须先把 rawfile 材化并注入解析器，再 load）")
+                }
+        }
+    }
+
+    /** 注入资产解析器（胶水在 load 前调用，rawfile 材化器） */
+    public func setAssetResolver(resolver: Option<AssetResolver>): Unit {
+        this.assetResolver = resolver
+    }
+
+    /**
+     * 注册预执行脚本（必须早于 load，与桌面同一契约）
      *
      * 内联 HTML 走「拼进 head 最前」这条通道（真正早于页面脚本）；URL 页面只能等
      * `onPageBegin` 再 runJavaScript——那时页面顶层脚本可能已经跑过，**这是本平台的已知限制**，

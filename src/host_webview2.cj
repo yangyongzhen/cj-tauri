@@ -4,6 +4,10 @@ package cjTauri
 @When[os == "Windows"]
 import std.collection.*
 
+// 页面来源契约（load(source) 收敛，RFC §4.3）：同款门禁，免得别的目标把这条当未使用清掉
+@When[os == "Windows"]
+import cjTauri.platform.*
+
 /**
  * C 桥 FFI 声明（native/libcjtbridge.dll）
  * Win32 窗口 + WebView2（Edge Chromium）在 C 桥的宿主线程内运行（见 native/bridge_win.c 头注释）。
@@ -200,6 +204,8 @@ public class WebView2Host <: WebViewHost {
     // 本窗口的 label（字段名不叫 label：接口有同名方法）。单窗口阶段是常量，
     // 与 TauriApp 注册的 WindowRecord.label 一致；多窗口时由构造参数给定。
     private let windowLabel: String
+    // 资产解析器：装配层在 load 前注入（None = 按 cwd 相对路径读盘，与批次 1 行为等价）
+    private var assetResolver: Option<AssetResolver> = None
 
     public init() {
         this.windowLabel = DEFAULT_WINDOW_LABEL
@@ -480,6 +486,22 @@ public class WebView2Host <: WebViewHost {
                 cj_bridge_add_init_script(this.handle, LibC.mallocCString(js))
             }
         }
+    }
+
+    /**
+     * 加载页面（唯一入口，RFC §4.3）：Inline/Url/DevServer 直接映射；
+     * Asset 经注入的 resolver 读盘，未注入时按 cwd 相对路径读（批次 1 的桌面行为）
+     */
+    public func load(source: PageSource): Unit {
+        match (resolvePage(source, this.assetResolver)) {
+            case StartHtml(html) => this.start(html)
+            case StartUrl(url) => this.startUrl(url)
+        }
+    }
+
+    /** 注入资产解析器（装配层在 load 前调用） */
+    public func setAssetResolver(resolver: Option<AssetResolver>): Unit {
+        this.assetResolver = resolver
     }
 
     public func start(html: String): Unit {

@@ -12,6 +12,8 @@ import std.sync.*
 import std.time.*
 import stdx.encoding.json.*
 import cjTauri.*
+// RTU 传输层直接用串口原语——它们自插件拆包后住在 cjTauri.plugins.serial 子包里（AGENTS §2）
+import cjTauri.plugins.serial.*
 
 /** 默认响应超时（毫秒）。Modbus Poll 的默认值是 1000ms，调试工具放宽一点更稳 */
 let MB_DEFAULT_TIMEOUT_MS: Int64 = 3000

@@ -72,6 +72,11 @@
 - **`cj-tauri check` 的三方比对在 Windows 上恒被跳过**：探测路径写死
   `targets/desktop/target/release/bin/main`，而 Windows 产物是 `main.exe`（cjc 不补后缀），于是每次都打
   「桌面骨架未构建」并放过整轮比对——判定改为按平台取后缀（`exeSuffix()`），与构建侧同源。
+- **`examples/modbus-poll` 自串口插件拆包后一直编不过**：RTU 传输层直接调 `serialOpen` / `serialRead` /
+  `serialWrite` / `serialClose` / `serialLastError`，而这些原语随 `081c0c3` 迁进了
+  `cjTauri.plugins.serial` 子包，`modbus.cj` 仍在用旧的 `import cjTauri.*` 找它们，编译期报 5 条
+  `undeclared identifier`。补一行 `import cjTauri.plugins.serial.*`（与其余四个串口示例同口径）后
+  单文件包重新打得出（5.7 MB）。
 
 ### Removed
 

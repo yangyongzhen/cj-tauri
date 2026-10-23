@@ -207,8 +207,30 @@ func directoryAssetResolverReadsRepo(): Unit {
 func guessTargetDesktopFields(): Unit {
     let t = Platform.guessTarget()
     @Expect(t.display, "desktop")
-    @Expect(t.hostKind, "webkitgtk")
-    @Expect(t.os, "Linux")   // env != ohos 的桌面目标
+    @Expect(t.hostKind, expectedDesktopHostKind())
+    @Expect(t.os, expectedDesktopOs())
+}
+
+// 桌面两平台的宿主形态与系统名本来就不同（Windows = webview2 / Windows，Linux = webkitgtk / Linux）。
+// 期望值写死一套会让用例在另一个平台上恒红——本机 Windows 上这条一直是红的（写死成 Linux 那套）。
+@When[os == "Windows"]
+func expectedDesktopHostKind(): String {
+    return "webview2"
+}
+
+@When[os != "Windows"]
+func expectedDesktopHostKind(): String {
+    return "webkitgtk"
+}
+
+@When[os == "Windows"]
+func expectedDesktopOs(): String {
+    return "Windows"
+}
+
+@When[os != "Windows"]
+func expectedDesktopOs(): String {
+    return "Linux"
 }
 
 /** 注册表有匹配时，resolveHost 必须取注册表而不是内置宿主 */

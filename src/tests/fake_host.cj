@@ -56,18 +56,8 @@ class FakeHost <: WebViewHost {
         this.windowLabel = windowLabel
     }
 
-    public func start(html: String): Unit {
-        this.started = true
-        this.shownHtml = html
-    }
-
     public func label(): String {
         return this.windowLabel
-    }
-
-    public func startUrl(url: String): Unit {
-        this.started = true
-        this.startedUrl = url
     }
 
     public func setAssetResolver(resolver: Option<AssetResolver>): Unit {

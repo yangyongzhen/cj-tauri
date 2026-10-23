@@ -14,6 +14,12 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.0.0] - 2026-10-23
+
+**不兼容变更**：删除已失效的公开 API `setHostFactory` / `requireInjectedHost`（见 Removed）——源码里仍
+调用它们的应用会编译失败（而那调用本来也不生效：单槽没有任何读取方）；仓内 `src/` / `examples/` /
+`cli/templates` 均已确认无调用点。其余是 CLI 生成器修复、`cj-tauri check` 判定修复与文档路径对齐。
+
 ### Added
 
 - `examples/ai-chat` 新增**单文件包**（`bash scripts/pack-win-single.sh examples/ai-chat` →
@@ -49,6 +55,33 @@
 - 解包失败**不再只回一句笼统文案**：`cjhExtractBundle` 改为回传失败原因（找不到解包工具 / 解包工具起不来 /
   30s 未结束 / 解包后没找到二进制 / 缺哪个运行时库），由 `cjh:deploy` 的 `error` 字段原样带到引导卡——
   Windows 首轮正是卡在「看不出真因」上，应用自己的 stderr 在 GUI 子系统下收不到（重定向也是 0 字节）。
+- **CLI 自身在 Windows 上编不出来**：`cli/cjpm.toml` 只声明了 Linux 目标的 stdx `path-option`，缺 mingw
+  目标段，`cd cli && cjpm build` 报 `root package 'cli' imports package 'stdx.encoding.json' …
+  not added as a dependency in cjpm.toml`（看着像 toml 漏配依赖，其实是目标段没写）。已补 mingw 段。
+- **`cj-tauri sync` 在 Windows 上生成的工程必然编不过**（三处生成器缺陷，music-next 首轮实测暴露）：
+  ① 写进 TOML 的路径保留反斜杠，`E:\…` 里的 `\a` / `\t` 被当成 TOML 转义序列 → cjpm 解析期
+  `errLexEscape` 直接失败，现在一律经 `toTomlPath()` 转正斜杠（桌面 / 鸿蒙两份 toml 的 `path` 与 `-L`
+  路径都过这一层）；② 鸿蒙 entry 的 `compile-option` 内层引号没转义（`--cfg="${…}"`、`-B "…"` 整串），
+  生成的 TOML 引号提前闭合；③ 生成源码里 `url=\"…\"` 少一层转义，hilog 那行日志把字符串拆断。
+- **生成的仓颉源码注释里出现 `capabilities/*.json`**，`/*` 触发仓颉的块注释嵌套 → 骨架编译报与位置
+  无关的莫名错误；改写为「`rawfile/capabilities 下的各份 json`」，不再产生 `/*`。
+- **单测 `guessTargetDesktopFields` 在 Windows 上一直是红的**：断言把桌面目标的宿主形态与系统名
+  写死成 Linux 那套（`webkitgtk` / `Linux`），而 `guessTarget()` 在 Windows 上如实返回
+  `webview2` / `Windows`。期望值改为随平台取（`@When[os == "Windows"]` 一份、其余桌面一份），
+  `scripts/test.sh` 在 Windows 上从 328/329 变为 329/329。
+- **`cj-tauri check` 的三方比对在 Windows 上恒被跳过**：探测路径写死
+  `targets/desktop/target/release/bin/main`，而 Windows 产物是 `main.exe`（cjc 不补后缀），于是每次都打
+  「桌面骨架未构建」并放过整轮比对——判定改为按平台取后缀（`exeSuffix()`），与构建侧同源。
+
+### Removed
+
+- `src/host_factory.cj` 的单槽宿主注入 `setHostFactory` / `requireInjectedHost`：鸿蒙宿主已内置
+  （`createHost()` 的 `@When[env == "ohos"]` 分支直接返回 `ArkWebHost`），多宿主入口统一走
+  `registerHost(HostProvider)`（`src/platform_host_provider.cj`，带优先级，`resolveHost` 里优先于内置宿主）。
+  删前它对调用方**已是空操作**——`HOST_FACTORY` 只有 `requireInjectedHost` 读，而后者没有任何调用方；
+  仓内 `src/` / `examples/` / `cli/templates` 均无 `setHostFactory` 调用点。
+- `src/arkweb_script.cj` 的 `arkWebDispatchScript`：鸿蒙侧回投改为「页面 pull 心跳 + 原生推脚本」后该
+  拼装函数无人调用（同文件仍在用的 `arkWebLabelScript` 保留）。
 
 ## [1.1.2] - 2026-10-23
 

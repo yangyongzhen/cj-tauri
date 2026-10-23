@@ -1,6 +1,6 @@
 {
   "name": "cj-tauri",
-  "version": "1.1.2",
+  "version": "2.0.0",
   "description": "仓颉语言的 Tauri：用仓颉写桌面应用后端 / 系统 WebView 写前端的混合开发框架脚手架 CLI（IPC 双向桥 + 能力安全模型，Windows / Linux / 鸿蒙 PC）",
   "keywords": [
     "cangjie",

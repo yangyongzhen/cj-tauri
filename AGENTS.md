@@ -9,11 +9,14 @@
 **仓颉语言的 Tauri 2**：用华为仓颉语言实现的混合开发框架——**仓颉后端（静态编译）+ 系统 WebView 前端（HTML/CSS/JS）**。
 
 三件套对应关系：WebView 宿主（对应 tao/wry）、IPC 双向桥（invoke/resolve/event）、能力安全模型（capability 白名单）。
-配套仓颉原生脚手架 CLI 与工程模板：`cli/templates/app/`（内联 HTML 的零 Node 样板，`create` 缺省用它）、
-`cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者带 `ui/` 前端工程，
-`cj-tauri dev` 会接管它们的 Vite dev server（`CJ_TAURI_DEV_URL`）；`cli/templates/ohos-pc/`（鸿蒙 PC / 2in1，
-`create --template ohos`）——ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文件、
-构建走工程自带的 `build-hap.sh`（`cj-tauri build|run` 检出该工程后直接转交它）。
+配套仓颉原生脚手架 CLI 与工程模板（批次 3-PR4 起为「新形态」：`cj-tauri.toml` 清单 + 业务 static 包 +
+`assets/`，骨架由 `cj-tauri sync` 派生到 `targets/`，RFC-002 §7）：`cli/templates/app/`（内联 HTML 的零 Node
+样板，`create` 缺省用它）、`cli/templates/app-vue/`（Vue 3）、`cli/templates/app-react/`（React 18）——后两者
+的 Vite 前端工程在 `assets/ui/`，`cj-tauri dev` 会接管它们的 dev server（`CJ_TAURI_DEV_URL`）；
+`create --template ohos`（别名 ohos-pc/harmonyos*）生成同样的统一工程（清单决定目标端，鸿蒙 bundleName =
+清单 id）。`cli/templates/ohos-skeleton/` 是 `cj-tauri sync ohos` 的 DevEco 骨架源（不是 create 模板）：
+ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文件、构建走骨架自带的 `build-hap.sh`
+（`cj-tauri build|run` 检出该工程后直接转交它；旧形态工程 = 工程根无 `cj-tauri.toml`，CLI 命令双轨兼容）。
 平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、
 **鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；**多窗口 label 路由已取证**，
 宿主能力位仍全 0，判据见 `native/platforms/harmonyos/README.md`；`examples/ohos/` 下 music / movie

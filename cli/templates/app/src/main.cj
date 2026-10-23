@@ -1,8 +1,8 @@
 package {{PACKAGE_NAME}}
 
 import cjTauri.*
+import cjTauri.plugins.menu.*
 import stdx.encoding.json.*
-import std.fs.File
 import std.collection.*
 
 /**
@@ -25,7 +25,7 @@ public class GreetCommand <: CommandHandler {
 }
 
 /**
- * 定时器命令：启动后台线程，每秒向后端推一个 tick 事件（验证 仓颉 → JS 通道）
+ * 定时器命令：启动后台线程，每秒向前端推一个 tick 事件（验证 仓颉 → JS 通道）
  * 前端：tauri.listen("tick", cb) + tauri.invoke("timer")
  */
 public class TimerCommand <: CommandHandler {
@@ -67,22 +67,24 @@ func demoMenu(): MenuModel {
     return MenuModel(items)
 }
 
-main(): Int64 {
-    // 1) 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
-    //    能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
-    let app = TauriApp()
-        .window(WindowConfig("cj-tauri 应用", 1000, 700))
-        .register("greet", GreetCommand())
-        .register("timer", TimerCommand())
+/**
+ * 业务装配点（RFC-002 §4.1）：骨架的 launcher（targets/ 下各目标的 src）调用它取 AppSpec。
+ *
+ * 零平台知识：不碰宿主、不知道页面文件路径、不知道能力目录——那些由清单
+ * （cj-tauri.toml）决定，launcher 按清单覆盖（page/window/assets/capabilities）。
+ * build() 负责业务自己的部分：命令注册、菜单、插件。
+ */
+public func build(): AppSpec {
+    return AppSpec()
+        .window(WindowConfig("{{PROJECT_NAME}}", 1000, 700))
         // menu 插件：给前端挂 window.__CJ_TAURI__.menu.setEnabled / setChecked
         // （插件只声明「我提供什么」，**不自动放行**——要能调，就在 capabilities 里引用
         //   permissions: ["menu:state"]，或逐条写 commands）
         .plugin(MenuPlugin())
-        // 菜单栏必须在 run() 之前挂：预置类宿主能力要赶在页面加载前定稿
-        .setMenu(demoMenu())
-
-    // 2) 载入前端页面并启动（阻塞至窗口关闭）
-    let html = String.fromUtf8(File.readFrom("ui/index.html"))
-    app.run(html)
-    return 0
+        .wire({ app =>
+            app.register("greet", GreetCommand())
+            app.register("timer", TimerCommand())
+            // 菜单栏必须在 run 之前挂：预置类宿主能力要赶在页面加载前定稿
+            app.setMenu(demoMenu())
+        })
 }

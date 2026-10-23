@@ -33,6 +33,22 @@
   `assets/`）：页面向 `system:host` 要能力位并与期望值逐项对账，每条断言经业务包 `probeLog`
   写进 hilog（tag `CjProbe`），配套 `tools/apply-signing.sh` 把本机调试证书注入 `sync` 派生的
   `targets/ohos/build-profile.json5`（生成物不入库，sync 后重跑一次即可）。
+- **鸿蒙（ArkWeb）剪贴板宿主能力落地：写完整可用，读如实返回空**。仓颉 SDK 6.1 没有
+  `ohos.pasteboard` 绑定，`src/clipboard_bridge.cj` 的鸿蒙段改走系统原生 C API——`foreign func`
+  直连 `libpasteboard.so`（`OH_Pasteboard_Create/Destroy/SetData/GetData`）与 `libudmf.so`
+  （`OH_UdmfData_*` / `OH_UdmfRecord_*` / `OH_UdsPlainText_*`），`src/host_arkweb.cj` 的
+  `clipboardWriteText` / `clipboardReadText` 由桩改成真实现。
+  链接开关落在**入口模块** `entry/cjpm.toml`（`link-option = "-lpasteboard -ludmf"`，
+  `output-type = "dynamic"`，最终链接在那儿）：`cli/src/manifest.cj` 的 `renderOhosEntryToml`
+  同步补齐，此前骨架里写了、生成物里没有，产物 `DT_NEEDED` 缺这两个库、`U OH_Pasteboard_*`
+  无处解析，应用**启动即 SIGSEGV**。真机判据：`readelf -d <模块.so>` 含 `libpasteboard.so` /
+  `libudmf.so`，一轮 hilog 9 PASS / 0 FAIL，`PASS clipboard write cj-tauri-clip-<时间戳>`。
+  **限制**：读要 `ohos.permission.READ_PASTEBOARD`（设备定义 USER_GRANT + SYSTEM_BASIC），
+  普通调试证书声明它会让**装包直接失败**（`9568289 grant request permissions failed`），
+  所以框架如实返回 `null`、探针记 `SKIP clipboard read denied-by-platform`；
+  不把这条权限写进骨架 `module.json5`（否则所有生成工程装不上）。
+  真机证据见 `examples/ohos/ohos-capabilities/docs/device-evidence.txt`，
+  平台说明见 `native/platforms/harmonyos/README.md` 的「剪贴板」一节。
 
 ### Changed
 

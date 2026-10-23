@@ -25,6 +25,14 @@
 
 [target.aarch64-linux-ohos]
   compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\""
+  # -lpasteboard -ludmf：框架的剪贴板宿主能力（`src/clipboard_bridge.cj` 鸿蒙段）用原生
+  # `OH_Pasteboard_*` / `OH_Udmf*` / `OH_UdsPlainText_*` C API。两组符号分属两个库
+  # （`OH_Pasteboard_*` 在 libpasteboard、其余在 libudmf），所以两个都要给。
+  # 最终链接发生在**本模块**（output-type = dynamic），所以开关必须在这儿落地——
+  # 只写在框架自己的 cjpm.toml 里不生效，缺了模块里就留一堆 `U OH_Pasteboard_*`，
+  # 表现是应用启动即 SIGSEGV（模块加载期解析不到符号）。
+  # 库在同 sysroot 的 `usr/lib/aarch64-linux-ohos`，上面 compile-option 的 `-L` 已指着它。
+  link-option = "-lpasteboard -ludmf"
 [target.aarch64-linux-ohos.bin-dependencies]
   # 鸿蒙版 stdx：这里写**相对路径**，指向工程根上的 `stdx` 联接（build-hap.sh 用
   # CANGJIE_STDX_OHOS 建，不入库）。两条实测依据：

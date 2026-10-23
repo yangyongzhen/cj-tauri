@@ -38,6 +38,17 @@
   # 只加在鸿蒙段：桌面两平台仍是静态 std，产物形态不变。
   compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\" --dy-std"
 
+  # -lpasteboard -ludmf：剪贴板宿主能力直连系统粘贴板服务（`src/clipboard_bridge.cj` 的鸿蒙段用
+  # `OH_Pasteboard_*` / `OH_Udmf*` / `OH_UdsPlainText_*` 原生 C API——仓颉套件里没有 `ohos.pasteboard`
+  # 包，6.1 的 ohos 包里 340 个都没有它，只有旧的 5.0 Beta 带）。两组符号分属两个库
+  # （`OH_Pasteboard_*` 在 libpasteboard、其余在 libudmf），所以两个都要给。
+  # 库就在同一 sysroot 的 `usr/lib/aarch64-linux-ohos`（上面的 `-L` 已指着），运行时由系统提供
+  # （设备侧落在 `/system/lib64/ndk/`，DT_NEEDED 由 loader 在 ndk 命名空间里解析）。
+  # 注意：**真正生效的开关在 entry 模块的 cjpm.toml**（`output-type = dynamic`，链接发生在那儿）；
+  # `cli/src/manifest.cj` 的 `renderOhosEntryToml` 会把它写进 `targets/ohos/entry/cjpm.toml`。
+  # 这里留着是给「直接 cjpm 交叉编译框架」的口径一致，漏了不影响 hap 构建。
+  link-option = "-lpasteboard -ludmf"
+
 [target.aarch64-linux-ohos.bin-dependencies]
     # stdx 必须用鸿蒙版（官方发布 cangjie-stdx-ohos-aarch64-<cjc 版本>.zip，桌面版 ABI 不通）；
     # CANGJIE_OHOS_LIBS 指 DevEco 套件的 api/lib/linux_ohos_aarch64_cjnative/ohos（仓颉标准库 + ohos API 绑定）。

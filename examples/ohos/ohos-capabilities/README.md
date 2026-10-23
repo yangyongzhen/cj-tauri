@@ -14,6 +14,33 @@
 
 ![菜单弹窗与断言](docs/evidence-menu-popup.jpeg)
 
+## 剪贴板（2026-10-24 真机取证：写通、读被平台挡）
+
+剪贴板**不是能力位**（`native/core/bridge_core.h` 里没有这一位），所以上表不含它；
+这里单独验，因为它的准入两半不一样。页面做的是「带时间戳 token 写进去，再读回来逐字比对」：
+
+| 方向 | 帧 | 真机结果 |
+| --- | --- | --- |
+| 写 `OH_Pasteboard_SetData` | 无需权限 | `PASS clipboard write cj-tauri-clip-<时间戳>` |
+| 读 `OH_Pasteboard_GetData` | 要 `ohos.permission.READ_PASTEBOARD` | 状态码 201（`ERR_PERMISSION_ERROR`）→ 页面记 `SKIP clipboard read denied-by-platform` |
+
+那个权限在设备上是 `USER_GRANT` + `SYSTEM_BASIC`：写进 `module.json5` 会因缺 `reason` / `usedScene`
+过不了 schema，补齐后**装包直接失败**（`code:9568289 ... grant request permissions failed`）——
+普通调试证书没有 ACL 拿不到它。**本工程的 `module.json5` 因此不含这条权限**（它是 `sync` 从
+`skeleton` 派生的；骨架里也不许加，否则所有生成工程都装不上）。
+
+所以读被拒是**平台准入门槛**，不是框架缺陷：判据是 201 而不是「读到空串」，而 201 是用一次临时诊断
+（把 `statusBox.read()` 拼进返回值）实测到的，取证后已撤。页面把它记成 `SKIP` 而不是 `FAIL`，
+既不说「通」，也不把门槛记成回归。要真读到内容，得换成带 ACL 的签名 profile 并做运行时授权。
+
+一轮完整判据（`docs/device-evidence.txt` 有 hilog 原文）：
+
+```
+CjProbe: PASS clipboard write cj-tauri-clip-<时间戳>
+CjProbe: SKIP clipboard read denied-by-platform (needs READ_PASTEBOARD; write verified)
+CjProbe: PASS cap menu expect=true actual=true
+```
+
 ## 为什么断言要经命令写日志
 
 鸿蒙设备上框架的 `eprintln` **不进 hilog**（AGENTS §4），页面 `console.log` 也只有调试器看得见。

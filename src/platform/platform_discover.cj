@@ -1,4 +1,4 @@
-package cjTauri
+package cjTauri.platform
 
 import std.env.*
 import std.collection.ArrayList
@@ -36,7 +36,7 @@ public class Platform {
         fs.add(PlatformFeature.Tray)
         return AppContext(
             AppPaths(data, "${cacheRoot()}/${appId}", "${cacheRoot()}/${appId}/tmp"),
-            target, TauriApp.devUrl().isSome(), fs)
+            target, devMode(), fs)
     }
 
     /**
@@ -57,6 +57,16 @@ public class Platform {
     }
 
     // ---- 平台名与目录根：@When 成对门禁，只落在这几个函数（RFC §5.3）----
+
+    /** dev server 探测：子包不引用父包，直接读环境变量（与 TauriApp.devUrl() 同语义） */
+    private static func devMode(): Bool {
+        if (let Some(v) <- getVariable("CJ_TAURI_DEV_URL")) {
+            if (v.size > 0) {
+                return true
+            }
+        }
+        return false
+    }
 
     /**
      * 当前目标的 TargetInfo（批次 1：装配层 resolveHost 用它选宿主）

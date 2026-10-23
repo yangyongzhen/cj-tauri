@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.ArrayList
+import cjTauri.platform.*
 
 /**
  * 宿主提供者注册表（RFC-002 §5.1）——取代单槽 setHostFactory 的多宿主入口

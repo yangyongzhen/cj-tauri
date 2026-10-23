@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import cjTauri.platform.*
 
 /**
  * 应用装配声明（批次 3，RFC-002 §4.1）：`build()` 的返回类型

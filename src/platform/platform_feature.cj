@@ -1,4 +1,4 @@
-package cjTauri
+package cjTauri.platform
 
 /**
  * 平台特性位（RFC-002 §4.5）——业务判断"这个端有没有某设施"的唯一手段

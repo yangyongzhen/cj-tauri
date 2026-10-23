@@ -58,3 +58,20 @@ public func resolvePage(source: PageSource, resolver: Option<AssetResolver>): Pa
             }
     }
 }
+
+/**
+ * devMode 改写（RFC §4.3）：CJ_TAURI_DEV_URL 存在时，Asset 页面自动改走 dev server
+ *
+ * 只改 Asset：显式 Inline（探针）/ Url / DevServer 是业务明说的意图，不改写。
+ * 纯函数，可测。
+ */
+public func rewriteForDev(source: PageSource, devUrl: Option<String>): PageSource {
+    match (devUrl) {
+        case Some(url) =>
+            match (source) {
+                case Asset(_) => return PageSource.DevServer(url)
+                case _ => return source
+            }
+        case None => return source
+    }
+}

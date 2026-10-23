@@ -166,6 +166,27 @@ func resolvePageAssetNoResolverReadsFromCwd(): Unit {
     }
 }
 
+// ---- 批次 1 评审修正：devMode 自动改写（RFC §4.3）----
+
+@Test
+func rewriteForDevOnlyTouchesAsset(): Unit {
+    // Asset + devUrl → DevServer
+    match (rewriteForDev(PageSource.Asset("ui/index.html"), Some("http://127.0.0.1:5173"))) {
+        case DevServer(url) => @Expect(url, "http://127.0.0.1:5173")
+        case _ => @Expect(false, true)
+    }
+    // 显式 Inline 是业务意图，不改写
+    match (rewriteForDev(PageSource.Inline("<p/>"), Some("http://d"))) {
+        case Inline(html) => @Expect(html, "<p/>")
+        case _ => @Expect(false, true)
+    }
+    // 无 devUrl 原样返回
+    match (rewriteForDev(PageSource.Asset("ui/index.html"), None)) {
+        case Asset(name) => @Expect(name, "ui/index.html")
+        case _ => @Expect(false, true)
+    }
+}
+
 // ---- 批次 1：guessTarget 与 resolveHost 接线 ----
 
 @Test

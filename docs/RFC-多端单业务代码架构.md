@@ -208,6 +208,8 @@ public interface WebViewHost {
 }
 ```
 
+> **兼容期说明（批次 1 实况）**：`load(source)` 的收敛要同步改鸿蒙应用侧 `ArkWebHost` 与既有模板/测试桩，批次 1 先保留 `start(html)` / `startUrl(url)`，由装配层 `resolvePage` 完成 `PageSource` → 二者的映射；`load(source)` 收敛随批次 3（鸿蒙胶水迁移）一起落，届时本节即为准。
+
 ### 4.4 命令与能力：编译期绑定
 
 现状是运行时读盘（`src/app.cj:441` 的 `loadCapabilities(dir)`），`capabilities/*.json` 写错或漏写只有到运行时才知道。greenfield 把这一步挪到构建期：
@@ -304,6 +306,8 @@ public interface PageMaterializer {
     func resolve(asset: String, page: String): PageSource
 }
 ```
+
+**arch 的取值（批次 1 实测）**：编译期拿不到可靠 arch，`Platform.guessTarget()` 从 `CJ_TAURI_ARCH` 环境变量读取（hvigor / CLI 构建时注入；未注入为 `unknown`）。宿主选择请勿依赖 arch——用 `hostKind` / `display` 区分，它们正是为「同 os 多宿主」设计的。
 
 **为什么是"优先级"而不是布尔匹配**：同一 `os` 下确实会有多个宿主——鸿蒙 ArkWeb 与 ARM64 Linux 桌面都报 `Linux`，Android 与 Linux 同理，未来 macOS 也可能有 WKWebView / 嵌入 CEF 两条路。整数优先级让"专用实现压过通用实现"成为数据而不是 `if` 顺序。
 

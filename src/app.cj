@@ -577,13 +577,15 @@ public class TauriApp <: AppHost {
      * 统一页面入口（批次 1，RFC-002 §4.3）：业务与清单只写 PageSource 一种表达
      *
      * - Inline(html)：直接给 HTML（探针、错误页）
-     * - Asset(name)：逻辑名，经注入的 AssetResolver 解析；未注入时按 cwd 相对路径读盘
-     * - Url(url) / DevServer(url)：直载；devMode 由业务/生成骨架给 DevServer
+     * - Asset(name)：逻辑名，经注入的 AssetResolver 解析；未注入时按 cwd 相对路径读盘；
+     *   devMode（CJ_TAURI_DEV_URL 存在）下自动改写为 DevServer（RFC §4.3）
+     * - Url(url) / DevServer(url)：直载
      *
      * 装配流程与旧入口完全一致：dumpManifest → 插件 shim → 默认窗口 → 附加窗口 → 等待退出。
      */
     public func run(source: PageSource): Unit {
-        let page = resolvePage(source, this.assetResolver)
+        let src = rewriteForDev(source, TauriApp.devUrl())
+        let page = resolvePage(src, this.assetResolver)
         this.runWith({ h =>
             match (page) {
                 case StartHtml(html) => h.start(html)

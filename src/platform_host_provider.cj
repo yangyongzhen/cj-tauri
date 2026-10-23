@@ -21,7 +21,8 @@ public interface HostProvider {
 
 private var HOST_PROVIDERS: ArrayList<HostProvider> = ArrayList<HostProvider>()
 
-/** 注册宿主提供者（幂等性由调用方保证；重复注册同类实现按优先级取胜者） */
+/** 注册宿主提供者：**必须在构造 TauriApp() 之前**（宿主在字段初始化时就创建，
+ *  与 setHostFactory 同一约束）；幂等性由调用方保证，重复注册按优先级取胜者 */
 public func registerHost(provider: HostProvider): Unit {
     HOST_PROVIDERS.add(provider)
 }

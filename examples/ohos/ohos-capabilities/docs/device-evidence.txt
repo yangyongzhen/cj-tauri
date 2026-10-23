@@ -1,0 +1,11 @@
+06:37:55.211 A00001/com.yang.testcj/CjProbe: PASS cap menu expect=true actual=true
+06:37:55.212 A00001/com.yang.testcj/CjProbe: PASS cap tray expect=false actual=false
+06:37:55.213 A00001/com.yang.testcj/CjProbe: PASS cap dragDrop expect=false actual=false
+06:37:55.214 A00001/com.yang.testcj/CjProbe: PASS cap hotkey expect=false actual=false
+06:37:55.215 A00001/com.yang.testcj/CjProbe: PASS cap subtitle expect=false actual=false
+06:37:55.216 A00001/com.yang.testcj/CjProbe: caps 5/5 bits match expectation
+06:37:55.217 A00001/com.yang.testcj/CjProbe: PASS platform ohos
+06:37:55.218 A00001/com.yang.testcj/CjProbe: PASS version {"name":"cj-tauri","version":"2.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}
+06:37:55.221 A00001/com.yang.testcj/CjProbe: PASS menu setChecked view.sidebar=true
+06:36:40.760 A00001/com.yang.testcj/CjTauri: menu click label=main id=view.sidebar
+06:36:40.783 A00001/com.yang.testcj/CjProbe: PASS menu click id=view.sidebar enabled=true checked=false

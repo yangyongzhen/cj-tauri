@@ -10,6 +10,8 @@ package cli
 import std.collection.*
 import std.env.*
 import std.fs.*
+import std.process.*
+import stdx.encoding.json.*
 
 /** 读清单并校验；失败打印原因并返回 None */
 func loadValidatedManifest(): Option<Manifest> {
@@ -97,12 +99,184 @@ func cmdCheck(): Int64 {
         case None =>
             eprintln("[cj-tauri] 提示：未定位到框架根（CJ_TAURI_ROOT），跳过骨架漂移检查")
     }
+    // 三方比对（RFC §4.6.7）：骨架未构建时提示跳过，不阻塞
+    failed = checkThreeWay(m) || failed
     if (failed) {
         eprintln("[cj-tauri] check 未通过：${m.appId}@${m.version}")
         return 1
     }
     println("[cj-tauri] check 通过：${m.appId}@${m.version}（${m.name}）")
     return 0
+}
+
+/**
+ * 三方比对（批次 3，RFC §4.6.7）：① 能力声明 × ② 插件 describe() 自描述 × ③ 无头导出（实际装配真相）。
+ * ②③ 由 CJ_TAURI_MANIFEST=json 无头导出一起带出（插件数组，与启动日志同款形态）。
+ *
+ * 规则：
+ *   - 已注册的插件命令未在 capabilities 声明 → 失败（「漏声明编不过」的运行时兜底）
+ *   - requiredCapability 不在 capabilities 目录 → 失败
+ *   - supportedHosts 不含当前宿主 → 提示（P-2：该端应以桩如实失败「端不支持」）
+ *   - 骨架未构建 → 提示跳过（不阻塞，构建后重跑即生效）
+ *
+ * 边界如实说：应用自身命令（SystemCommands / wire 注册）不在无头导出里（该通道只带插件），
+ * 它们的漏声明照旧由运行时能力门禁拒绝；导出形态将来再扩展。
+ */
+func checkThreeWay(m: Manifest): Bool {
+    // cjpm 可执行工程的二进制恒名 main（music / CLI 同口径），与模块名无关
+    let binPath = "targets/desktop/target/release/bin/main"
+    if (!exists(binPath)) {
+        eprintln("[cj-tauri] 提示：跳过三方比对（桌面骨架未构建：${binPath}；cd targets/desktop && cjpm build 后重跑）")
+        return false
+    }
+    // ① 能力声明：commands 全名集合 + identifier 集合
+    let declared = ArrayList<String>()
+    let identifiers = ArrayList<String>()
+    if (exists(m.capabilitiesDir)) {
+        var entries: Array<FileInfo>
+        try {
+            entries = Directory.readFrom(m.capabilitiesDir)
+        } catch (e: Exception) {
+            eprintln("[cj-tauri] 三方比对：读 capabilities 目录失败 ${m.capabilitiesDir}: ${e.message}")
+            return true
+        }
+        for (info in entries) {
+            if (info.isDirectory()) {
+                continue
+            }
+            let path = info.path.toString()
+            if (!path.endsWith(".json")) {
+                continue
+            }
+            var text = ""
+            try {
+                text = String.fromUtf8(File.readFrom(path))
+            } catch (e: Exception) {
+                eprintln("[cj-tauri] 三方比对：读 ${path} 失败: ${e.message}")
+                return true
+            }
+            var obj: JsonObject
+            try {
+                obj = JsonValue.fromStr(text).asObject()
+            } catch (e: Exception) {
+                eprintln("[cj-tauri] 三方比对：${path} 不是合法 JSON: ${e.message}")
+                return true
+            }
+            if (let Some(idVal) <- obj.get("identifier")) {
+                let id = jsonStringOf(idVal)
+                if (id.size > 0) {
+                    identifiers.add(id)
+                }
+            }
+            for (c in jsonStrArray(obj.get("commands"))) {
+                declared.add(c)
+            }
+        }
+    }
+    // ②③ 无头导出（子进程继承环境；json 模式只打印插件数组后退出）
+    setVariable("CJ_TAURI_MANIFEST", "json")
+    var outText = ""
+    try {
+        let (code, raw, _) = executeWithOutput(binPath, [])
+        outText = String.fromUtf8(raw)
+        if (code != 0) {
+            eprintln("[cj-tauri] 三方比对：无头导出退出异常（code=${code}）：${outText}")
+            return true
+        }
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] 三方比对：运行 ${binPath} 失败：${e.message}")
+        return true
+    }
+    var pluginsArr: JsonArray
+    try {
+        pluginsArr = JsonValue.fromStr(outText).asArray()
+    } catch (e: Exception) {
+        eprintln("[cj-tauri] 三方比对：无头导出输出解析失败：${e.message}")
+        return true
+    }
+    let hostKind = localHostKind()
+    var failed = false
+    for (i in 0..pluginsArr.size()) {
+        var obj: JsonObject
+        try {
+            obj = pluginsArr.get(i).getOrThrow().asObject()
+        } catch (e: Exception) {
+            continue
+        }
+        if (let Some(nameVal) <- obj.get("name")) {
+            let pname = jsonStringOf(nameVal)
+            if (pname.size > 0) {
+                for (c in jsonStrArray(obj.get("commands"))) {
+                    if (!declared.contains(c)) {
+                        eprintln("[cj-tauri] 三方比对：已注册命令 ${c} 未在 capabilities 声明（补进 ${m.capabilitiesDir}/*.json 的 commands）")
+                        failed = true
+                    }
+                }
+                for (r in jsonStrArray(obj.get("requiredCapabilities"))) {
+                    if (!identifiers.contains(r)) {
+                        eprintln("[cj-tauri] 三方比对：插件 ${pname} 要求的能力 ${r} 不在 ${m.capabilitiesDir} 中")
+                        failed = true
+                    }
+                }
+                let hosts = jsonStrArray(obj.get("supportedHosts"))
+                if (hosts.size > 0 && !hosts.contains(hostKind)) {
+                    eprintln("[cj-tauri] 提示：插件 ${pname} 声明不支持当前宿主（${hostKind}，声明 ${joinComma(hosts)}）——该端应以桩如实失败「端不支持」（P-2）")
+                }
+            }
+        }
+    }
+    return failed
+}
+
+/** JsonValue → 字符串（非字符串形态返回空串；用法与 cspub 先例一致：先过 kind 再转换） */
+func jsonStringOf(v: JsonValue): String {
+    match (v.kind()) {
+        case JsonKind.JsString => return v.asString().getValue()
+        case _ => return ""
+    }
+}
+
+/** Option<JsonValue> → 字符串数组（缺失或非数组形态返回空） */
+func jsonStrArray(v: Option<JsonValue>): ArrayList<String> {
+    let out = ArrayList<String>()
+    if (let Some(val) <- v) {
+        try {
+            let arr = val.asArray()
+            for (i in 0..arr.size()) {
+                if (let Some(item) <- arr.get(i)) {
+                    let s = jsonStringOf(item)
+                    if (s.size > 0) {
+                        out.add(s)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 非数组形态按空处理：上层消息会指出具体字段
+        }
+    }
+    return out
+}
+
+/** 开发机 hostKind（CLI 只跑在桌面，映射与框架 discover 一致）：linux→webkitgtk、windows→webview2 */
+func localHostKind(): String {
+    if (let Some(v) <- getVariable("OS")) {
+        if (v.contains("Windows")) {
+            return "webview2"
+        }
+    }
+    return "webkitgtk"
+}
+
+/** "a,b" 拼接，供提示消息 */
+func joinComma(items: ArrayList<String>): String {
+    var s = ""
+    for (x in items) {
+        if (s.size > 0) {
+            s += ","
+        }
+        s += x
+    }
+    return s
 }
 
 func cmdSync(args: Array<String>): Int64 {

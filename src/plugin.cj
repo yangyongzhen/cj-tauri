@@ -56,6 +56,37 @@ public interface Plugin {
     func scopeAware(): Bool {
         return false
     }
+
+    /**
+     * 自描述（批次 3，RFC §4.6.7）：供 sync/check 三方比对的静态数据。
+     * 默认实现 = 全宿主、无能力依赖（多数插件无需覆盖）；
+     * 有平台约束的插件必须覆盖（如 SqlitePlugin 只支持 webkitgtk）。
+     *
+     * v1 曾结论「不加接口方法」（数据可从 commands()/events()/permissions() 推出）；
+     * 批次 3 改自描述双通道——supportedHosts / requiredCapabilities 是命令表推不出来的
+     * 语义信息，只能由插件自报。
+     */
+    func describe(): PluginManifest {
+        return PluginManifest(ArrayList<String>(), ArrayList<String>())
+    }
+}
+
+/**
+ * 插件自描述（批次 3，RFC §4.6.7）：供 sync/check 三方比对的静态数据。
+ *
+ * - supportedHosts：插件实际支持的 hostKind 列表；空 = 全宿主。
+ *   不在列表的宿主上，插件必须以桩如实失败「端不支持」（P-2），不得静默缺失；
+ * - requiredCapabilities：插件依赖的能力清单 identifier；空 = 无依赖。
+ *   check 拿它与 capabilities 目录的 identifier 交叉比对（缺声明 = 失败）。
+ */
+public class PluginManifest {
+    public let supportedHosts: ArrayList<String>
+    public let requiredCapabilities: ArrayList<String>
+
+    public init(supportedHosts: ArrayList<String>, requiredCapabilities: ArrayList<String>) {
+        this.supportedHosts = supportedHosts
+        this.requiredCapabilities = requiredCapabilities
+    }
 }
 
 /**
@@ -193,18 +224,21 @@ public func describePlugins(plugins: ArrayList<Plugin>): String {
  *   - `hasShim`：是否带前端 JS 片段（工具据此判断要不要等 `__CJ_TAURI__.<插件名>`）
  * 数组与权限键都按字典序排：HashMap 迭代顺序不定，工具的输出 / diff 需要稳定。
  *
- * 为什么不放进 `Plugin` 接口（RFC §7 的 v1 结论）：这些数据框架本就能从 `commands()` /
- * `events()` / `permissions()` 推出来，多一个接口方法只是给插件作者加负担；消费方要的是函数。
+ * 数据来自 describe()（批次 3 自描述双通道）：命令/事件/权限集之外，携带 supportedHosts /
+ * requiredCapabilities 两个命令表推不出来的语义项（RFC §4.6.7）。
  */
 public func describePluginsJson(plugins: ArrayList<Plugin>): JsonValue {
     let arr = ArrayList<JsonValue>()
     for (p in plugins) {
         var obj = JsonObject()
+        let d = p.describe()
         obj.put("name", JsonString(p.name()))
         obj.put("commands", jsonStringArray(pluginCommandNames(p)))
         obj.put("events", jsonStringArray(pluginEventNames(p)))
         obj.put("permissions", jsonPermissionSets(p))
         obj.put("hasShim", JsonBool(p.jsShim().size > 0))
+        obj.put("supportedHosts", jsonStringArray(d.supportedHosts))
+        obj.put("requiredCapabilities", jsonStringArray(d.requiredCapabilities))
         arr.add(obj)
     }
     return JsonArray(arr)

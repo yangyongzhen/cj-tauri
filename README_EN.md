@@ -214,6 +214,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [插件体系教程](docs/插件体系教程.md) | Plugin system: what it is → plug in an official plugin → write your own |
 | [IPC 通信机制](docs/IPC-通信机制.md) | Protocol frames → full sequence → measured performance vs WebSocket / raw TCP |
 | [Modbus tool deep-dive](docs/仓颉版Modbus调试工具-介绍与实战.md) | Scaffolding walkthrough + how the Modbus tool is built + comparison with Modbus Poll |
+| [Source layout](docs/源码结构.md) | Read before changing the framework: `src/` layers and file ownership, dependency direction, when to split and when not to (Chinese) |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | Release notes / dev conventions / contributing / licenses |
 
 ## AI-assisted development (AtomCode skills)

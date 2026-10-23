@@ -1,6 +1,8 @@
 package cjTauri.plugins.serial
 
-
+// 桌面两端包装函数用（ohos 桩在 serial_ohos_stub.cj，RFC §4.6.4 P-1）；
+// foreign 声明不带门禁：ohos 侧无引用即不要求符号，不产生链接错误
+@When[env != "ohos"]
 import std.collection.*
 
 /**
@@ -57,6 +59,7 @@ foreign func cj_bridge_serial_list(buf: CPointer<UInt8>, bufLen: Int32): Int32
  * 打开串口：成功返回 >0 句柄，失败返回负码（-1 参数/白名单、-2 句柄表满、-3 平台打不开）。
  * 失败明细用 serialLastError() 取（C 侧线程局部，同一线程内取才有意义）。
  */
+@When[env != "ohos"]
 public func serialOpen(path: String, baud: Int32, dataBits: Int32, parity: Int32,
                        stopBits: Int32): Int64 {
     var h: Int64 = -1
@@ -73,6 +76,7 @@ public func serialOpen(path: String, baud: Int32, dataBits: Int32, parity: Int32
 /**
  * C 侧最近一次失败的明细；取不到时返回空串（调用方自行降级成数字码）
  */
+@When[env != "ohos"]
 public func serialLastError(): String {
     unsafe {
         return cj_bridge_serial_last_error().toString()
@@ -83,6 +87,7 @@ public func serialLastError(): String {
  * C 桥枚举本机串口：Windows 下走 QueryDosDeviceW（返回 COM 名字列表）；
  * Linux 返回 None（-4 未实现，serial:list 在 Linux 走 /dev 扫描）。C 侧异常时也回 None。
  */
+@When[env != "ohos"]
 public func serialListC(): Option<ArrayList<String>> {
     let cap: Int32 = 8192
     let buf = LibC.malloc<UInt8>(count: Int64(cap))
@@ -128,6 +133,7 @@ public func serialListC(): Option<ArrayList<String>> {
  * 读：最多 maxBytes 字节。返回实际读到的字节（空数组 = 超时无数据）。
  * 缓冲在这里现分配现释放——每次读的用量都很小，不值得为它引一层对象池。
  */
+@When[env != "ohos"]
 public func serialRead(h: Int64, maxBytes: Int32, timeoutMs: Int32): Array<UInt8> {
     let cap = Int64(maxBytes)
     let buf = LibC.malloc<UInt8>(count: cap)
@@ -153,6 +159,7 @@ public func serialRead(h: Int64, maxBytes: Int32, timeoutMs: Int32): Array<UInt8
 /**
  * 写：在 timeoutMs 预算内尽量写完，返回实际写入字节数（可能 < data.size；0 = 一个字节都没出去）
  */
+@When[env != "ohos"]
 public func serialWrite(h: Int64, data: Array<UInt8>, timeoutMs: Int32): Int32 {
     if (data.size == 0) {
         return 0
@@ -177,6 +184,7 @@ public func serialWrite(h: Int64, data: Array<UInt8>, timeoutMs: Int32): Int32 {
 /**
  * 关句柄：0 = 成功，负码 = 失败（重复关返回 -4）
  */
+@When[env != "ohos"]
 public func serialClose(h: Int64): Int32 {
     var rc: Int32 = 0
     unsafe {

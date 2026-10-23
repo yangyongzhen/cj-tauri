@@ -52,6 +52,8 @@ let SQLITE_ENV_FIXTURE: String = "CJ_SQLITE_FIXTURE"
 /**
  * `sqlite` 插件：只声明「我提供什么」，放行由应用的 capabilities 决定（RFC §5.3）
  */
+// 桌面实现；ohos 侧的同名桩在 sqlite_ohos_stub.cj（RFC §4.6.4 P-1：编得过、调用即可照做地报错）
+@When[env != "ohos"]
 public class SqlitePlugin <: Plugin {
     public init() {}
 
@@ -174,6 +176,7 @@ func sqliteClampUtf8(s: String, limit: Int64): String {
  * 取一格的「按类型」JSON 与纯文本渲染。
  * NULL 不给 value（前端显示成 NULL 而不是空串）；BLOB 只给字节数（同 ②「二进制不往 IPC 里塞」）。
  */
+@When[env != "ohos"]
 func sqliteReadCell(stmt: CPointer<Unit>, i: Int32): (JsonValue, String) {
     let cell = JsonObject()
     let kind = unsafe { sqlite3_column_type(stmt, i) }
@@ -225,6 +228,7 @@ func sqliteReadCell(stmt: CPointer<Unit>, i: Int32): (JsonValue, String) {
  * 语句与 SQL 缓冲的生命周期都在本函数内：缓冲在 prepare 之前分配、finalize 之后才出作用域。
  * 出错抛 `CommandException`（前端拿到可读文案），`finally` 保证语句被 finalize。
  */
+@When[env != "ohos"]
 func sqliteRunQuery(db: CPointer<Unit>, sql: String, maxRows: Int64): SqliteRows {
     let result = SqliteRows()
     let sqlC = unsafe { LibC.mallocCString(sql) }
@@ -270,6 +274,7 @@ func sqliteRunQuery(db: CPointer<Unit>, sql: String, maxRows: Int64): SqliteRows
 }
 
 /** 取一个整数值（COUNT / PRAGMA 这类单值查询）；不是整数就给 fallback，不猜 */
+@When[env != "ohos"]
 func sqliteScalarInt(db: CPointer<Unit>, sql: String, fallback: Int64): Int64 {
     let sqlC = unsafe { LibC.mallocCString(sql) }
     var stmt: CPointer<Unit> = CPointer<Unit>()
@@ -298,6 +303,7 @@ func sqliteQuoteLiteral(s: String): String {
 /**
  * sqlite 插件的命令处理器（七个命令共用一份，按全名分派，与 FsCommands / SystemCommands 同形）
  */
+@When[env != "ohos"]
 class SqliteCommands <: CommandHandler {
     public init() {}
 

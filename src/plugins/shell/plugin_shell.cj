@@ -26,6 +26,14 @@ import stdx.encoding.json.*
  * （编辑器、REPL、npm run dev）仍不要走这里。
  */
 public class ShellPlugin <: Plugin {
+
+    /** 自描述：进程/打开目标仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
     public init() {}
 
     public func name(): String {

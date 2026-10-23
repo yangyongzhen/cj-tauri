@@ -78,6 +78,14 @@ public func serialPortList(): ArrayList<String> {
 public class SerialPlugin <: Plugin {
     public init() {}
 
+    /** 自描述：原生桥仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
+
     public func name(): String {
         return "serial"
     }

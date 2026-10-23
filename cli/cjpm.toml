@@ -2,7 +2,7 @@
   cjc-version = "1.0.5"
   name = "cli"
   description = "cj-tauri CLI：脚手架 create / dev / build / run / info"
-  version = "1.1.2"
+  version = "2.0.0"
   target-dir = ""
   output-type = "executable"
   compile-option = ""
@@ -13,4 +13,10 @@
 [dependencies]
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX}"]
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+  # 与根 cjpm.toml 同口径：CLI 也 import stdx.encoding.json，Windows 上缺这一段时
+  # cjpm 报的是 `root package 'cli' imports package 'stdx.encoding.json' … not added as a
+  # dependency in cjpm.toml`（看着像 toml 漏配，其实是 Windows 目标段没声明 stdx）。
   path-option = ["${CANGJIE_STDX}"]

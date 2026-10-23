@@ -32,7 +32,7 @@ public enum PageLoad {
  * - Inline / Url / DevServer：直接映射
  * - Asset：优先走注入的 AssetResolver；未注入时按 cwd 相对路径读盘——与现有模板
  *   textOrFile 的桌面行为等价，鸿蒙 rawfile / 内嵌常量的实现在批次 2 随清单接入
- * - 找不到资产：抛可照做的错误，不静默白屏（与 host_factory「不静默回落」同约定）
+ * - 找不到资产：抛可照做的错误，不静默白屏（与宿主装配「不静默回落」同约定）
  */
 
 /** 资产解析异常：message 即面向用户的措辞。子包不引用根包的 CommandException

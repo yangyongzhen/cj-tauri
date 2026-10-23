@@ -163,8 +163,8 @@ Capability model (src/capability.cj) ← command/event whitelist, default-deny (
 Built-in commands (src/api_system.cj): system:version / ping / echo / devtools
         ▼
 WebView host (src/host.cj trait + per-platform impls)
-   ├─ Linux: webkit2gtk-4.1 (src/host_webkit.cj + native/bridge_linux.c, C bridge runs GTK on a native pthread)
-   ├─ Windows: WebView2 (src/host_webview2.cj + native/bridge_win.c, Win32 message loop on the host thread)
+   ├─ Linux: webkit2gtk-4.1 (src/host_webkit.cj + native/platforms/linux/bridge_linux.c, C bridge runs GTK on a native pthread)
+   ├─ Windows: WebView2 (src/host_webview2.cj + native/platforms/windows/bridge_win.c, Win32 message loop on the host thread)
    └─ HarmonyOS: ArkWeb (scaffolded, conditional-compilation slot)
 ```
 

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ohos-capabilities</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #16161d;
+         color: #e6e6e6; margin: 0; padding: 18px 16px 40px; }
+  h1 { margin: 0 0 2px; font-size: 20px; color: #7ce7ff; }
+  .sub { margin: 0 0 14px; font-size: 12px; color: #9aa0b4; }
+  h2 { margin: 18px 0 8px; font-size: 14px; color: #8be9fd; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2d3a; }
+  th { color: #9aa0b4; font-weight: 500; }
+  td.bit { font-family: ui-monospace, Consolas, monospace; }
+  .pass { color: #50fa7b; }
+  .fail { color: #ff6b81; }
+  .warn { color: #ffd166; }
+  pre { background: #1b1c24; border: 1px solid #2a2d3a; border-radius: 8px; padding: 10px;
+        font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
+        margin: 0; max-height: 220px; overflow: auto; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 10px 0; font-size: 13px; }
+  button { font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid #33507a;
+           background: #21324d; color: #cfe4ff; cursor: pointer; }
+  button:hover { opacity: .85; }
+  .foot { margin-top: 16px; font-size: 12px; color: #6b7186; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <h1>鸿蒙宿主能力位探针</h1>
+  <p class="sub">取值来自后端 <code>system:host</code>；每条断言同时写进设备 hilog（tag <b>CjProbe</b>）</p>
+
+  <h2>能力位</h2>
+  <table id="caps">
+    <thead><tr><th>能力位</th><th>期望</th><th>实测</th><th>判定</th></tr></thead>
+    <tbody><tr><td colspan="4" style="color:#9aa0b4">读取中…</td></tr></tbody>
+  </table>
+
+  <h2>版本与平台</h2>
+  <table id="meta">
+    <tbody><tr><td colspan="2" style="color:#9aa0b4">读取中…</td></tr></tbody>
+  </table>
+
+  <h2>菜单（应用侧 bindMenu）</h2>
+  <div class="row">
+    <span>点窗口上方的「菜单」按钮 → 选「打个招呼」，回投应出现在下面：</span>
+  </div>
+  <div class="row">
+    <button id="toggleChecked">切换「侧边栏」勾选态</button>
+    <span id="stateLine" style="color:#9aa0b4">（未调用）</span>
+  </div>
+
+  <h2>事件回执</h2>
+  <pre id="log">（尚无事件）</pre>
+
+  <p class="foot">
+    判定口径：能力位「有」必须真机可观测（点得动、回投能到页面），代码里写了但设备上做不到的一律按 false 记；
+    本轮 TRAY / DRAG_DROP / HOTKEY / SUBTITLE 如实记 false。
+  </p>
+
+  <script>
+    // 注入的桥：document-start 注入，但仍可能晚于本脚本，轮询等它出现
+    function withBridge(cb) {
+      if (window.__CJ_TAURI__) { cb(window.__CJ_TAURI__); return; }
+      setTimeout(function () { withBridge(cb); }, 50);
+    }
+
+    var lines = [];
+    function logLine(text) {
+      lines.push(text);
+      var box = document.getElementById('log');
+      box.textContent = lines.join('\n');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    withBridge(function (tauri) {
+      // 页面断言 → 设备 hilog：鸿蒙上框架 stderr 不进 hilog，只有应用侧 Hilog 抓得到，
+      // 所以走 probeLog 命令把每一行原样写进日志（tag CjProbe）。
+      function report(text) {
+        logLine(text);
+        tauri.invoke('probeLog', { text: text }).catch(function (err) {
+          logLine('probeLog FAIL: ' + err.message);
+        });
+      }
+
+      // 本轮预期：只有 menu 该为 true，其余四项必须如实为 false
+      var EXPECT = { menu: true, tray: false, dragDrop: false, hotkey: false, subtitle: false };
+      var BITS = ['menu', 'tray', 'dragDrop', 'hotkey', 'subtitle'];
+
+      function renderCaps(host) {
+        var body = document.querySelector('#caps tbody');
+        body.innerHTML = '';
+        var okCount = 0;
+        BITS.forEach(function (name) {
+          var actual = !!host[name];
+          var expect = EXPECT[name];
+          var ok = actual === expect;
+          if (ok) { okCount += 1; }
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td class="bit">' + name + '</td>'
+            + '<td>' + expect + '</td>'
+            + '<td>' + actual + '</td>'
+            + '<td class="' + (ok ? 'pass' : 'fail') + '">' + (ok ? 'PASS' : 'FAIL') + '</td>';
+          body.appendChild(tr);
+          report((ok ? 'PASS ' : 'FAIL ') + 'cap ' + name + ' expect=' + expect + ' actual=' + actual);
+        });
+        report('caps ' + okCount + '/' + BITS.length + ' bits match expectation');
+
+        var meta = document.querySelector('#meta tbody');
+        meta.innerHTML = '';
+        meta.innerHTML = '<tr><th>platform</th><td class="bit">' + host.platform + '</td></tr>'
+          + '<tr><th>logFile</th><td class="bit">' + (host.logFile || '') + '</td></tr>';
+        report('PASS platform ' + host.platform);
+      }
+
+      tauri.invoke('system:host').then(function (host) {
+        renderCaps(host);
+      }).catch(function (err) {
+        report('FAIL system:host ' + err.message);
+      });
+
+      tauri.invoke('system:version').then(function (v) {
+        var shown = (typeof v === 'object' && v !== null) ? JSON.stringify(v) : String(v);
+        var meta = document.querySelector('#meta tbody');
+        meta.innerHTML += '<tr><th>version</th><td class="bit">' + shown + '</td></tr>';
+        report('PASS version ' + shown);
+      }).catch(function (err) {
+        report('FAIL system:version ' + err.message);
+      });
+
+      // 页面 → 宿主菜单状态（menu 插件命令 → setMenuItemState）：启动即自动跑一次，
+      // 免得靠屏幕坐标点按钮，也能证明「勾选态由页面驱动」这条链通着。
+      function probeSetChecked(checked) {
+        if (!tauri.menu) {
+          report('FAIL menu shim missing (menu 插件未注入)');
+          return;
+        }
+        tauri.menu.setChecked({ id: 'view.sidebar', checked: checked })
+          .then(function () {
+            document.getElementById('stateLine').textContent = '侧边栏 = ' + checked;
+            report('PASS menu setChecked view.sidebar=' + checked);
+          })
+          .catch(function (err) {
+            document.getElementById('stateLine').textContent = '失败：' + err.message;
+            report('FAIL menu setChecked ' + err.message);
+          });
+      }
+      probeSetChecked(true);
+
+      // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
+      tauri.listen('menu:click', function (payload) {
+        report('PASS menu click id=' + payload.id
+          + ' enabled=' + payload.enabled + ' checked=' + payload.checked);
+      });
+
+      tauri.listen('tick', function (payload) {
+        logLine('tick #' + payload.n);
+      });
+
+      // 页面 → 原生菜单：勾选态改动（走 menu 插件，验证宿主侧状态回写）
+      var checked = true;
+      document.getElementById('toggleChecked').onclick = function () {
+        if (!tauri.menu) {
+          document.getElementById('stateLine').textContent = '未注入 menu 插件 shim';
+          report('FAIL menu shim missing');
+          return;
+        }
+        checked = !checked;
+        tauri.menu.setChecked({ id: 'view.sidebar', checked: checked })
+          .then(function () {
+            document.getElementById('stateLine').textContent = '侧边栏 = ' + checked;
+            report('PASS menu setChecked view.sidebar=' + checked);
+          })
+          .catch(function (err) {
+            document.getElementById('stateLine').textContent = '失败：' + err.message;
+            report('FAIL menu setChecked ' + err.message);
+          });
+      };
+    });
+  </script>
+</body>
+</html>

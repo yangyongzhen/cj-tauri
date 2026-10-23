@@ -214,6 +214,15 @@ public class ArkWebHost <: WebViewHost {
     private var dialogRequestCount: Int64 = 0
     private var dialogAnswerCount: Int64 = 0
 
+    /*
+     * 菜单模型快照：worker 线程写（setMenu / setMenuItemState）、UI 线程读（menuModel），
+     * 与上面三个对话框槽同受 queueLock 保护。ArkUI 那半边（bindMenu）在应用侧，
+     * 框架这边只存模型——理由见 arkweb_menu.cj 的类注释。
+     */
+    private var menuRoot: ArrayList<ArkWebMenuItem> = ArrayList<ArkWebMenuItem>()
+    private var menuItemCount: Int64 = 0
+    private var menuClickCount: Int64 = 0
+
     private var messageHandler: (String) -> Unit = { _ => }
     private var shellHandler: (String) -> Unit = { _ => }
     private var destroyHandler: () -> Unit = { => }
@@ -320,19 +329,99 @@ public class ArkWebHost <: WebViewHost {
         eprintln("[cj-tauri] ArkWeb: openDevTools is not available on this platform (use web debugging)")
     }
 
-    /* ---- 以下宿主能力位为 0：一律如实拒绝，不假装成功（AGENTS §2 的 scaffold 纪律） ---- */
+    /* ---- 菜单：框架存模型，应用侧用 bindMenu 画（见 arkweb_menu.cj 的类注释） ---- */
 
+    /**
+     * 收下应用给的菜单线路格式（`MenuModel.toWire()`），解析成快照存起来。
+     *
+     * **不阻塞、也不画界面**：真正的菜单由应用侧的 `ArkWebView` 在 `bindMenu` 里画，
+     * UI 线程经 [menuModel] 取快照。这样框架包不引用 ArkUI（AGENTS §4 的 SIGSEGV 坑）。
+     */
     public func setMenu(wire: String): Unit {
-        let _ = wire
-        eprintln("[cj-tauri] ArkWeb: menu unsupported (host capability bit is 0)")
+        let parsed = parseArkWebMenuWire(wire)
+        var rows: Int64 = 0
+        synchronized(ArkWebRuntime.queueLock) {
+            this.menuRoot = parsed
+            rows = countMenuItems(parsed)
+            this.menuItemCount = rows
+        }
+        eprintln("[cj-tauri] ArkWeb: menu applied (${wire.size} bytes, ${rows} item(s), app-side bindMenu)")
     }
 
     /**
-     * P-1/P-2（RFC §4.6.4）：ohos 宿主没有菜单栏（ArkWeb 窗口形态，无 GTK/Win32 菜单概念），
-     * 菜单状态改动如实报「端不支持」。静默 no-op 会让页面误以为已生效——如实失败才可照做。
+     * 运行期改单项状态（按 id 找，找不到静默忽略——与桌面两平台同口径）。
+     *
+     * 这里**不再抛异常**：菜单模型住在本进程，改动是纯内存动作；UI 下一轮 [menuModel]
+     * 拿到的就是新状态（`bindMenu` 每次 build 重新生成，不需要额外通知）。
      */
     public func setMenuItemState(id: String, enabled: Bool, checked: Bool): Unit {
-        throw CommandException("menu: 菜单状态改动在 ohos 端不支持（该端没有菜单栏，P-1 桩，见 RFC §4.6.4）")
+        var hit = false
+        synchronized(ArkWebRuntime.queueLock) {
+            for (item in this.menuRoot) {
+                match (item.find(id)) {
+                    case Some(node) =>
+                        node.enabled = enabled
+                        node.checked = checked
+                        hit = true
+                    case None => ()
+                }
+            }
+        }
+        eprintln("[cj-tauri] ArkWeb: menu item state id=\"${id}\" enabled=${enabled} checked=${checked} hit=${hit}")
+    }
+
+    /**
+     * UI 线程取菜单快照（每次一份深拷贝，UI 改它不会动到宿主里的模型）。
+     *
+     * 应用侧的 `ArkWebView` 在 `build()` 里按它生成 `bindMenu` 的 `MenuElement` 数组；
+     * 没有菜单时回空表（应用照常建树，别等菜单才画 Web）。
+     */
+    public func menuModel(): ArrayList<ArkWebMenuItem> {
+        let out = ArrayList<ArkWebMenuItem>()
+        synchronized(ArkWebRuntime.queueLock) {
+            for (item in this.menuRoot) {
+                out.add(item.snapshot())
+            }
+        }
+        return out
+    }
+
+    /**
+     * 应用侧 UI 里「这一项被点了」→ 回投 shell 事件。
+     *
+     * 报文与桌面 C 桥的 `cj_core_menu_clicked` **逐字同形**
+     * （`{"kind":"menu","id":…,"enabled":…,"checked":…}`），于是应用层的 `onShellEvent`、
+     * 前端 `menu:click`、以及应用按事件同步自己模型的代码都不用分平台。
+     *
+     * 勾选项的翻转由本函数做（与 Windows 侧「Win32 不替我们翻，自己翻」同口径）：
+     * 报出去的是**翻转后**的状态，页面照它更新即可。
+     */
+    public func noteMenuClick(id: String): Unit {
+        var enabled = true
+        var checked = false
+        var found = false
+        synchronized(ArkWebRuntime.queueLock) {
+            for (item in this.menuRoot) {
+                match (item.find(id)) {
+                    case Some(node) =>
+                        if (node.isCheckbox()) {
+                            node.checked = !node.checked
+                        }
+                        enabled = node.enabled
+                        checked = node.checked
+                        found = true
+                    case None => ()
+                }
+            }
+        }
+        if (!found) {
+            eprintln("[cj-tauri] ArkWeb: menu click ignored (id=\"${id}\" is not in the current menu)")
+            return
+        }
+        this.menuClickCount++
+        eprintln("[cj-tauri] ArkWeb: menu clicked id=\"${id}\" enabled=${enabled} checked=${checked}")
+        this.shellHandler("{\"kind\":\"menu\",\"id\":\"${arkWebJsonEscape(id)}\",\"enabled\":${enabled}," +
+            "\"checked\":${checked}}")
     }
 
     public func setTitlebarSubtitle(text: String): Unit {
@@ -365,7 +454,14 @@ public class ArkWebHost <: WebViewHost {
 
     /** 能力位全 0：鸿蒙侧还没有任何一项宿主级能力通过实机取证（AGENTS §1 门禁 4） */
     public func hostCapabilities(): Int32 {
-        return 0
+        /*
+         * 菜单是鸿蒙侧第一项真落地的宿主能力：框架存模型（arkweb_menu.cj）、应用侧 bindMenu 画、
+         * 点击经 noteMenuClick 回投（报文与桌面同形）。其余位仍为 0——判据是「仓颉侧有没有 API」：
+         * 托盘（鸿蒙无系统托盘）、全局快捷键（只有组件级 keyboardshortcut）、拖入文件（SDK 只有
+         * 拖出侧的 drag / dragPreview，没有 drop 回调）、通知（SDK 无 notification_manager 模块）、
+         * 标题栏副标题（无 setWindowTitle）。AGENTS §1 门禁 4：没有实机证据的位置 1。
+         */
+        return CJ_CAP_MENU
     }
 
     public func setShellHandler(handler: (String) -> Unit): Unit {
@@ -775,4 +871,23 @@ public class ArkWebHost <: WebViewHost {
         }
         return "${block}${html}"
     }
+}
+
+/* 菜单项总数（含各级子孙）：只用于日志对账，不参与渲染 */
+@When[env == "ohos"]
+private func countMenuItems(items: ArrayList<ArkWebMenuItem>): Int64 {
+    var total: Int64 = 0
+    for (item in items) {
+        total++
+        total += countMenuItems(item.children)
+    }
+    return total
+}
+
+/* shell 报文里 id 的最小转义：只处理 `\` 与 `"`（与 C 侧 cj_json_escape_into 同口径） */
+@When[env == "ohos"]
+private func arkWebJsonEscape(text: String): String {
+    // 迭代 String 得到的是 UInt8 字节（AGENTS §4），`String(byte)` 并不接受 UInt8——
+    // 这里只需要处理两个 ASCII 元字符，直接走 replace 更稳，也不碰字节/码点的口径。
+    return text.replace("\\", "\\\\").replace("\"", "\\\"")
 }

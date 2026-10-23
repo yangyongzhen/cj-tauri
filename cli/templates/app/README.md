@@ -1,80 +1,48 @@
 # {{PROJECT_NAME}}
 
 基于 [cj-tauri]({{FRAMEWORK_ROOT}})（仓颉版 Tauri）的应用：**仓颉后端 + 系统 WebView 前端**，
-通过 `window.__CJ_TAURI__` 做 invoke/listen 双向 IPC，并由 capability 清单做最小权限管控。
+通过 `window.__CJ_TAURI__` 做 invoke/listen 双向 IPC，并由 capabilities 清单做最小权限管控。
 
-## 目录结构
+## 目录结构（一份业务代码，骨架按目标派生）
 
 ```
 {{PROJECT_NAME}}/
-├── cjpm.toml              # 应用构建配置（依赖 cj-tauri 框架）
-├── src/main.cj            # 仓颉入口：窗口配置 + 命令注册 + 启动
-├── ui/index.html          # 前端页面（任意 Web 技术栈）
-└── capabilities/default.json  # 能力白名单（命令 / 事件）
+├── cj-tauri.toml           # 应用清单——单一真相（id/version/窗口/资产/能力目录）
+├── cjpm.toml               # 业务包（static 库；骨架以 path 依赖引用）
+├── src/main.cj             # 业务装配点 build(): AppSpec（零平台知识）
+├── assets/
+│   ├── ui/index.html       # 前端页面（任意 Web 技术栈）
+│   └── capabilities/default.json   # 能力白名单（命令 / 事件 / 权限集）
+└── targets/                # cj-tauri sync 生成的骨架（勿手改；check 判漂移）
+    ├── desktop/            #   桌面可执行（launcher 调 build()）
+    └── ohos/               #   鸿蒙 hap 工程（DevEco + build-hap.sh）
 ```
 
 ## 运行
 
 ```bash
-# 开发：构建 C 桥 + 编译 + 启动窗口
-cj-tauri dev
-
-# 仅构建 / 仅运行
-cj-tauri build
-cj-tauri run
+cj-tauri sync     # 派生 targets/ 骨架（首次；重跑幂等）
+cj-tauri dev      # 构建 C 桥 + 编译 + 启动窗口
+cj-tauri build    # 仅构建
+cj-tauri run      # 运行已构建产物
+cj-tauri check    # 清单校验 + 骨架漂移 + 插件三方比对
 ```
 
-不带 CLI 时手动运行：
+## 鸿蒙端（PC / 2in1）
 
 ```bash
-cjpm build
-# 需要把「框架 native 目录 + stdx 目录 + 仓颉运行时目录」加入动态库搜索路径后，
-# 在项目根目录（capabilities/ 与 ui/ 是相对路径读取）启动：
-#   Linux:   LD_LIBRARY_PATH=<native>:<stdx>:<cangjie runtime/lib> ./target/release/bin/main
-#   Windows: set PATH=<native>;<native>\webview2;<stdx>;<cangjie>\runtime\lib\windows_x86_64_cjnative;%PATH%
-#            target\release\bin\main.exe
+export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
+cd targets/ohos && bash build-hap.sh            # 编 hap
+cd targets/ohos && bash build-hap.sh --install  # 编完装到设备并拉起
 ```
 
-## 窗口配置
+提示：模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs
+勾「Automatically generate signature」（要登录华为账号）；不签名只能编出
+*-unsigned.hap，装不进设备。
 
-```cangjie
-let app = TauriApp()
-    .window(WindowConfig("我的应用", 1200, 800))   // 标题 / 宽 / 高
-```
+## 命令与能力
 
-默认标题 `cj-tauri 应用`、1000×700、允许开发者工具；
-`WindowConfig.devTools = false` 可禁用，前端 `invoke('system:devtools')` 可在运行时打开（需在能力清单里声明）。
-
-## 加一个命令
-
-1. 在 `src/main.cj` 实现 `CommandHandler`：
-
-```cangjie
-public class PingCommand <: CommandHandler {
-    public init() {}
-    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
-        return JsonString("pong")
-    }
-}
-```
-
-2. 注册：`.register("ping", PingCommand())`
-3. 在 `capabilities/default.json` 的 `commands` 里声明 `"ping"`（**不声明会被拒绝**；
-   清单由框架在 `run()` 时自动扫描 `capabilities/` 目录，无需自己读文件）
-4. 前端调用：`window.__CJ_TAURI__.invoke('ping').then(...)`
-
-## 后端推事件
-
-```cangjie
-var payload = JsonObject()
-payload.put("n", JsonInt(1))
-ipc.emit("tick", payload)     // 需在 capabilities 的 events 中声明 "tick"
-```
-
-```js
-window.__CJ_TAURI__.listen('tick', function (payload) { console.log(payload.n); });
-```
-
-## 文档
-
-框架完整文档：`{{FRAMEWORK_ROOT}}/README.md` 与 `{{FRAMEWORK_ROOT}}/docs/使用文档.md`
+命令在 `src/main.cj`（`greet` / `timer` + 演示菜单），白名单在 `assets/capabilities/default.json`——
+两边必须对齐：`cj-tauri check` 的三方比对会交叉核对「能力声明 × 插件自描述 × 实际装配」。
+插件在某端没有实现时（如 shell/sqlite 在鸿蒙端），骨架照样编得过，运行期调用得到
+可照做的「端不支持」错误（RFC-002 §4.6.4 的 P-1 桩）。

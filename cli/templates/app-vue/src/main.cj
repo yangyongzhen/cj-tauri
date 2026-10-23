@@ -1,8 +1,8 @@
 package {{PACKAGE_NAME}}
 
 import cjTauri.*
+import cjTauri.plugins.menu.*
 import stdx.encoding.json.*
-import std.fs.*
 import std.collection.*
 
 /**
@@ -25,7 +25,7 @@ public class GreetCommand <: CommandHandler {
 }
 
 /**
- * 定时器命令：启动后台线程，每秒向后端推一个 tick 事件（验证 仓颉 → JS 通道）
+ * 定时器命令：启动后台线程，每秒向前端推一个 tick 事件（验证 仓颉 → JS 通道）
  * 前端：tauri.listen("tick", cb) + tauri.invoke("timer")
  */
 public class TimerCommand <: CommandHandler {
@@ -67,36 +67,25 @@ func demoMenu(): MenuModel {
     return MenuModel(items)
 }
 
-main(): Int64 {
-    // 1) 装配应用（对标 tauri::Builder）：窗口配置 + 注册命令
-    //    能力清单由框架在 run() 时自动扫描 capabilities/ 目录（对标 Tauri 的 capabilities 目录）
-    let app = TauriApp()
+/**
+ * 业务装配点（RFC-002 §4.1）：骨架的 launcher（targets/ 下各目标的 src）调用它取 AppSpec。
+ *
+ * 零平台知识：不碰宿主、不知道页面文件路径、不知道能力目录——那些由清单
+ * （cj-tauri.toml）决定，launcher 按清单覆盖（page/window/assets/capabilities）。
+ * dev 模式页面来自 Vite dev server（框架按 CJ_TAURI_DEV_URL 自动改写），
+ * 发布构建加载 assets/ui/dist 的单文件产物——两种跑法业务代码完全一致。
+ */
+public func build(): AppSpec {
+    return AppSpec()
         .window(WindowConfig("{{PROJECT_NAME}}", 1000, 700))
-        .register("greet", GreetCommand())
-        .register("timer", TimerCommand())
         // menu 插件：给前端挂 window.__CJ_TAURI__.menu.setEnabled / setChecked
         // （插件只声明「我提供什么」，**不自动放行**——要能调，就在 capabilities 里引用
         //   permissions: ["menu:state"]，或逐条写 commands）
         .plugin(MenuPlugin())
-        // 菜单栏必须在 run() / runUrl() 之前挂：预置类宿主能力要赶在页面加载前定稿
-        .setMenu(demoMenu())
-
-    // 2) 页面来源二选一，对应本模板的两种跑法：
-    //    dev  : cj-tauri dev 起了 Vite dev server 并注入 CJ_TAURI_DEV_URL
-    //           → 页面来自真实 URL，改 .vue 保存即热更新，应用不用重启
-    //    发布 : 读 Vite 打出来的单文件 ui/dist/index.html（js/css 已内联，无外部依赖）
-    if (let Some(url) <- TauriApp.devUrl()) {
-        eprintln("[app] dev 模式，页面来自 ${url}")
-        app.runUrl(url)
-    } else {
-        let dist = "ui/dist/index.html"
-        if (!exists(dist)) {
-            eprintln("[app] 找不到 ${dist}")
-            eprintln("      开发: 在项目根跑 cj-tauri dev（会自动 npm install + 起 dev server）")
-            eprintln("      发布: cd ui && npm run build")
-            return 1
-        }
-        app.run(String.fromUtf8(File.readFrom(dist)))
-    }
-    return 0
+        .wire({ app =>
+            app.register("greet", GreetCommand())
+            app.register("timer", TimerCommand())
+            // 菜单栏必须在 run 之前挂：预置类宿主能力要赶在页面加载前定稿
+            app.setMenu(demoMenu())
+        })
 }

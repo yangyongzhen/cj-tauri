@@ -198,7 +198,8 @@ func cmdDoctor(): Int64 {
     match (projRoot) {
         case Some(proj) =>
             doctorLine(rep, CheckLevel.Ok, "项目根目录", proj, "")
-            match (findAppBinary(proj)) {
+            let newForm = exists(joinPath(proj, "cj-tauri.toml"))
+            match (findAppBinary(proj, newForm)) {
                 case Some(bin) =>
                     if (fwRoot.size > 0 && !appBinaryIsFresh(bin, fwRoot)) {
                                 doctorLine(rep, CheckLevel.Warn, "可执行产物", "${bin} [比框架源码旧]",
@@ -207,7 +208,8 @@ func cmdDoctor(): Int64 {
                         doctorLine(rep, CheckLevel.Ok, "可执行产物", bin, "")
                     }
                 case None =>
-                        doctorLine(rep, CheckLevel.Warn, "可执行产物", "未构建", "`cj-tauri build`")
+                        doctorLine(rep, CheckLevel.Warn, "可执行产物", "未构建",
+                            if (newForm) { "`cj-tauri sync` + `cj-tauri build`" } else { "`cj-tauri build`" })
             }
         case None =>
             doctorLine(rep, CheckLevel.Warn, "项目根目录", "当前不在 cj-tauri 项目内",

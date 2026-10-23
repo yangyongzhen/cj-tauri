@@ -49,4 +49,4 @@
     # 声明能解析到（.cjo 在 ohos 目录里），但宏实现库找不到，报的是
     # `macro evaluation has failed for macro call 'Component'`——看着像「宏不能用在框架包里」。
     # 命令行交叉编译时这两个变量要自己 export，取值见上。
-    path-option = ["D:/cangjie-stdx-ohos/linux_ohos_aarch64_cjnative/dynamic/stdx", "C:/Users/yang/.cangjie-sdk/6.1/cangjie/api/lib/linux_ohos_aarch64_cjnative/ohos", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}"]
+    path-option = ["${CANGJIE_STDX_OHOS}", "${CANGJIE_OHOS_LIBS}", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}"]

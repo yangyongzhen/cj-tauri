@@ -21,6 +21,14 @@ import stdx.encoding.json.*
  * 「发后即忘」：提交即返回，通知显示与否不回传（freedesktop 协议本就没有同步回执）。
  */
 public class NotificationPlugin <: Plugin {
+
+    /** 自描述：原生桥仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
     private let handler: NotificationCommands = NotificationCommands()
 
     public init() {}

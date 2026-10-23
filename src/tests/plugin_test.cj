@@ -540,3 +540,46 @@ func testRenderPluginManifestEmptyList(): Unit {
     @Expect(renderPluginManifest(none, "text"), "（未装配插件）\n")
     @Expect(JsonValue.fromStr(renderPluginManifest(none, "json")).asArray().size(), 0)
 }
+
+class HostedDemoPlugin <: Plugin {
+    public init() {}
+
+    public func name(): String {
+        return "demo2"
+    }
+
+    public func commands(): HashMap<String, CommandHandler> {
+        return HashMap<String, CommandHandler>()
+    }
+
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
+}
+
+@Test
+func testDescribeDefault(): Unit {
+    let d = DemoPlugin().describe()
+    // 默认实现：全宿主、无能力依赖（空数组 = 不限）
+    @Expect(d.supportedHosts.size, 0)
+    @Expect(d.requiredCapabilities.size, 0)
+}
+
+@Test
+func testDescribeOverride(): Unit {
+    let d = HostedDemoPlugin().describe()
+    @Expect(d.supportedHosts.size, 1)
+    @Expect(d.supportedHosts.get(0), "webkitgtk")
+}
+
+@Test
+func testManifestJsonCarriesDescribe(): Unit {
+    let plugins = ArrayList<Plugin>()
+    plugins.add(HostedDemoPlugin())
+    let arr = jsonItemsOf(JsonValue.fromStr(renderPluginManifest(plugins, "json")))
+    let obj = arr[0].asObject()
+    @Expect(joinWithPipe(jsonStringsOf(obj, "supportedHosts")), "webkitgtk")
+    @Expect(jsonStringsOf(obj, "requiredCapabilities").size, 0)
+}

@@ -1,0 +1,23 @@
+# cj-tauri 应用清单——整个工程的单一真相（RFC-002 §7）。
+# cj-tauri sync 从这里派生 targets/ 骨架（desktop/ohos）；cj-tauri check 校验它并检测骨架漂移。
+[app]
+  name = "{{PROJECT_NAME}}"
+  version = "0.1.0"
+  # 应用标识：桌面是安装 ID，鸿蒙直接是 bundleName（每段须字母开头、只含字母数字下划线）
+  id = "{{BUNDLE_NAME}}"
+  # 业务包名（cjpm 约束①：toml 模块名必须等于源包名）
+  package = "{{PACKAGE_NAME}}"
+
+[[windows]]
+  label = "main"
+  title = "{{PROJECT_NAME}}"
+  width = 1000
+  height = 700
+
+[assets]
+  # 骨架 launcher 加载的页面：Vite 打出来的单文件产物（vite-plugin-singlefile 内联 js/css）。
+  # dev 模式自动改写到 Vite dev server（热更新）；发布构建才用这个产物。
+  page = "ui/dist/index.html"
+
+[capabilities]
+  dir = "assets/capabilities"

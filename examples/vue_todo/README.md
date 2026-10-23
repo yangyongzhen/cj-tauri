@@ -63,7 +63,7 @@ window.__CJ_TAURI__.reload();                                            // 整�
 
 ### 注意：桥是**异步**注入的，别在模块顶层直接读
 
-Linux 宿主的桥接脚本注入在**文档末尾**（`native/bridge_linux.c` 的
+Linux 宿主的桥接脚本注入在**文档末尾**（`native/platforms/linux/bridge_linux.c` 的
 `WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END`；Windows 侧是 document-created），而 `npm run build`
 产出的单文件把 `<script type="module">` 内联进 HTML、解析完立即执行 —— 内联模块会跑在注入**之前**，
 此时 `window.__CJ_TAURI__` 还是 `undefined`（开发态从 URL 加载、模块要现下载，反而掩盖了这个竞态）。

@@ -157,3 +157,12 @@ func listDir(p: String): Array<FileInfo> {
 func escapeTomlString(p: String): String {
     return p.replace("\\", "\\\\").replace("\"", "\\\"")
 }
+
+/**
+ * 写进生成 TOML 的路径一律转正斜杠。
+ * 为什么：Windows 的 `E:\a\b` 在 TOML 基本字符串里是转义序列，`\a` / `\t` 会让 cjpm 解析期直接
+ * `errLexEscape` 失败（AGENTS §4「生成 toml 的脚本用正斜杠」）；正斜杠 cjpm 与 gcc/ld 都认。
+ */
+func toTomlPath(p: String): String {
+    return p.replace("\\", "/")
+}

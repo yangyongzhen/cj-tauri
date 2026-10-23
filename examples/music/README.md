@@ -3,6 +3,10 @@
 一个用 cj-tauri 写的桌面音乐播放器：**深色三栏界面**（左侧导航 / 中间榜单·搜索·歌单 / 右侧「正在播放 + 同步歌词」）
 + 底部播放条，能拉榜单、搜歌、点播、跟着歌词滚动、收藏、记最近播放，还能把收藏当歌单**分享到后台**。
 
+> **新形态版本**：[`examples/music-next`](../music-next/README.md) 是本示例按 RFC-002 多端单业务代码架构
+> 的新形态版本（`cj-tauri.toml` 清单 + 业务 static 包 + `assets/`，一份代码、多端产物）。
+> 本目录保留为**旧形态行为基线**；两者差异与验收口径见 music-next 的 README。
+
 它同时是**框架能力的一次综合演示**：数据全部经 `invoke` 由仓颉侧取回（前端一次 `fetch` 都不发），
 封面走宿主侧防盗链代理，收藏落本机 JSON，并且自带一套**无人值守自检**——跑完把结论写成日志行，
 不用靠「看起来能用」。
@@ -18,7 +22,7 @@
 
 | cj-tauri | 对应 Tauri 的 | 在这个示例里落在哪 |
 | --- | --- | --- |
-| WebView 宿主 | tao / wry | C 桥 `native/bridge_win.c`（WebView2）/ `native/bridge_linux.c`（WebKitGTK） |
+| WebView 宿主 | tao / wry | C 桥 `native/platforms/windows/bridge_win.c`（WebView2）/ `native/platforms/linux/bridge_linux.c`（WebKitGTK） |
 | IPC 双向桥 | invoke / resolve / event | 页面 `window.__CJ_TAURI__.invoke('music:hot')` → 仓颉侧 `CommandHandler` |
 | 能力安全模型 | capability 白名单 | `capabilities/default.json` 里逐条声明命令与事件 |
 

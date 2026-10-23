@@ -152,6 +152,16 @@ and self-check instructions. Most docs are in Chinese; the code and logs are the
 
 ## Architecture
 
+**One business codebase, several platform artifacts** — business code lives in `src/`, pages in `assets/`, and `cj-tauri sync` derives the skeletons into `targets/desktop` and `targets/ohos`; the business package is wired in as a path dependency, never copied:
+
+![cj-tauri multi-platform architecture: business code → cj-tauri.toml manifest → CLI → targets/desktop and targets/ohos → WebKitGTK / WebView2 / ArkWeb](docs/images/architecture-multiplatform.png)
+
+**Layered call chain** — responsibilities and cross-platform boundaries from the page down to the host:
+
+![cj-tauri layered architecture: bridge JS → IPC hub → capability model → built-in / plugin commands → WebView host → shared C layer](docs/images/architecture.png)
+
+The same layering in text form (searchable / copyable):
+
 ```
 Front-end (HTML/CSS/JS) ← window.__CJ_TAURI__.invoke/listen/emit (injected bridge JS, like @tauri-apps/api)
         │  JSON over postMessage (Linux: WebKitUserContentManager; Windows: chrome.webview.postMessage)
@@ -163,9 +173,9 @@ Capability model (src/capability.cj) ← command/event whitelist, default-deny (
 Built-in commands (src/api_system.cj): system:version / ping / echo / devtools
         ▼
 WebView host (src/host.cj trait + per-platform impls)
-   ├─ Linux: webkit2gtk-4.1 (src/host_webkit.cj + native/bridge_linux.c, C bridge runs GTK on a native pthread)
-   ├─ Windows: WebView2 (src/host_webview2.cj + native/bridge_win.c, Win32 message loop on the host thread)
-   └─ HarmonyOS: ArkWeb (scaffolded, conditional-compilation slot)
+   ├─ Linux: webkit2gtk-4.1 (src/host_webkit.cj + native/platforms/linux/bridge_linux.c, C bridge runs GTK on a native pthread)
+   ├─ Windows: WebView2 (src/host_webview2.cj + native/platforms/windows/bridge_win.c, Win32 message loop on the host thread)
+   └─ HarmonyOS: ArkWeb (ArkUI `Web` + `javaScriptProxy` on the app side, bridged through `arkweb_proxy.cj`; 2in1 / HarmonyOS PC)
 ```
 
 Writing an app takes three steps (mirroring tauri command / Builder / capabilities):

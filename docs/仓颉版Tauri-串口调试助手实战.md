@@ -62,7 +62,7 @@ WebView 宿主（src/host.cj + 各平台实现）
 开源地址（AtomGit 与 GitHub 双托管，一次 `git push` 两个远端都同步）：
 
 - AtomGit：<https://atomgit.com/qq8864/cj-tauri>
-- 示例源码：`examples/serial-assistant/`、插件源码：`src/plugin_serial.cj` + `native/bridge_win.c` / `native/bridge_linux.c`
+- 示例源码：`examples/serial-assistant/`、插件源码：`src/plugins/serial/plugin_serial.cj` + `native/platforms/windows/bridge_win.c` / `native/platforms/linux/bridge_linux.c`
 
 ## 第一步：脚手架起骨架
 
@@ -326,7 +326,7 @@ run.bat manual       # Windows：开窗手测，自己点
 
 - 项目仓库：<https://atomgit.com/qq8864/cj-tauri>
 - 示例源码：`examples/serial-assistant/`（`run.bat` / `run.sh` / `serial-peer-win.ps1`）
-- 插件源码：`src/plugin_serial.cj`、`native/bridge_core.c`、`native/bridge_win.c`、`native/bridge_linux.c`
+- 插件源码：`src/plugins/serial/plugin_serial.cj`、`native/core/bridge_core.c`、`native/platforms/windows/bridge_win.c`、`native/platforms/linux/bridge_linux.c`
 - 设计文档：`docs/RFC-插件体系.md`、`AGENTS.md`（架构契约与踩坑清单）
 
 

@@ -131,7 +131,7 @@ Windows 那边的现象是：窗口出来了，页面一片空白，导航完成
 
 真因在回调的生命周期上。WebView2 的环境和控制器是异步回调传进来的，如果只是把指针存下来，回调返回之后没人持有这两个对象，引用计数归零就被释放，WebView2 随即把浏览器进程关掉——窗口空白，随后所有调用都返回那个似是而非的错误码。修法很朴素：在回调里对环境和控制器都 `AddRef`，自己持有一份，直到退出再释放，改完 `hr=0x0`。
 
-这段逻辑现在在 `native/bridge_win.c` 里，动桥的时候别把那几个 `AddRef` 删掉。同一处还有个小顺序问题：先 `ShowWindow` 再 `put_Bounds`，反过来的话首帧尺寸是 0，页面照样是白的。
+这段逻辑现在在 `native/platforms/windows/bridge_win.c` 里，动桥的时候别把那几个 `AddRef` 删掉。同一处还有个小顺序问题：先 `ShowWindow` 再 `put_Bounds`，反过来的话首帧尺寸是 0，页面照样是白的。
 
 Linux 那边是直接 abort，更难查。GTK 和 WebKit 的调用只能在主线程上，但这里说的「主线程」跟仓颉侧的主线程不是一回事：仓颉 `cjnative` 的 `main` 跑在 M:N 轻量线程的堆上协程栈里，WebKit 的 JSC 在调用边界会用 pthread 的栈边界校验栈指针，两者对不上，进程直接挂。所以桥把 GTK/WebKit 的调用全部搬进 C 桥自己创建的 pthread，仓颉侧只通过 FFI 调进去，回调再用 `CFunc` 回到仓颉。`bridge_linux.c` 里那些线程调度不是过度设计，是只能这么写。
 

@@ -1,60 +1,56 @@
 # {{PROJECT_NAME}}
 
-`cj-tauri create {{PROJECT_NAME}} --template vue` 生成的工程：**仓颉后端 + Vue 3 / Vite 前端**。
+基于 [cj-tauri]({{FRAMEWORK_ROOT}})（仓颉版 Tauri）+ Vue 3 + Vite 的应用：**仓颉后端 + 系统 WebView 前端**，
+通过 `window.__CJ_TAURI__` 做 invoke/listen 双向 IPC，并由 capabilities 清单做最小权限管控。
 
-目录结构：
+## 目录结构（一份业务代码，骨架按目标派生）
 
 ```
 {{PROJECT_NAME}}/
-  src/main.cj            后端入口（窗口 + 命令注册 + 页面来源选择）
-  capabilities/          能力清单（哪些命令 / 事件允许被前端调用）
-  ui/                    前端工程（Vite + Vue 3）
-    index.html
-    vite.config.js
-    src/App.vue
-    src/main.js
-  cjpm.toml              仓颉包配置（cjTauri 依赖路径由 create 写入本机绝对路径）
+├── cj-tauri.toml           # 应用清单——单一真相（id/version/窗口/资产/能力目录）
+├── cjpm.toml               # 业务包（static 库；骨架以 path 依赖引用）
+├── src/main.cj             # 业务装配点 build(): AppSpec（零平台知识）
+├── assets/
+│   ├── ui/                 # Vue 3 + Vite 前端工程（package.json / vite.config.js / src/）
+│   └── capabilities/default.json   # 能力白名单（命令 / 事件 / 权限集）
+└── targets/                # cj-tauri sync 生成的骨架（勿手改；check 判漂移）
+    ├── desktop/            #   桌面可执行（launcher 调 build()）
+    └── ohos/               #   鸿蒙 hap 工程（DevEco + build-hap.sh）
 ```
 
-## 开发：`cj-tauri dev`（热重载）
+## 首次运行（dev，热更新）
 
 ```bash
-cj-tauri dev
+cd assets/ui && npm install    # 前端依赖（需要 Node.js）
+cd ../.. && cj-tauri sync      # 派生 targets/ 骨架
+cj-tauri dev                   # 起 Vite dev server（改 .vue 保存即刷新）+ 编译 + 启动窗口
 ```
 
-`dev` 依次做：桥已构建则跳过 → 若 `ui/node_modules` 不存在则 `npm install` → 后台起 Vite dev server
-（`127.0.0.1:5173`）→ 探活 → 以环境变量 `CJ_TAURI_DEV_URL` 启动应用。页面来自真实 URL，所以：
-
-- 改 `ui/src/**.vue` / `.js`：保存后页面自己更新，**应用不重启**（Vite HMR）；
-- 改后端 `src/*.cj`：需要重新 `cj-tauri dev`（框架不承诺后端进程内热替换）；
-- 应用窗口关闭后会一并收掉 dev server。
-
-想手动控制前端时，也可以自己起 dev server 再启动应用：
+## 发布构建
 
 ```bash
-cd ui && npm run dev            # 另一个终端
-CJ_TAURI_DEV_URL=http://127.0.0.1:5173/ cj-tauri run
+cj-tauri build                 # 先在 assets/ui 跑 npm run build，再编后端
+cj-tauri run
 ```
 
-## 发布：打成一个 HTML 文件
+`vite.config.js` 用 vite-plugin-singlefile：产物是 `assets/ui/dist/index.html`
+（js/css 内联、无外部依赖）——正是清单 `[assets] page` 指向的页面。
+
+## 鸿蒙端（PC / 2in1）
 
 ```bash
-cd ui && npm install && npm run build   # 产出 ui/dist/index.html（js/css/图片全内联）
-cd .. && cj-tauri build                 # 构建桥 + cjpm build
-cj-tauri run                            # 没有 CJ_TAURI_DEV_URL 时读 ui/dist/index.html
+export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
+cd targets/ohos && bash build-hap.sh            # 编 hap
+cd targets/ohos && bash build-hap.sh --install  # 编完装到设备并拉起
 ```
 
-`vite-plugin-singlefile` 保证产物就是**一个** `index.html`，与 `app` 模板的单文件模式等价。
+提示：模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs
+勾「Automatically generate signature」（要登录华为账号）；不签名只能编出
+*-unsigned.hap，装不进设备。
 
-## 前后端怎么通信
+## 命令与能力
 
-前端拿到的是 `window.__CJ_TAURI__`（与 Tauri 的 `@tauri-apps/api` 同形）：
-
-```js
-window.__CJ_TAURI__.invoke('greet', { name: '仓颉' });   // → Promise
-window.__CJ_TAURI__.listen('tick', (payload) => { /* ... */ });
-window.__CJ_TAURI__.reload();                            // 整页刷新
-```
-
-能调哪些命令、能收哪些事件，由 `capabilities/default.json` 决定；没声明的命令一律被拒
-（`command not allowed: xxx`）。
+命令在 `src/main.cj`（`greet` / `timer` + 演示菜单），白名单在 `assets/capabilities/default.json`——
+两边必须对齐：`cj-tauri check` 的三方比对会交叉核对「能力声明 × 插件自描述 × 实际装配」。
+插件在某端没有实现时（如 shell/sqlite 在鸿蒙端），骨架照样编得过，运行期调用得到
+可照做的「端不支持」错误（RFC-002 §4.6.4 的 P-1 桩）。

@@ -11,7 +11,7 @@
 3. **能力在编译期成为类型**：命令与 capability 声明由构建期生成的注册表绑定，**漏声明 = 编译错误**，而不是运行时读 `capabilities/*.json` 才发现（现状 `src/app.cj:441` 是运行时读盘）。
 4. **业务侧零 `@When`**：平台差异不再由 OS 名分支表达，而由**能力探测**表达（`ctx.supports(Tray)` / `sandboxed` / `PageSource` 自适）。业务代码里出现 `os == "Windows"` 视为设计缺陷。
 5. **资产编译期定型**：构建期生成类型化资产表（`const` + 生成器校验），业务拿到的是常量而非字符串键；前端页面用统一的 `PageSource` 四态表达，取代"读盘 / 内嵌"两套业务分支。
-6. **骨架是派生物**：每端一份 `targets/<target>/`，由清单 + 模板生成，可入库、可 `--check` 比对、可整目录丢弃重建。业务目录里不允许出现任何平台文件。
+6. **骨架是派生物**：每端一份 `targets/<target>/`，由清单 + 模板生成、可 `--check` 比对、可整目录丢弃重建。**默认不入库**（批次 3 收尾修正）：生成出的 `cjpm.toml` 里框架与 stdx 是**本机绝对路径**的 path 依赖，入库即换机器失效，`.gitignore` 一律忽略 `targets/`，克隆后先 `sync` 再 `check`。业务目录里不允许出现任何平台文件。
 7. **多窗口是一等公民**：`windows = [...]` 是清单的一部分（桌面多窗、移动端多任务/分屏），不再是试验性的 `addWindow`。
 
 代价与边界：每端仍需要一个 `WebViewHost` 实现与原生桥（这是唯一必须手写的部分）；macOS/Android 目标名已被 `cjc 1.2.0` 接受但生态未验证，本文只保证"接得进来"，不承诺可用。
@@ -91,6 +91,7 @@ name        = "音乐"
 version     = "1.0.0"
 icon        = "assets/icon.png"     # 单张高分辨率源图，各端规格由生成器派生
 entry       = "src/main.cj"         # 只声明入口文件，里面有且只有 launch(build())
+package     = "music"               # 业务 cjpm 包名（sync 生成 launcher 的 import 用）
 
 [[windows]]
 label       = "main"                # 与前端 __CJ_TAURI_LABEL__ 一致
@@ -147,6 +148,8 @@ public func build(): AppSpec {                       // 示意写法；落地用
 ```
 
 为什么不像 v1 草案那样 `build(env, assets)`：参数一旦进签名，就等于承认"业务需要知道资产从哪来、目录在哪"——**而这恰恰是本方案要消灭的知识**。测试需要注入上下文时用 `launch(spec, context: Some(fake))`，不影响业务签名。
+
+> **批次 3-PR1 落地形态**（替代批次 2 过渡契约）：`build(): AppSpec` + `launch(spec)` 已交付（`src/app_spec.cj` / `src/launch.cj`）。与示意写法的两处偏差，照实记录：① 命令装配点是 `wire` 闭包（业务命令多需要 app 自身，如 `music:quit`）——§4.4 的编译期命令表（generated registry）是批次 3 的后续 PR，届时 `wire` 收敛为类型化 `commands:` 字段；② `launch(spec)` / `launchWith(spec, context)` 两个重载代替默认参数（当前工具链不用默认参数）。批次 2 的过渡 launcher（`build(): TauriApp`）由 `sync` 重新生成后废弃，业务侧把 `build()` 的返回换成 `AppSpec` 即完成切换。
 
 ### 4.2 `launch()`：框架内部按目标分派
 
@@ -273,6 +276,129 @@ if (ctx.supports(PlatformFeature.Tray)) {
 
 好处不只是好看：**能力位是可测的**（mock 一个 `supports` 返回 false 的上下文，就能测降级路径），而 OS 分支只能靠真机覆盖。
 
+### 4.6 插件机制的多端设计（完整版，批次 2 实现暂停期间补齐）
+
+#### 4.6.1 现状盘点（均已核对）
+
+| 事实 | 出处 |
+| --- | --- |
+| `Plugin` 接口 = name / commands / events / jsShim，命令注册为 `<插件名>:<短名>` | `src/plugin.cj:20` |
+| 15 个插件子包（`cjTauri.plugins.*`），CLI 按子包链接 | `src/plugins/`、CLI 链接行 |
+| `serial`/`shell` 已有 `@When` 平台分支；`sqlite` 依赖 `-lsqlite3`（Linux/Windows 段已配） | `plugins/serial`、`plugins/shell`、根 `cjpm.toml` |
+| 鸿蒙段**没有**链接 sqlite，也没有 C 桥（`cj_bridge_*` 未产出） | 根 `cjpm.toml` 鸿蒙段、`src/host.cj:546` 注释 |
+| 无头装配导出已实现：设 `CJ_TAURI_MANIFEST` 即打印插件清单退出，不建窗口 | `src/app.cj:588`（`describePluginsJson`，`src/plugin.cj:199`） |
+
+#### 4.6.2 插件的三层构成（差异从哪来）
+
+| 层 | 内容 | 多端差异点 |
+| --- | --- | --- |
+| 仓颉命令层 | 命令处理器、事件 | 纯逻辑，全端一致 |
+| 原生桥层 | C 桥导出 / 系统库 / 系统 kit | **差异主源**：桥按端产出、系统库按端链接（sqlite）、kit 仅鸿蒙 |
+| 前端 shim 层 | `jsShim()` 注入 `window.__CJ_TAURI__.<插件名>` | 纯 JS，全端一致；但 shim 调的命令可能端不可用 |
+
+结论：插件的多端问题几乎全部落在**原生桥层**，设计围绕它展开。
+
+#### 4.6.3 自描述：静态声明 + 无头导出，双通道交叉验证
+
+```cangjie
+/** 插件自描述（静态数据，随插件子包编译；不含任何平台代码，三端可编） */
+public class PluginManifest {
+    public let name: String
+    public let commands: ArrayList<String>     // 短名清单
+    public let events: ArrayList<String>
+    public let requiredCapabilities: ArrayList<String>
+    public let supportedHosts: ArrayList<String>  // hostKind 列表，如 ["webkitgtk","webview2","arkweb"]；缺省 = 全端
+}
+
+public interface Plugin {
+    // ...既有 name/commands/events/jsShim 不变...
+    func describe(): PluginManifest
+}
+```
+
+- **静态 `describe()`**（新增）：sync 在**为目标端生成骨架时**消费——此时业务还没在该端编译过，无头导出不可用，只有静态声明能算出"哪些插件进哪个端的依赖列表"。
+- **无头导出**（已有，`app.cj:588`）：`check` 阶段消费——业务可编后跑一次，拿到真实命令集/能力需求，与静态 `describe()` **交叉比对，不一致即失败**。两条通道各有分工，缺一不可。
+
+#### 4.6.4 端可用性：三档归档 + 桩规则（P-1 / P-2）
+
+15 个现有插件逐个归档（`待核` = 本次未逐一核实，批次 3 清障时确认）：
+
+| 档 | 插件 | 依据 |
+| --- | --- | --- |
+| 纯仓颉 + stdx（预期全端可用） | `http` `ws` `mqtt` `redis` `store` `log` `fs`（待核） | 无桥依赖、无系统库 |
+| C 桥依赖（桌面可用；鸿蒙桥产出前 = 桩） | `clipboard` `dialog` `notification` `menu` `shell`（3 处 @When）`serial`（1 处 @When） | 桥依赖；鸿蒙侧 `cj_bridge_*` 未产出 |
+| 系统库 | `sqlite`（Linux/Windows 已链接；鸿蒙段未链接、未验证） | `-lsqlite3` 仅两段配置 |
+
+两条硬规则（对齐 §8 差异三档，插件的桩属于 B 档实现）：
+
+- **P-1 插件子包三端必须可编译**：某端不可用的能力，在该插件子包内用 `@When` 片段给出**桩实现**（调用即抛可照做的"端不支持"错误）。理由：业务 `build()` 三端共用且会 import 全部所用插件——若靠"编译期把子包排除出依赖"，业务在缺失端必然编译失败，除非业务按端分支，违反 G2（业务零平台知识）。桩让"编得过、运行期可照做地报错"成立。
+- **P-2 端可用性必须标注且可观测**：桩实现必须与 `describe().supportedHosts` 一致；`check` 汇总"业务用了 unsupported 插件"为**警告**（编译已过、运行期报错，不 fail）；装配期被降级忽略的插件在启动日志列出（§8 第 1 条）。
+
+（取代此前"编译期排除子包"的设想——它与"业务零分支"冲突，评审质询时更正。）
+
+**实施状态（批次 3-PR3）**：P-1/P-2 按三种形态落地——
+- **子包内桩实现**（P-1 主形态）：`shell`（open/exec 桩段）、`serial`（整桩文件 `serial_ohos_stub.cj`，7 个同名桩）、`sqlite`（整桩文件 `sqlite_ohos_stub.cj`，同名 `SqlitePlugin` 占装配位——命令表 / 权限集 / 前端 shim 与桌面版逐字一致，任一命令调用报「端不支持」）。桌面实现统一 `@When[env != "ohos"]` 门禁；FFI 声明（extern）不门禁——ohos 侧无引用即不要求符号，不产生链接错误。
+- **宿主层如实失败**（平台差异在宿主而非子包的插件）：`clipboard` / `notification`（宿主能力位报 0、命令如实失败，真机先例）、`menu`（ohos 宿主 `setMenuItemState` 如实抛错；`setMenu` 是装配期降级，按 P-2 原文进启动日志而非抛——装配期宽松、命令期严格）。
+- **三端原生支持**：`dialog`（宿主中介队列就是 ohos 的实现本体，真机验证含多窗口）→ `describe()` 保持默认全宿主，不覆盖。
+- **P-2 可观测**：`check` 三方比对对每个插件输出「`supportedHosts` 不含当前宿主」与「不含 `arkweb`（ohos 端）」两条提示（后者为 `sync ohos` 之后哪些插件会变成桩的预告），警告不 fail。
+归档表中 `fs` 等 2 项待核、`serial` 的 Windows 侧实现，不在本批。
+
+#### 4.6.5 鸿蒙端插件的原生层：宿主中介，已真机验证
+
+问题（评审质询）：桌面插件进程内调 C 桥；鸿蒙 hap 里宿主是 ArkUI 组件，插件的原生能力怎么来？要走 RPC/IPC 异步吗？
+
+先立事实（全部有出处）：
+
+- hap 是**单进程**（UI 线程 + worker），仓颉与 ArkUI、系统服务同进程——不存在要跨越的进程边界，**RPC/跨进程方案否决**（无收益，复杂度抬一级）；
+- 仓颉直连系统 kit 绑定可用：ohos-probe 顶部就 `import kit.PerformanceAnalysisKit.Hilog`（`examples/ohos-probe/entry/src/main/cangjie/probe_app.cj:3`）；
+- 鸿蒙 sysroot 链接通路已配（根 `cjpm.toml` 鸿蒙段 `--sysroot`），NDK 覆盖的底层能力可同进程 FFI；
+- **dialog 已真机验证**（2026-10-20，ohos-probe 取证）：`dialog:message` → 宿主队列（`ArkWebDialogRequest`，`src/host_arkweb.cj:135`）→ **应用侧 ArkUI 组件** `showAlertDialog` 渲染（该 API 只能在应用侧组件调，队列正是为这次线程跳转而生）→ 20ms 轮询回填答案（上限 120s）→ handler 同步返回；多窗口各持 overlay、按 label 路由不串台；
+- clipboard / notification：鸿蒙宿主把能力位报 0、命令如实失败（`probe_app.cj:111` 注释）——§4.6.4 规则 P-2 的实机先例。
+
+设计结论——**四条通道，按能力类型选**：
+
+| 能力类型 | 通道 | 状态 |
+| --- | --- | --- |
+| 有仓颉 kit 绑定（Hilog 等） | 仓颉直连 kit（与宿主同模式，无桥） | 已验证（Hilog） |
+| 需要宿主 UI 线程的（对话框/弹层类） | **宿主中介队列**：插件命令 → 宿主队列 → 应用侧组件渲染 → 回填 | 已真机验证（dialog，含多窗口） |
+| NDK 覆盖的底层（文件、进程等） | 同进程 NDK FFI，复用桌面 `cj_bridge_*` 契约子集 | 通路已配，待逐插件接 |
+| 暂无实现 | 能力位 0 + 桩如实失败（P-2） | 已真机验证（clipboard / notification） |
+
+**照实记录的不足**：dialog 的轮询回填（20ms 间隔）会占住分发线程直到用户点击（上限 120s）——真机验证可用，但属临时形态。批次 3 评估换成条件变量等待，或把 `CommandHandler` 扩出异步回写契约（handler 返回 `Pending`、经 `ipc.reply(...)` 在回调线程回写；桌面同步实现内部立即回写，行为不变）。
+
+#### 4.6.6 命令表与 jsShim 的衔接
+
+- **命令**：插件命令以 `<插件名>:<短名>` 并入编译期命令表（§4.4 的 `registry.generated.cj`），数据源 = 静态 `describe()`；无头导出交叉验证。插件的命令漏声明能力 → 编译失败（§4.4 已有）。
+- **jsShim**：保持运行期注入（`runWith` → `registerPluginScripts` 已有），不进生成物——它是纯 JS，没有端差异。
+
+#### 4.6.7 sync/check 数据流
+
+```
+业务 build() 装配（唯一真相，含插件 import）
+   │ cjpm build（业务可编）
+   ▼
+CJ_TAURI_MANIFEST 无头导出（app.cj:588 已实现）
+   │ 交叉比对
+   ▼
+静态 describe()（三端可编，目标端生成时唯一可用通道）
+   │ 按端过滤 supportedHosts
+   ▼
+sync 生成 targets/<端>/ 骨架（依赖列表 = 业务所用插件 ∩ 该端可用；桩规则 P-1 兜底）
+   ▼
+check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
+```
+
+**清单不设 `[plugins]` 段**：插件用哪些由业务 `build()` 的 import 决定（代码即真相），生成器从无头导出反推——避免"清单写一遍、代码写一遍"的双份真相。
+
+#### 4.6.8 对批次计划的影响
+
+| 批次 | 插件相关动作 |
+| --- | --- |
+| 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
+| 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
+| 批次 3 | 已落地（PR1-PR4）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；create 模板迁移新形态（PR4：app/app-vue/app-react 与 `--template ohos` 统一生成「清单 + 业务 static 包 + assets/」工程，`ohos-pc` 目录改名 `ohos-skeleton` 作 sync 骨架源，CLI 新旧双轨兼容，三方比对补权限集单层展开对齐运行时；§7.3）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11）；`examples/music` 布局迁移 = music-next 已落地（新形态首个完整示例：`cj-tauri.toml` + 业务 static 包 `music_next` + `assets/`，命令层四文件与前端逐字节拷贝自旧示例、行为不变；`sync` 双端 + 桌面实编 + `check` 三方比对 + xvfb 冒烟全通过，验收日志见 `examples/music-next/README.md`；顺带摘除旧 music 冗余的 `StorePlugin` 挂载，见 `examples/music-next/src/main.cj` 注释） |
+| 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
+
 ## 5. L0 适配层（每端唯一手写处）
 
 ### 5.1 五个契约
@@ -327,14 +453,23 @@ v1 草案写"`dataDir` = cwd"，这是为现状低头。新项目的合理语义
 
 ### 5.3 `@When` 的合法落点
 
-全库只允许两类文件出现平台名匹配：
+全库只允许三类文件出现平台名匹配：
 
-1. `src/platform_discover.cj`（`Platform.discover()` 的唯一实现；批次 0 实测 cjpm 子目录必须是独立子包，会造成父包↔子包循环依赖，故摊平进 `src/` 根包）；
-2. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
+1. `src/platform/platform_discover.cj`（`Platform.discover()` 的唯一实现，`package cjTauri.platform`）；
+2. 插件子包的平台差异实现（`src/plugins/*/`，如 shell 的 Linux/Windows 分支差异——AGENTS §2 的规矩）；
+3. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
 
-CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform_discover.cj'` 必须为空。
+CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform/' | grep -v 'src/plugins/'` 必须为空。
 
-**这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `HostProvider` 注册表），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。若后续根包里的"每端默认值"继续膨胀，演进路径是：契约与注册表留根包（稳定 API），discover 的每端默认实现挪进子包 `cjTauri.platform.defaults`，借顶层 `let` 初始化（`package_global_init`，仓库测试里 `let TEST_SINK_LOCK = Mutex()` 已证明顶层初始化会执行）自注册进注册表，骨架依赖该子包即可——无循环依赖、launcher 仍是两行。此路径待批次 1 验证顶层初始化时序后再启用。
+**门禁三式（批次 3-PR3 沉淀）**：鸿蒙目标下 `os` 报 `Linux`（探针实测）——「Linux 桌面」必须写成复合条件，否则 Linux 段与 ohos 桩会在鸿蒙上重名双定义（旧 shell 的 `@When[os == "Linux"]` 段有此隐患，本批修正）：
+- 平台特有实现：`@When[os == "Linux"]` / `@When[os == "Windows"]` / `@When[env == "ohos"]`（体不同才分段；同函数不同平台实现 = 同名分段，先例 `launchOpenTarget`）；
+- 桌面双端通用（体相同）：`@When[env != "ohos"]` 单段（覆盖桌面 Linux + Windows；将来加 iOS/Android 等新目标时重估门禁）；
+- Linux 桌面特有（须排除 ohos）：`@When[os == "Linux" && env != "ohos"]`（`&&` 复合条件受支持，库内 3 处先例）。
+门禁对象不限于函数段，import 亦可门禁（`@When[env != "ohos"] import std.process.*`）——平台专属的 std.* 在缺失端必须整条排除：不加门禁时，要么被当「未使用 import」清掉（host_webview2.cj 注释先例），要么在缺失端直接编译失败。
+
+**这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `AssetResolver`），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。
+
+> **再拆已落地（批次 3 补记）**：契约不再摊平在根包。批次 0 曾实测「cjpm 子目录必须是独立子包，父↔子互引即循环依赖」，当时摊平；批次 3 用最小实验复验了该结论（互引构建失败、单向引用正常——`plugins/*` 子包能活正是单向），并逐文件测量依赖边界：7 个契约文件中 6 个对父包零引用，`discover` 仅 1 处父引用（`TauriApp.devUrl()`，3 行环境变量读取）可脱钩。于是 6 个契约 + `discover` 折进 `src/platform/` 子包（`package cjTauri.platform`），`platform_host_provider.cj` 留根包——它是平台层唯一必须引用 `WebViewHost` 与三个内置宿主构造器的文件，折不进。业务侧多一行 `import cjTauri.platform.*`（生成物由生成器自动带上）。后续演进路径不变：discover 的每端默认实现若继续膨胀，可再拆 `cjTauri.platform.defaults`（顶层 `let` 初始化自注册，先例是测试里的 `let TEST_SINK_LOCK = Mutex()`）。
 
 ## 6. 资产：编译期定型
 
@@ -388,7 +523,7 @@ my-app/
 ├── assets/                    # 页面、图标、能力声明
 │   ├── ui/index.html
 │   └── capabilities/default.json
-└── targets/                   # 每端一份派生骨架（可入库、可整删重建）
+└── targets/                   # 每端一份派生骨架（默认不入库、可整删重建）
     ├── desktop/               #   cjpm.toml(可执行) + 依赖 ../.. + 包脚本
     ├── ohos/                  #   AppScope/ + entry/ + hvigor + build-hap.sh
     ├── macos/                 #   Package.swift + Info.plist + WKWebView 胶水
@@ -396,6 +531,8 @@ my-app/
 ```
 
 **关键点：业务工程不再是"一个 cjpm 工程"**。`src/` 由 `targets/*/` 各自以路径依赖引用（`path = "../.."`），因此同一个业务可以在一个目录里被三端同时构建，互不覆盖 `target/`。
+
+**模块命名规则**（批次 3-PR2 实测补记）：cjpm 强制两条约束——① 每个工程的 toml 模块名 == 其源文件包名（music：toml `music_app` ↔ 源 `package music_app`）；② 依赖树内模块名唯一。因此业务包模块名被 ① 钉死为清单 `package`（仓颉包名，launcher `import <package>.*` 引用的就是它）；骨架模块名 = `exeName`（appId 最后一段），**与 `package` 撞名时加 `_app` 后缀**——`com.example.<pkg>` + `package = <pkg>` 是最常见命名，必然撞 ②，撞时骨架模块名为 `<pkg>_app`（如 `fixapp_app`）。二进制名与模块名无关：cjpm 可执行工程恒输出 `target/release/bin/main`（music / CLI 同口径）。
 
 ### 7.2 生成器命令
 
@@ -409,7 +546,7 @@ cj-tauri check                              # 校验清单 + 骨架漂移 + 资�
 契约：
 
 1. **幂等**：`sync` 只重写生成物，保留 `targets/*/` 下的手写区（若某端确需手写，放在 `targets/<t>/local/`，生成器不触碰）。
-2. **指纹头**：每个生成文件首行 `// generated by cj-tauri sync vX.Y.Z (app-id@version)`，`check` 比对整体哈希，漂移即失败。哈希**不含生成时间与绝对路径**，保证跨机器、跨目录可复现。
+2. **指纹头**：每个生成文件首行 `generated by cj-tauri sync vX.Y.Z (app-id@version)`（`.cj` 用 `//`、`*.toml` 用 `#`——TOML 注释只认 `#`，批次 3-PR2 实测 `//` 会被 cjpm 解析器拒绝），`check` 比对整体哈希，漂移即失败。哈希**不含生成时间与绝对路径**，保证跨机器、跨目录可复现。
 3. **写入范围封闭**：生成器只允许写 `src/generated/`（业务源码里的生成区，已入 `.gitignore` 与否由 §13.2 问题 2 决定）与 `targets/`；**永不写 `src/` 其余部分、`assets/`、`cj-tauri.toml`**，越界即报错并指出该改哪。
 4. **敏感信息不进骨架**：签名证书、密钥由环境变量或本地配置提供，模板里只有占位符名。
 
@@ -423,6 +560,10 @@ cj-tauri check                              # 校验清单 + 骨架漂移 + 资�
 | `targets/android` | Gradle 工程、`AndroidManifest.xml`（id/权限派生）、JNI 胶水、`assets/` 注入 | 同上 |
 
 这一栏"绝不允许"就是现状 `build-hap.sh:61` 的反面：**骨架永远是外壳，业务永远只有一份**。
+
+**ohos 骨架的落地策略（批次 3-PR3，模板命名批次 3-PR4 定稿）**：`sync ohos` = `cli/templates/ohos-skeleton/` 整体拷渲染（静态物 + 图标，字节级拷贝）+ 4 个清单派生文件覆盖（`AppScope/app.json5` 的 bundleName/vendor/versionName；`entry/cjpm.toml` 的框架 + 业务路径依赖与 version；`entry/src/main/cangjie/app_host.cj` 胶水 = rawfile 解析器 + page + 能力清单挂载 + `launchWith(mobile)`；`main_ability.cj` 生命周期）+ rawfile 资产注入（`assets/` 原样拷入，字节级、二进制安全）。幂等：重跑覆盖生成物，rawfile 每次从 `assets/` 全量重建。漂移检测复用同一批渲染器（`check` 重算期望值比对），生成与校验天然一致。入口模块名恒为 `ohos_app_cangjie_entry`（`module.json5` 的 srcEntry 钉死，不参与清单命名）；`entry/cjpm.toml` 用相对路径 `../../..` 依赖业务包（业务代码一份、骨架永不复制）；鸿蒙版 stdx 走 `build-hap.sh` 的 `CANGJIE_STDX_OHOS` 在骨架根建 `stdx` 联接（`../stdx` 相对路径——hvigor 只替换它自己的模板变量，其余 `${...}` 变空串会让整条 path-option 失效，模板的实测教训原样保留）。
+
+**create 的模板形态（批次 3-PR4）**：桌面三模板（app / app-vue / app-react）与 `create --template ohos`（别名 ohos-pc / harmonyos*，鸿蒙生态不止 PC，命名不绑设备形态）全部生成**同一个统一工程**：`cj-tauri.toml` 清单（单一真相：id 即桌面安装 ID 亦鸿蒙 bundleName）+ 业务 static 包（`output-type = "static"`，骨架以 path 依赖引用，业务代码只有一份）+ `assets/`（`ui/` 前端 + `capabilities/` 清单）。`create --template ohos` 与 `app` 的差异只剩下一步提示（`CANGJIE_STDX_OHOS` + `targets/ohos` 的 build-hap.sh + 签名说明）。骨架一律由 `cj-tauri sync` 派生到 `targets/`（desktop + ohos）。CLI 命令双轨兼容：工程根有 `cj-tauri.toml` 判新形态（产物在 `targets/desktop/target/release/bin`、前端在 `assets/ui`），否则走旧路径（music 等存量示例不受影响）。配套修正：清单 id 校验对齐鸿蒙 bundleName 规范（段字母开头、只含小写字母/数字/下划线——`bundleNameFrom` 生成的 `com.example.pr4_app` 段此前会被误拒）；三方比对补权限集单层展开（`permissions: ["menu:state"]` 与明文 commands 同权，对齐 `CapabilityRegistry` 运行时语义，修误报）；旧模板「用 `MenuPlugin` 却不 import `cjTauri.plugins.menu`」的带病缺陷随迁移修复（插件子包符号必须显式 import）。
 
 ## 8. 窗口、托盘、插件：都是声明
 
@@ -484,7 +625,7 @@ public class AppSpec {
 | 页面资产必须存在 | 生成器校验 `[assets] page` | 生成期失败 |
 | 应用 id 可无损映射三端 | `cj-tauri check` | CI 失败 |
 | 骨架无漂移 | `cj-tauri check`（哈希比对） | CI 失败 |
-| 业务无平台知识 | `grep '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空 | CI 失败 |
+| 业务无平台知识 | `grep -r '@When\[os' src/ \| grep -v 'src/platform/' \| grep -v 'src/plugins/'` 为空 | CI 失败 |
 
 这些项以前靠评审与记忆，现在靠工具。**"业务零平台知识"能被 CI 判定，是这套设计成立的标志**。
 
@@ -574,6 +715,9 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 6. **移动端多窗口语义**：`windows` 在移动端如何映射（多任务 / 分屏 / 单窗切换）需要真实需求驱动。
 7. **托盘/菜单在移动端**：是忽略、还是映射成侧栏？倾向忽略 + 日志，但要评估"业务以为有"的误判风险。
 8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
+9. **15 个插件的端可用性清障**（批次 3-PR3 大部落地）：归档表见 §4.6.4（实施状态已补）。P-1/P-2 已落地：`shell`/`serial`/`sqlite` 子包桩 + `menu`/`clipboard`/`notification` 宿主层如实失败 + `dialog` 三端原生支持（宿主中介队列）+ `check` 的 ohos 警告；桩行为与 `describe().supportedHosts` 严格一致（P-2）。余：`fs` 等 2 项待核；`serial` 的 Windows 侧实现未落地。
+10. **插件 API 版本兼容**：`PluginManifest` 要不要带 `apiVersion`，框架 Plugin 接口演进时如何拒绝过旧插件（check 阶段比对 vs 运行期报错）？倾向 check 阶段，避免运行期才发现。
+11. **鸿蒙插件的异步语义与 kit 覆盖面**：① dialog 的「宿主队列 + 20ms 轮询回填」（`host_arkweb.cj:162`，上限 120s）会占住分发线程，换条件变量等待还是扩 `CommandHandler` 异步回写契约（`Pending` + `ipc.reply`）？② 仓颉 ohos kit 绑定对 pasteboard / notification / file 等的覆盖面需按 SDK 实测——有绑定走直连（§4.6.5 首选通道），无绑定维持桩或走 NDK FFI。
 
 ## 14. 验收判据（可机械化）
 
@@ -581,7 +725,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 
 | # | 判据 | 检查手段 |
 | --- | --- | --- |
-| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v src/platform_discover.cj` 为空；`import kit.` 为空 |
+| 1 | 业务零平台知识 | `grep -r '@When\[os' src/ \| grep -v 'src/platform/' \| grep -v 'src/plugins/'` 为空；`import kit.` 为空 |
 | 2 | 应用身份单一真相 | `grep -rn 'bundleName\|applicationId\|CFBundleIdentifier' .` 只命中 `targets/` 生成物与清单 |
 | 3 | 装配唯一且无参 | `grep -rn 'TauriApp(' src/` 只在 `build()`；`build` 签名无参数 |
 | 4 | 漏声明编不过 | 反向测试：新加一条命令但不改 `capabilities/*.json` → **编译失败** |
@@ -599,12 +743,13 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 ### 15.1 现状相关（本文化用的事实出处）
 
 - `src/host.cj:91`（`WebViewHost`）、`:354`（`AppHost`）、`:384`（`HostRoute`）：宿主契约与句柄路由，v2 继续沿用
-- `src/host_factory.cj`：现有单槽宿主注入，v2 由 `registerHost` 取代
+- ~~`src/host_factory.cj`：现有单槽宿主注入，v2 由 `registerHost` 取代~~（已删除：
+  `registerHost` / `resolveHost` 在 `src/platform_host_provider.cj` 落地，鸿蒙侧另有内置 `ArkWebHost`）
 - `src/capability.cj:182`（`CapabilityRegistry`）：运行时能力校验，v2 保留（scope 判定仍是数据）
 - `src/app.cj:61`（`window`）、`:432`（`addCapabilityJson`）、`:441`（`loadCapabilities`）、`:546`（`run`）、`:567`（`runUrl`）、`:588`（manifest 导出）
-- `cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据
-- `cli/templates/ohos-pc/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生
-- `examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因）
+- ~~`cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据~~（批次 3-PR4 已实现：应用身份 = 清单 `[app] id`，全形态统一携带）
+- ~~`cli/templates/ohos-skeleton/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生~~（批次 3-PR3 已实现：`renderOhosAppJson` 按清单渲染）
+- ~~`examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因；create 模板已在批次 3-PR4 改 static，music 布局迁移在 music-next 跟进）~~（music-next 已落地：业务包 static、骨架 path 依赖；旧 music 保留为旧形态行为基线）
 - `examples/ohos/ohos-music/build-hap.sh:61`：`sed` 改包名复制业务，v2 删除该路径
 - `docs/架构演进-多平台与多窗口.md`：句柄/注册表/label 路由的前序设计
 

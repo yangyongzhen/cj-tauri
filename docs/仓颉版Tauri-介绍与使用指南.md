@@ -60,8 +60,8 @@
    │   JSON over postMessage
    ▼
  WebView 宿主抽象 host.cj
-   ├─ Windows: host_webview2.cj + native/bridge_win.c   (Win32 窗口 + WebView2，消息循环在宿主线程)
-   └─ Linux  : host_webkit.cj   + native/bridge_linux.c (GTK/WebKit，全部调用在原生 pthread 内)
+   ├─ Windows: host_webview2.cj + native/platforms/windows/bridge_win.c   (Win32 窗口 + WebView2，消息循环在宿主线程)
+   └─ Linux  : host_webkit.cj   + native/platforms/linux/bridge_linux.c (GTK/WebKit，全部调用在原生 pthread 内)
    │   FFI 回调进入仓颉
    ▼
  IPC 消息桥 ipc_hub.cj  ← JSON 反序列化 / 命令分发 / 结果回填
@@ -98,7 +98,7 @@
 | 前端 → 原生 | `WebKitUserContentManager` 的 script message | `chrome.webview.postMessage` |
 | 原生 → 前端 | `webkit_web_view_evaluate_javascript` | `ICoreWebView2::ExecuteScript` |
 | 窗口 | GTK 窗口 | Win32 窗口（`ShowWindow` + 自绘客户区） |
-| C 桥文件 | `native/bridge_linux.c` | `native/bridge_win.c` |
+| C 桥文件 | `native/platforms/linux/bridge_linux.c` | `native/platforms/windows/bridge_win.c` |
 | 构建脚本 | `native/build_linux.sh` | `native/build_win.bat` |
 | 运行期动态库 | Linux `.so` + `LD_LIBRARY_PATH` | Windows `.dll` + `PATH` |
 

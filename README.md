@@ -69,7 +69,7 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 
 ![cj-tauri create --template ohos 生成物（鸿蒙 PC 实机）](docs/images/example-ohos-template.jpg)
 
-*`cj-tauri create --template ohos` 直接生成的工程：`build-hap.sh` 编出可签安装的 hap，greet / `system:version` / 后端事件推送三条链路开箱可点。*
+*`cj-tauri create --template ohos` 生成的统一工程（单业务代码 + 清单），`sync ohos` 派生的 `build-hap.sh` 编出可签安装的 hap，greet / `system:version` / 后端事件推送三条链路开箱可点。*
 
 更多示例截图见下文[示例一览](#示例一览)。
 
@@ -94,14 +94,17 @@ cd myapp
 npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
 ```
 
-鸿蒙 PC（2in1）工程走另一套构建链路——模板里带 ArkWeb 宿主、`build-hap.sh` 与
-`rawfile` 页面，编出来的就是 hap：
+鸿蒙 PC（2in1）与桌面共用同一份业务代码：`create --template ohos` 生成的仍是**统一工程**
+（`cj-tauri.toml` 清单 + 业务 static 包 + `assets/`），hap 骨架由 `sync` 派生到 `targets/ohos/`，
+构建入口是那里面自带的 `build-hap.sh`（**工程根没有它**）：
 
 ```bash
 npx cj-tauri create myohosapp --template ohos --bundle com.example.myohosapp --label "我的应用"
 cd myohosapp
+npx cj-tauri sync ohos             # 按清单派生 targets/ohos（桌面端同理：sync desktop）
 export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
-bash build-hap.sh --install        # 编 hap → 装到设备 → 拉起（需先在 DevEco 配好自动签名）
+cd targets/ohos && npx cj-tauri run
+# 等价：bash build-hap.sh --install（编 hap → 装到设备 → 拉起，需先在 DevEco 配好自动签名）
 ```
 
 前置条件见[30 秒上手](#30-秒上手)。找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，
@@ -163,8 +166,9 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 示例一览
 
-`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有四个脚手架模板
-（app / app-vue / app-react / ohos-pc）。
+`examples/` 下二十七个可直接运行的示例，`cli/templates/` 有三个脚手架模板
+（app / app-vue / app-react，均为 `cj-tauri.toml` 清单 + 业务 static 包 + `assets/` 的新形态，
+骨架由 `cj-tauri sync` 派生；鸿蒙工程用 `create --template ohos` 生成同款统一工程）。
 各示例的完整说明与自检方式见各自目录的 README。
 
 **业务向工具与应用**：
@@ -234,9 +238,15 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 ## 架构
 
-![cj-tauri 架构图：前端桥 → IPC 消息桥 → 能力安全模型 → 内置 / 插件命令 → WebView 宿主（Linux / Windows / 鸿蒙）→ 共享 C 层](docs/images/architecture.png)
+**一份业务代码、多端产物**——改业务改 `src/`，改页面改 `assets/`，`cj-tauri sync` 把骨架派生成 `targets/desktop` 与 `targets/ohos`，业务包以 path 依赖进去，从不复制：
 
-文字版（同上，便于搜索与复制）：
+![cj-tauri 多端架构图：业务代码（src/main.cj + assets/）→ cj-tauri.toml 清单 → CLI（create / sync / check / build / dev）→ targets/desktop 与 targets/ohos → WebKitGTK / WebView2 / ArkWeb](docs/images/architecture-multiplatform.png)
+
+**分层调用链**——页面到宿主每一层的职责与跨平台边界：
+
+![cj-tauri 分层架构图：前端桥 → IPC 消息桥 → 能力安全模型 → 内置 / 插件命令 → WebView 宿主（Linux / Windows / 鸿蒙）→ 共享 C 层](docs/images/architecture.png)
+
+分层文字版（同上图，便于搜索与复制）：
 
 ```
 前端 (HTML/CSS/JS)  ← window.__CJ_TAURI__.invoke/listen/emit（注入桥接 JS，对应 @tauri-apps/api）
@@ -249,8 +259,8 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（与 tauri IPC 
 内置命令（src/api_system.cj）：system:version / ping / echo / devtools
         ▼
 WebView 宿主（src/host.cj 抽象 + 各平台实现）
-   ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
-   ├─ Windows: WebView2（src/host_webview2.cj + native/bridge_win.c，Win32 消息循环在宿主线程）
+   ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/platforms/linux/bridge_linux.c，C 桥在原生 pthread 运行）
+   ├─ Windows: WebView2（src/host_webview2.cj + native/platforms/windows/bridge_win.c，Win32 消息循环在宿主线程）
    └─ 鸿蒙: ArkWeb（应用侧 ArkUI 组件宿主 + `arkweb_proxy.cj` 桥接，2in1 / 鸿蒙 PC）
 ```
 

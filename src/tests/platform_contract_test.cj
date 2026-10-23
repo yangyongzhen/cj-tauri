@@ -187,6 +187,19 @@ func rewriteForDevOnlyTouchesAsset(): Unit {
     }
 }
 
+// ---- 批次 2：DirectoryAssetResolver ----
+
+@Test
+func directoryAssetResolverReadsRepo(): Unit {
+    let r = DirectoryAssetResolver(".")
+    let t = r.readText("cjpm.toml")
+    @Expect(t.isSome(), true)
+    @Expect(t.getOrThrow().size > 0, true)
+    @Expect(r.exists("cjpm.toml"), true)
+    @Expect(r.readText("no/such/file.txt").isSome(), false)
+    @Expect(r.exists("no/such/file.txt"), false)
+}
+
 // ---- 批次 1：guessTarget 与 resolveHost 接线 ----
 
 @Test

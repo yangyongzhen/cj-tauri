@@ -919,13 +919,16 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 ## 6. 版本与发版
 
 - 语义化版本。0.x 阶段：新增能力进中间位（0.6.0 → 0.7.0 → 0.8.0），修复进末位（0.8.0 → 0.8.1）；
-  **1.0.0（2026-10-17）起对外 API 进入稳定承诺**，此后不兼容变更进主版本、新能力进次版本、修复进末位。当前 **1.0.0**。
-- 必须同步的**五个位置**（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
+  **1.0.0（2026-10-17）起对外 API 进入稳定承诺**，此后不兼容变更进主版本、新能力进次版本、修复进末位。当前 **2.0.0**。
+- 必须同步的**六个位置**（`bash scripts/check-version.sh` 校验，权威目标是 CHANGELOG 顶部已发版段）：
   1. `cjpm.toml` 的 `version`（框架包）
   2. `cli/cjpm.toml` 的 `version` 与 `cli/src/project.cj` 的 `cliVersion()`（`--version` / `info` 打印它）
   3. `src/version.cj` 的 `CJ_TAURI_VERSION`（`system:version` 命令返回它）
   4. `CHANGELOG.md` 顶部已发版段
   5. `npm/package.json` 的 `version`（npm 包版本，`npx cj-tauri --version` 在无 SDK 时读它）
+  6. `website/index.html` 的顶栏 `brand__ver`（官网首页显示的版本；同页首屏徽标与 JSON-LD
+     `softwareVersion` 一起改，页面里三处同源。这一处曾是漏网的第六个位置——2.0.0 上线后官网还挂着
+     `v1.1.2`，2026-10-23 补进校验）
 - **不随项目版本走**：`examples/hello/cjpm.toml`、`cli/templates/app/cjpm.toml` —— 那是各应用自己的版本。
 - 发版步骤：CHANGELOG 的 `[Unreleased]` 改名成 `[x.y.z] - 日期` → 同步上面 1–3 → `check-version.sh` 全 `ok`
   → 提交 → 打 tag `vX.Y.Z` → `git push origin main --tags` 双推。

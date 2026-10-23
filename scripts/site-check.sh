@@ -77,6 +77,26 @@ else
   ok "style.css 不引用任何本地资源（页面的零外部依赖承诺由此成立）"
 fi
 
+# ---------- 1b. 与 docs/ 同源的拷贝不许漂移 ---------------------------------
+# 官网自己留了一份架构图拷贝（website/assets/architecture.svg），docs/ 里那张才
+# 是源；只改 docs/ 的时候页面会静默停在旧图——实测 2026-10-23：v2.0.0 已合入
+# main，官网架构图仍是「鸿蒙 · 架构预留 / 未实机验证」那一版。同源拷贝一律逐字节
+# 比对，名字与源路径配成 `<站内路径>|<仓库路径>`。
+drift=0
+while IFS='|' read -r copy src; do
+  [ -z "$copy" ] && continue
+  if [ ! -f "$SITE/$copy" ] || [ ! -f "$ROOT/$src" ]; then
+    fail "同源拷贝缺文件：website/$copy 或 $src"
+    drift=$((drift+1))
+  elif ! cmp -s "$SITE/$copy" "$ROOT/$src"; then
+    fail "同源拷贝已漂移：website/$copy 落后于 $src（同步：cp $src website/$copy）"
+    drift=$((drift+1))
+  fi
+done <<'SAME_SRC'
+assets/architecture.svg|docs/images/architecture.svg
+SAME_SRC
+[ "$drift" -eq 0 ] && ok "与 docs/ 同源的拷贝都是最新的（architecture.svg）"
+
 # ---------- 2. 零外部依赖 --------------------------------------------------
 # 会发起网络请求的标签（script/link/img）不许指向任何外部地址：
 # 这是站点自己的承诺（不引 CDN、不引 Web Font、无统计脚本）。

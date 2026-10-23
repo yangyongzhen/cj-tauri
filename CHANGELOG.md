@@ -14,6 +14,26 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+
+- **鸿蒙（ArkWeb）宿主能力位落地第一项：菜单**。框架新增 `src/arkweb_menu.cj`（`MenuModel` /
+  `MenuItem` / `MenuItemKind` → 扁平菜单，解析宿主回投的 `{"kind":"menu","id":…}`），
+  `src/host_arkweb.cj` 的 `setMenu` / `setMenuItemState` 由「如实拒绝」改为真落地，
+  `hostCapabilities()` 的 `menu` 位在真机取证后置 1（其余四位仍为 0，如实拒绝）。
+  渲染留在应用侧：`cli/templates/ohos-skeleton/entry/src/main/cangjie/index.cj` 用
+  `Button("菜单").bindMenu(...)` 画菜单、点选回调 `noteMenuClick` 交回宿主，顺带一行
+  `menu click label=… id=…` 的 hilog（设备上框架 stderr 不进 hilog，这是原生抽点的唯一凭证）。
+  新形态工程（`cj-tauri create --template ohos`）一律继承这套渲染。
+  实机凭证：`examples/ohos/ohos-capabilities` 一轮 hilog —— `menu click label=main id=view.sidebar`、
+  `PASS menu click id=view.sidebar enabled=true checked=false`、`PASS cap menu expect=true actual=true`、
+  `PASS menu setChecked view.sidebar=true`（原文见该工程的 `docs/device-evidence.txt`）。
+  **限制**：鸿蒙 `bindMenu` 只有一层、没有禁用位，`Separator` / `Submenu` 被拍平，`setMenuItemState`
+  的 enabled 改动只能改灰、不能真正禁用——判据与原因见 `native/platforms/harmonyos/README.md`。
+- 新增探针工程 `examples/ohos/ohos-capabilities`（新形态：`cj-tauri.toml` + 业务 static 包 +
+  `assets/`）：页面向 `system:host` 要能力位并与期望值逐项对账，每条断言经业务包 `probeLog`
+  写进 hilog（tag `CjProbe`），配套 `tools/apply-signing.sh` 把本机调试证书注入 `sync` 派生的
+  `targets/ohos/build-profile.json5`（生成物不入库，sync 后重跑一次即可）。
+
 ### Changed
 
 - 官网架构小节接入**多端总图**（`docs/images/architecture-multiplatform.png` → `website/assets/`）：

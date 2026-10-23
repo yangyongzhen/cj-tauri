@@ -51,7 +51,10 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `registerHostRoute` / `hostRouteOf` + `cj_bridge_host_eq`），不要用静态单槽——多窗口下后装配的窗口
   会覆盖先装配的，先装配的窗口从此收不到自己的事件。按句柄认领的三类是 shell 事件 / 窗口销毁 /
   对话框结果；**唯一例外是消息回调**（报文自带 window label，框架给所有窗装同一只派发器，有意保留单槽）。
-  当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过），
+  当前能力位：菜单已完成（应用层 API + `menu` 插件 + 前端事件回投，Windows 实机点选通过；
+  **鸿蒙侧 2026-10-24 真机取证通过**——框架把 `MenuModel` 翻成扁平菜单，渲染在应用侧组件
+  （`bindMenu` 只吃应用侧 `Array<MenuElement>`，框架包碰不得 ArkUI），点击经宿主回投成
+  `menu:click`，判据与「扁平/无禁用位」这条限制见 `native/platforms/harmonyos/README.md`），
   **文件拖入已完成**（`DragDropPolicy` + `setDragDrop`，start 前定稿；URI 解析在 C 桥 core，
   报文 `drop` → 前端 `dragdrop:files`，Linux 实机取证、Windows 同名桩），
   **托盘已解禁**（2026-10-15 用户裁定：剪贴板历史管理器驱动，Linux 走 libayatana-appindicator3、
@@ -608,6 +611,15 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `Content-Type` 从 `resp.header` 里大小写不敏感地找。**别往 hap 里塞 OpenSSL**——运行时是 musl
   静态链，AOSP 那份的 ABI/符号对不上，设备 `/system/lib64` 也读不了。判据见
   `docs/鸿蒙ArkWeb接入踩坑.md` §10.15。
+- **Git Bash 下调 `hdc` 的远端路径会被 MSYS 改写**（2026-10-24 实测，ohos-capabilities 取证）：
+  `hdc shell snapshot_display -f /data/local/tmp/x.jpeg` 报
+  `error: fileName D:/Program Files/Git/data/local/tmp/x.jpeg invalid`——`/data/...` 被当成 POSIX 路径
+  转成了 `D:/Program Files/Git/...`。**远端路径**一律带 `MSYS_NO_PATHCONV=1`（本仓不与 `cmd //c` 同用，
+  不存在 §4 那条「假成功」冲突）；`hdc file recv` 的**本地落盘**则相反——给绝对路径会被拼上 cwd
+  （`…/cj-tauri/E:\test\…`），改成**先 `cd` 到目标目录、只传文件名**。同类下一跳：抓回来的图要量坐标时
+  别靠肉眼看缩略图（预览图被缩放、`densityPixels` 还乘了一层），在原图上按「连续 ≥40px 的浅色实心块」
+  找弹窗矩形、再在矩形内按深色文字行聚类取行中心——第一轮就是拿缩略图目测，点击落在阴影上，
+  弹窗被关掉而日志里一条凭证都没有。
 - **鸿蒙侧给 `@Component` 传参只有一种写法：`@Prop` 成员 + 调用点纯调用**（2026-10-19 多窗口实测，
   两种写法报的都是同一句、看着都像「参数写错」）：
   ① 成员写成普通 `var x: String = "…"` 时，宏把它展开成 `ObservedProperty<String>` 形参，外面传

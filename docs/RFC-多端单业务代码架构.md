@@ -336,6 +336,13 @@ public interface Plugin {
 
 （取代此前"编译期排除子包"的设想——它与"业务零分支"冲突，评审质询时更正。）
 
+**实施状态（批次 3-PR3）**：P-1/P-2 按三种形态落地——
+- **子包内桩实现**（P-1 主形态）：`shell`（open/exec 桩段）、`serial`（整桩文件 `serial_ohos_stub.cj`，7 个同名桩）、`sqlite`（整桩文件 `sqlite_ohos_stub.cj`，同名 `SqlitePlugin` 占装配位——命令表 / 权限集 / 前端 shim 与桌面版逐字一致，任一命令调用报「端不支持」）。桌面实现统一 `@When[env != "ohos"]` 门禁；FFI 声明（extern）不门禁——ohos 侧无引用即不要求符号，不产生链接错误。
+- **宿主层如实失败**（平台差异在宿主而非子包的插件）：`clipboard` / `notification`（宿主能力位报 0、命令如实失败，真机先例）、`menu`（ohos 宿主 `setMenuItemState` 如实抛错；`setMenu` 是装配期降级，按 P-2 原文进启动日志而非抛——装配期宽松、命令期严格）。
+- **三端原生支持**：`dialog`（宿主中介队列就是 ohos 的实现本体，真机验证含多窗口）→ `describe()` 保持默认全宿主，不覆盖。
+- **P-2 可观测**：`check` 三方比对对每个插件输出「`supportedHosts` 不含当前宿主」与「不含 `arkweb`（ohos 端）」两条提示（后者为 `sync ohos` 之后哪些插件会变成桩的预告），警告不 fail。
+归档表中 `fs` 等 2 项待核、`serial` 的 Windows 侧实现，不在本批。
+
 #### 4.6.5 鸿蒙端插件的原生层：宿主中介，已真机验证
 
 问题（评审质询）：桌面插件进程内调 C 桥；鸿蒙 hap 里宿主是 ArkUI 组件，插件的原生能力怎么来？要走 RPC/IPC 异步吗？
@@ -389,7 +396,7 @@ check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
 | --- | --- |
 | 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
 | 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
-| 批次 3 | 鸿蒙骨架生成时启用 P-1/P-2；`Plugin` 接口加 `describe()`；15 插件清障（开放问题 9）；`check` 加三方比对；鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11） |
+| 批次 3 | 已落地（PR1-PR3）：`AppSpec`/`launch(spec)`（PR1）；`describe()` 自描述 + `check` 三方比对（PR2）；`load(source)` 收敛 + 鸿蒙骨架生成 + P-1/P-2 启用（PR3，实施状态见 §4.6.4）；15 插件清障 = P-1 落地（`fs` 等 2 项待核余在开放问题 9）。剩余：鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11） |
 | 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
 
 ## 5. L0 适配层（每端唯一手写处）
@@ -453,6 +460,12 @@ v1 草案写"`dataDir` = cwd"，这是为现状低头。新项目的合理语义
 3. `targets/*/` 下的生成胶水（它们本来就是按端生成的）。
 
 CI 规则：`grep -r '@When\[os' src/ | grep -v 'src/platform/' | grep -v 'src/plugins/'` 必须为空。
+
+**门禁三式（批次 3-PR3 沉淀）**：鸿蒙目标下 `os` 报 `Linux`（探针实测）——「Linux 桌面」必须写成复合条件，否则 Linux 段与 ohos 桩会在鸿蒙上重名双定义（旧 shell 的 `@When[os == "Linux"]` 段有此隐患，本批修正）：
+- 平台特有实现：`@When[os == "Linux"]` / `@When[os == "Windows"]` / `@When[env == "ohos"]`（体不同才分段；同函数不同平台实现 = 同名分段，先例 `launchOpenTarget`）；
+- 桌面双端通用（体相同）：`@When[env != "ohos"]` 单段（覆盖桌面 Linux + Windows；将来加 iOS/Android 等新目标时重估门禁）；
+- Linux 桌面特有（须排除 ohos）：`@When[os == "Linux" && env != "ohos"]`（`&&` 复合条件受支持，库内 3 处先例）。
+门禁对象不限于函数段，import 亦可门禁（`@When[env != "ohos"] import std.process.*`）——平台专属的 std.* 在缺失端必须整条排除：不加门禁时，要么被当「未使用 import」清掉（host_webview2.cj 注释先例），要么在缺失端直接编译失败。
 
 **这层的变更频率与再拆路径**：批次 0 的 7 个 `platform_*.cj` 分两档——6 个是纯契约（`TargetInfo` / `PlatformFeature` / `PageSource` / `AppContext` / `PlatformEnv` / `AssetResolver`），属于框架公共 API，业务项目**永不改**，只随框架演进偶尔动（新增特性位、新端字段），与 `host.cj` 的 `WebViewHost` 同类；只有 `platform_discover.cj` 携带平台知识，**加新端时改一次**，业务项目同样不改。
 
@@ -547,6 +560,8 @@ cj-tauri check                              # 校验清单 + 骨架漂移 + 资�
 | `targets/android` | Gradle 工程、`AndroidManifest.xml`（id/权限派生）、JNI 胶水、`assets/` 注入 | 同上 |
 
 这一栏"绝不允许"就是现状 `build-hap.sh:61` 的反面：**骨架永远是外壳，业务永远只有一份**。
+
+**ohos 骨架的落地策略（批次 3-PR3）**：`sync ohos` = ohos-pc 模板整体拷渲染（静态物 + 图标，字节级拷贝）+ 4 个清单派生文件覆盖（`AppScope/app.json5` 的 bundleName/vendor/versionName；`entry/cjpm.toml` 的框架 + 业务路径依赖与 version；`entry/src/main/cangjie/app_host.cj` 胶水 = rawfile 解析器 + page + 能力清单挂载 + `launchWith(mobile)`；`main_ability.cj` 生命周期）+ rawfile 资产注入（`assets/` 原样拷入，字节级、二进制安全）。幂等：重跑覆盖生成物，rawfile 每次从 `assets/` 全量重建。漂移检测复用同一批渲染器（`check` 重算期望值比对），生成与校验天然一致。入口模块名恒为 `ohos_app_cangjie_entry`（`module.json5` 的 srcEntry 钉死，不参与清单命名）；`entry/cjpm.toml` 用相对路径 `../../..` 依赖业务包（业务代码一份、骨架永不复制）；鸿蒙版 stdx 走 `build-hap.sh` 的 `CANGJIE_STDX_OHOS` 在骨架根建 `stdx` 联接（`../stdx` 相对路径——hvigor 只替换它自己的模板变量，其余 `${...}` 变空串会让整条 path-option 失效，模板的实测教训原样保留）。
 
 ## 8. 窗口、托盘、插件：都是声明
 
@@ -698,7 +713,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 6. **移动端多窗口语义**：`windows` 在移动端如何映射（多任务 / 分屏 / 单窗切换）需要真实需求驱动。
 7. **托盘/菜单在移动端**：是忽略、还是映射成侧栏？倾向忽略 + 日志，但要评估"业务以为有"的误判风险。
 8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
-9. **15 个插件的端可用性清障**：归档表见 §4.6.4（`fs` 等 2 项待核）；批次 3 需给 `clipboard`/`dialog`/`notification`/`menu`/`shell`/`serial`/`sqlite` 写鸿蒙桩（P-1），并让桩行为与 `describe().supportedHosts` 严格一致（P-2）。
+9. **15 个插件的端可用性清障**（批次 3-PR3 大部落地）：归档表见 §4.6.4（实施状态已补）。P-1/P-2 已落地：`shell`/`serial`/`sqlite` 子包桩 + `menu`/`clipboard`/`notification` 宿主层如实失败 + `dialog` 三端原生支持（宿主中介队列）+ `check` 的 ohos 警告；桩行为与 `describe().supportedHosts` 严格一致（P-2）。余：`fs` 等 2 项待核；`serial` 的 Windows 侧实现未落地。
 10. **插件 API 版本兼容**：`PluginManifest` 要不要带 `apiVersion`，框架 Plugin 接口演进时如何拒绝过旧插件（check 阶段比对 vs 运行期报错）？倾向 check 阶段，避免运行期才发现。
 11. **鸿蒙插件的异步语义与 kit 覆盖面**：① dialog 的「宿主队列 + 20ms 轮询回填」（`host_arkweb.cj:162`，上限 120s）会占住分发线程，换条件变量等待还是扩 `CommandHandler` 异步回写契约（`Pending` + `ipc.reply`）？② 仓颉 ohos kit 绑定对 pasteboard / notification / file 等的覆盖面需按 SDK 实测——有绑定走直连（§4.6.5 首选通道），无绑定维持桩或走 NDK FFI。
 

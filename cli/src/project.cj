@@ -10,7 +10,7 @@ import std.collection.*
 
 /** CLI 版本：须与 cli/cjpm.toml 的 version、CHANGELOG 顶部版本一致（scripts/check-version.sh 校验） */
 func cliVersion(): String {
-    return "1.1.2"
+    return "2.0.0"
 }
 
 /** 一次命令所需的路径上下文 */
@@ -19,12 +19,15 @@ public class AppContext {
     let frameworkRoot: String
     let stdx: String
     let cjpm: String
+    /** 新形态工程（工程根带 cj-tauri.toml 清单）：可执行产物在 targets/desktop 骨架，前端在 assets/ui */
+    let newForm: Bool
 
-    public init(projectRoot: String, frameworkRoot: String, stdx: String, cjpm: String) {
+    public init(projectRoot: String, frameworkRoot: String, stdx: String, cjpm: String, newForm: Bool) {
         this.projectRoot = projectRoot
         this.frameworkRoot = frameworkRoot
         this.stdx = stdx
         this.cjpm = cjpm
+        this.newForm = newForm
     }
 }
 
@@ -46,9 +49,10 @@ func findProjectRoot(): Option<String> {
     return None
 }
 
-/** 可执行产物：优先 target/release/bin/main[.exe] */
-func findAppBinary(projectRoot: String): Option<String> {
-    let binDir = joinPath(joinPath(joinPath(projectRoot, "target"), "release"), "bin")
+/** 可执行产物：旧形态 = 工程根 target/release/bin/main[.exe]；新形态 = targets/desktop 骨架 */
+func findAppBinary(projectRoot: String, newForm: Bool): Option<String> {
+    let base = if (newForm) { joinPath(projectRoot, "targets/desktop") } else { projectRoot }
+    let binDir = joinPath(joinPath(joinPath(base, "target"), "release"), "bin")
     if (!exists(binDir)) {
         return None
     }
@@ -200,10 +204,12 @@ func loadContext(): Option<AppContext> {
         eprintln("          请把仓颉 SDK 的 tools/bin 与 bin 加入 PATH，或设置 CANGJIE_HOME")
         return None
     }
-    return Some(AppContext(proj, fw, stdx, cjpm))
+    // 新旧形态判据：工程根有没有 cj-tauri.toml（RFC-002 §7 的单一真相文件）
+    let newForm = exists(joinPath(proj, "cj-tauri.toml"))
+    return Some(AppContext(proj, fw, stdx, cjpm, newForm))
 }
 
-/** 前端工程（Vite）：项目里有 ui/package.json 才启用；没有就整段跳过，行为与 0.3.x 一致 */
+/** 前端工程（Vite）：新形态在 assets/ui、旧形态在 ui；有 package.json 才启用，没有整段跳过 */
 class WebUi {
     let dir: String
     let devUrl: String
@@ -218,8 +224,9 @@ class WebUi {
     }
 }
 
-func detectWebUi(projectRoot: String): Option<WebUi> {
-    let dir = joinPath(projectRoot, "ui")
+func detectWebUi(projectRoot: String, newForm: Bool): Option<WebUi> {
+    let uiSub = if (newForm) { "assets/ui" } else { "ui" }
+    let dir = joinPath(projectRoot, uiSub)
     if (exists(joinPath(dir, "package.json"))) {
         return Some(WebUi(dir))
     }
@@ -392,10 +399,10 @@ func runWithDevServer(c: AppContext, ui: WebUi): Int64 {
     return code
 }
 
-/** 构建：桥 + cjpm build；withUi=true 时先打前端发布包（有 ui/package.json 才会触发） */
+/** 构建：桥 + cjpm build；withUi=true 时先打前端发布包（有 Vite 前端才会触发） */
 func buildProject(c: AppContext, withUi: Bool): Bool {
     if (withUi) {
-        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+        if (let Some(ui) <- detectWebUi(c.projectRoot, c.newForm)) {
             if (!ensureUiDeps(ui)) {
                 return false
             }
@@ -408,13 +415,20 @@ func buildProject(c: AppContext, withUi: Bool): Bool {
     if (!ensureBridge(c.frameworkRoot)) {
         return false
     }
-    println("[cj-tauri] cjpm build ...")
-    let code = execute(c.cjpm, ["build"], workingDirectory: Path(c.projectRoot))
+    // 新形态：编 targets/desktop 骨架（path 依赖会连带编业务 static 包 + launcher 可执行）
+    let buildDir = if (c.newForm) { joinPath(c.projectRoot, "targets/desktop") } else { c.projectRoot }
+    if (!exists(joinPath(buildDir, "cjpm.toml"))) {
+        eprintln("[cj-tauri] 错误: 骨架未生成：${buildDir}")
+        eprintln("          先运行 cj-tauri sync（按清单派生 targets/ 骨架）")
+        return false
+    }
+    println("[cj-tauri] cjpm build ... (${baseName(buildDir)})")
+    let code = execute(c.cjpm, ["build"], workingDirectory: Path(buildDir))
     if (code != 0) {
         eprintln("[cj-tauri] 构建失败（exit=${code}）")
         return false
     }
-    if (let Some(bin) <- findAppBinary(c.projectRoot)) {
+    if (let Some(bin) <- findAppBinary(c.projectRoot, c.newForm)) {
         println("[cj-tauri] 构建完成: ${bin}")
     } else {
         println("[cj-tauri] 构建完成（未在 target/release/bin 找到可执行产物）")
@@ -425,7 +439,7 @@ func buildProject(c: AppContext, withUi: Bool): Bool {
 /** 运行已构建产物（App 以项目根为工作目录，页面/能力清单按相对路径读取） */
 func runProject(c: AppContext): Int64 {
     var bin = ""
-    if (let Some(b) <- findAppBinary(c.projectRoot)) {
+    if (let Some(b) <- findAppBinary(c.projectRoot, c.newForm)) {
         bin = b
     } else {
         eprintln("[cj-tauri] 错误: 未找到可执行产物，请先 cj-tauri build")
@@ -510,9 +524,9 @@ func cmdDev(): Int64 {
         return buildOhos(root, false)
     }
     if (let Some(c) <- loadContext()) {
-        // 有 ui/package.json 才走 Node 路径：dev 模式页面来自 dev server，不必先打发布包
+        // 有 Vite 前端才走 Node 路径：dev 模式页面来自 dev server，不必先打发布包
         var withUi = true
-        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+        if (let Some(ui) <- detectWebUi(c.projectRoot, c.newForm)) {
             if (!ensureUiDeps(ui)) {
                 return 1
             }
@@ -521,7 +535,7 @@ func cmdDev(): Int64 {
         if (!buildProject(c, withUi)) {
             return 1
         }
-        if (let Some(ui) <- detectWebUi(c.projectRoot)) {
+        if (let Some(ui) <- detectWebUi(c.projectRoot, c.newForm)) {
             return runWithDevServer(c, ui)
         }
         return runProject(c)
@@ -574,11 +588,12 @@ func cmdInfo(asJson: Bool): Int64 {
         println("  框架根目录  : 未找到（请设置 CJ_TAURI_ROOT）")
     }
     if (let Some(proj) <- findProjectRoot()) {
-        println("  项目根目录  : ${proj}")
-        if (let Some(bin) <- findAppBinary(proj)) {
+        let newForm = exists(joinPath(proj, "cj-tauri.toml"))
+        println("  项目根目录  : ${proj}${if (newForm) { "（新形态：cj-tauri.toml）" } else { "" }}")
+        if (let Some(bin) <- findAppBinary(proj, newForm)) {
             println("  可执行产物  : ${bin}")
         } else {
-            println("  可执行产物  : 未构建（cj-tauri build）")
+            println("  可执行产物  : 未构建（cj-tauri sync + cj-tauri build）")
         }
     } else {
         println("  项目根目录  : （当前不在 cj-tauri 项目内）")
@@ -641,8 +656,9 @@ func pluginManifest(mode: String): Option<String> {
         eprintln("[cj-tauri] 跳过插件清单: 当前目录不在 cj-tauri 项目内")
         return None
     }
+    let newForm = exists(joinPath(proj, "cj-tauri.toml"))
     var bin = ""
-    if (let Some(b) <- findAppBinary(proj)) {
+    if (let Some(b) <- findAppBinary(proj, newForm)) {
         bin = b
     } else {
         eprintln("[cj-tauri] 跳过插件清单: 未找到可执行产物（先跑 cj-tauri build）")

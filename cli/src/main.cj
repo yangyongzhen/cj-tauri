@@ -8,15 +8,17 @@ func usage(): Unit {
     println("")
     println("用法:")
     println("  cj-tauri create <项目名> [--template <t>] [--bundle <bundleName>] [--label <应用名>]")
-    println("                             创建新项目（src/ + ui/ + capabilities/ + cjpm.toml）")
-    println("                             模板: app（内联单文件，缺省）/ vue / react")
-    println("                                   ohos（鸿蒙 PC / 2in1：ArkWeb 宿主 + build-hap.sh）")
+    println("                             创建新项目（cj-tauri.toml + src/ + assets/；骨架由 cj-tauri sync 派生）")
+    println("                             模板: app（内联单文件，缺省）/ vue / react（Vite 前端，作为资产）")
+    println("                                   ohos（鸿蒙生态：同形态统一工程，清单决定目标端）")
     println("                             --bundle / --label 只对 ohos 模板有意义（缺省由项目名推导）")
     println("  cj-tauri dev               构建 C 桥 + cjpm build + 启动应用（鸿蒙工程改走 build-hap.sh）")
     println("  cj-tauri build             构建 C 桥 + cjpm build（鸿蒙工程 = 编 hap）")
     println("  cj-tauri run               运行已构建产物（鸿蒙工程 = 装到设备并拉起）")
     println("  cj-tauri info [--json]     环境自检（排障用）；--json 只输出插件清单（机器可读）")
     println("  cj-tauri doctor            环境自检逐行给结论（每条自带「缺了就怎么办」）")
+    println("  cj-tauri check             校验 cj-tauri.toml（id/窗口/资产存在）+ targets 骨架漂移")
+    println("  cj-tauri sync [desktop|ohos]  按清单派生 targets 骨架（缺省两端都派生）")
     println("  cj-tauri help              显示本帮助")
     println("")
     println("环境变量:")
@@ -113,6 +115,12 @@ main(args: Array<String>): Int64 {
     }
     if (sub == "doctor") {
         return cmdDoctor()
+    }
+    if (sub == "check") {
+        return cmdCheck()
+    }
+    if (sub == "sync") {
+        return cmdSync(args)
     }
     eprintln("未知子命令: ${sub}")
     println("")

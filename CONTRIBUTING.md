@@ -11,7 +11,7 @@
 
 - **仓颉 SDK**：1.2.0（`CANGJIE_HOME`，如 `D:\Program Files (x86)\Cangjie`）
 - **仓颉 stdx**：1.2.0.1（`CANGJIE_STDX`）
-- **MinGW-w64 gcc**：编译 Windows 宿主 C 桥 `native/bridge_win.c`
+- **MinGW-w64 gcc**：编译 Windows 宿主 C 桥 `native/platforms/windows/bridge_win.c`
 - **Microsoft Edge WebView2**：需要运行时；构建 C 桥还需要 SDK（`WEBVIEW2_SDK_ROOT`）。
   **SDK 版本不得高于本机 Runtime 版本**，否则加载失败（详见 `AGENTS.md` §4）
 - **Linux（可选）**：GTK 3 + WebKit2GTK 3.0 开发包

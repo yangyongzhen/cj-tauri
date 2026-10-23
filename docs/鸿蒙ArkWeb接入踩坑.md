@@ -172,16 +172,19 @@ cjTauri = { path = "E:/test/harmonyos/test/cj-tauri" }
 
 ```cangjie
 @When[os == "Linux" && env != "ohos"]   // 桌面 Linux：WebKit 宿主
-@When[env == "ohos"]   // 鸿蒙：由应用注入宿主
+@When[env == "ohos"]   // 鸿蒙：内置 ArkWeb 宿主（应用只负责建组件并交 controller）
 ```
 
-配套的两条硬约束（`src/host.cj` / `src/host_factory.cj`）：
+配套的两条硬约束（`src/host.cj` / `src/host_arkweb.cj`）：
 
-- **鸿蒙没有内置宿主**：`createHost()` 在 aarch64 分支走 `requireInjectedHost(label)`，
-  应用必须在构造 `TauriApp()` **之前** `setHostFactory({ label => … })`；没登记就抛一条可照做的错误，
-  **不静默回落到空实现**（宿主缺席时拿到一个永远开不出窗口的对象，比启动即失败更难查）。
+- **鸿蒙宿主已内置**：`createHost()` 的 `@When[env == "ohos"]` 分支直接 `return ArkWebHost(label)`。
+  本文记录期间的「应用侧注入」形态（单槽 `src/host_factory.cj` 的 `setHostFactory` /
+  `requireInjectedHost`）**已删除**——多宿主入口统一走 `registerHost(HostProvider)`
+  （`src/platform_host_provider.cj`，带优先级，`resolveHost` 里优先于内置宿主）。
+  框架依旧不 import ArkUI：宿主实现在 `src/host_arkweb.cj`，只经 `src/arkweb_proxy.cj` 的
+  ArkUI-free 桥接函数与 ArkTS 侧交互。
 - **句柄比较在鸿蒙侧不可用**：`hostHandleEquals` 没有 C 桥可问，只能如实判「按句柄路由不可用」
-  并打一次 stderr——注入宿主自行管理回调，不要假装比较成功（假装会让多窗口事件串台）。
+  并打一次 stderr——不要在无桥平台假装比较成功（假装会让多窗口事件串台）。
 - 只在无桥平台用到的符号（如 `HOST_ROUTE_WARNED`）**声明也要放进同一门禁**：
   放在桌面分支会变成 `unused variable` 警告，而本仓要求**零警告**交付。
 

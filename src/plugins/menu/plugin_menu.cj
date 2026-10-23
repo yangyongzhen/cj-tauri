@@ -33,6 +33,14 @@ public class MenuPlugin <: Plugin {
         return "menu"
     }
 
+    /** 自描述：菜单状态改动是宿主能力，仅桌面两端实现（ohos 宿主无菜单栏，命令如实报错，P-1/P-2） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
+
     public func commands(): HashMap<String, CommandHandler> {
         let m = HashMap<String, CommandHandler>()
         m.add("setEnabled", this.handler)

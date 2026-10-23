@@ -101,7 +101,7 @@ cd cli && cjpm build       # 构建 CLI
 
 没有 socket，没有本地 HTTP 服务，没有端口。传输层用的就是 webview 自己那条消息通道——JS 和仓颉本来就活在同一个进程里，中间只隔一层原生消息回调，再架一层网络栈是自找麻烦。
 
-有一条约束值得单独拎出来说：**平台差异只允许出现在两个地方**——仓颉侧的 `@When` 条件编译，和 `native/bridge_linux.c` / `bridge_win.c` 这两个 C 文件。协议、报文格式、能力校验、命令分发两平台共用一份代码。这条规矩是硬性写进项目开发契约的，好处在下面会体现：本文描述的流程 Windows 和 Linux 完全同构，差别只在 API 名字，以及“Windows 的 V8 跑在独立进程里”这一点。
+有一条约束值得单独拎出来说：**平台差异只允许出现在两个地方**——仓颉侧的 `@When` 条件编译，和 `native/platforms/linux/bridge_linux.c` / `bridge_win.c` 这两个 C 文件。协议、报文格式、能力校验、命令分发两平台共用一份代码。这条规矩是硬性写进项目开发契约的，好处在下面会体现：本文描述的流程 Windows 和 Linux 完全同构，差别只在 API 名字，以及“Windows 的 V8 跑在独立进程里”这一点。
 
 ## 四、报文只有四种，外加一条走后门的
 
@@ -289,7 +289,7 @@ Tauri 的 `emit` 是广播给所有监听者，`emit_to` 才是定向投递。�
 
 新增 `ipc.emitLatest(event, payload)`，语义是：**同一个刷屏窗口内的同名事件，只投最后一次的 payload**——中间值丢掉，最后那一条一定送达。页面侧的监听器写法一个字都不用改，照样是 `listen`。
 
-实现落在桥的 JS 里（`native/bridge_js.h`，两个平台共用同一份）：事件到了先写进本帧的同名槽位，然后挂一个 `requestAnimationFrame`，窗口结束时把槽位里的值投出去；窗口不可见、rAF 不来的情况用 `setTimeout(…, 50)` 兜底。报文层面只是多一个 `coalesce: true` 字段，其余完全不变。
+实现落在桥的 JS 里（`native/core/bridge_js.h`，两个平台共用同一份）：事件到了先写进本帧的同名槽位，然后挂一个 `requestAnimationFrame`，窗口结束时把槽位里的值投出去；窗口不可见、rAF 不来的情况用 `setTimeout(…, 50)` 兜底。报文层面只是多一个 `coalesce: true` 字段，其余完全不变。
 
 两个设计决定值得说明：
 
@@ -371,4 +371,4 @@ node scripts/bench-ws-vs-tcp.js
 
 两个前置条件，不满足会浪费你半小时：**工作目录必须是工程根**（`capabilities/` 和页面资源都按相对路径读）；**Linux 上要么用 `cjpm run`、要么自己补 `LD_LIBRARY_PATH`**——直接跑二进制会因为找不到 `libstdx.encoding.json.so` 静默退出，没有报错、没有输出。
 
-改协议之前，建议先读这四个文件头的注释：`src/ipc_message.cj`（协议权威描述）、`src/ipc_hub.cj`（分发与校验）、`native/bridge_js.h` 加两个 `bridge_*.c`（前端桥与回投队列）、`src/app.cj`（装配与 `jsSink` 接线）。
+改协议之前，建议先读这四个文件头的注释：`src/ipc_message.cj`（协议权威描述）、`src/ipc_hub.cj`（分发与校验）、`native/core/bridge_js.h` 加两个 `bridge_*.c`（前端桥与回投队列）、`src/app.cj`（装配与 `jsSink` 接线）。

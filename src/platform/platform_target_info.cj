@@ -1,4 +1,4 @@
-package cjTauri
+package cjTauri.platform
 
 /**
  * 平台自述（RFC-002 §5.1）

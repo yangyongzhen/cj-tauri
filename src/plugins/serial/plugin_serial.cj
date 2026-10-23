@@ -3,7 +3,10 @@ package cjTauri.plugins.serial
 import cjTauri.*
 
 import std.collection.*
+// std.fs / std.sort 只被桌面两端的 serialPortList 用到（ohos 桩在 serial_ohos_stub.cj，RFC §4.6.4 P-1）
+@When[env != "ohos"]
 import std.fs.*
+@When[env != "ohos"]
 import std.sort.*
 import stdx.encoding.json.*
 
@@ -37,6 +40,7 @@ let SERIAL_LIST_PREFIXES: Array<String> = [
  * Windows 优先走 C 桥的 QueryDosDeviceW 枚举（返回的是「COM 名」，页面直接当 path 用，
  * C 桥 open 会自动补 \\.\\ 前缀）；C 桥返回 -4（未实现）或异常时回落到 /dev 目录扫描——
  * 后者在 Windows 下天然为空，不算错误。 */
+@When[env != "ohos"]
 public func serialPortList(): ArrayList<String> {
     let viaC = serialListC()
     if (let Some(list) <- viaC) {
@@ -77,6 +81,14 @@ public func serialPortList(): ArrayList<String> {
 }
 public class SerialPlugin <: Plugin {
     public init() {}
+
+    /** 自描述：原生桥仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
 
     public func name(): String {
         return "serial"

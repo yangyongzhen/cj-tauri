@@ -3,7 +3,11 @@ package cjTauri.plugins.shell
 import cjTauri.*
 
 import std.collection.*
+// std.fs / std.process 只被桌面两端实现用到（ohos 桩不引用，RFC §4.6.4 P-1）；
+// 将来加新目标（iOS/Android）时按 P-1 重新评估门禁
+@When[env != "ohos"]
 import std.fs.*
+@When[env != "ohos"]
 import std.process.*
 import stdx.encoding.json.*
 
@@ -26,6 +30,14 @@ import stdx.encoding.json.*
  * （编辑器、REPL、npm run dev）仍不要走这里。
  */
 public class ShellPlugin <: Plugin {
+
+    /** 自描述：进程/打开目标仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
     public init() {}
 
     public func name(): String {
@@ -106,6 +118,7 @@ public func decodeCaptured(bytes: Array<Byte>): String {
  * 跑子进程并返回 (退出码, stdout, stderr)。
  * 程序不存在 / 没有执行权限等情况统一转成 CommandException，前端拿到的是可读原文。
  */
+@When[env != "ohos"]
 func runCaptured(program: String, argv: Array<String>, cwd: String): (Int64, Array<Byte>, Array<Byte>) {
     try {
         if (cwd.size == 0) {
@@ -126,7 +139,8 @@ func runCaptured(program: String, argv: Array<String>, cwd: String): (Int64, Arr
  *     且**不必**经过 `cmd /c start`，省掉一层引号解析与注入面）。
  * 只启动、不等待：用户关不关那个程序与本应用无关，所以用 launch 而不是 execute（后者会阻塞 UI 线程）。
  */
-@When[os == "Linux"]
+// 鸿蒙目标下 os 仍报 Linux（探针实测），这段必须显式排除 ohos——否则会与下面的 ohos 桩重名
+@When[os == "Linux" && env != "ohos"]
 func launchOpenTarget(target: String): Unit {
     let _ = launch("xdg-open", [target])
 }
@@ -134,6 +148,20 @@ func launchOpenTarget(target: String): Unit {
 @When[os == "Windows"]
 func launchOpenTarget(target: String): Unit {
     let _ = launch("rundll32.exe", ["url.dll,FileProtocolHandler", target])
+}
+
+// ---------- ohos 桩（RFC §4.6.4 P-1）：编得过、运行期可照做地报错 ----------
+// 平台实现分段的既有先例（launchOpenTarget 的 Linux/Windows 两段）；鸿蒙的原生进程/打开
+// 通路批次 4 走 NDK FFI 接通后，删掉这两段桩、补上真实实现段。
+
+@When[env == "ohos"]
+func launchOpenTarget(target: String): Unit {
+    throw CommandException("shell: shell:open 在 ohos 端暂不支持（P-1 桩，批次 4 走 NDK FFI 接通，见 RFC §4.6.4）")
+}
+
+@When[env == "ohos"]
+func runCaptured(program: String, argv: Array<String>, cwd: String): (Int64, Array<Byte>, Array<Byte>) {
+    throw CommandException("shell: shell:exec 在 ohos 端暂不支持（P-1 桩，批次 4 走 NDK FFI 接通，见 RFC §4.6.4）")
 }
 
 /**

@@ -3,6 +3,7 @@ package cjTauri
 import std.collection.*
 import std.env.*
 import stdx.encoding.json.*
+import cjTauri.platform.*
 
 /**
  * 附加窗口的登记项（试验性 API `TauriApp.addWindow` 的装配状态）
@@ -559,7 +560,7 @@ public class TauriApp <: AppHost {
      * 启动应用：装配 IPC → 启动 WebView 宿主 → 阻塞运行（兼容入口，等价 run(Inline(html))）
      */
     public func run(html: String): Unit {
-        this.runWith({ h => h.start(html) })
+        this.run(PageSource.Inline(html))
     }
 
     /**
@@ -570,7 +571,7 @@ public class TauriApp <: AppHost {
      * 开发时可配合 TauriApp.devUrl() 指向前端 dev server（Vite 的 HMR 就这样接进来）。
      */
     public func runUrl(url: String): Unit {
-        this.runWith({ h => h.startUrl(url) })
+        this.run(PageSource.Url(url))
     }
 
     /**
@@ -585,16 +586,10 @@ public class TauriApp <: AppHost {
      */
     public func run(source: PageSource): Unit {
         let src = rewriteForDev(source, TauriApp.devUrl())
-        let page = resolvePage(src, this.assetResolver)
-        this.runWith({ h =>
-            match (page) {
-                case StartHtml(html) => h.start(html)
-                case StartUrl(url) => h.startUrl(url)
-            }
-        })
+        this.runWith({ h => h.load(src) })
     }
 
-    /** 装配与启动的共同骨架：html 与 url 两代入口在此收敛，宿主怎么加载页面由调用方给 */
+    /** 装配与启动的共同骨架：所有页面入口在 load(source) 收敛，宿主怎么落地是 L0 的事（RFC §4.3/§6.2） */
     private func runWith(start: (WebViewHost) -> Unit): Unit {
         this.prepare()
         if (this.dumpManifestIfRequested()) {
@@ -602,6 +597,8 @@ public class TauriApp <: AppHost {
         }
         this.registerPluginScripts()
         this.registerDefaultWindow()
+        // 资产解析器随装配进宿主：桌面读盘、鸿蒙 rawfile 材化，各端 load() 自决怎么用
+        this.host.setAssetResolver(this.assetResolver)
         start(this.host)
         this.startExtraWindows()
         this.waitForExit()
@@ -631,7 +628,7 @@ public class TauriApp <: AppHost {
     /**
      * 把插件 jsShim 注册到宿主的「预执行脚本」通道
      *
-     * 必须在 start / startUrl 之前调用：宿主创建 WebView 时一次性交给 C 桥，
+     * 必须在 load 之前调用：宿主创建 WebView 时一次性交给 C 桥，
      * 桥以 document-start 注入（早于页面脚本，两平台语义一致）。
      * HTML 与 URL 两种来源共用这条通道——v1 那个「runUrl 模式下 shim 注入不进去」的局限就此消掉（RFC §5.4），
      * 所以这里不再需要对使用者的额外提醒。
@@ -741,7 +738,7 @@ public class TauriApp <: AppHost {
     /**
      * 把默认窗口登记进注册表（label = "main"）并给它注入 label
      *
-     * 必须在 start() / startUrl() 之前：① 页面一加载就可能发 invoke / emit，回执要按 label 找到窗口；
+     * 必须在 load() 之前：① 页面一加载就可能发 invoke / emit，回执要按 label 找到窗口；
      * ② label 走宿主的预执行脚本通道（document-start）注入，晚于 start 就没机会了。
      * 桥 JS 是**懒读** `window.__CJ_TAURI_LABEL__` 的（首次用到才取、取到即缓存），
      * 所以注入脚本与桥 JS 的先后顺序无所谓——两平台的注入时机本就不同。
@@ -926,9 +923,9 @@ public class TauriApp <: AppHost {
     private func startExtraWindows(): Unit {
         for (w in this.extraWindows) {
             this.wireHostCallbacks(w.host)
-            // shell 事件分发要在 start 之前装（菜单点击随时可能来，装晚了就漏）
+            // shell 事件分发要在 load 之前装（菜单点击随时可能来，装晚了就漏）
             this.wireShellEvents(w.host, w.label)
-            w.host.start(w.html)
+            w.host.load(PageSource.Inline(w.html))
             eprintln("[cj-tauri] 附加窗口已启动：label=\"${w.label}\"")
         }
     }

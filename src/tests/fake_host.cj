@@ -1,6 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
+import cjTauri.platform.*
 import std.collection.*
 
 /*
@@ -47,23 +48,34 @@ class FakeHost <: WebViewHost {
     public var notifiedArgs: String = ""
     // 能力位：桩给「有菜单」，用例要测「平台没这个本事」时自行覆盖它
     public var caps: Int32 = CJ_CAP_MENU
+    // load(source) 收敛（批次 3-PR3）：记最近一次 load 的来源原文与 resolver 注入痕迹
+    public var loadedSource: String = ""
+    public var resolverInjected: Option<AssetResolver> = None
 
     public init(windowLabel: String) {
         this.windowLabel = windowLabel
-    }
-
-    public func start(html: String): Unit {
-        this.started = true
-        this.shownHtml = html
     }
 
     public func label(): String {
         return this.windowLabel
     }
 
-    public func startUrl(url: String): Unit {
+    public func setAssetResolver(resolver: Option<AssetResolver>): Unit {
+        this.resolverInjected = resolver
+    }
+
+    /**
+     * 桩的 load 不做资产解析（那是对应真宿主的事，resolvePage 本身有独立单测）：
+     * 只记痕——用例断言的是「装配层把哪种来源投给了宿主」
+     */
+    public func load(source: PageSource): Unit {
         this.started = true
-        this.startedUrl = url
+        match (source) {
+            case Inline(html) => this.shownHtml = html
+            case Url(url) => this.startedUrl = url
+            case DevServer(url) => this.startedUrl = url
+            case Asset(name) => this.loadedSource = "asset:${name}"
+        }
     }
 
     public func addInitScript(js: String): Unit {
@@ -176,8 +188,11 @@ class FakeHost <: WebViewHost {
         this.handler = handler
     }
 
+    // run 收尾开关：run() 阻塞在 waitForExit，用例把它置 true 让 run 返回（批次 3-PR3 的 load 接线用例用）
+    public var quitNow: Bool = false
+
     public func shouldQuit(): Bool {
-        return false
+        return this.quitNow
     }
 
     public func dispose(): Unit {

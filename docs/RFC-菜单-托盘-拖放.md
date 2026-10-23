@@ -24,7 +24,7 @@ v1 的边界（建议，见 §8）：**Windows 三个全做**；**Linux 做菜�
 | 托盘早已在架构文档里「排了队但没落地」 | `src/host.cj:123`（`AppHost` 的注释：「将来还有托盘与应用菜单——批次 3 只定模型」）、架构文档 §2.3 末段 | 模型名（`MenuModel` / `TrayModel` / `DragDropPolicy`）与 `HostCapabilities` **只被提过，仓库里零实现**（全仓 grep 无命中） |
 | 平台差异边界清楚，但两平台的**装配结构**不同 | Windows：`bridge_win.c:695` 一个 `CreateWindowExW` 直接带 WebView2 子窗口；Linux：`bridge_linux.c:519` `gtk_container_add(window, view)`——窗口里**只有** view | Linux 加菜单栏必须改装配结构（引入容器），Windows 只加一个 `SetMenu`——这处差异必须在设计里点明，否则实现时会往上层泄漏 |
 | 原生 UI 操作有明确的**线程归属** | `bridge_win.c:691`（`p->thread_id`）、`bridge_linux.c:467`（`p->thread`）、`bridge_core.h:142`（`cj_plat_is_ui_thread`） | 菜单/托盘/拖放的回调天生在 UI 线程，必须定清「谁在哪个线程碰原生对象」，否则重踩 §4 那条「轻量线程碰 GTK 即 abort」 |
-| 回调目前是**无身份的静态单槽** | `src/host.cj:150-156`（`HostGlobals`）、`native/bridge_core.h:39-41`（三个 `cj_*_fn` 都不带宿主） | 多窗口下「哪个窗口的菜单被点了」无法回答（架构文档 §7.5 的残余项）。**新回调不许再复制这个形态**——这是本 RFC 的硬约束 |
+| 回调目前是**无身份的静态单槽** | `src/host.cj:150-156`（`HostGlobals`）、`native/core/bridge_core.h:39-41`（三个 `cj_*_fn` 都不带宿主） | 多窗口下「哪个窗口的菜单被点了」无法回答（架构文档 §7.5 的残余项）。**新回调不许再复制这个形态**——这是本 RFC 的硬约束 |
 | Windows 构建目前**没有** `-lshell32` | `native/build_win.bat:43` 的链接行 | 托盘要用 `Shell_NotifyIconW`，构建脚本得加库；属于「用户机器上会立刻暴露」的改动，要写进交付物 |
 | 拖放能力在本机是**可用的**，但没有一行代码 | WebView2 SDK 头（本机 `D:\webview2sdk\sdk-1.0.2365.46\build\native\include\WebView2.h:25037`）已有 `ICoreWebView2Controller4::put_AllowExternalDrop`；`native/*.c` 里 `IDropTarget` / `RegisterDragDrop` / `WM_DROPFILES` **零命中** | 不关掉 WebView2 自带的 drop 处理，子窗口会把拖放吃在 web 内容里，宿主的 `IDropTarget` 收不到文件**真实路径** |
 
@@ -261,11 +261,11 @@ void cj_plat_set_tray_tooltip(cj_host *h, const char *text);
 **所有原生调用只允许发生在宿主 UI 线程**（Windows = 跑消息循环那条线程，Linux = GTK 线程）——
 这是 AGENTS §4 的既有铁律（轻量线程堆上协程栈会被 JSC 栈边界校验 abort），不是本 RFC 的新要求。
 `cj_plat_*` 的实现里一律「先判 `cj_plat_is_ui_thread`，是则直接做，否则 post」（与对话框
-`cj_plat_post_dialog` : `cj_plat_run_dialog` 的分流同形，`native/bridge_win.c:514-531`）。
+`cj_plat_post_dialog` : `cj_plat_run_dialog` 的分流同形，`native/platforms/windows/bridge_win.c:514-531`）。
 
 ### 5.5 回调必须带宿主身份（本 RFC 的硬约束）
 
-现状的三个回调（`native/bridge_core.h:39-41`）都不带宿主，仓颉侧对应 `HostGlobals` 的三个**静态单槽**
+现状的三个回调（`native/core/bridge_core.h:39-41`）都不带宿主，仓颉侧对应 `HostGlobals` 的三个**静态单槽**
 （`src/host.cj:150-156`）——单窗口下够用，多窗口下 `onDestroy` 恒落到最后一个装配的窗口
 （架构文档 §7.5 记了这个残余项）。**新回调一律不许再复制这个形态**：
 
@@ -305,7 +305,7 @@ JSON 已经是既有回调的载体（`on_message` 就是 JSON），多一种 FF
 
 ### 5.6 事件面：菜单 / 托盘 / 拖放点击怎么到前端
 
-**建议做成三个官方插件**（`src/plugin_menu.cj` / `src/plugin_tray.cj` / `src/plugin_dragdrop.cj`），
+**建议做成三个官方插件**（`src/plugins/menu/plugin_menu.cj` / `src/tray.cj` / `src/dragdrop.cj`），
 而不是内置 `system:` 命令——理由：插件模型恰好提供了这三者需要的东西（`events()` 声明、
 `jsShim()` 前端片段、可选 `commands()`），而 `system:` 前缀留给框架自身的元能力
 （`version` / `ping` / `echo` / `devtools` / 本 RFC 新增的 `host`）。
@@ -345,7 +345,7 @@ JSON 已经是既有回调的载体（`on_message` 就是 JSON），多一种 FF
 
 1. **Windows 拖放要求 OLE 已初始化（STA）**：MSDN 口径是 `OleInitialize` 或
    `CoInitializeEx(COINIT_APARTMENTTHREADED)` 之后才可 `RegisterDragDrop`。宿主线程末尾已有
-   `CoUninitialize()`（`native/bridge_win.c:735`），说明有配对初始化——实现前先确认它用的是哪种，
+   `CoUninitialize()`（`native/platforms/windows/bridge_win.c:735`），说明有配对初始化——实现前先确认它用的是哪种，
    并确认 `RegisterDragDrop` 与 WebView2 的 STA 要求不冲突。
 2. **Linux 托盘的「点击图标本体」**：appindicator 的模型是「图标 → 弹菜单」，**没有** `StatusIcon`
    那种 activate 信号。因此 `TrayModel.onClick`（§5.1）在 Linux 上很可能**做不到**。v1 的建议口径：
@@ -399,10 +399,10 @@ window.__CJ_TAURI__.listen("dragdrop:files", function (e) {
 
 1. `src/menu.cj`（`MenuModel` / `MenuItem` / `MenuItemKind` / `toWire()`）。
 2. `src/host.cj`：`WebViewHost.setMenu` / `setMenuItemState`、`HostCapabilities`、`AppHost.capabilities`。
-3. `native/bridge_core.c`：行式格式解析 + `cj_bridge_set_menu` / `cj_bridge_set_menu_item_state` /
+3. `native/core/bridge_core.c`：行式格式解析 + `cj_bridge_set_menu` / `cj_bridge_set_menu_item_state` /
    `cj_bridge_host_capabilities`；`bridge_core.h` 加格式注释与导出声明。
-4. `native/bridge_win.c`：`CreateMenu` 族 + `WM_COMMAND` + `WM_CJT_MENU`；`bridge_linux.c`：`GtkBox` 装配改造 + `GtkMenuBar`。
-5. `src/plugin_menu.cj` + `examples/plugin-menu/`（capability 里故意**只**声明 `menu:click`，
+4. `native/platforms/windows/bridge_win.c`：`CreateMenu` 族 + `WM_COMMAND` + `WM_CJT_MENU`；`bridge_linux.c`：`GtkBox` 装配改造 + `GtkMenuBar`。
+5. `src/plugins/menu/plugin_menu.cj` + `examples/plugin-menu/`（capability 里故意**只**声明 `menu:click`，
    `menu:setEnabled` 作未授权对照组）。
 6. 内置命令 `system:host`（`src/api_system.cj`，三处联动齐全）。
 
@@ -416,7 +416,7 @@ window.__CJ_TAURI__.listen("dragdrop:files", function (e) {
 1. `src/dragdrop.cj`（`DragDropPolicy`）+ `setDragDropPolicy` 接口 + `cj_bridge_set_drag_drop` 导出 + 平台原语。
 2. `bridge_win.c`：`IDropTarget`（COM 实现 + `CF_HDROP` → `DragQueryFileW`）+ `put_AllowExternalDrop(FALSE)`。
 3. `bridge_linux.c`：`gtk_drag_dest_set` + `drag-data-received`（`text/uri-list`）——**先 spike 再写产品代码**。
-4. `src/plugin_dragdrop.cj` + `examples/drag-drop/`。
+4. `src/dragdrop.cj` + `examples/drag-drop/`。
 
 **验收证据**：`[cj-bridge] drop: paths=2 first=…` → 页面 `dragdrop:files paths=[…]`；
 关掉策略（`enabled=false`）后同一拖放**无回调**（对照组）；Linux 侧必须先回答
@@ -428,7 +428,7 @@ window.__CJ_TAURI__.listen("dragdrop:files", function (e) {
 2. `bridge_win.c`：`Shell_NotifyIconW` + `WM_CJT_TRAY` + `NIM_DELETE`（`cj_plat_fini` 里摘图标）+
    `TaskbarCreated` 重注册；`build_win.bat` 加 `-lshell32`。
 3. `bridge_linux.c`：`libayatana-appindicator3` 分支 + `-DCJ_TAURI_NO_TRAY` 空实现（返回 0）。
-4. `src/plugin_tray.cj` + 示例（可并入 A 的示例工程，避免示例爆炸）。
+4. `src/tray.cj` + 示例（可并入 A 的示例工程，避免示例爆炸）。
 
 **验收证据**：`[cj-bridge] tray: added icon=…`、`tray command: id=toggle` → 页面 `tray:click id=toggle`；
 退出后**图标消失**（任务栏无残留）；Linux 未装库时 `tray: unavailable (libayatana-appindicator3 not found)`
@@ -496,9 +496,9 @@ Explorer 后托盘就消失，是肉眼可见的缺陷；实现成本只是多�
   §6.3（托盘可选编译 + `HostCapabilities` 如实上报）、§7.5（回调身份的残余项）。
 - 同族 RFC：[RFC-001 插件体系](RFC-插件体系.md) §5.4（jsShim 的 document-start 通道）、§6（命名权限集）、
   §8 第 6 条（非命令类能力怎么进模型——本 RFC §8 第 5 条回答）。
-- 本仓现状：`src/host.cj`（宿主接口 + `HostGlobals`）、`src/plugin_dialog.cj`（插件范式）、
-  `src/capability.cj`（能力校验）、`src/ipc_hub.cj`（事件投递）、`native/bridge_core.h`（导出与平台原语契约）、
-  `native/bridge_win.c` / `native/bridge_linux.c`（两平台装配点）、`native/build_win.bat` / `build_linux.sh`（构建开关）。
+- 本仓现状：`src/host.cj`（宿主接口 + `HostGlobals`）、`src/plugins/dialog/plugin_dialog.cj`（插件范式）、
+  `src/capability.cj`（能力校验）、`src/ipc_hub.cj`（事件投递）、`native/core/bridge_core.h`（导出与平台原语契约）、
+  `native/platforms/windows/bridge_win.c` / `native/platforms/linux/bridge_linux.c`（两平台装配点）、`native/build_win.bat` / `build_linux.sh`（构建开关）。
 - 对应实现：Tauri v2 的 `menu` / `tray` 模块（模型与原生翻译层分离、`HostCapabilities` 式能力自省）；
   wry 的 Windows 拖放实践（`IDropTarget` + 关闭 WebView 自带 drop）。
 - 平台资料：WebView2 SDK `ICoreWebView2Controller4::AllowExternalDrop`（本机 SDK 1.0.2365.46 的

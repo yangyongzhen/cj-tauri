@@ -140,15 +140,3 @@ public func arkWebLabelScript(label: String): String {
     return "window.__CJ_TAURI_LABEL__ = ${jsStringLiteral(label)};"
 }
 
-/**
- * 把一段「已经是 JSON」的报文推给页面（不经 JSON 二次解析）
- *
- * 桌面两平台由 C 桥拼 `_dispatch(报文)` 并 ExecuteScript；这里产出同形状的脚本字符串，
- * 由 UI 线程的组件交给 `controller.runJavaScript`。报文本身来自 `IpcHub` 的序列化结果，
- * 所以这里**只包一层括号**、不做转义（做了会变成字符串字面量，页面收到的是文本而非对象）。
- */
-@When[env == "ohos"]
-func arkWebDispatchScript(payloadJson: String): String {
-    return "window.__CJ_TAURI__ && window.__CJ_TAURI__._dispatch(${payloadJson});"
-}
-

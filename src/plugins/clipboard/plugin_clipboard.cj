@@ -22,6 +22,14 @@ import stdx.encoding.json.*
  * 读写都要宿主已就绪（start 之后）；更早调用得到 false / None。
  */
 public class ClipboardPlugin <: Plugin {
+
+    /** 自描述：原生桥仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        hosts.add("webview2")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
     private let handler: ClipboardCommands = ClipboardCommands()
 
     public init() {}

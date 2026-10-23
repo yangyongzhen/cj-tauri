@@ -58,6 +58,49 @@ public class Platform {
 
     // ---- 平台名与目录根：@When 成对门禁，只落在这几个函数（RFC §5.3）----
 
+    /**
+     * 当前目标的 TargetInfo（批次 1：装配层 resolveHost 用它选宿主）
+     *
+     * ohos 报 HarmonyOS/arkweb/mobile（运行时 os 虽取 Linux，语义归鸿蒙）；
+     * arch 从 CJ_TAURI_ARCH 环境变量取——编译期拿不到可靠的 arch，
+     * 由 hvigor / CLI 构建时注入（未注入为 unknown，宿主选择请勿依赖 arch，
+     * 用 hostKind/display 区分——它们正是为「同 os 多宿主」设计的）。
+     */
+    public static func guessTarget(): TargetInfo {
+        let arch = getVariable("CJ_TAURI_ARCH") ?? "unknown"
+        return TargetInfo(currentOs(), arch, currentHostKind(), currentDisplay())
+    }
+
+    @When[env == "ohos"]
+    private static func currentOs(): String {
+        return "HarmonyOS"
+    }
+
+    @When[env != "ohos"]
+    private static func currentOs(): String {
+        return desktopOs()
+    }
+
+    @When[env == "ohos"]
+    private static func currentHostKind(): String {
+        return "arkweb"
+    }
+
+    @When[env != "ohos"]
+    private static func currentHostKind(): String {
+        return desktopHostKind()
+    }
+
+    @When[env == "ohos"]
+    private static func currentDisplay(): String {
+        return "mobile"
+    }
+
+    @When[env != "ohos"]
+    private static func currentDisplay(): String {
+        return "desktop"
+    }
+
     @When[os == "Windows"]
     private static func desktopOs(): String {
         return "Windows"

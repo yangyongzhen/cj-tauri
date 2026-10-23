@@ -14,6 +14,14 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Changed
+
+- 官网架构小节接入**多端总图**（`docs/images/architecture-multiplatform.png` → `website/assets/`）：
+  讲清工程根只有一份业务代码、`cj-tauri.toml` 是单一真相、`sync` 据此派生 `targets/desktop` 与
+  `targets/ohos`，分别落到 WebKitGTK / WebView2 / ArkWeb。`scripts/site-check.sh` 的「同源拷贝不许漂移」
+  清单同步扩到这张图——只改 `docs/` 时官网不会再静默停在旧图上（判据：自检那一行同时列出
+  `architecture.svg` 与 `architecture-multiplatform.png`）。
+
 ## [2.0.0] - 2026-10-23
 
 **不兼容变更**：删除已失效的公开 API `setHostFactory` / `requireInjectedHost`（见 Removed）——源码里仍

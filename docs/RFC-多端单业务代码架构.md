@@ -91,6 +91,7 @@ name        = "音乐"
 version     = "1.0.0"
 icon        = "assets/icon.png"     # 单张高分辨率源图，各端规格由生成器派生
 entry       = "src/main.cj"         # 只声明入口文件，里面有且只有 launch(build())
+package     = "music"               # 业务 cjpm 包名（sync 生成 launcher 的 import 用）
 
 [[windows]]
 label       = "main"                # 与前端 __CJ_TAURI_LABEL__ 一致
@@ -147,6 +148,8 @@ public func build(): AppSpec {                       // 示意写法；落地用
 ```
 
 为什么不像 v1 草案那样 `build(env, assets)`：参数一旦进签名，就等于承认"业务需要知道资产从哪来、目录在哪"——**而这恰恰是本方案要消灭的知识**。测试需要注入上下文时用 `launch(spec, context: Some(fake))`，不影响业务签名。
+
+> **批次 2 过渡契约**：`AppSpec` / `launch(spec)` 随批次 3 落地。在此之前，`sync` 生成的 launcher 直接调业务的 `build(): TauriApp`（批次 1 已交付的 API）+ `assets(resolver)` + `run(Asset)`；批次 3 切换时由 `sync` 重新生成 launcher，业务侧只把 `build()` 的返回换成 `AppSpec` 即可。
 
 ### 4.2 `launch()`：框架内部按目标分派
 
@@ -272,6 +275,122 @@ if (ctx.supports(PlatformFeature.Tray)) {
 ```
 
 好处不只是好看：**能力位是可测的**（mock 一个 `supports` 返回 false 的上下文，就能测降级路径），而 OS 分支只能靠真机覆盖。
+
+### 4.6 插件机制的多端设计（完整版，批次 2 实现暂停期间补齐）
+
+#### 4.6.1 现状盘点（均已核对）
+
+| 事实 | 出处 |
+| --- | --- |
+| `Plugin` 接口 = name / commands / events / jsShim，命令注册为 `<插件名>:<短名>` | `src/plugin.cj:20` |
+| 15 个插件子包（`cjTauri.plugins.*`），CLI 按子包链接 | `src/plugins/`、CLI 链接行 |
+| `serial`/`shell` 已有 `@When` 平台分支；`sqlite` 依赖 `-lsqlite3`（Linux/Windows 段已配） | `plugins/serial`、`plugins/shell`、根 `cjpm.toml` |
+| 鸿蒙段**没有**链接 sqlite，也没有 C 桥（`cj_bridge_*` 未产出） | 根 `cjpm.toml` 鸿蒙段、`src/host.cj:546` 注释 |
+| 无头装配导出已实现：设 `CJ_TAURI_MANIFEST` 即打印插件清单退出，不建窗口 | `src/app.cj:588`（`describePluginsJson`，`src/plugin.cj:199`） |
+
+#### 4.6.2 插件的三层构成（差异从哪来）
+
+| 层 | 内容 | 多端差异点 |
+| --- | --- | --- |
+| 仓颉命令层 | 命令处理器、事件 | 纯逻辑，全端一致 |
+| 原生桥层 | C 桥导出 / 系统库 / 系统 kit | **差异主源**：桥按端产出、系统库按端链接（sqlite）、kit 仅鸿蒙 |
+| 前端 shim 层 | `jsShim()` 注入 `window.__CJ_TAURI__.<插件名>` | 纯 JS，全端一致；但 shim 调的命令可能端不可用 |
+
+结论：插件的多端问题几乎全部落在**原生桥层**，设计围绕它展开。
+
+#### 4.6.3 自描述：静态声明 + 无头导出，双通道交叉验证
+
+```cangjie
+/** 插件自描述（静态数据，随插件子包编译；不含任何平台代码，三端可编） */
+public class PluginManifest {
+    public let name: String
+    public let commands: ArrayList<String>     // 短名清单
+    public let events: ArrayList<String>
+    public let requiredCapabilities: ArrayList<String>
+    public let supportedHosts: ArrayList<String>  // hostKind 列表，如 ["webkitgtk","webview2","arkweb"]；缺省 = 全端
+}
+
+public interface Plugin {
+    // ...既有 name/commands/events/jsShim 不变...
+    func describe(): PluginManifest
+}
+```
+
+- **静态 `describe()`**（新增）：sync 在**为目标端生成骨架时**消费——此时业务还没在该端编译过，无头导出不可用，只有静态声明能算出"哪些插件进哪个端的依赖列表"。
+- **无头导出**（已有，`app.cj:588`）：`check` 阶段消费——业务可编后跑一次，拿到真实命令集/能力需求，与静态 `describe()` **交叉比对，不一致即失败**。两条通道各有分工，缺一不可。
+
+#### 4.6.4 端可用性：三档归档 + 桩规则（P-1 / P-2）
+
+15 个现有插件逐个归档（`待核` = 本次未逐一核实，批次 3 清障时确认）：
+
+| 档 | 插件 | 依据 |
+| --- | --- | --- |
+| 纯仓颉 + stdx（预期全端可用） | `http` `ws` `mqtt` `redis` `store` `log` `fs`（待核） | 无桥依赖、无系统库 |
+| C 桥依赖（桌面可用；鸿蒙桥产出前 = 桩） | `clipboard` `dialog` `notification` `menu` `shell`（3 处 @When）`serial`（1 处 @When） | 桥依赖；鸿蒙侧 `cj_bridge_*` 未产出 |
+| 系统库 | `sqlite`（Linux/Windows 已链接；鸿蒙段未链接、未验证） | `-lsqlite3` 仅两段配置 |
+
+两条硬规则（对齐 §8 差异三档，插件的桩属于 B 档实现）：
+
+- **P-1 插件子包三端必须可编译**：某端不可用的能力，在该插件子包内用 `@When` 片段给出**桩实现**（调用即抛可照做的"端不支持"错误）。理由：业务 `build()` 三端共用且会 import 全部所用插件——若靠"编译期把子包排除出依赖"，业务在缺失端必然编译失败，除非业务按端分支，违反 G2（业务零平台知识）。桩让"编得过、运行期可照做地报错"成立。
+- **P-2 端可用性必须标注且可观测**：桩实现必须与 `describe().supportedHosts` 一致；`check` 汇总"业务用了 unsupported 插件"为**警告**（编译已过、运行期报错，不 fail）；装配期被降级忽略的插件在启动日志列出（§8 第 1 条）。
+
+（取代此前"编译期排除子包"的设想——它与"业务零分支"冲突，评审质询时更正。）
+
+#### 4.6.5 鸿蒙端插件的原生层：宿主中介，已真机验证
+
+问题（评审质询）：桌面插件进程内调 C 桥；鸿蒙 hap 里宿主是 ArkUI 组件，插件的原生能力怎么来？要走 RPC/IPC 异步吗？
+
+先立事实（全部有出处）：
+
+- hap 是**单进程**（UI 线程 + worker），仓颉与 ArkUI、系统服务同进程——不存在要跨越的进程边界，**RPC/跨进程方案否决**（无收益，复杂度抬一级）；
+- 仓颉直连系统 kit 绑定可用：ohos-probe 顶部就 `import kit.PerformanceAnalysisKit.Hilog`（`examples/ohos-probe/entry/src/main/cangjie/probe_app.cj:3`）；
+- 鸿蒙 sysroot 链接通路已配（根 `cjpm.toml` 鸿蒙段 `--sysroot`），NDK 覆盖的底层能力可同进程 FFI；
+- **dialog 已真机验证**（2026-10-20，ohos-probe 取证）：`dialog:message` → 宿主队列（`ArkWebDialogRequest`，`src/host_arkweb.cj:135`）→ **应用侧 ArkUI 组件** `showAlertDialog` 渲染（该 API 只能在应用侧组件调，队列正是为这次线程跳转而生）→ 20ms 轮询回填答案（上限 120s）→ handler 同步返回；多窗口各持 overlay、按 label 路由不串台；
+- clipboard / notification：鸿蒙宿主把能力位报 0、命令如实失败（`probe_app.cj:111` 注释）——§4.6.4 规则 P-2 的实机先例。
+
+设计结论——**四条通道，按能力类型选**：
+
+| 能力类型 | 通道 | 状态 |
+| --- | --- | --- |
+| 有仓颉 kit 绑定（Hilog 等） | 仓颉直连 kit（与宿主同模式，无桥） | 已验证（Hilog） |
+| 需要宿主 UI 线程的（对话框/弹层类） | **宿主中介队列**：插件命令 → 宿主队列 → 应用侧组件渲染 → 回填 | 已真机验证（dialog，含多窗口） |
+| NDK 覆盖的底层（文件、进程等） | 同进程 NDK FFI，复用桌面 `cj_bridge_*` 契约子集 | 通路已配，待逐插件接 |
+| 暂无实现 | 能力位 0 + 桩如实失败（P-2） | 已真机验证（clipboard / notification） |
+
+**照实记录的不足**：dialog 的轮询回填（20ms 间隔）会占住分发线程直到用户点击（上限 120s）——真机验证可用，但属临时形态。批次 3 评估换成条件变量等待，或把 `CommandHandler` 扩出异步回写契约（handler 返回 `Pending`、经 `ipc.reply(...)` 在回调线程回写；桌面同步实现内部立即回写，行为不变）。
+
+#### 4.6.6 命令表与 jsShim 的衔接
+
+- **命令**：插件命令以 `<插件名>:<短名>` 并入编译期命令表（§4.4 的 `registry.generated.cj`），数据源 = 静态 `describe()`；无头导出交叉验证。插件的命令漏声明能力 → 编译失败（§4.4 已有）。
+- **jsShim**：保持运行期注入（`runWith` → `registerPluginScripts` 已有），不进生成物——它是纯 JS，没有端差异。
+
+#### 4.6.7 sync/check 数据流
+
+```
+业务 build() 装配（唯一真相，含插件 import）
+   │ cjpm build（业务可编）
+   ▼
+CJ_TAURI_MANIFEST 无头导出（app.cj:588 已实现）
+   │ 交叉比对
+   ▼
+静态 describe()（三端可编，目标端生成时唯一可用通道）
+   │ 按端过滤 supportedHosts
+   ▼
+sync 生成 targets/<端>/ 骨架（依赖列表 = 业务所用插件 ∩ 该端可用；桩规则 P-1 兜底）
+   ▼
+check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
+```
+
+**清单不设 `[plugins]` 段**：插件用哪些由业务 `build()` 的 import 决定（代码即真相），生成器从无头导出反推——避免"清单写一遍、代码写一遍"的双份真相。
+
+#### 4.6.8 对批次计划的影响
+
+| 批次 | 插件相关动作 |
+| --- | --- |
+| 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
+| 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
+| 批次 3 | 鸿蒙骨架生成时启用 P-1/P-2；`Plugin` 接口加 `describe()`；15 插件清障（开放问题 9）；`check` 加三方比对；鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11） |
+| 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
 
 ## 5. L0 适配层（每端唯一手写处）
 
@@ -574,6 +693,9 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 6. **移动端多窗口语义**：`windows` 在移动端如何映射（多任务 / 分屏 / 单窗切换）需要真实需求驱动。
 7. **托盘/菜单在移动端**：是忽略、还是映射成侧栏？倾向忽略 + 日志，但要评估"业务以为有"的误判风险。
 8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
+9. **15 个插件的端可用性清障**：归档表见 §4.6.4（`fs` 等 2 项待核）；批次 3 需给 `clipboard`/`dialog`/`notification`/`menu`/`shell`/`serial`/`sqlite` 写鸿蒙桩（P-1），并让桩行为与 `describe().supportedHosts` 严格一致（P-2）。
+10. **插件 API 版本兼容**：`PluginManifest` 要不要带 `apiVersion`，框架 Plugin 接口演进时如何拒绝过旧插件（check 阶段比对 vs 运行期报错）？倾向 check 阶段，避免运行期才发现。
+11. **鸿蒙插件的异步语义与 kit 覆盖面**：① dialog 的「宿主队列 + 20ms 轮询回填」（`host_arkweb.cj:162`，上限 120s）会占住分发线程，换条件变量等待还是扩 `CommandHandler` 异步回写契约（`Pending` + `ipc.reply`）？② 仓颉 ohos kit 绑定对 pasteboard / notification / file 等的覆盖面需按 SDK 实测——有绑定走直连（§4.6.5 首选通道），无绑定维持桩或走 NDK FFI。
 
 ## 14. 验收判据（可机械化）
 

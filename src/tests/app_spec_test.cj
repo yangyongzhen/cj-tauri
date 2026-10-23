@@ -1,6 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
+import cjTauri.platform.*
 import cjTauri.plugins.store.*
 import std.collection.*
 import std.unittest.*

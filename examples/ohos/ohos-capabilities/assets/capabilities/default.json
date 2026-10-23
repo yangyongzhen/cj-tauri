@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "greet",
+    "timer",
+    "probeLog",
+    "system:version",
+    "system:host"
+  ],
+  "permissions": ["menu:state"],
+  "events": ["tick", "menu:click"]
+}

@@ -5,6 +5,7 @@ import kit.ArkWeb.*
 import kit.PerformanceAnalysisKit.Hilog
 import ohos.arkui.component.web.Web
 import ohos.arkui.state_macro_manage.*
+import std.collection.ArrayList
 import cjTauri.*
 
 /*
@@ -57,8 +58,37 @@ class CjTauriWebView {
     @State
     var pageUrl: String = ""
 
+    /*
+     * 菜单快照：框架存模型（`ArkWebHost.setMenu` 解析线路格式）、**应用侧**画（`bindMenu`）——
+     * 这是「框架包不引用 ArkUI」前提下的唯一分工（见框架 src/arkweb_menu.cj 的类注释）。
+     *
+     * 刷新节拍借用页面的心跳：`setMenuItemState` 的改动没有别的通知通道（框架碰不到 ArkUI），
+     * 而页面每 500ms 发一次 pull 心跳正好会进 proxy 回调，顺手重取一次快照即可。
+     * 应用不调 `setMenu` 时这份快照为空，菜单条不占位、界面与以前完全一样。
+     */
+    @State
+    var menuSnapshot: ArrayList<ArkWebMenuItem> = ArrayList<ArkWebMenuItem>()
+
     public func build() {
         Column {
+            /*
+             * 菜单条：**有菜单才占位**（没调 setMenu 的应用看不到它）。
+             *
+             * `bindMenu` 出的是扁平菜单——仓颉侧 `MenuElement` 只有 `value` + `action`，
+             * 没有嵌套子菜单、也没有禁用位。层级改用「父 / 子」标签表达，分隔线与禁用项不画
+             * （画出来点了没反应，比不画更容易被误读成「宿主没落地」）。
+             */
+            if (this.menuSnapshot.size > 0) {
+                Row {
+                    Button("菜单")
+                        .fontSize(14)
+                        .height(32)
+                        .margin(left: 8)
+                        .bindMenu(this.menuElements())
+                }
+                .width(100.percent)
+                .height(44)
+            }
             if (this.pageUrl.size > 0) {
                 Web(src: this.pageUrl, controller: this.controller)
                     .width(100.percent)
@@ -66,7 +96,14 @@ class CjTauriWebView {
                     .fileAccess(true)
                     .javaScriptProxy(
                         funcList: [
-                            { raw => onProxyPost(this.windowLabel, raw, this.controller) },
+                            {
+                                raw =>
+                                    let ack = onProxyPost(this.windowLabel, raw, this.controller)
+                                    /* 心跳节拍：页面每 500ms 一次 pull，顺手把宿主里的菜单模型
+                                       重取一次（setMenuItemState 的改动没有别的通知通道）。 */
+                                    this.reloadMenu()
+                                    return ack
+                            },
                             /* `poll` 只为兼容页面上可能残留的旧桥脚本：返回值传不回 JS，
                                真正的脚本推送已在 `onProxyPost` 里完成。 */
                             { _ => "" }
@@ -150,6 +187,64 @@ class CjTauriWebView {
             }
         )
     }
+
+    /*
+     * 从宿主取一份菜单快照。没有宿主时保持空表——UI 照常建树，别等菜单才画 Web
+     * （那条链会死成「不建 Web → onPageBegin 不来 → 地址永远空」的白屏，见 AGENTS §4）。
+     */
+    private func reloadMenu(): Unit {
+        match (ArkWebRuntime.hostFor(this.windowLabel)) {
+            case Some(h) => this.menuSnapshot = h.menuModel()
+            case None => ()
+        }
+    }
+
+    /*
+     * 快照 → `bindMenu` 的扁平项表。
+     *
+     * 仓颉侧 `MenuElement` 只有 `value` + `action`：**没有嵌套、没有禁用位**。于是层级用
+     * 「父 / 子」标签表达，分隔线与禁用项不画（画出来点了没反应会被误读成「宿主没落地」）。
+     */
+    private func menuElements(): Array<MenuElement> {
+        let out = ArrayList<MenuElement>()
+        for (item in this.menuSnapshot) {
+            if (item.isSubmenu()) {
+                for (child in item.children) {
+                    if (!child.enabled || child.isSeparator()) {
+                        continue
+                    }
+                    let target = child.id
+                    let text = "${menuItemText(item)} / ${menuItemText(child)}"
+                    out.add(MenuElement(value: text, action: { => this.fireMenu(target) }))
+                }
+            } else if (item.enabled && !item.isSeparator()) {
+                let target = item.id
+                out.add(MenuElement(value: menuItemText(item), action: { => this.fireMenu(target) }))
+            }
+        }
+        return out.toArray()
+    }
+
+    /* 一项被点了：交回宿主（宿主回投 shell 报文，与桌面同形），顺带刷新勾选态 */
+    private func fireMenu(id: String): Unit {
+        // 留一行 hilog 再往下走：设备上框架 stderr 不进 hilog（AGENTS §4），
+        // 应用侧这行是「原生真的收到点击」的唯一凭证。
+        Hilog.info(1, "CjTauri", "menu click label=${this.windowLabel} id=${id}")
+        match (ArkWebRuntime.hostFor(this.windowLabel)) {
+            case Some(h) =>
+                h.noteMenuClick(id)
+                this.reloadMenu()
+            case None => Hilog.info(1, "CjTauri", "menu click without host: label=${this.windowLabel}")
+        }
+    }
+}
+
+/* 菜单项的显示文本：勾选项带「✓」前缀（MenuElement 没有勾选位，只能写进标签） */
+func menuItemText(item: ArkWebMenuItem): String {
+    if (item.isCheckbox() && item.checked) {
+        return "✓ ${item.label}"
+    }
+    return item.label
 }
 
 @Entry

@@ -1,6 +1,7 @@
 # HarmonyOS ArkWeb 平台适配
 
-状态（2026-10-19）：**宿主已在仓颉侧落地并在真机跑通完整闭环；C 桥未落地，宿主能力位仍全 0**。
+状态（2026-10-24）：**宿主已在仓颉侧落地并在真机跑通完整闭环；C 桥未落地；宿主能力位已有 1 项
+（菜单）取证落地，其余仍全 0**。
 
 判据分三层，别混为一谈：
 
@@ -13,9 +14,12 @@
   实现，`@When[env == "ohos"]` 一平台一份。按 AGENTS §2，新增宿主能力仍是「先扩 `WebViewHost` 接口、
   再改各平台实现」，但不要求鸿蒙侧补同名 `cj_bridge_*` 导出（无 C 桥平台：核心 FFI 一律
   `@When` 门禁 + 如实降级，见 §4）。
-- **宿主能力位全 0**——菜单、托盘、全局快捷键、拖放、原生对话框、剪贴板、通知、标题栏副标题
-  一律如实拒绝（`hostCapabilities()` 返回 0）。按 AGENTS §1 门禁 4：**没有实机证据的能力位
-  不许上报**，所以它们不会因为「代码里写了」就变成 1。
+- **宿主能力位：只有菜单置 1，其余全 0**——`CJ_CAP_MENU` 已于 2026-10-24 真机取证
+  （点得动菜单项、原生回投 `{"kind":"menu","id":…}`、页面收到 `menu:click`，见文末「菜单能力位」）；
+  托盘 / 全局快捷键 / 拖放 / 原生对话框 / 剪贴板 / 通知 / 标题栏副标题一律如实拒绝（对应位为 0）。
+  按 AGENTS §1 门禁 4：**没有实机证据的能力位不许上报**，所以它们不会因为「代码里写了」就变成 1。
+  注意「对话框」一项的边界：应用侧用声明式 overlay 能弹框（见 §4 踩坑清单），但那不是宿主能力，
+  所以这个位仍是 0。
 
 ⚠️ **两条与桌面平台不同的硬约束**（真机踩过，改动前务必看）：
 
@@ -102,5 +106,46 @@
   每条报文里 `window=`（原生侧归属）与 `me=`（页面自认的 label）**逐条恒等**——这就是「不串台」；
 - 同轮 `SIGSEGV` / `panic` / `fatal` 计数 0，`command not allowed|registered|rejected` 计数 0。
 
-宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 剪贴板 / 通知）**仍一项都没有证据**，
-所以 `hostCapabilities()` 保持返回 0——别因为「代码里写了降级」就把它读成验收过了。
+## 菜单能力位（2026-10-24 真机取证）
+
+**结论：`CJ_CAP_MENU` 置 1。** 分工与桌面两平台一致——框架只管「模型 → 宿主」的翻译与报文回投，
+**渲染在应用侧**（鸿蒙的 `bindMenu` 只接受应用侧组件上的 `Array<MenuElement>`，框架包不能碰 ArkUI，
+见上面的硬约束 1）：
+
+| 环节 | 位置 | 做什么 |
+| --- | --- | --- |
+| 模型 | 框架 `src/arkweb_menu.cj` | `MenuModel` / `MenuItem` → 扁平 `Array<MenuElement>`（标题、勾选标记、分隔线），并解析宿主回投的 `{"kind":"menu","id":…}` |
+| 渲染 | 应用侧 `cli/templates/ohos-skeleton/entry/src/main/cangjie/index.cj` | `Button("菜单").bindMenu(...)` + 点击回调 `noteMenuClick(id)`，顺带一行 hilog `menu click label=… id=…` |
+| 回投 | 框架 `src/host_arkweb.cj` | shell 报文 → 应用 `onShellEvent` → 页面 `menu:click` 事件（需在能力清单 `events` 声明） |
+| 状态 | 应用侧 + `menu` 插件 | `menu:setChecked` / `setEnabled` 命令 → 宿主 `setMenuItemState`，应用侧留存「另一维状态」后重新 `bindMenu` |
+
+真机判据（`examples/ohos/ohos-capabilities`，`hdc shell hilog` 原样摘录）：
+
+```
+CjTauri: menu click label=main id=view.sidebar
+CjProbe: PASS menu click id=view.sidebar enabled=true checked=false
+CjProbe: PASS cap menu expect=true actual=true
+CjProbe: PASS menu setChecked view.sidebar=true
+```
+
+- **原生侧真的收到点击**：`menu click` 那行由应用侧组件在 `bindMenu` 回调里打印（设备上框架 stderr
+  不进 hilog，只有应用侧 `Hilog.info` 抓得到）；
+- **回投真的到了页面**：`PASS menu click id=…` 是页面在 `menu:click` 回调里发出的断言，
+  `enabled` / `checked` 与弹窗里看到的状态一致；
+- **两个方向都通**：页面 `menu:setChecked` → `menu` 插件 → 宿主 `setMenuItemState` → 下一次 `bindMenu`
+  的勾选态，所以页面那行 `PASS menu setChecked` 不是自说自话。
+
+**已知限制（`bindMenu` 的形状决定，不是没实现）**：菜单是**一层扁平**结构——`MenuElement` 没有
+禁用位、也不能嵌套子菜单，所以 `MenuItemKind.Separator` 与 `Submenu` 在鸿蒙侧被**拍平**成普通项
+（分隔线渲染成一条横线项，子菜单的项按顺序平铺）；`setMenuItemState` 的 enabled 改动在鸿蒙侧
+**只能改灰（不参与点击高亮）**，不能真正禁用。要完整的层级/禁用语义得等宿主侧自绘菜单，
+在那之前文档与示例按「扁平菜单」表述，别照桌面示例的嵌套树写。其余四项能力位（托盘 / 快捷键 /
+拖放 / 对话框）仍为 0，各有各的阻断原因：
+
+- **托盘 / 全局快捷键**：鸿蒙没有桌面级托盘与系统级热键 API（`2in1` 也没有），如实拒绝；
+- **原生对话框**：`showAlertDialog` / `getPromptAction().showDialog` 在 `javaScriptProxy` 回调的
+  同步栈上会被**静默丢弃**（真机四轮对照，见 §4 与 `docs/鸿蒙ArkWeb接入踩坑.md` §10.11），
+  应用侧只能用声明式 overlay——那不是宿主能力；
+- **文件拖放**：组件有 `onDrop`，但路径来自系统 drag 事件而非桥，且没有 `DragDropPolicy`
+  的「start 前定稿」语义，未做能力位。
+

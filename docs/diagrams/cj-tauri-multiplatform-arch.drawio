@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mxfile host="app.diagrams.net" modified="2026-10-23T00:00:00.000Z" agent="drawio-chart" version="24.0.0">
   <diagram name="overall-arch" id="overall-arch-1">
-    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="850" math="0" shadow="0" background="#F8FAFC">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="880" math="0" shadow="0" background="#F8FAFC">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
@@ -20,17 +20,17 @@
         <mxCell id="o1n3" value="assets/capabilities/&#xa;能力白名单&#xa;命令 · 事件 · 权限集" style="rounded=1;whiteSpace=wrap;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="o1biz">
           <mxGeometry x="540" y="50" width="230" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="o1manifest" value="cj-tauri.toml —— 单一真相&#xa;id（= 安装 ID = 鸿蒙 bundleName）· version · windows · page · capabilitiesDir" style="rounded=1;whiteSpace=wrap;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="330" y="270" width="540" height="80" as="geometry"/>
+        <mxCell id="o1manifest" value="cj-tauri.toml —— 单一真相&#xa;id（= 安装 ID = 鸿蒙 bundleName）· version · windows · page · capabilitiesDir" style="rounded=1;whiteSpace=wrap;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=13;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="260" width="600" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="o1note" value="应用身份&#xa;全形态统一携带" style="text;html=0;align=left;verticalAlign=middle;resizable=0;points=[];autosize=0;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" vertex="1" parent="1">
           <mxGeometry x="900" y="280" width="160" height="60" as="geometry"/>
         </mxCell>
         <mxCell id="o1cli" value="cj-tauri CLI&#xa;create · sync · check · build · dev" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="420" y="410" width="360" height="70" as="geometry"/>
+          <mxGeometry x="420" y="440" width="360" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="o1skelL" value="targets/desktop（sync 派生 · 勿手改）" style="swimlane;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;" vertex="1" parent="1">
-          <mxGeometry x="120" y="540" width="420" height="140" as="geometry"/>
+          <mxGeometry x="120" y="580" width="420" height="140" as="geometry"/>
         </mxCell>
         <mxCell id="o1d1" value="launcher main.cj&#xa;调 build()&#xa;launch(spec)" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="o1skelL">
           <mxGeometry x="30" y="50" width="170" height="70" as="geometry"/>
@@ -39,7 +39,7 @@
           <mxGeometry x="220" y="50" width="170" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="o1skelR" value="targets/ohos（sync 派生 · 勿手改）" style="swimlane;whiteSpace=wrap;fillColor=none;strokeColor=#005D7B;dashed=1;strokeWidth=2;fontColor=#2D3748;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;" vertex="1" parent="1">
-          <mxGeometry x="660" y="540" width="420" height="140" as="geometry"/>
+          <mxGeometry x="660" y="580" width="420" height="140" as="geometry"/>
         </mxCell>
         <mxCell id="o1oh1" value="entry main_ability&#xa;launchWith(mobile)" style="rounded=1;whiteSpace=wrap;fillColor=#005D7B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="o1skelR">
           <mxGeometry x="30" y="50" width="170" height="70" as="geometry"/>
@@ -48,15 +48,15 @@
           <mxGeometry x="220" y="50" width="170" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="o1p1" value="WebKitGTK&#xa;Linux" style="rounded=1;whiteSpace=wrap;fillColor=#64748B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="160" y="740" width="200" height="60" as="geometry"/>
+          <mxGeometry x="160" y="770" width="200" height="60" as="geometry"/>
         </mxCell>
         <mxCell id="o1p2" value="WebView2&#xa;Windows" style="rounded=1;whiteSpace=wrap;fillColor=#64748B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="500" y="740" width="200" height="60" as="geometry"/>
+          <mxGeometry x="500" y="770" width="200" height="60" as="geometry"/>
         </mxCell>
         <mxCell id="o1p3" value="ArkWeb&#xa;鸿蒙（PC · 手机 · 平板）" style="rounded=1;whiteSpace=wrap;fillColor=#64748B;strokeColor=none;fontColor=#FFFFFF;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="840" y="740" width="200" height="60" as="geometry"/>
+          <mxGeometry x="840" y="770" width="200" height="60" as="geometry"/>
         </mxCell>
-        <mxCell id="o1e1" value="解析 + 校验" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1manifest" target="o1cli">
+        <mxCell id="o1e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1manifest" target="o1cli">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
         <mxCell id="o1e2" value="sync desktop" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1cli" target="o1skelL">
@@ -65,12 +65,12 @@
         <mxCell id="o1e3" value="sync ohos" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1cli" target="o1skelR">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="o1e4" value="cjpm path 依赖 · 业务代码一份" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=3;strokeColor=#E99151;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#B45309;" edge="1" parent="1" source="o1skelL" target="o1biz">
+        <mxCell id="o1e4" value="path 依赖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=3;strokeColor=#E99151;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#B45309;entryX=0.05;entryY=1;" edge="1" parent="1" source="o1skelL" target="o1biz">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="330" y="0" as="sourcePoint"/>
           </mxGeometry>
         </mxCell>
-        <mxCell id="o1e5" value="cjpm path 依赖 · 业务代码一份" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=3;strokeColor=#E99151;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#B45309;" edge="1" parent="1" source="o1skelR" target="o1biz">
+        <mxCell id="o1e5" value="path 依赖" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=3;strokeColor=#E99151;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#B45309;entryX=0.95;entryY=1;" edge="1" parent="1" source="o1skelR" target="o1biz">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="870" y="0" as="sourcePoint"/>
           </mxGeometry>
@@ -78,7 +78,7 @@
         <mxCell id="o1e6" value="assets 页面 + 能力清单" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;dashed=1;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1biz" target="o1skelL">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="o1e7" value="assets 拷入 rawfile（字节级）" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;dashed=1;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1biz" target="o1skelR">
+        <mxCell id="o1e7" value="assets 拷入 rawfile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;dashed=1;strokeWidth=2;strokeColor=#94A3B8;labelBackgroundColor=#F8FAFC;fontFamily=system-ui, -apple-system, PingFang SC, Microsoft YaHei, sans-serif;fontSize=15;fontColor=#64748B;" edge="1" parent="1" source="o1biz" target="o1skelR">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
         <mxCell id="o1e8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;strokeWidth=2;strokeColor=#94A3B8;" edge="1" parent="1" source="o1skelL" target="o1p1">

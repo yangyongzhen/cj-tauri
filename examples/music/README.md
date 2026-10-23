@@ -22,7 +22,7 @@
 
 | cj-tauri | 对应 Tauri 的 | 在这个示例里落在哪 |
 | --- | --- | --- |
-| WebView 宿主 | tao / wry | C 桥 `native/bridge_win.c`（WebView2）/ `native/bridge_linux.c`（WebKitGTK） |
+| WebView 宿主 | tao / wry | C 桥 `native/platforms/windows/bridge_win.c`（WebView2）/ `native/platforms/linux/bridge_linux.c`（WebKitGTK） |
 | IPC 双向桥 | invoke / resolve / event | 页面 `window.__CJ_TAURI__.invoke('music:hot')` → 仓颉侧 `CommandHandler` |
 | 能力安全模型 | capability 白名单 | `capabilities/default.json` 里逐条声明命令与事件 |
 

@@ -333,12 +333,35 @@ public interface Plugin {
 
 （取代此前"编译期排除子包"的设想——它与"业务零分支"冲突，评审质询时更正。）
 
-#### 4.6.5 命令表与 jsShim 的衔接
+#### 4.6.5 鸿蒙端插件的原生层：宿主中介，已真机验证
+
+问题（评审质询）：桌面插件进程内调 C 桥；鸿蒙 hap 里宿主是 ArkUI 组件，插件的原生能力怎么来？要走 RPC/IPC 异步吗？
+
+先立事实（全部有出处）：
+
+- hap 是**单进程**（UI 线程 + worker），仓颉与 ArkUI、系统服务同进程——不存在要跨越的进程边界，**RPC/跨进程方案否决**（无收益，复杂度抬一级）；
+- 仓颉直连系统 kit 绑定可用：ohos-probe 顶部就 `import kit.PerformanceAnalysisKit.Hilog`（`examples/ohos-probe/entry/src/main/cangjie/probe_app.cj:3`）；
+- 鸿蒙 sysroot 链接通路已配（根 `cjpm.toml` 鸿蒙段 `--sysroot`），NDK 覆盖的底层能力可同进程 FFI；
+- **dialog 已真机验证**（2026-10-20，ohos-probe 取证）：`dialog:message` → 宿主队列（`ArkWebDialogRequest`，`src/host_arkweb.cj:135`）→ **应用侧 ArkUI 组件** `showAlertDialog` 渲染（该 API 只能在应用侧组件调，队列正是为这次线程跳转而生）→ 20ms 轮询回填答案（上限 120s）→ handler 同步返回；多窗口各持 overlay、按 label 路由不串台；
+- clipboard / notification：鸿蒙宿主把能力位报 0、命令如实失败（`probe_app.cj:111` 注释）——§4.6.4 规则 P-2 的实机先例。
+
+设计结论——**四条通道，按能力类型选**：
+
+| 能力类型 | 通道 | 状态 |
+| --- | --- | --- |
+| 有仓颉 kit 绑定（Hilog 等） | 仓颉直连 kit（与宿主同模式，无桥） | 已验证（Hilog） |
+| 需要宿主 UI 线程的（对话框/弹层类） | **宿主中介队列**：插件命令 → 宿主队列 → 应用侧组件渲染 → 回填 | 已真机验证（dialog，含多窗口） |
+| NDK 覆盖的底层（文件、进程等） | 同进程 NDK FFI，复用桌面 `cj_bridge_*` 契约子集 | 通路已配，待逐插件接 |
+| 暂无实现 | 能力位 0 + 桩如实失败（P-2） | 已真机验证（clipboard / notification） |
+
+**照实记录的不足**：dialog 的轮询回填（20ms 间隔）会占住分发线程直到用户点击（上限 120s）——真机验证可用，但属临时形态。批次 3 评估换成条件变量等待，或把 `CommandHandler` 扩出异步回写契约（handler 返回 `Pending`、经 `ipc.reply(...)` 在回调线程回写；桌面同步实现内部立即回写，行为不变）。
+
+#### 4.6.6 命令表与 jsShim 的衔接
 
 - **命令**：插件命令以 `<插件名>:<短名>` 并入编译期命令表（§4.4 的 `registry.generated.cj`），数据源 = 静态 `describe()`；无头导出交叉验证。插件的命令漏声明能力 → 编译失败（§4.4 已有）。
 - **jsShim**：保持运行期注入（`runWith` → `registerPluginScripts` 已有），不进生成物——它是纯 JS，没有端差异。
 
-#### 4.6.6 sync/check 数据流
+#### 4.6.7 sync/check 数据流
 
 ```
 业务 build() 装配（唯一真相，含插件 import）
@@ -357,13 +380,13 @@ check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
 
 **清单不设 `[plugins]` 段**：插件用哪些由业务 `build()` 的 import 决定（代码即真相），生成器从无头导出反推——避免"清单写一遍、代码写一遍"的双份真相。
 
-#### 4.6.7 对批次计划的影响
+#### 4.6.8 对批次计划的影响
 
 | 批次 | 插件相关动作 |
 | --- | --- |
 | 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
 | 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
-| 批次 3 | 鸿蒙骨架生成时启用 P-1/P-2；`Plugin` 接口加 `describe()`；15 插件清障（开放问题 9）；`check` 加三方比对 |
+| 批次 3 | 鸿蒙骨架生成时启用 P-1/P-2；`Plugin` 接口加 `describe()`；15 插件清障（开放问题 9）；`check` 加三方比对；鸿蒙桩换真实现时优先复用宿主中介队列模式（§4.6.5），dialog 的轮询回填评估换条件变量/异步回写（开放问题 11） |
 | 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
 
 ## 5. L0 适配层（每端唯一手写处）
@@ -669,6 +692,7 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
 9. **15 个插件的端可用性清障**：归档表见 §4.6.4（`fs` 等 2 项待核）；批次 3 需给 `clipboard`/`dialog`/`notification`/`menu`/`shell`/`serial`/`sqlite` 写鸿蒙桩（P-1），并让桩行为与 `describe().supportedHosts` 严格一致（P-2）。
 10. **插件 API 版本兼容**：`PluginManifest` 要不要带 `apiVersion`，框架 Plugin 接口演进时如何拒绝过旧插件（check 阶段比对 vs 运行期报错）？倾向 check 阶段，避免运行期才发现。
+11. **鸿蒙插件的异步语义与 kit 覆盖面**：① dialog 的「宿主队列 + 20ms 轮询回填」（`host_arkweb.cj:162`，上限 120s）会占住分发线程，换条件变量等待还是扩 `CommandHandler` 异步回写契约（`Pending` + `ipc.reply`）？② 仓颉 ohos kit 绑定对 pasteboard / notification / file 等的覆盖面需按 SDK 实测——有绑定走直连（§4.6.5 首选通道），无绑定维持桩或走 NDK FFI。
 
 ## 14. 验收判据（可机械化）
 

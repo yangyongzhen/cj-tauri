@@ -55,6 +55,13 @@ let SQLITE_ENV_FIXTURE: String = "CJ_SQLITE_FIXTURE"
 public class SqlitePlugin <: Plugin {
     public init() {}
 
+    /** 自描述：FFI 直连系统 sqlite3，仅 Linux 桌面验证过（Windows 未落地、ohos 未验证） */
+    public func describe(): PluginManifest {
+        let hosts = ArrayList<String>()
+        hosts.add("webkitgtk")
+        return PluginManifest(hosts, ArrayList<String>())
+    }
+
     public func name(): String {
         return "sqlite"
     }

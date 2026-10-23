@@ -38,7 +38,10 @@ class ExtraWindowSpec {
 public class TauriApp <: AppHost {
     private var hub: IpcHub = IpcHub()
     private var capabilities: CapabilityRegistry = CapabilityRegistry()
-    private var host: WebViewHost = createHost(DEFAULT_WINDOW_LABEL)
+    // 批次 1（RFC-002 §5.4）：注册表优先、内置实现兜底
+    private var host: WebViewHost = resolveHost(DEFAULT_WINDOW_LABEL)
+    // Asset 页面的解析器（批次 1 可注入；缺省按 cwd 相对路径读盘，清单派生在批次 2）
+    private var assetResolver: Option<AssetResolver> = None
     private var config: WindowConfig = WindowConfig()
     // 窗口注册表（批次 2）：单窗口阶段只有一条 "main"，多窗口时是「label → 宿主」的唯一权威来源
     private var windows: WindowRegistry = WindowRegistry()
@@ -64,6 +67,18 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 注入资产解析器（批次 1，RFC-002 §6）
+     *
+     * 供 run(Asset("ui/index.html")) 取页面与资产；不注入时按 cwd 相对路径读盘，
+     * 与现有模板 textOrFile 的桌面行为等价。鸿蒙 rawfile / 内嵌常量的实现由
+     * 各端适配层提供，批次 2 随清单派生接入。
+     */
+    public func assets(resolver: AssetResolver): TauriApp {
+        this.assetResolver = Some(resolver)
+        return this
+    }
+
+    /**
      * 登记一个附加窗口（**试验性**：批次 3「多窗口 UI」的最小切片，先给出可验证的通路）
      *
      * 语义：本方法只**登记 + 装配宿主**，原生窗口在 run() / runUrl() 里统一创建——
@@ -80,7 +95,7 @@ public class TauriApp <: AppHost {
         if (this.started) {
             throw CommandException("addWindow 必须在 run() / runUrl() 之前调用（页面加载前窗口表要定稿）")
         }
-        let host = createHost(label)
+        let host = resolveHost(label)
         host.setWindowConfig(config)
         // label 注入与默认窗口走同一条通道（document-start 预执行脚本，桥 JS 懒读，先后顺序无所谓）
         host.addInitScript("window.__CJ_TAURI_LABEL__ = ${JsonString(label)};")
@@ -541,39 +556,56 @@ public class TauriApp <: AppHost {
     }
 
     /**
-     * 启动应用：装配 IPC → 启动 WebView 宿主 → 阻塞运行
+     * 启动应用：装配 IPC → 启动 WebView 宿主 → 阻塞运行（兼容入口，等价 run(Inline(html))）
      */
     public func run(html: String): Unit {
-        this.prepare()
-        if (this.dumpManifestIfRequested()) {
-            return
-        }
-        this.registerPluginScripts()
-        this.registerDefaultWindow()
-        this.host.start(html)
-        this.startExtraWindows()
-        this.waitForExit()
-        // 事件循环已退出：释放全部宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
-        this.disposeWindows()
+        this.runWith({ h => h.start(html) })
     }
 
     /**
-     * 按 URL 启动应用（http(s):// 或 file://）
+     * 按 URL 启动应用（兼容入口，等价 run(Url(url))）
      *
      * 与 run(html) 平行：同一段装配，只是页面来源换成 URL。有了真实来源，
      * 相对路径资源、动态 import、前端路由才成立（file:// 页面禁止 fetch/XHR）。
      * 开发时可配合 TauriApp.devUrl() 指向前端 dev server（Vite 的 HMR 就这样接进来）。
      */
     public func runUrl(url: String): Unit {
+        this.runWith({ h => h.startUrl(url) })
+    }
+
+    /**
+     * 统一页面入口（批次 1，RFC-002 §4.3）：业务与清单只写 PageSource 一种表达
+     *
+     * - Inline(html)：直接给 HTML（探针、错误页）
+     * - Asset(name)：逻辑名，经注入的 AssetResolver 解析；未注入时按 cwd 相对路径读盘；
+     *   devMode（CJ_TAURI_DEV_URL 存在）下自动改写为 DevServer（RFC §4.3）
+     * - Url(url) / DevServer(url)：直载
+     *
+     * 装配流程与旧入口完全一致：dumpManifest → 插件 shim → 默认窗口 → 附加窗口 → 等待退出。
+     */
+    public func run(source: PageSource): Unit {
+        let src = rewriteForDev(source, TauriApp.devUrl())
+        let page = resolvePage(src, this.assetResolver)
+        this.runWith({ h =>
+            match (page) {
+                case StartHtml(html) => h.start(html)
+                case StartUrl(url) => h.startUrl(url)
+            }
+        })
+    }
+
+    /** 装配与启动的共同骨架：html 与 url 两代入口在此收敛，宿主怎么加载页面由调用方给 */
+    private func runWith(start: (WebViewHost) -> Unit): Unit {
         this.prepare()
         if (this.dumpManifestIfRequested()) {
             return
         }
         this.registerPluginScripts()
         this.registerDefaultWindow()
-        this.host.startUrl(url)
+        start(this.host)
         this.startExtraWindows()
         this.waitForExit()
+        // 事件循环已退出：释放全部宿主编（幂等；句柄由 C 侧回收，见 docs/架构演进-多平台与多窗口.md §6.1）
         this.disposeWindows()
     }
 

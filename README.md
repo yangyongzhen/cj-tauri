@@ -250,8 +250,8 @@ IPC 消息桥（src/ipc_hub.cj）← 命令注册/分发/校验（与 tauri IPC 
 内置命令（src/api_system.cj）：system:version / ping / echo / devtools
         ▼
 WebView 宿主（src/host.cj 抽象 + 各平台实现）
-   ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/bridge_linux.c，C 桥在原生 pthread 运行）
-   ├─ Windows: WebView2（src/host_webview2.cj + native/bridge_win.c，Win32 消息循环在宿主线程）
+   ├─ Linux: webkit2gtk-4.1（src/host_webkit.cj + native/platforms/linux/bridge_linux.c，C 桥在原生 pthread 运行）
+   ├─ Windows: WebView2（src/host_webview2.cj + native/platforms/windows/bridge_win.c，Win32 消息循环在宿主线程）
    └─ 鸿蒙: ArkWeb（应用侧 ArkUI 组件宿主 + `arkweb_proxy.cj` 桥接，2in1 / 鸿蒙 PC）
 ```
 

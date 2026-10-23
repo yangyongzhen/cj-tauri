@@ -147,7 +147,7 @@
         <h2 class="sec-title" data-en="A WebView host, an IPC bridge, and a capability model">WebView 宿主 + IPC 双向桥 + 能力安全模型</h2>
         <p class="sec-lead" data-en="Tauri maps three ideas onto Rust; cj-tauri maps the same three onto Cangjie. Everything else — routing, validation, plugin wiring — is shared across platforms and lives above them.">
           与 Tauri 对应的三件套：宿主负责开窗与注入，桥负责一问一答与事件回投，能力模型负责「谁能调什么」。
-          平台差异被压到两处——仓颉侧 <code>@When</code> 条件编译与 C 桥的 <code>native/bridge_*.c</code>，
+          平台差异被压到两处——仓颉侧 <code>@When</code> 条件编译与 C 桥的 <code>native/platforms/*/bridge_*.c</code>，
           其余全部跨平台共用。
         </p>
       </div>

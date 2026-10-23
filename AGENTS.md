@@ -31,7 +31,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 294 个用例。C 桥的公共核心（`native/bridge_core.c`）另有一份**桩平台自检**
+   当前 294 个用例。C 桥的公共核心（`native/core/bridge_core.c`）另有一份**桩平台自检**
    （`native/tests/test_bridge_core.c`，228 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
@@ -40,7 +40,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 
 ## 2. 架构契约（改哪里、怎么改）
 
-- **平台差异只允许出现在两处**：仓颉侧 `@When` 条件编译、C 桥 `native/bridge_*.c`。
+- **平台差异只允许出现在两处**：仓颉侧 `@When` 条件编译、C 桥 `native/platforms/*/bridge_*.c`。
   IPC、能力校验、命令分发必须跨平台共用，禁止在上层散落运行期平台分支。
 - **新增宿主能力**：先扩 `WebViewHost` 接口（`src/host.cj`），再改各平台实现，最后在 C 桥加**同名同签名**的导出函数
   （`cj_bridge_*`）。两平台导出名必须一致，避免上层出现平台分叉的调用点。
@@ -402,7 +402,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `WebView2LoaderStatic.lib` 是 MSVC 编的，要 `/GS` 的 `__security_cookie` 与 C++ 运行时符号
   （`?nothrow@std@@`、`_Init_thread_epoch` …），mingw 实测链接失败
   （`ld.lld: undefined symbol: __security_cookie`）。做法是把它当**资源**：DLL 字节用 `od` 生成 C 头、
-  随静态桥一起编进 exe（`-DCJ_EMBED_WEBVIEW2_LOADER` + `native/bridge_win.c` 的 `unpack_embedded_loader`），
+  随静态桥一起编进 exe（`-DCJ_EMBED_WEBVIEW2_LOADER` + `native/platforms/windows/bridge_win.c` 的 `unpack_embedded_loader`），
   首次运行释放到 `%TEMP%\cj-tauri-loader\` 再按绝对路径 `LoadLibraryW`（幂等：比大小；失败把错在哪一步打进 stderr）。
   取证判据：未修前那一轮 stderr 只有 `WebView2Loader.dll not found`，修好后同一份 exe 自检 57 passed / 0 failed。
 - **单文件包只要碰 https，链接期还必须显式加 `-lcrypt32`**：`stdx.net.tls` 读根证书走 **Windows 证书库**

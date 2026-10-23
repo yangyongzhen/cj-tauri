@@ -20,10 +20,10 @@ HTML，仍走今天 `NavigateToString` 那条路，行为与现在等价。两�
 | 事实 | 位置 |
 |---|---|
 | 入口是 `TauriApp.run(html: String)`，宿主接口只有 `start(html)`，**没有 `loadUrl`** | `src/app.cj`、`src/host.cj` |
-| Windows 把页面经 `ICoreWebView2::NavigateToString` 加载（启动前存进 `g_pending_html`） | `native/bridge_win.c:265-271` |
-| Linux 同理走 `webkit_web_view_load_html` | `native/bridge_linux.c:266` |
-| 桥接脚本是**逐文档注入**：`AddScriptToExecuteOnDocumentCreated(BRIDGE_JS)` | `native/bridge_win.c:258` |
-| Linux 侧同样是逐文档注入：`webkit_user_content_manager_add_script` | `native/bridge_linux.c:243-246` |
+| Windows 把页面经 `ICoreWebView2::NavigateToString` 加载（启动前存进 `g_pending_html`） | `native/platforms/windows/bridge_win.c:265-271` |
+| Linux 同理走 `webkit_web_view_load_html` | `native/platforms/linux/bridge_linux.c:266` |
+| 桥接脚本是**逐文档注入**：`AddScriptToExecuteOnDocumentCreated(BRIDGE_JS)` | `native/platforms/windows/bridge_win.c:258` |
+| Linux 侧同样是逐文档注入：`webkit_user_content_manager_add_script` | `native/platforms/linux/bridge_linux.c:243-246` |
 | CLI 的 `dev` 目前等于「`build` + `run`」，完全不认前端工程 | `cli/src/project.cj:257-263` |
 
 由此带来的三条限制：
@@ -104,11 +104,11 @@ void cj_bridge_reload(void);               /* 运行期重新加载当前页面 
 Windows 实现要点：
 
 - 启动前：新增 `g_pending_url`，与 `g_pending_html` 并存但**互斥**（两者都设时 URL 优先，并在
-  stderr 打一行提示）。在 controller ready 处（`native/bridge_win.c:265-271`）按模式二选一：
+  stderr 打一行提示）。在 controller ready 处（`native/platforms/windows/bridge_win.c:265-271`）按模式二选一：
   `Navigate(url)` 或 `NavigateToString(html)`。
 - 运行期：WebView2 的接口对象只能在宿主 UI 线程上碰，所以 `cj_bridge_reload()` 走
   `PostMessageW(g_hwnd, WM_CJT_RELOAD, 0, 0)`，在 `wnd_proc` 里调 `Reload()`；这与现有
-  `WM_CJT_DEVTOOLS` 是同一个套路（`native/bridge_win.c:572-578`）。
+  `WM_CJT_DEVTOOLS` 是同一个套路（`native/platforms/windows/bridge_win.c:572-578`）。
 - 运行期换 URL（启动后才调 `cj_bridge_load_url`）同样走消息投递：URL 字符串用 `HeapAlloc`
   传出去，由宿主线程负责 `free`——否则就是跨线程悬垂指针。
 
@@ -116,7 +116,7 @@ Linux 实现要点：
 
 - 启动前：`webkit_web_view_load_uri(view, url)`，替换现在的 `webkit_web_view_load_html`（二选一）。
 - 运行期：`g_idle_add(load_url_idle, …)` / `webkit_web_view_reload(view)`，与现有
-  `open_devtools_idle` 同套路（`native/bridge_linux.c:74-85`）——仓颉线程不直接碰 WebKit 对象。
+  `open_devtools_idle` 同套路（`native/platforms/linux/bridge_linux.c:74-85`）——仓颉线程不直接碰 WebKit 对象。
 
 ### 5.3 三种页面来源（给使用者一张对照表）
 
@@ -238,5 +238,5 @@ main(): Int64 {
 - Tauri v2 的 `WebviewUrl`（`App` / `External` / `CustomProtocol`）与 `tauri dev` 的 devUrl 机制，
   以及 `@tauri-apps/cli` 在前端工程里探测 dev server 的做法。
 - Vite 的 `vite-plugin-singlefile`（把构建产物内联成单文件）。
-- 本仓相关位置：`src/host.cj`、`src/app.cj`、`native/bridge_win.c:258/265-271/572-578`、
-  `native/bridge_linux.c:74/243/266`、`cli/src/project.cj:257`、`cli/src/scaffold.cj:156`。
+- 本仓相关位置：`src/host.cj`、`src/app.cj`、`native/platforms/windows/bridge_win.c:258/265-271/572-578`、
+  `native/platforms/linux/bridge_linux.c:74/243/266`、`cli/src/project.cj:257`、`cli/src/scaffold.cj:156`。

@@ -743,11 +743,12 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 ### 15.1 现状相关（本文化用的事实出处）
 
 - `src/host.cj:91`（`WebViewHost`）、`:354`（`AppHost`）、`:384`（`HostRoute`）：宿主契约与句柄路由，v2 继续沿用
-- `src/host_factory.cj`：现有单槽宿主注入，v2 由 `registerHost` 取代
+- ~~`src/host_factory.cj`：现有单槽宿主注入，v2 由 `registerHost` 取代~~（已删除：
+  `registerHost` / `resolveHost` 在 `src/platform_host_provider.cj` 落地，鸿蒙侧另有内置 `ArkWebHost`）
 - `src/capability.cj:182`（`CapabilityRegistry`）：运行时能力校验，v2 保留（scope 判定仍是数据）
 - `src/app.cj:61`（`window`）、`:432`（`addCapabilityJson`）、`:441`（`loadCapabilities`）、`:546`（`run`）、`:567`（`runUrl`）、`:588`（manifest 导出）
 - ~~`cli/src/scaffold.cj:20`：`bundleName` "桌面模板不用"——应用身份缺失的证据~~（批次 3-PR4 已实现：应用身份 = 清单 `[app] id`，全形态统一携带）
-- ~~`cli/templates/ohos-pc/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生~~（批次 3-PR3 已实现：`renderOhosAppJson` 按清单渲染）
+- ~~`cli/templates/ohos-skeleton/AppScope/app.json5:5`：`{{BUNDLE_NAME}}` 占位，v2 改由清单派生~~（批次 3-PR3 已实现：`renderOhosAppJson` 按清单渲染）
 - ~~`examples/music/cjpm.toml:7`：`output-type = "executable"`（现状业务不可当库依赖的原因；create 模板已在批次 3-PR4 改 static，music 布局迁移在 music-next 跟进）~~（music-next 已落地：业务包 static、骨架 path 依赖；旧 music 保留为旧形态行为基线）
 - `examples/ohos/ohos-music/build-hap.sh:61`：`sed` 改包名复制业务，v2 删除该路径
 - `docs/架构演进-多平台与多窗口.md`：句柄/注册表/label 路由的前序设计

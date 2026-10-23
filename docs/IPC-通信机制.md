@@ -1,7 +1,7 @@
 # cj-tauri IPC 通信机制
 
 > 面向两类读者：想给 cj-tauri 加通道 / 改协议的贡献者，以及正在评估「这套 IPC 够不够快、安不安全」的选型者。
-> 本文的协议细节对着 v0.4.0 的实现逐条核对过（`native/bridge_linux.c`、`native/bridge_win.c`、`src/ipc_hub.cj`、
+> 本文的协议细节对着 v0.4.0 的实现逐条核对过（`native/platforms/linux/bridge_linux.c`、`native/platforms/windows/bridge_win.c`、`src/ipc_hub.cj`、
 > `src/ipc_message.cj`、`src/app.cj`），性能数字是本机实机测出来的（方法与复现见 §8）。
 > 相关文档：`AGENTS.md` §2（线程模型与装配契约）、`docs/RFC-插件体系.md`（能力模型）、`docs/使用文档.md` §5（CLI）。
 
@@ -44,7 +44,7 @@ webview 自身的消息通道就是唯一的传输层，进程内一次函数调
 
 | 层 | 文件 | 职责 | 不做的事 |
 |---|---|---|---|
-| 前端桥 | `native/bridge_linux.c` / `bridge_win.c` 里的 `BRIDGE_JS`（页面脚本执行前注入） | 暴露 `__CJ_TAURI__`、id 配对、promise、事件分发 | 不碰业务、不校验能力 |
+| 前端桥 | `native/platforms/linux/bridge_linux.c` / `bridge_win.c` 里的 `BRIDGE_JS`（页面脚本执行前注入） | 暴露 `__CJ_TAURI__`、id 配对、promise、事件分发 | 不碰业务、不校验能力 |
 | 宿主桥 | 同上两个 C 文件 | 收发字符串、reload 拦截、回投队列、窗口/对话框 FFI | 不解析 JSON、不做路由 |
 | IPC 中心 | `src/ipc_hub.cj` + `src/ipc_message.cj` | 报文模型、能力校验、命令分发、异步执行、事件推送 | 不知道 GTK / WebView2 的存在 |
 
@@ -389,7 +389,7 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
    （`resolve` 丢了 request/response 契约就破了）；改为提供**显式 opt-in**——`emitLatest(event, payload)`：
    同一帧内同名事件只投最后一次 payload、中间值丢弃。
    **为什么落点在桥 JS 而不是 C 桥队列**：实测每条事件的管线成本只有 0.02 ms（§4.2），真正的开销在
-   监听器与 DOM——只有 JS 侧能省掉；而 `native/bridge_js.h` 是两平台**单源**，改它等于两个平台同时改完
+   监听器与 DOM——只有 JS 侧能省掉；而 `native/core/bridge_js.h` 是两平台**单源**，改它等于两个平台同时改完
    （本机无法实机验证 Windows，这一点很关键）。C 桥按 key 去重能顺带少排几个队列节点，
    但要为它引入 per-key 表与又一条 Windows-only 未验证路径，收益只在极端频率下才显现。
    **已实施（2026-10-02）**：报文侧 `IpcMessage.eventLatest`（多一个 `coalesce: true`）+ 仓颉 API
@@ -403,7 +403,7 @@ UI 线程 eval、promise 调度。所以调优要冲着固定开销去，而不�
    所以断言写成 `hits<50` + 尾值必达，而不是 `hits==1`）、
    `PROBE-2 plain-emit: emitted=50 listener-hits=50 last-n=50`（对照：默认路径逐条投递）、
    `PROBE-3 single-latest: emitted=1 listener-hits=1 last-n=1`（走合并路径的单条也不丢）、
-   桥侧 `run js failed` 计数 0。Windows（WebView2）**未实机**——但改的是 `native/bridge_js.h`，
+   桥侧 `run js failed` 计数 0。Windows（WebView2）**未实机**——但改的是 `native/core/bridge_js.h`，
    两平台同源，报文与仓颉侧完全共用，平台差异仍只在 `@When` 与 `native/bridge_*.c`。
 
 **不建议**为了微优化去做的事：把能力校验挪进 worker（会破坏「同步拒绝、顺序确定」的语义）、
@@ -530,7 +530,7 @@ TCP  localhost tcp echo  min=0.051ms p50=0.059ms p95=0.137ms max=0.399ms mean=0.
 |---|---|
 | 报文定义（协议权威描述） | `src/ipc_message.cj` |
 | 分发 / 能力校验 / 异步执行 / 事件推送 | `src/ipc_hub.cj` |
-| 前端桥 + reload 拦截 + 回投队列（桥 JS 两平台共用一份） | `native/bridge_js.h`、`native/bridge_linux.c`、`native/bridge_win.c` |
+| 前端桥 + reload 拦截 + 回投队列（桥 JS 两平台共用一份） | `native/core/bridge_js.h`、`native/platforms/linux/bridge_linux.c`、`native/platforms/windows/bridge_win.c` |
 | 装配与 `jsSink` 接线 | `src/app.cj`、`src/host.cj` |
 | 能力模型（与 Tauri permissions 对照） | `src/capability.cj`、`docs/RFC-插件体系.md` |
 | 性能探针 | `examples/ipc-bench/`、`scripts/bench-ws-vs-tcp.js` |

@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1000" viewBox="0 0 960 1000"
+     font-family="system-ui, -apple-system, PingFang SC, Noto Sans CJK SC, Microsoft YaHei, WenQuanYi Micro Hei, sans-serif">
+  <defs>
+    <filter id="sh" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#0F2430" flood-opacity="0.18"/>
+    </filter>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+  </defs>
+
+  <rect width="960" height="1000" fill="#F8FAFC"/>
+
+  <text x="480" y="42" font-size="20" font-weight="600" fill="#2D3748" text-anchor="middle">cj-tauri 架构：仓颉后端 + 系统 WebView 前端</text>
+  <text x="480" y="70" font-size="12.5" fill="#64748B" text-anchor="middle">IPC、能力校验、命令分发跨平台共用；平台差异只出现在 @When 条件编译与 native/platforms/*</text>
+
+  <!-- 1. 前端 -->
+  <rect x="40" y="92" width="880" height="84" rx="8" fill="#0891B2" filter="url(#sh)"/>
+  <text x="480" y="126" font-size="15" font-weight="600" fill="#FFFFFF" text-anchor="middle">前端页面（HTML / CSS / JS）</text>
+  <text x="480" y="152" font-size="12.5" fill="#E0F2FE" text-anchor="middle">window.__CJ_TAURI__.invoke / listen / emit</text>
+
+  <path d="M480 176 V 210" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <text x="492" y="199" font-size="12" fill="#64748B">JSON over postMessage（桥接脚本由宿主在页面脚本之前注入）</text>
+
+  <!-- 2. IPC -->
+  <rect x="40" y="216" width="880" height="104" rx="8" fill="#005D7B" filter="url(#sh)"/>
+  <text x="480" y="248" font-size="15" font-weight="600" fill="#FFFFFF" text-anchor="middle">IPC 消息桥（src/ipc_hub.cj）</text>
+  <text x="480" y="274" font-size="12.5" fill="#D6EAF1" text-anchor="middle">命令注册 / 分发 / 校验：未授权、未注册在调用线程同步拒绝</text>
+  <text x="480" y="298" font-size="12.5" fill="#D6EAF1" text-anchor="middle">通过校验的命令 spawn 到 worker 线程执行，结果经 jsSink 异步回投</text>
+
+  <path d="M480 328 V 362" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <text x="492" y="351" font-size="12" fill="#64748B">授权校验</text>
+
+  <!-- 3. 能力安全模型 -->
+  <rect x="40" y="368" width="880" height="92" rx="8" fill="#7C3AED" filter="url(#sh)"/>
+  <text x="480" y="400" font-size="15" font-weight="600" fill="#FFFFFF" text-anchor="middle">能力安全模型（src/capability.cj）</text>
+  <text x="480" y="424" font-size="12.5" fill="#EDE9FE" text-anchor="middle">命令 / 事件白名单 · 命名权限集 · 路径 scope —— 默认最小权限</text>
+  <text x="480" y="446" font-size="12.5" fill="#EDE9FE" text-anchor="middle">插件只声明「我提供什么」，放行一律看 capabilities/*.json</text>
+
+  <path d="M480 460 V 494" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <text x="492" y="483" font-size="12" fill="#64748B">放行后分发到命令</text>
+
+  <!-- 4. 命令层 -->
+  <rect x="40" y="500" width="428" height="92" rx="8" fill="#E99151" filter="url(#sh)"/>
+  <text x="254" y="532" font-size="14" font-weight="600" fill="#FFFFFF" text-anchor="middle">内置命令（src/api_system.cj）</text>
+  <text x="254" y="560" font-size="12.5" fill="#FFF7ED" text-anchor="middle">system:version / ping / echo / devtools</text>
+
+  <rect x="492" y="500" width="428" height="92" rx="8" fill="#E4C189" filter="url(#sh)"/>
+  <text x="706" y="530" font-size="14" font-weight="600" fill="#2D3748" text-anchor="middle">插件命令「&lt;插件名&gt;:&lt;短名&gt;」</text>
+  <text x="706" y="554" font-size="12.5" fill="#3D2E15" text-anchor="middle">clipboard · dialog · fs · http · log · menu · mqtt · notification</text>
+  <text x="706" y="576" font-size="11.5" fill="#3D2E15" text-anchor="middle">redis · serial · shell · sqlite · store · ws（共 15 个子包 · 按需装配 + 清单放行）</text>
+
+  <path d="M254 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <path d="M706 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+
+  <!-- 5. WebView 宿主（容器） -->
+  <rect x="30" y="620" width="900" height="258" rx="10" fill="none" stroke="#005D7B" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="48" y="650" font-size="14" font-weight="600" fill="#2D3748">WebView 宿主（src/host.cj 抽象 WebViewHost + 各平台实现）</text>
+
+  <rect x="46" y="664" width="280" height="136" rx="8" fill="#4CA497" filter="url(#sh)"/>
+  <text x="186" y="692" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">Linux · webkit2gtk-4.1</text>
+  <text x="186" y="718" font-size="12" fill="#E6F5F2" text-anchor="middle">src/host_webkit.cj</text>
+  <text x="186" y="740" font-size="12" fill="#E6F5F2" text-anchor="middle">native/platforms/linux/</text>
+  <text x="186" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">bridge_linux.c</text>
+  <text x="186" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">（C 桥跑在原生 pthread）</text>
+
+  <rect x="336" y="664" width="280" height="136" rx="8" fill="#4CA497" filter="url(#sh)"/>
+  <text x="476" y="692" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">Windows · WebView2</text>
+  <text x="476" y="718" font-size="12" fill="#E6F5F2" text-anchor="middle">src/host_webview2.cj</text>
+  <text x="476" y="740" font-size="12" fill="#E6F5F2" text-anchor="middle">native/platforms/windows/</text>
+  <text x="476" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">bridge_win.c</text>
+  <text x="476" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">（Win32 消息循环在宿主线程）</text>
+
+  <rect x="626" y="664" width="280" height="136" rx="8" fill="#4CA497" filter="url(#sh)"/>
+  <text x="766" y="692" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">鸿蒙 · ArkWeb</text>
+  <text x="766" y="718" font-size="12" fill="#E6F5F2" text-anchor="middle">src/host_arkweb.cj（宿主编排）</text>
+  <text x="766" y="740" font-size="12" fill="#E6F5F2" text-anchor="middle">应用侧 ArkUI：Web + javaScriptProxy</text>
+  <text x="766" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">真机闭环：版本往返 · 多窗口 label</text>
+  <text x="766" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">宿主能力位仍如实报 0 · C 桥未落地</text>
+
+  <path d="M480 878 V 900" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+  <text x="492" y="895" font-size="12" fill="#64748B">cj_bridge_* 同名同签名</text>
+
+  <!-- 6. 共享 C 层 -->
+  <rect x="40" y="906" width="880" height="56" rx="8" fill="#64748B" filter="url(#sh)"/>
+  <text x="480" y="930" font-size="13.5" font-weight="600" fill="#FFFFFF" text-anchor="middle">native/core/bridge_core.c + bridge_js.h</text>
+  <text x="480" y="950" font-size="12" fill="#E2E8F0" text-anchor="middle">跨平台共享层（GTK-free）：桥接脚本注入、URI 与能力报文解析、桩平台自检</text>
+
+  <!-- 回投路径 -->
+  <path d="M920 268 H934 V134 H920" stroke="#94A3B8" stroke-width="2" stroke-dasharray="5 4" fill="none" marker-end="url(#ar)"/>
+  <text x="946" y="201" font-size="11" fill="#64748B" text-anchor="middle" transform="rotate(-90 946 201)">结果 / 事件异步回投</text>
+</svg>

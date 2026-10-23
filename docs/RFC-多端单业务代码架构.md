@@ -91,6 +91,7 @@ name        = "音乐"
 version     = "1.0.0"
 icon        = "assets/icon.png"     # 单张高分辨率源图，各端规格由生成器派生
 entry       = "src/main.cj"         # 只声明入口文件，里面有且只有 launch(build())
+package     = "music"               # 业务 cjpm 包名（sync 生成 launcher 的 import 用）
 
 [[windows]]
 label       = "main"                # 与前端 __CJ_TAURI_LABEL__ 一致
@@ -147,6 +148,8 @@ public func build(): AppSpec {                       // 示意写法；落地用
 ```
 
 为什么不像 v1 草案那样 `build(env, assets)`：参数一旦进签名，就等于承认"业务需要知道资产从哪来、目录在哪"——**而这恰恰是本方案要消灭的知识**。测试需要注入上下文时用 `launch(spec, context: Some(fake))`，不影响业务签名。
+
+> **批次 2 过渡契约**：`AppSpec` / `launch(spec)` 随批次 3 落地。在此之前，`sync` 生成的 launcher 直接调业务的 `build(): TauriApp`（批次 1 已交付的 API）+ `assets(resolver)` + `run(Asset)`；批次 3 切换时由 `sync` 重新生成 launcher，业务侧只把 `build()` 的返回换成 `AppSpec` 即可。
 
 ### 4.2 `launch()`：框架内部按目标分派
 

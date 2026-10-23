@@ -17,6 +17,8 @@ func usage(): Unit {
     println("  cj-tauri run               运行已构建产物（鸿蒙工程 = 装到设备并拉起）")
     println("  cj-tauri info [--json]     环境自检（排障用）；--json 只输出插件清单（机器可读）")
     println("  cj-tauri doctor            环境自检逐行给结论（每条自带「缺了就怎么办」）")
+    println("  cj-tauri check             校验 cj-tauri.toml（id/窗口/资产存在）+ targets 骨架漂移")
+    println("  cj-tauri sync desktop      按清单派生 targets/desktop 骨架（批次 2 仅 desktop）")
     println("  cj-tauri help              显示本帮助")
     println("")
     println("环境变量:")
@@ -113,6 +115,12 @@ main(args: Array<String>): Int64 {
     }
     if (sub == "doctor") {
         return cmdDoctor()
+    }
+    if (sub == "check") {
+        return cmdCheck()
+    }
+    if (sub == "sync") {
+        return cmdSync(args)
     }
     eprintln("未知子命令: ${sub}")
     println("")

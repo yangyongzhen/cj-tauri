@@ -273,6 +273,99 @@ if (ctx.supports(PlatformFeature.Tray)) {
 
 好处不只是好看：**能力位是可测的**（mock 一个 `supports` 返回 false 的上下文，就能测降级路径），而 OS 分支只能靠真机覆盖。
 
+### 4.6 插件机制的多端设计（完整版，批次 2 实现暂停期间补齐）
+
+#### 4.6.1 现状盘点（均已核对）
+
+| 事实 | 出处 |
+| --- | --- |
+| `Plugin` 接口 = name / commands / events / jsShim，命令注册为 `<插件名>:<短名>` | `src/plugin.cj:20` |
+| 15 个插件子包（`cjTauri.plugins.*`），CLI 按子包链接 | `src/plugins/`、CLI 链接行 |
+| `serial`/`shell` 已有 `@When` 平台分支；`sqlite` 依赖 `-lsqlite3`（Linux/Windows 段已配） | `plugins/serial`、`plugins/shell`、根 `cjpm.toml` |
+| 鸿蒙段**没有**链接 sqlite，也没有 C 桥（`cj_bridge_*` 未产出） | 根 `cjpm.toml` 鸿蒙段、`src/host.cj:546` 注释 |
+| 无头装配导出已实现：设 `CJ_TAURI_MANIFEST` 即打印插件清单退出，不建窗口 | `src/app.cj:588`（`describePluginsJson`，`src/plugin.cj:199`） |
+
+#### 4.6.2 插件的三层构成（差异从哪来）
+
+| 层 | 内容 | 多端差异点 |
+| --- | --- | --- |
+| 仓颉命令层 | 命令处理器、事件 | 纯逻辑，全端一致 |
+| 原生桥层 | C 桥导出 / 系统库 / 系统 kit | **差异主源**：桥按端产出、系统库按端链接（sqlite）、kit 仅鸿蒙 |
+| 前端 shim 层 | `jsShim()` 注入 `window.__CJ_TAURI__.<插件名>` | 纯 JS，全端一致；但 shim 调的命令可能端不可用 |
+
+结论：插件的多端问题几乎全部落在**原生桥层**，设计围绕它展开。
+
+#### 4.6.3 自描述：静态声明 + 无头导出，双通道交叉验证
+
+```cangjie
+/** 插件自描述（静态数据，随插件子包编译；不含任何平台代码，三端可编） */
+public class PluginManifest {
+    public let name: String
+    public let commands: ArrayList<String>     // 短名清单
+    public let events: ArrayList<String>
+    public let requiredCapabilities: ArrayList<String>
+    public let supportedHosts: ArrayList<String>  // hostKind 列表，如 ["webkitgtk","webview2","arkweb"]；缺省 = 全端
+}
+
+public interface Plugin {
+    // ...既有 name/commands/events/jsShim 不变...
+    func describe(): PluginManifest
+}
+```
+
+- **静态 `describe()`**（新增）：sync 在**为目标端生成骨架时**消费——此时业务还没在该端编译过，无头导出不可用，只有静态声明能算出"哪些插件进哪个端的依赖列表"。
+- **无头导出**（已有，`app.cj:588`）：`check` 阶段消费——业务可编后跑一次，拿到真实命令集/能力需求，与静态 `describe()` **交叉比对，不一致即失败**。两条通道各有分工，缺一不可。
+
+#### 4.6.4 端可用性：三档归档 + 桩规则（P-1 / P-2）
+
+15 个现有插件逐个归档（`待核` = 本次未逐一核实，批次 3 清障时确认）：
+
+| 档 | 插件 | 依据 |
+| --- | --- | --- |
+| 纯仓颉 + stdx（预期全端可用） | `http` `ws` `mqtt` `redis` `store` `log` `fs`（待核） | 无桥依赖、无系统库 |
+| C 桥依赖（桌面可用；鸿蒙桥产出前 = 桩） | `clipboard` `dialog` `notification` `menu` `shell`（3 处 @When）`serial`（1 处 @When） | 桥依赖；鸿蒙侧 `cj_bridge_*` 未产出 |
+| 系统库 | `sqlite`（Linux/Windows 已链接；鸿蒙段未链接、未验证） | `-lsqlite3` 仅两段配置 |
+
+两条硬规则（对齐 §8 差异三档，插件的桩属于 B 档实现）：
+
+- **P-1 插件子包三端必须可编译**：某端不可用的能力，在该插件子包内用 `@When` 片段给出**桩实现**（调用即抛可照做的"端不支持"错误）。理由：业务 `build()` 三端共用且会 import 全部所用插件——若靠"编译期把子包排除出依赖"，业务在缺失端必然编译失败，除非业务按端分支，违反 G2（业务零平台知识）。桩让"编得过、运行期可照做地报错"成立。
+- **P-2 端可用性必须标注且可观测**：桩实现必须与 `describe().supportedHosts` 一致；`check` 汇总"业务用了 unsupported 插件"为**警告**（编译已过、运行期报错，不 fail）；装配期被降级忽略的插件在启动日志列出（§8 第 1 条）。
+
+（取代此前"编译期排除子包"的设想——它与"业务零分支"冲突，评审质询时更正。）
+
+#### 4.6.5 命令表与 jsShim 的衔接
+
+- **命令**：插件命令以 `<插件名>:<短名>` 并入编译期命令表（§4.4 的 `registry.generated.cj`），数据源 = 静态 `describe()`；无头导出交叉验证。插件的命令漏声明能力 → 编译失败（§4.4 已有）。
+- **jsShim**：保持运行期注入（`runWith` → `registerPluginScripts` 已有），不进生成物——它是纯 JS，没有端差异。
+
+#### 4.6.6 sync/check 数据流
+
+```
+业务 build() 装配（唯一真相，含插件 import）
+   │ cjpm build（业务可编）
+   ▼
+CJ_TAURI_MANIFEST 无头导出（app.cj:588 已实现）
+   │ 交叉比对
+   ▼
+静态 describe()（三端可编，目标端生成时唯一可用通道）
+   │ 按端过滤 supportedHosts
+   ▼
+sync 生成 targets/<端>/ 骨架（依赖列表 = 业务所用插件 ∩ 该端可用；桩规则 P-1 兜底）
+   ▼
+check：清单 ∩ describe() ∩ 无头导出 三方一致；漂移即失败
+```
+
+**清单不设 `[plugins]` 段**：插件用哪些由业务 `build()` 的 import 决定（代码即真相），生成器从无头导出反推——避免"清单写一遍、代码写一遍"的双份真相。
+
+#### 4.6.7 对批次计划的影响
+
+| 批次 | 插件相关动作 |
+| --- | --- |
+| 批次 0/1（已合并） | 无影响；`describePluginsJson` / 无头导出本就存在 |
+| 批次 2（当前，暂停中） | **不含**插件依赖生成；仅清单解析、资产解析器、desktop 骨架 |
+| 批次 3 | 鸿蒙骨架生成时启用 P-1/P-2；`Plugin` 接口加 `describe()`；15 插件清障（开放问题 9）；`check` 加三方比对 |
+| 批次 4 | 桥产出（鸿蒙 `cj_bridge_*`）后逐个把桩换成真实现，从 `log`/`clipboard` 这类简单的开始 |
+
 ## 5. L0 适配层（每端唯一手写处）
 
 ### 5.1 五个契约
@@ -574,6 +667,8 @@ v1 是按"怎么把现状挪过来"写的，因此有若干为兼容低头的设
 6. **移动端多窗口语义**：`windows` 在移动端如何映射（多任务 / 分屏 / 单窗切换）需要真实需求驱动。
 7. **托盘/菜单在移动端**：是忽略、还是映射成侧栏？倾向忽略 + 日志，但要评估"业务以为有"的误判风险。
 8. **平台默认值的归属**：批次 0 将 discover 摊平进根包（6 个纯契约 + 1 个平台知识文件，业务项目零改动）；当每端默认实现多到污染根包时，是否拆出自注册子包 `cjTauri.platform.defaults`（见 §5.3 再拆路径）？前置条件是验证顶层 `let` 初始化的执行时序。
+9. **15 个插件的端可用性清障**：归档表见 §4.6.4（`fs` 等 2 项待核）；批次 3 需给 `clipboard`/`dialog`/`notification`/`menu`/`shell`/`serial`/`sqlite` 写鸿蒙桩（P-1），并让桩行为与 `describe().supportedHosts` 严格一致（P-2）。
+10. **插件 API 版本兼容**：`PluginManifest` 要不要带 `apiVersion`，框架 Plugin 接口演进时如何拒绝过旧插件（check 阶段比对 vs 运行期报错）？倾向 check 阶段，避免运行期才发现。
 
 ## 14. 验收判据（可机械化）
 

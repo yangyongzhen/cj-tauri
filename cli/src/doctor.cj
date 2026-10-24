@@ -99,7 +99,8 @@ func cmdDoctor(): Int64 {
             doctorLine(rep, CheckLevel.Ok, "CANGJIE_HOME", h, "")
         case None =>
             doctorLine(rep, CheckLevel.Fail, "CANGJIE_HOME", "未找到",
-                "设置 CANGJIE_HOME，或把 SDK 的 bin 加进 PATH（doctor 从 cjc 反推）")
+                "设置 CANGJIE_HOME，或把 SDK 的 bin 加进 PATH（doctor 从 cjc 反推）；" +
+                "下载：https://cangjie-lang.cn/download（需登录华为账号），本项目要求 SDK 1.2.0 + stdx 1.2.0.1，两者必须配套")
     }
 
     let (cjcCode, cjcVer) = doctorProbe("cjc", ["-v"])
@@ -173,7 +174,8 @@ func cmdDoctor(): Int64 {
             doctorLine(rep, CheckLevel.Ok, "stdx", s, "")
         case None =>
             doctorLine(rep, CheckLevel.Fail, "stdx", "未找到",
-                "设置 CANGJIE_STDX 指向 <stdx>/<三元组>/dynamic/stdx（动态库目录，不是包根）")
+                "设置 CANGJIE_STDX 指向 <stdx>/<三元组>/dynamic/stdx（动态库目录，不是包根）；" +
+                "下载：https://cangjie-lang.cn/download 同页的 stdx 包，版本须与 SDK 配套（1.2.0 配 1.2.0.1）")
     }
 
     if (fwRoot.size > 0) {

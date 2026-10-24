@@ -6,6 +6,16 @@ import stdx.encoding.json.*
 import std.collection.*
 
 /**
+ * ── 把这个骨架变成你的应用，改三处就够了 ──────────────────────────────
+ * ① 写命令：照下面的 GreetCommand 抄一个，并在 build() 里 register；
+ * ② 放行：assets/capabilities/default.json 的 commands 里加上命令名
+ *    （只写代码不放行 = 前端拿到 command not allowed）；
+ * ③ 改页面：assets/ui/index.html 里用 tauri.invoke 调你的命令。
+ * 进阶（插件 / 菜单 / 多窗口）见项目根的 docs/使用文档.md 与 docs/RFC-插件体系.md。
+ */
+
+/**
+ * ① 写命令从这抄：实现 CommandHandler，再在下面 build() 里 register
  * greet 命令（对标 tauri command）
  * 前端：tauri.invoke("greet", { name: "..." })
  */
@@ -82,6 +92,7 @@ public func build(): AppSpec {
         //   permissions: ["menu:state"]，或逐条写 commands）
         .plugin(MenuPlugin())
         .wire({ app =>
+            // ① 新命令在这里 register；② 别忘了去 capabilities/default.json 放行
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())
             // 菜单栏必须在 run 之前挂：预置类宿主能力要赶在页面加载前定稿

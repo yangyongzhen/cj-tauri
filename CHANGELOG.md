@@ -16,6 +16,16 @@
 
 ### Added
 
+- **`serial` 插件支持鸿蒙（NDK FFI 直连 musl libc）**：新增 `src/plugins/serial/serial_ohos.cj`，
+  取代此前的 P-1 桩——`open` / `tcgetattr` / `tcsetattr` / `cfsetispeed` / `poll` 等 POSIX 串口面
+  按 `@C foreign` 直连（`termios` 按 musl aarch64 的字节布局手工读写，不做 `@C` 结构体映射），
+  不经 C 桥、与 `clipboard` 插件同模式。端口枚举覆盖鸿蒙特有的 `/dev/bus/ttyUSB*` 落点；
+  **白名单在鸿蒙侧就是本文件**（桌面真正边界在 C 桥 core，这里镜像 `serialPathLooksAllowed`，
+  页面可控字符串绝不只靠上层命令层校验）。读超时用 `poll`（有数据才 `read`，与桌面 Linux 桥同口径）。
+  边界如实：设备节点访问可能要求 DDK/USB 权限乃至系统签名（`ohos.permission.ACCESS_DDK_USB*`
+  用普通调试证书装包报 `9568289`，骨架模板里已注释、按需启用），打不开时如实报错不伪装成功。
+  `ohos-skeleton` 的 `module.json5` 同步补了这两条权限的注释块。**当前状态：代码就绪、待真机取证**，
+  未取证前不标可用（`docs/需求追踪.md` PLG-004 与 `docs/平台能力矩阵.md` 同口径）。
 - **新增「平台能力矩阵」文档**（`docs/平台能力矩阵.md`）：一张表回答「某命令 / 插件 / 宿主能力
   在我的目标平台上能不能用」——宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 通知 / 剪贴板）、
   全部官方插件、内置命令与核心机制，按 Linux / Windows / 鸿蒙三列标注实机取证、桩、未验证与不支持，

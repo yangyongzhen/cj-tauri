@@ -3,7 +3,7 @@ package cjTauri.plugins.serial
 import cjTauri.*
 
 import std.collection.*
-// std.fs / std.sort 只被桌面两端的 serialPortList 用到（ohos 桩在 serial_ohos_stub.cj，RFC §4.6.4 P-1）
+// std.fs / std.sort 被 serialPortList 用到（桌面走 C 桥枚举回落 + 目录扫描；ohos 走 serial_ohos.cj 的扫描）
 @When[env != "ohos"]
 import std.fs.*
 @When[env != "ohos"]
@@ -82,11 +82,12 @@ public func serialPortList(): ArrayList<String> {
 public class SerialPlugin <: Plugin {
     public init() {}
 
-    /** 自描述：原生桥仅桌面两端实现（ohos 侧按 P-1 落桩，批次 3-PR3） */
+    /** 自描述：桌面两端走 C 桥、ohos 走 NDK FFI 直连（serial_ohos.cj），三端都实现 */
     public func describe(): PluginManifest {
         let hosts = ArrayList<String>()
         hosts.add("webkitgtk")
         hosts.add("webview2")
+        hosts.add("arkweb")
         return PluginManifest(hosts, ArrayList<String>())
     }
 
@@ -152,10 +153,13 @@ let SERIAL_BAUDS: Array<Int32> = [300, 600, 1200, 2400, 4800, 9600, 19200, 38400
     230400, 460800, 500000, 921600, 1000000]
 
 /**
- * 设备路径前缀白名单：与 native/bridge_core.c 的 CJ_SERIAL_PREFIXES 对齐
+ * 设备路径前缀白名单：与 native/bridge_core.c 的 CJ_SERIAL_PREFIXES 对齐；
+ * /dev/bus/tty* 是鸿蒙特有的 USB 串口落点（桌面 C 桥白名单没有它们，但桌面侧不会出现
+ * 这类路径，加了不影响；ohos 侧的真正边界在 serial_ohos.cj 的 open，白名单同源）
  */
 let SERIAL_PATH_PREFIXES: Array<String> = ["/dev/ttyUSB", "/dev/ttyACM", "/dev/ttyS", "/dev/ttyAMA",
     "/dev/ttyPS", "/dev/ttyTHS", "/dev/ttyXRUSB", "/dev/ttyV", "/dev/tty.", "/dev/cu.",
+    "/dev/bus/ttyUSB", "/dev/bus/ttyACM", "/dev/bus/ttyS",
     "/dev/serial/by-id/", "/dev/serial/by-path/", "/dev/pts/", "COM", "\\\\.\\COM"]
 
 public func serialBaudSupported(baud: Int32): Bool {

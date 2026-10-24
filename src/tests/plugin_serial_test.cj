@@ -267,3 +267,51 @@ func testSerialPortListIsSortedAndWhitelisted(): Unit {
         i++
     }
 }
+
+/* ===== ohos 分支的可桌面验证面（serial_ohos.cj） =====
+ * 真正的 open/read/write 走 ohos 专属 FFI（@When 门禁），桌面上编译不到——那部分归真机取证
+ * （issue #5：USB 转串口接 OTG、DDK 权限）。下面锁的是 ohos 与桌面**共用同一份代码**的纯函数：
+ * 波特率 → termios 常量映射（不带门禁，专为可测升 public）与设备白名单的 /dev/bus 路径。
+ */
+
+@Test
+func testSerialOhosBaudConstMatchesDesktopTiers(): Unit {
+    // 与 SERIAL_BAUDS 同一套档位：桌面允许的每一档，ohos 侧都必须有对应的 termios 常量
+    let tiers: Array<Int32> = [300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200,
+        230400, 460800, 500000, 921600, 1000000]
+    for (b in tiers) {
+        @Expect(serialOhosBaudConst(b).isSome(), true)
+    }
+    // 关键取值抽查（asm-generic：B38400 以下连续，往上 0x1000+n）
+    @Expect(serialOhosBaudConst(115200).getOrThrow(), 0x1002)
+    @Expect(serialOhosBaudConst(9600).getOrThrow(), 0xd)
+    @Expect(serialOhosBaudConst(1000000).getOrThrow(), 0x1008)
+    // 桌面已拒的档位，ohos 侧同样不收（两层拦同一套名单，不会出现桌面放行、ohos 拒）
+    @Expect(serialOhosBaudConst(14400).isNone(), true)
+    @Expect(serialOhosBaudConst(4000000).isNone(), true)
+}
+
+@Test
+func testSerialPathLooksAllowedCoversOhosDevicePaths(): Unit {
+    // 鸿蒙特有的 USB 串口落点必须过白名单（ohos 侧 open 的边界就靠它）
+    @Expect(serialPathLooksAllowed("/dev/bus/ttyUSB0"), true)
+    @Expect(serialPathLooksAllowed("/dev/bus/ttyACM0"), true)
+    @Expect(serialPathLooksAllowed("/dev/bus/ttyS1"), true)
+    // 穿越与任意路径照旧拒
+    @Expect(serialPathLooksAllowed("/dev/bus/../ttyUSB0"), false)
+    @Expect(serialPathLooksAllowed("/data/local/ttyUSB0"), false)
+}
+
+@Test
+func testSerialPluginDescribesAllThreeHosts(): Unit {
+    let d = SerialPlugin().describe()
+    let hosts = d.supportedHosts
+    @Expect(hosts.size, 3)
+    var hasArkweb = false
+    for (h in hosts) {
+        if (h == "arkweb") {
+            hasArkweb = true
+        }
+    }
+    @Expect(hasArkweb, true)
+}

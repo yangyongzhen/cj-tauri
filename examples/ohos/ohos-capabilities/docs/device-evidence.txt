@@ -9,3 +9,23 @@
 06:37:55.221 A00001/com.yang.testcj/CjProbe: PASS menu setChecked view.sidebar=true
 06:36:40.760 A00001/com.yang.testcj/CjTauri: menu click label=main id=view.sidebar
 06:36:40.783 A00001/com.yang.testcj/CjProbe: PASS menu click id=view.sidebar enabled=true checked=false
+
+--- 2026-10-24 07:30 剪贴板取证轮（9 PASS / 0 FAIL）---
+10-24 07:30:22.136 A00001/com.yang.testcj/CjProbe: PASS cap menu expect=true actual=true
+10-24 07:30:22.137 A00001/com.yang.testcj/CjProbe: PASS cap tray expect=false actual=false
+10-24 07:30:22.139 A00001/com.yang.testcj/CjProbe: PASS cap dragDrop expect=false actual=false
+10-24 07:30:22.140 A00001/com.yang.testcj/CjProbe: PASS cap hotkey expect=false actual=false
+10-24 07:30:22.141 A00001/com.yang.testcj/CjProbe: PASS cap subtitle expect=false actual=false
+10-24 07:30:22.143 A00001/com.yang.testcj/CjProbe: caps 5/5 bits match expectation
+10-24 07:30:22.144 A00001/com.yang.testcj/CjProbe: PASS platform ohos
+10-24 07:30:22.146 A00001/com.yang.testcj/CjProbe: PASS version {"name":"cj-tauri","version":"2.0.0","protocol":"1","cangjie":"1.0.5","platform":"ohos"}
+10-24 07:30:22.146 A00001/com.yang.testcj/CjProbe: PASS menu setChecked view.sidebar=true
+10-24 07:30:22.149 A00001/com.yang.testcj/CjProbe: PASS clipboard write cj-tauri-clip-1792798222111
+10-24 07:30:22.261 A00001/com.yang.testcj/CjProbe: SKIP clipboard read denied-by-platform (needs READ_PASTEBOARD; write verified)
+
+读被拒的平台证据（同一轮前后做过的一次性诊断，已撤）：
+- GetData 的 status 出参 = 201（ERR_PERMISSION_ERROR），因此 data 为空、框架返回 None
+- 把 ohos.permission.READ_PASTEBOARD 写进 module.json5 并补齐 reason/usedScene 后，装包被拒：
+  code:9568289 error: install failed due to grant request permissions failed.
+  PermissionName: ohos.permission.READ_PASTEBOARD
+- 该权限在设备上的定义：grantMode=USER_GRANT, availableLevel=SYSTEM_BASIC（atm dump -d -p 可查）

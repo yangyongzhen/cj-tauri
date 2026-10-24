@@ -16,6 +16,13 @@
 
 ### Added
 
+- **`fs` 插件补齐目录/移动/复制/元信息四条命令**：`fs:mkdir`（`{ path, recursive? }`，目标已存在
+  如实报错，不伪装成幂等成功）、`fs:rename` / `fs:copy`（`{ path, newPath, overwrite? }`，
+  **两个路径都过 scope 校验**——`newPath` 同样是页面可控路径；`overwrite` 缺省 `false`）、
+  `fs:stat`（`{ name, dir, size, lastModified }`，mtime 给可读字符串）。命名权限集同步扩容：
+  `fs:stat` 进 `fs:readonly`（仍零写能力），三条写命令进 `fs:default`；前端 shim 补四个入口。
+  单测 7 条真实落盘用例（建目录/重复拒/逐级递归、改名与 overwrite、整树拷贝、stat 元信息、
+  参数校验），`scripts/test.sh` 339 PASSED。
 - **`serial` 插件支持鸿蒙（NDK FFI 直连 musl libc）**：新增 `src/plugins/serial/serial_ohos.cj`，
   取代此前的 P-1 桩——`open` / `tcgetattr` / `tcsetattr` / `cfsetispeed` / `poll` 等 POSIX 串口面
   按 `@C foreign` 直连（`termios` 按 musl aarch64 的字节布局手工读写，不做 `@C` 结构体映射），
@@ -160,6 +167,18 @@
   `targets/ohos`，分别落到 WebKitGTK / WebView2 / ArkWeb。`scripts/site-check.sh` 的「同源拷贝不许漂移」
   清单同步扩到这张图——只改 `docs/` 时官网不会再静默停在旧图上（判据：自检那一行同时列出
   `architecture.svg` 与 `architecture-multiplatform.png`）。
+- **撤除鸿蒙侧「选择 / 打开外部文件」的实验通路（能力本身仍不可用，等官方修）**：`ohos-skeleton`
+  不再带 ArkTS 助手（`CjPicker.ets` + `build-profile.json5` 的 `arkOptions.runtimeOnly`）、
+  `arkts_picker.cj`（`requireArkModule` 惰性加载）、`file_picker.cj`（`DocumentViewPicker` 尝试与
+  URI 导入）、`open_with.cj`（`viewData` want 过滤器与 `onNewWant` 接续），模板 `module.json5` 的
+  `READ_WRITE_DOCUMENTS_DIRECTORY` 与配套 `docs_reason` 字符串一并撤回。真机取证结论：从文件管理器
+  「打开方式」拉起本应用**成立**（want `action=viewData`、`uri=file://docs/...`、`flags=67` 含
+  `FLAG_AUTH_READ_URI_PERMISSION`），但读取端一律 `13900012 Permission denied`（hilog
+  `FILE-FS: Failed to open OpenFileByPath error -13`）——三条路全部堵死：ArkTS 侧 picker 调不到
+  （仓颉 SDK 无 `ohos.file.picker` 绑定，且纯仓颉 hap 里 ArkTS 模块不产出 abc）、URI 直读不认授权位、
+  `atm perm -g` 授权目录权限后 `access=true` 但 `open` 仍拒。已按两处缺口提 issue：
+  #136（`FileIo.open` 与文档「支持使用 URI 打开文件」不符）与 #137（缺 `DocumentViewPicker` 绑定）。
+  骨架恢复为「只保证沙箱内文件可用」，`cj-tauri test` 的静态检查与两端 `cjpm build` 均通过。
 
 ## [2.0.0] - 2026-10-23
 

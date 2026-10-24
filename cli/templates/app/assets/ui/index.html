@@ -55,6 +55,8 @@
 
   <script>
     // 注入的桥（对标 @tauri-apps/api）：window.__CJ_TAURI__
+    // ③ 改页面从这看起：tauri.invoke 调后端命令、tauri.listen 收后端事件
+    //    （新命令记得在 src/main.cj 实现，并在 assets/capabilities/default.json 放行）
     function withBridge(cb) {
       if (window.__CJ_TAURI__) { cb(window.__CJ_TAURI__); return; }
       setTimeout(function () { withBridge(cb); }, 50);

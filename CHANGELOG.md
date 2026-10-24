@@ -24,6 +24,12 @@
   （加命令三处联动 / 加插件三处联动 / 加宿主能力 / 适配新平台 / 只改文档），细节契约仍指向 `AGENTS.md` §2。
 - **issue 标签体系**：AtomGit 仓库建 `bug` / `good-first-issue` / `平台适配` / `插件开发` 四个标签，
   让潜在贡献者能按门槛找切入点。
+- **`doctor` 失败项的提示补「去哪下载」**：缺 `CANGJIE_HOME` / `stdx` 的 FAIL 行现在直接给出
+  下载入口（cangjie-lang.cn/download，注明需登录华为账号）与版本配套要求（SDK 1.2.0 配 stdx 1.2.0.1），
+  第一次接触仓颉的人不用再另查文档。
+- **极简模板（`cli/templates/app`）加「改三处变成你的应用」导航注释**：`src/main.cj` 顶部写明
+  写命令 → 能力清单放行 → 页面 invoke 三步，命令注册点与页面脚本入口各有一处就地标记，
+  模板 README 同步；`cj-tauri create` 生成的工程带同样注释（create 冒烟验证过）。
 
 - **清单新增 `[links]` 段：应用自己给目标端追加链接选项**（`desktop-linux` / `desktop-windows` / `ohos`）。
   要用 SDK 没有仓颉绑定的原生能力时只能 FFI 直连系统 `.so`，而符号必须出现在**最终链接**那一侧——

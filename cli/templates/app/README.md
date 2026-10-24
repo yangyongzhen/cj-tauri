@@ -42,6 +42,9 @@ cd targets/ohos && bash build-hap.sh --install  # 编完装到设备并拉起
 
 ## 命令与能力
 
+**把骨架变成你的应用，改三处**：① `src/main.cj` 照 `GreetCommand` 写命令并在 `build()` 里 register；
+② `assets/capabilities/default.json` 的 `commands` 里放行；③ `assets/ui/index.html` 里 `tauri.invoke`。
+
 命令在 `src/main.cj`（`greet` / `timer` + 演示菜单），白名单在 `assets/capabilities/default.json`——
 两边必须对齐：`cj-tauri check` 的三方比对会交叉核对「能力声明 × 插件自描述 × 实际装配」。
 插件在某端没有实现时（如 shell/sqlite 在鸿蒙端），骨架照样编得过，运行期调用得到

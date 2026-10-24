@@ -2,7 +2,7 @@
  * cj-tauri.toml 清单（RFC-002 §3）：解析 + 校验 + 桌面骨架派生
  *
  * 批次 2 用受控 TOML 子集并手写解析（stdx 无 toml 模块，实测）；子集约定：
- *   - 段：[app] / [[windows]] / [assets] / [capabilities]，无嵌套表；
+ *   - 段：[app] / [[windows]] / [assets] / [capabilities] / [links]，无嵌套表；
  *   - 值：带引号字符串、整数、true/false；引号值后不写行内注释（整行 # 注释不受限）；
  *   - 未知键直接报错：清单由本 CLI 生态生成与消费，拼错键要在 check 期暴露。
  */
@@ -32,6 +32,27 @@ public class Manifest {
     public var assetsRoot: String = "assets"
     public var page: String = "ui/index.html"
     public var capabilitiesDir: String = "assets/capabilities"
+
+    /**
+     * 各目标端追加的链接选项（清单 `[links]` 段，键见 apply 里那三条）
+     *
+     * **为什么需要这个口子**：SDK 没有仓颉绑定的原生能力只能 FFI 直连系统 `.so`，
+     * 而符号必须出现在**最终链接**那一侧——桌面是 `targets/desktop`（output-type =
+     * executable），鸿蒙是 `targets/ohos/entry`（dynamic，框架自己的 cjpm.toml 写了不生效）。
+     * 这两份 toml 都是生成物（「不要手改」），所以在清单留口子；否则用户新增一个原生库
+     * 就得改框架生成器，等于 fork。
+     *
+     * **为什么不写成一条通用 link-option**：同一个库在三个目标端上名字通常不同
+     * （Linux `-lfoo` / Windows `foo.lib` / 鸿蒙 `-lfoo_ndk.z`），一条会把三端绑死；
+     * 分端各一，写错一端不影响其它端。
+     *
+     * **语义是「追加」而不是「覆盖」**：框架默认值（`-lcjtbridge`、`-lpasteboard`
+     * 等）不能被用户清单顶掉；空串 = 不追加，生成物逐字节与加入本字段之前一致
+     * （老工程 check 不会因升级 CLI 判漂移）。
+     */
+    public var linkDesktopLinux: String = ""
+    public var linkDesktopWindows: String = ""
+    public var linkOhos: String = ""
 
     /** 可执行名：appId 最后一段 */
     public func exeName(): String {
@@ -142,6 +163,15 @@ public class Manifest {
             match (key) {
                 case "dir" => this.capabilitiesDir = strValue(value, at)
                 case _ => throw IllegalArgumentException("${at}: 未知的 [capabilities] 键：${key}")
+            }
+            return
+        }
+        if (section == "links") {
+            match (key) {
+                case "desktop-linux" => this.linkDesktopLinux = strValue(value, at)
+                case "desktop-windows" => this.linkDesktopWindows = strValue(value, at)
+                case "ohos" => this.linkOhos = strValue(value, at)
+                case _ => throw IllegalArgumentException("${at}: 未知的 [links] 键：${key}")
             }
             return
         }
@@ -257,10 +287,44 @@ public class Manifest {
         if (this.page.size == 0) {
             errs.add("[assets] page 不能为空")
         }
+        this.checkLink(errs, "[links] desktop-linux", this.linkDesktopLinux)
+        this.checkLink(errs, "[links] desktop-windows", this.linkDesktopWindows)
+        this.checkLink(errs, "[links] ohos", this.linkOhos)
         return errs
     }
 
+    /**
+     * 追加链接选项的字面量校验
+     *
+     * `[links]` 的值会被原样拼进生成 toml 的双引号里，所以双引号与换行必须当场拒：
+     * 拼坏了的话报错点会漂到 cjpm 的解析里（那里只会说「某行语法错」），看不出是清单写错。
+     * 注意 `strValue` 对**带引号**的值取的是首个引号内的内容，所以带引号写法里的内层引号
+     * 已被截断；这条守的是裸值写法与后续拼接。
+     */
+    private func checkLink(errs: ArrayList<String>, label: String, v: String): Unit {
+        if (v.contains("\"")) {
+            errs.add(label + " 不能含双引号（会破坏生成 toml 的字符串）")
+        }
+        if (v.contains("\n") || v.contains("\r")) {
+            errs.add(label + " 不能含换行")
+        }
+    }
+
     // ---------- 桌面骨架派生（RFC §7.1/§7.2；批次 2 仅 desktop） ----------
+
+    /**
+     * 把清单 `[links]` 里的用户追加项拼到框架默认链接选项之后
+     *
+     * 空串原样返回：未写 `[links]` 的老工程，生成物必须与加入本能力之前**逐字节一致**，
+     * 否则升级 CLI 后 `cj-tauri check` 会把所有既有工程判成漂移。
+     */
+    private static func appendLink(base: String, extra: String): String {
+        let e = extra.trimAscii()
+        if (e.size == 0) {
+            return base
+        }
+        return base + " " + e
+    }
 
     /** targets/desktop/cjpm.toml；链接段照抄 examples/music 的既有配置（AGENTS：产物口径不变） */
     public func renderDesktopToml(fwRoot: String, cliVer: String): String {
@@ -283,11 +347,11 @@ public class Manifest {
             "  cjTauri = { path = \"" + toTomlPath(fwRoot) + "\" }\n" +
             "  " + this.pkg + " = { path = \"../..\" }\n" +
             "\n[target.x86_64-unknown-linux-gnu]\n" +
-            "  link-option = \"-L" + native + " -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0\"\n" +
+            "  link-option = \"" + appendLink("-L" + native + " -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0", this.linkDesktopLinux) + "\"\n" +
             "\n[target.x86_64-unknown-linux-gnu.bin-dependencies]\n" +
             "    path-option = [\"" + "$" + "{CANGJIE_STDX}\"]\n" +
             "\n[target.x86_64-w64-mingw32]\n" +
-            "  link-option = \"-L" + native + " -lcjtbridge --subsystem=windows\"\n" +
+            "  link-option = \"" + appendLink("-L" + native + " -lcjtbridge --subsystem=windows", this.linkDesktopWindows) + "\"\n" +
             "\n[target.x86_64-w64-mingw32.bin-dependencies]\n" +
             "    path-option = [\"" + "$" + "{CANGJIE_STDX}\"]\n"
     }
@@ -390,7 +454,7 @@ public class Manifest {
             // 框架自己的 cjpm.toml 写了也不生效，缺了就是模块里留一堆 `U OH_Pasteboard_*`，
             // 表现是应用启动即 SIGSEGV（模块加载期解析不到符号）。
             // 两个库都要：`OH_Pasteboard_*` 在 libpasteboard、`OH_Udmf*` / `OH_Uds*` 在 libudmf。
-            "  link-option = \"-lpasteboard -ludmf\"\n" +
+            "  link-option = \"" + appendLink("-lpasteboard -ludmf", this.linkOhos) + "\"\n" +
             "[target.aarch64-linux-ohos.bin-dependencies]\n" +
             "  # 鸿蒙版 stdx：相对路径指向骨架根上的 `stdx` 联接（build-hap.sh 用 CANGJIE_STDX_OHOS\n" +
             "  # 建，不入库）。hvigor 只替换它自己的模板变量，写别的 " + "$" + "{...}" + " 会变空串、整条\n" +
@@ -399,7 +463,7 @@ public class Manifest {
             "  package-option = {}\n" +
             "\n[target.x86_64-linux-ohos]\n" +
             "  compile-option = \"-B \\\"" + dc + "/build-tools/third_party/llvm/bin\\\" -B \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/clang/15.0.4/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/x86_64-linux-ohos\\\" --sysroot \\\"" + dn + "/sysroot\\\"\"\n" +
-            "  link-option = \"-lpasteboard -ludmf\"\n" +
+            "  link-option = \"" + appendLink("-lpasteboard -ludmf", this.linkOhos) + "\"\n" +
             "[target.x86_64-linux-ohos.bin-dependencies]\n" +
             "  path-option = [\"" + x1 + "\", \"" + x2 + "\", \"" + x3 + "\", \"../stdx\"]\n" +
             "  package-option = {}\n"

@@ -3,15 +3,12 @@ package cjTauri.plugins.http
 import cjTauri.*
 
 import std.collection.*
-import std.io.*
 import stdx.encoding.json.*
-import stdx.net.http.*
-import stdx.net.tls.*
 
 /** 单次响应体上限：8 MiB（LLM 非流式回复通常远小于它；够装一份大 README） */
 public let CJ_HTTP_MAX_BYTES: Int64 = 8 * 1024 * 1024
 
-/** 请求超时（读写同一预算）：ClientBuilder 没有 connectTimeout，目标不可达会卡在
+/** 请求超时（读写同一预算）：Desktop 侧 ClientBuilder 没有 connectTimeout，目标不可达会卡在
  * TCP connect 上——超时预算按「整体别太久」给，长挂由前端超时/取消兜 */
 public let CJ_HTTP_TIMEOUT_SECONDS: Int64 = 60
 
@@ -36,8 +33,10 @@ public let CJ_HTTP_MAX_HEADER_VALUE: Int64 = 4096
  *   不会替页面**追出去**（白名单只判第一跳；要跟就由页面显式再发一次、再过一遍白名单）。
  * - Host / Content-Length 头不许页面自带（前者能改写白名单判过的目标，后者由库自己算）。
  *
- * TLS：显式 tlsConfig(TlsClientConfig())——仓颉 HTTP 客户端**不带默认 TLS**，
- * 不配的话 https 直接抛 HttpException（AGENTS §4，movie 54 次取图全灭的教训）。
+ * 平台分层（2026-10-25 起，见 `http_backend.cj` 顶部注释）：本文件只有**命令面与判定**，
+ * 真正出网交给 `httpTransportSend` / `httpTransportOpenStream`——桌面是 stdx + 显式 TLS，
+ * 鸿蒙是系统网络栈 `ohos.net.http`（仓颉运行时在鸿蒙上装不了 OpenSSL 3，stdx 的 TLS 必然失败）。
+ * **命令名、入参、返回值、白名单判定两平台一致**，前端一行都不用改。
  *
  * 性能口径（为什么**每个请求新建 Client**而不是共享一个）：
  * - 最大的性能收益本来就在**流式**：一次 LLM 对话只有一次请求，而这条流要挂几十秒——
@@ -106,14 +105,16 @@ public class HttpCommands <: CommandHandler {
     }
 
     /**
-     * 流式 POST（SSE）：与 doFetch 同一套白名单/请求头判定，差别只在**读响应体**——
-     * 按块读、每读一块就把增量经事件通道回投（emitLatest：同一帧内多条只保最新，
-     * 渲染层本来就该按「最新累计文本」画，高频 delta 不必每条都到）。
+     * 流式 POST（SSE）：与非流式同一套白名单/请求头判定，差别只在**读响应体**——
+     * 按块读、每读一块就把增量经事件通道回投（emit：同一帧内多条都要到，不合并）。
      *
      * 事件 payload：{ status, contentType, delta, received, done, truncated }。
      * delta 是**本轮新增**的文本；UTF-8 多字节被块边界切开时，不完整的那几字节
-     * 留到下一块拼齐再发（按 lead byte 回扫补齐边界，见 emitUtf8Chunks）。
+     * 留到下一块拼齐再发（按 lead byte 回扫补齐边界，见 takeCompleteUtf8）。
      * 结束（EOF / 超限）后发 done=true 的最后一条，命令再返回总字节数。
+     *
+     * 鸿蒙侧由 `httpTransportOpenStream` 当场如实拒绝（系统网络栈的回调形态不暴露增量块），
+     * 所以「命令能注册、能通过白名单、调用时明确报不可用」——不会静默返回空流。
      */
     private func fetchStream(args: JsonObject, ipc: IpcContext): JsonValue {
         let url = this.requireString(args, "url")
@@ -123,31 +124,16 @@ public class HttpCommands <: CommandHandler {
         }
         this.checkHostScope(url, host, ipc)
 
-        var builder = HttpRequestBuilder().url(url).post().body(this.requireString(args, "body"))
-        builder = builder.header("Accept", "text/event-stream")
-        builder = this.applyPageHeaders(builder, args)
-
-        let client = ClientBuilder()
-            .tlsConfig(tlsConfigForHost(host))
-            .autoRedirect(false)
-            .readTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
-            .writeTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
-            .build()
-        var status: Int64 = 0
-        var ctype = ""
+        let headers = parsePageHeaders(args)
+        let stream = httpTransportOpenStream(url, host, headers, this.requireString(args, "body"))
+        let status = stream.status()
+        let ctype = stream.contentType()
         var total: Int64 = 0
         var truncated = false
         try {
-            let resp = client.send(builder.build())
-            status = Int64(resp.status)
-            match (resp.headers.getFirst("Content-Type")) {
-                case Some(v) => ctype = v
-                case None => ()
-            }
-            // carry：上一块末尾不完整的 UTF-8 序列（最多 3 字节），拼到下一块开头
             let chunk = Array<Byte>(8192, repeat: 0)
             let pending = ArrayList<Byte>()
-            var n = resp.body.read(chunk)
+            var n = stream.read(chunk)
             while (n > 0) {
                 if (total + n > CJ_HTTP_MAX_BYTES) {
                     truncated = true
@@ -157,7 +143,7 @@ public class HttpCommands <: CommandHandler {
                     pending.add(chunk[i])
                 }
                 total += n
-                n = resp.body.read(chunk)
+                n = stream.read(chunk)
                 // 发走所有完整 UTF-8 序列，尾巴（不完整的那几字节）留在 pending。
                 // 必须 emit（每条都到）而不是 emitLatest：后者按事件名「同帧只保最新」，
                 // 会把中间 delta 连同数据块一起覆盖掉——实测 chunks 数时好时坏、
@@ -171,20 +157,18 @@ public class HttpCommands <: CommandHandler {
             // 这里**不能**直接 fromUtf8：它对非法序列抛 IllegalArgumentException，一抛就把整条
             // 流式命令 reject 掉——页面显示「请求失败」，而正文其实早就收完了。丢这几个字节更诚实，
             // 但要把丢弃这件事留一行 stderr（别让失败无声）。
+            var tail = ""
             if (pending.size > 0) {
-                var tail = ""
                 try {
                     tail = String.fromUtf8(pending.toArray())
                 } catch (e: Exception) {
                     eprintln("[cj-tauri] http:postStream 尾部 ${pending.size} 字节不是合法 UTF-8（流被掐断），已丢弃")
                 }
-                ipc.emit("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
-            } else {
-                ipc.emit("http:chunk", this.chunkPayload(status, ctype, "", total, true, truncated))
             }
-            resp.close()
+            ipc.emit("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
         } finally {
-            client.close()
+            // 句柄不关等于泄漏连接（桌面侧连客户端一起关）；异常路径同样要收
+            stream.close()
         }
         let obj = JsonObject()
         obj.put("status", JsonInt(status))
@@ -271,79 +255,18 @@ public class HttpCommands <: CommandHandler {
             case None => throw CommandException("http: host is outside the authorized scope")
         }
         this.checkHostScope(url, host, ipc)
-        return this.doFetch(method, url, host, args)
-    }
-
-    /** 白名单过后的真实请求：与判定分离，让 match 分支保持「单表达式」的形状
-     * （仓颉的 match 分支体写 `=> {}` 块会被解析器当成 lambda——实测踩过，分支体一律单语句） */
-    private func doFetch(method: String, url: String, host: String, args: JsonObject): JsonValue {
-        var builder = HttpRequestBuilder().url(url)
-        if (method == "GET") {
-            builder = builder.get()
-        } else if (method == "DELETE") {
-            // DELETE 也带 JSON 体：cjh 的工作区删除靠 body 传 path（其 rest_api 的 DELETE 分支
-            // 读的就是请求体），所以这里不能走「无体 DELETE」那条路
-            builder = builder.delete().body(this.requireString(args, "body"))
+        // GET 不带体；POST / DELETE 的体是必填（缺了就是业务错误，与改造前一致）
+        let body = if (method == "GET") {
+            ""
         } else {
-            let body = this.requireString(args, "body")
-            builder = builder.post().body(body)
+            this.requireString(args, "body")
         }
-        // 默认头：JSON 客户端最常见形态；页面可用 headers 覆盖/追加（Host/Content-Length 除外）
-        builder = builder.header("Accept", "application/json, text/event-stream, */*")
-        builder = this.applyPageHeaders(builder, args)
-
-        let client = ClientBuilder()
-            .tlsConfig(tlsConfigForHost(host))
-            .autoRedirect(false)
-            .readTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
-            .writeTimeout(Duration.second * CJ_HTTP_TIMEOUT_SECONDS)
-            .build()
-        var status: Int64 = 0
-        var ctype = ""
-        var text = ""
-        var truncated = false
-        try {
-            let resp = client.send(builder.build())
-            status = Int64(resp.status)
-            match (resp.headers.getFirst("Content-Type")) {
-                // 头名大小写在 HTTP 里不敏感，但取法只有 getFirst（**没有 get**，AGENTS §4）
-                case Some(v) => ctype = v
-                case None => ()
-            }
-            // 按块读到 EOF 或上限：resp.body 的静态类型只有 InputStream，
-            // readToEnd 编译不过（泛型约束要 Seekable，AGENTS §4）；超限截断并如实标记。
-            // ByteBuffer 没有 size 属性：字节数自己累加（music 的 readBodyBytes 同款不查
-            // 长度，这里要掐上限，所以另立一版）
-            let buf = ByteBuffer()
-            let chunk = Array<Byte>(8192, repeat: 0)
-            var n = resp.body.read(chunk)
-            var total: Int64 = 0
-            while (n > 0) {
-                if (total + n > CJ_HTTP_MAX_BYTES) {
-                    buf.write(chunk[0..(CJ_HTTP_MAX_BYTES - total)])
-                    truncated = true
-                    break
-                }
-                buf.write(chunk[0..n])
-                total += n
-                n = resp.body.read(chunk)
-            }
-            resp.close()
-            text = String.fromUtf8(buf.bytes())
-        } finally {
-            client.close()
-        }
-        let obj = JsonObject()
-        obj.put("status", JsonInt(status))
-        obj.put("contentType", JsonString(ctype))
-        obj.put("body", JsonString(text))
-        obj.put("truncated", JsonBool(truncated))
-        return obj
+        return httpReplyJson(httpTransportSend(method, url, host, parsePageHeaders(args), body))
     }
 
     /** 主机白名单判定（共享层语义：先 deny 后 allow，allow 必须显式命中） */
     private func checkHostScope(url: String, host: String, ipc: IpcContext): Unit {
-        // 分支体保持单语句（多语句的块会被解析器当 lambda，见 doFetch 注释）
+        // 分支体保持单语句（多语句的块会被解析器当 lambda，见下）
         match (ipc.scopeRuleFor("http")) {
             case None => this.rejectOutsideScope(url, "no host whitelist declared")
             case Some(rule) => this.checkRuleAllows(url, host, rule)
@@ -359,59 +282,6 @@ public class HttpCommands <: CommandHandler {
     private func rejectOutsideScope(url: String, why: String): Nothing {
         eprintln("[cj-tauri] scope denied (http): ${url} -> ${why}")
         throw CommandException("http: host is outside the authorized scope")
-    }
-
-    /** 页面自带的请求头（可选 headers 对象，string → string），条数与长度有上限 */
-    private func applyPageHeaders(builder: HttpRequestBuilder, args: JsonObject): HttpRequestBuilder {
-        var b = builder
-        match (args.get("headers")) {
-            // 分支体保持单语句（块体会被解析器当 lambda，见 doFetch 注释）
-            case Some(v) => b = this.applyHeadersObject(b, v)
-            case None => ()
-        }
-        return b
-    }
-
-    private func applyHeadersObject(builder: HttpRequestBuilder, v: JsonValue): HttpRequestBuilder {
-        var b = builder
-        // JsonKind 没有 ==（AGENTS §4）：枚举比较只能走 match
-        let isObject = match (v.kind()) {
-            case JsonKind.JsObject => true
-            case _ => false
-        }
-        if (!isObject) {
-            return b
-        }
-        let hs = v.asObject()
-        var count: Int64 = 0
-        // 遍历用 getFields()（store 插件同款先例）：JsonObject 不是按索引取的容器
-        for ((name0, value) in hs.getFields()) {
-            if (count >= CJ_HTTP_MAX_HEADERS) {
-                break
-            }
-            // 键小写化后跳过禁改的头
-            let name = name0.toAsciiLower()
-            if (name == "host" || name == "content-length") {
-                // 白名单判的是 URL 里的 host，页面不许改写它
-                continue
-            }
-            if (this.isStringKind(value)) {
-                let hval = value.asString().getValue()
-                if (hval.size <= CJ_HTTP_MAX_HEADER_VALUE) {
-                    b = b.header(name, hval)
-                    count++
-                }
-            }
-        }
-        return b
-    }
-
-    private func isStringKind(v: JsonValue): Bool {
-        let r = match (v.kind()) {
-            case JsonKind.JsString => true
-            case _ => false
-        }
-        return r
     }
 
     private func requireString(args: JsonObject, key: String): String {
@@ -437,23 +307,4 @@ public func httpHostOf(rawUrl: String): Option<String> {
         return None
     }
     return urlHostOf(rawUrl)
-}
-
-/**
- * 建 TLS 客户端配置：**域名必须显式写 `serverName`（SNI）**。
- *
- * stdx 的 `TlsClientConfig()` 默认不发 SNI，而多租户 HTTPS 边缘（实测 Cloudflare 后面的 api 域名）
- * 收不到 SNI 就以 `handshake failure`(40) 拒掉握手——表象是「TLS 握手失败」，同一地址
- * curl / openssl 打起来一切正常，极易误判成对端故障、甚至误判成白名单问题（AGENTS §4 有这条坑）。
- * IP 字面量**不带** SNI：RFC 6066 不许，且「https 直连 IP」原本可用，不能反被改坏。
- *
- * 这七行故意留在插件里而不进核心共享层：核心一引用 `stdx.net.tls`，不用 TLS 的应用也会被拉上
- * OpenSSL 依赖，单文件打包契约跟着变形（§2 的包粒度纪律）；ws 插件里那份是同样的七行。
- */
-private func tlsConfigForHost(host: String): TlsClientConfig {
-    var cfg = TlsClientConfig()
-    if (!isIpLiteralHost(host)) {
-        cfg.serverName = host
-    }
-    return cfg
 }

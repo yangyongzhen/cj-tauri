@@ -1,0 +1,25 @@
+# cj-tauri 应用清单——整个工程的单一真相（RFC-002 §7）。
+# cj-tauri sync 从这里派生 targets/ 骨架（desktop/ohos）；cj-tauri check 校验它并检测骨架漂移。
+[app]
+  name = "markdown-notes"
+  version = "0.1.0"
+  # 应用标识：鸿蒙直接是 bundleName。取 com.yang.testcj 与 serial-assistant 同理——
+  # 本机鸿蒙调试证书按这个 bundleName 签的，沿用即可直接装真机；代价是同 bundleName 的
+  # 其他示例被顶掉（调试期可接受）。
+  id = "com.yang.testcj"
+  # 业务包名（cjpm 约束①：toml 模块名必须等于源包名）
+  package = "markdownNotes"
+
+[[windows]]
+  label = "main"
+  title = "cj-tauri Markdown 笔记"
+  # 与旧形态 run(main.cj) 里的 WindowConfig 同尺寸
+  width = 1180
+  height = 760
+
+[assets]
+  # 骨架 launcher 加载的页面（相对资产根 assets/）
+  page = "ui/index.html"
+
+[capabilities]
+  dir = "assets/capabilities"

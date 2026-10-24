@@ -603,16 +603,23 @@ public class ArkWebHost <: WebViewHost {
         }
     }
 
+    /**
+     * 写文本进系统剪贴板（鸿蒙 = 原生 pasteboard，见 `clipboard_bridge.cj` 的鸿蒙段）
+     *
+     * 返回 false 只有三种可能：句柄拿不到、UDMF 对象建不出来、平台拒绝这次写入。
+     * **不要把 false 读成「暂时没接」**——这条能力在鸿蒙上已经接了，false 就是真失败。
+     */
     public func clipboardWriteText(text: String): Bool {
-        let _ = text
-        // 剪贴板在鸿蒙走 pasteboard 模块（`ohos.pasteboard`），尚未接入：如实 false，
-        // 不返回 true 骗调用方（这正是「发后即忘返回 0 ≠ 发送成功」那条坑的同族）。
-        eprintln("[cj-tauri] ArkWeb: clipboard write unsupported (pasteboard not wired yet)")
-        return false
+        return arkwebClipboardWriteText(text)
     }
 
+    /**
+     * 读系统剪贴板文本：None = 空 / 非文本 / 平台拒绝（含缺 `READ_PASTEBOARD` 权限）
+     *
+     * 三种 None 对调用方是同一个「没拿到」——接口契约就是 Option，不在这儿编造区分。
+     */
     public func clipboardReadText(): Option<String> {
-        return None
+        return arkwebClipboardReadText()
     }
 
     public func notify(title: String, body: String): Bool {

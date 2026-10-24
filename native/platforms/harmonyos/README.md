@@ -16,10 +16,13 @@
   `@When` 门禁 + 如实降级，见 §4）。
 - **宿主能力位：只有菜单置 1，其余全 0**——`CJ_CAP_MENU` 已于 2026-10-24 真机取证
   （点得动菜单项、原生回投 `{"kind":"menu","id":…}`、页面收到 `menu:click`，见文末「菜单能力位」）；
-  托盘 / 全局快捷键 / 拖放 / 原生对话框 / 剪贴板 / 通知 / 标题栏副标题一律如实拒绝（对应位为 0）。
+  托盘 / 全局快捷键 / 拖放 / 原生对话框 / 通知 / 标题栏副标题一律如实拒绝（对应位为 0）。
   按 AGENTS §1 门禁 4：**没有实机证据的能力位不许上报**，所以它们不会因为「代码里写了」就变成 1。
   注意「对话框」一项的边界：应用侧用声明式 overlay 能弹框（见 §4 踩坑清单），但那不是宿主能力，
   所以这个位仍是 0。
+  另：**剪贴板没有能力位**（`native/core/bridge_core.h` 里只有 menu / tray / hotkey / dragdrop /
+  dialog / notification / subtitle 那几位），所以下面「剪贴板」一节的落地**不改任何位**——
+  插件可用与否只看宿主有没有实现 `clipboardWriteText` / `clipboardReadText`。
 
 ⚠️ **两条与桌面平台不同的硬约束**（真机踩过，改动前务必看）：
 
@@ -148,4 +151,61 @@ CjProbe: PASS menu setChecked view.sidebar=true
   应用侧只能用声明式 overlay——那不是宿主能力；
 - **文件拖放**：组件有 `onDrop`，但路径来自系统 drag 事件而非桥，且没有 `DragDropPolicy`
   的「start 前定稿」语义，未做能力位。
+
+## 剪贴板（2026-10-24 真机取证：写通，读被平台门槛挡住）
+
+鸿蒙的仓颉 SDK 6.1 **没有 `ohos.pasteboard` 绑定**（340 个 ohos 包里一个都没有，只有旧的 5.0 Beta 带），
+所以走系统原生 C API：`src/clipboard_bridge.cj` 的 `@When[env == "ohos"]` 段用 `foreign func` 直连
+`libpasteboard.so`（`OH_Pasteboard_*`）与 `libudmf.so`（`OH_Udmf*` / `OH_UdsPlainText_*`）。
+
+### 链接：开关必须落在 entry 模块，不是框架
+
+`OH_Pasteboard_*` 与 `OH_Udmf*` 分属两个库，**两个都要链**：
+
+```toml
+[target.aarch64-linux-ohos]
+  link-option = "-lpasteboard -ludmf"
+```
+
+落点是**入口模块的 `entry/cjpm.toml`**（`output-type = "dynamic"`，最终链接发生在那儿）。
+写进框架自己的 `cjpm.toml` 不生效——生成器 `cli/src/manifest.cj` 的 `renderOhosEntryToml` 会重写
+`targets/ohos/entry/cjpm.toml`，漏了这条的表现是：`libohos_app_cangjie_entry.so` 里留一堆
+`U OH_Pasteboard_*`、`DT_NEEDED` 里**没有** `libpasteboard.so`/`libudmf.so`，应用**启动即 SIGSEGV**
+（模块加载期解析不到符号，表象与「白屏 / 秒退」同形，见 AGENTS §4）。
+判据两条，缺一不可：`readelf -d <模块.so> | grep -E "pasteboard|udmf"` 有输出、`nm -D --undefined-only`
+里的 `OH_*` 能被 NEEDED 解释。设备侧这两个库在 `/system/lib64/ndk/`（`ls` 该目录本身是 Permission
+denied，用 `hdc shell stat -L /system/lib64/ndk/libpasteboard.so` 查）。
+
+### 写能通，读要权限，而普通应用拿不到那个权限
+
+| 方向 | 原生 API | 权限要求 | 真机结果 |
+| --- | --- | --- | --- |
+| 写 | `OH_Pasteboard_SetData` | 无 | **PASS** |
+| 读 | `OH_Pasteboard_GetData` | `ohos.permission.READ_PASTEBOARD`（头文件注明） | 状态码 **201**（`ERR_PERMISSION_ERROR`），框架如实返回 `null` |
+
+`ohos.permission.READ_PASTEBOARD` 在设备上的定义是 `USER_GRANT` + `SYSTEM_BASIC`（`atm dump -d -p` 可查）。
+它是 `user_grant`，所以 `module.json5` 里必须带 `reason` + `usedScene` 才过 schema；但更关键的是
+**`SYSTEM_BASIC` 要签名 profile 里有 ACL**——普通调试证书把这条写进 `requestPermissions` 之后，
+**连装包都失败**：
+
+```
+code:9568289 error: install failed due to grant request permissions failed. PermissionName: ohos.permission.READ_PASTEBOARD
+```
+
+所以**不要把这条权限写进骨架模板**（`cli/templates/ohos-skeleton/entry/src/main/module.json5`）：
+那会让所有 `cj-tauri sync ohos` 的工程装不上。当前的落地是「写完整可用、读如实返回 `None`」，
+探针页把读被拒记成 `SKIP clipboard read denied-by-platform`（不是 `FAIL`：这是平台准入门槛，
+不是框架回归；也不是 `PASS`：没读回内容就不许说通）。
+要真正读到内容，得由应用方自己拿带 ACL 的签名 profile，再按平台要求做运行时授权——
+框架不替应用做这条确认，也不假装读到。
+
+真机判据（`examples/ohos/ohos-capabilities`，`hdc shell hilog` 摘录）：
+
+```
+CjProbe: PASS clipboard write cj-tauri-clip-<时间戳>
+CjProbe: SKIP clipboard read denied-by-platform (needs READ_PASTEBOARD; write verified)
+```
+
+一轮 9 PASS / 0 FAIL（含菜单那三条与能力位对账）。读的状态码用一次**临时诊断**取得
+（把 `statusBox.read()` 拼进返回值），取证后已撤——现在框架返回的就是契约里的 `None`。
 

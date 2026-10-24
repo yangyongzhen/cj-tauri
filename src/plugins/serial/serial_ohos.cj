@@ -273,7 +273,16 @@ public func serialOpen(path: String, baud: Int32, dataBits: Int32, parity: Int32
         LibC.free(cpath)
     }
     if (fd < 0) {
-        serialOhosSetError("open failed: ${serialOhosErrnoText()}（真机上设备节点可能要 DDK 权限 / 系统签名）")
+        // POSIX 打不开就走 serialManager（serial_manager_ohos.cj）。普通三方应用对 /dev/bus
+        // 整体不可达（SELinux，连 hdc shell 都进不去），seriaManager 由系统代管设备节点、
+        // 用户点一次授权即可——这是三方应用碰 USB 串口的正路，不是「降级兜底」。
+        let posixErr = serialOhosErrnoText()
+        let usbHandle = usbSerialOpenByPath(path, baud, dataBits, parity, stopBits)
+        if (usbHandle > 0) {
+            return usbHandle
+        }
+        // 两条路都失败：POSIX 的 errno 与 USB 侧原因一并写清，否则只看到「端口表里没有」
+        serialOhosSetError("open failed: POSIX ${posixErr}；USB ${serialLastError()}")
         return -3
     }
 
@@ -369,6 +378,9 @@ public func serialListC(): Option<ArrayList<String>> {
  */
 @When[env == "ohos"]
 public func serialRead(h: Int64, maxBytes: Int32, timeoutMs: Int32): Array<UInt8> {
+    if (usbSerialIsHandle(h)) {
+        return usbSerialReadHandle(h, maxBytes, timeoutMs)
+    }
     let fd = Int32(h - 1)
     let ready = serialOhosPollOne(fd, OHOS_POLLIN, timeoutMs)
     if (ready <= 0) {
@@ -408,6 +420,9 @@ public func serialRead(h: Int64, maxBytes: Int32, timeoutMs: Int32): Array<UInt8
 public func serialWrite(h: Int64, data: Array<UInt8>, timeoutMs: Int32): Int32 {
     if (data.size == 0) {
         return 0
+    }
+    if (usbSerialIsHandle(h)) {
+        return usbSerialWriteHandle(h, data, timeoutMs)
     }
     let fd = Int32(h - 1)
     let n = data.size
@@ -457,6 +472,9 @@ public func serialWrite(h: Int64, data: Array<UInt8>, timeoutMs: Int32): Int32 {
 /** 关闭：0 = 成功；fd 已关（EBADF）按桌面口径返回 -4（幂等拒绝重复关） */
 @When[env == "ohos"]
 public func serialClose(h: Int64): Int32 {
+    if (usbSerialIsHandle(h)) {
+        return usbSerialCloseHandle(h)
+    }
     let fd = Int32(h - 1)
     let rc = unsafe {
         close(fd)
@@ -497,6 +515,13 @@ public func serialPortList(): ArrayList<String> {
                     break
                 }
             }
+        }
+    }
+    // USB 串口只有 serialManager 认得（设备节点由系统代管，/dev 扫描看不见）；
+    // 有权限时两边可能都出现同一个名字，去重后再排序
+    for (name in usbSerialListNames()) {
+        if (!found.contains(name)) {
+            found.add(name)
         }
     }
     sort(found)

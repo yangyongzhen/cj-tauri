@@ -1201,6 +1201,47 @@ CjMovie: image http=200 bytes=0 type=image/jpeg
 默认都应该走 `ohos.net.http`，而不是试图让仓颉运行时自己起 TLS。判断成本极低：
 看 hilog 有没有那条 `MUSL-LDSO … openssl … errno=2`。
 
+### 10.16 声明式 overlay 收起后仍吞点击；同一屏两条请求会顶掉前一条
+
+这两条是同一次真机验收里连着的两个「对话框看着好了、用起来不对」，都在骨架模板的
+`dialog_host.cj` / `index.cj` 里，与框架侧队列无关。
+
+**① 关闭之后整页点不动 = 透明外层还在参与命中测试。**
+组件要挂进外层 `Stack` 就必须始终返回一个根节点，所以卡片收起之后那个 100%×100% 的外层
+`Column` 仍然在——背景透明**不等于**不响应事件，页面上所有点击先落到它身上、然后没了下文。
+真机现象是「点完对话框，点哪都没反应」，而日志里一条错误都没有。
+
+- 修法：收起时整块 `.visibility(Visibility.None)`，按 `requestId != answered` 二选一；
+- **`Visibility.Hidden` 不够**：它只是不画，布局占位与命中区都还在，点击照样被吃掉；
+- 判据：点确定关掉对话框后，点顶栏「编辑」应立即把分屏切成编辑视图（实测有效）。
+
+同类风险面：任何「常驻但条件内空的 overlay 容器」（菜单遮罩、加载层、提示条）都该这么写。
+
+**② 连续两条请求，前一条悬挂到 120s 超时。**
+父组件原来每轮轮询（10ms）都无条件向框架取请求，而 `takePendingDialog` 是**取出即出队**：
+页面连发两条时 hilog 里就是
+
+```
+dialog take label=main id=1 kind=confirm
+dialog take label=main id=2 kind=confirm     ← 同一刻，后一条顶掉前一条
+dialog answer label=main id=2 confirmed=true
+```
+
+`id=1` 从此没人答，页面上那条 promise 一直挂到 `CJ_ARKWEB_DIALOG_WAIT_MS=120000` 超时。
+
+- 修法：**上一条被回填之前不再取新请求**。判据用「请求 id == 已回填 id」
+  （`dialog_host.cj` 的 `dialogAnswered` / `dialogAnsweredIdOf` 按窗口 label 记），相等才放行；
+- **不要用 `dialogActive` 当闸门**：它置起之后没有任何人复位，拿它当条件会把收起之后的
+  **第二次点菜单**也一并挡掉——表象是「对话框只弹得出第一次」，比原来的 bug 更难发现。
+  这也是为什么「已答 id」要在收起那一刻登记（组件 `answer()` 里 `markDialogAnswered`），
+  而不是靠父组件的布尔量；
+- 未答期间来的新请求不会丢：它留在框架队列里，等当前这条答完、下一轮轮询自然取出（正确排队）。
+
+**取证口径**：这两条都只能靠真机视觉判据（截图里卡片是否消失、点击后视图是否切换）加 hilog 行序，
+`snapshot_display -f … && hdc file recv` 的远端路径要带 `MSYS_NO_PATHCONV=1`，本地落盘先 `cd` 到目标目录只传文件名。
+坐标点击在 2in1 上偶发不落点（同一个坐标点两次，一次命中一次只关菜单），所以每一步都要抓图确认状态，
+别拿「一次点击 + 一张末态图」当结论。
+
 ## 11. 鸿蒙侧语言与标准库差异速查（写代码前先扫一眼）
 
 桌面代码直接搬过来编不过的那些，基本都在这一张表里。**它们和鸿蒙本身无关，是 OHOS 版仓颉标准库/编译器的形状差异**。

@@ -141,7 +141,12 @@ class CjTauriWebView {
     var dialogIsConfirm: Bool = false
 
     @State
-    var dialogRequestId: Int64 = 0
+    var dialogRequestId: Int64 = -1
+
+    /* kind 只落到「确定键底色」这一处可视区分（info 蓝 / warning 橙 / error 红）；
+       单键还是双键由框架侧的 `request.isConfirm()` 定，别在这里再判一次。 */
+    @State
+    var dialogKind: String = ""
 
     /* 菜单条当前悬停的那一格（按下标，-1 = 都没有）。只为「悬停浅灰底」这一个视觉状态服务，
        与菜单模型无关——模型刷新时下标可能指向别的项，下一次 onHover 就会纠正。 */
@@ -238,40 +243,34 @@ class CjTauriWebView {
             }
         }.width(100.percent).height(100.percent)
 
-        /* 声明式对话框 overlay：dialogActive 一变就重绘出覆盖层。
-           它与 Web 同属一棵组件树——这正是它能绕开「桥接回调里命令式 showDialog
-           被丢弃」的原因（docs/鸿蒙ArkWeb接入踩坑.md §10.11）。 */
+        /* 对话框 overlay 交给同包的 `CjDialogHost`（dialog_host.cj）呈现：
+           业务要换配色/布局改那个组件，不必动这份骨架。这里只负责驱动——
+           `dialogActive` 由 `presentPendingDialog()` 置起，收起由组件自己记。 */
         if (this.dialogActive) {
-            Column {
-                Column(space: 10) {
-                    Text(this.dialogTitle).fontSize(20).fontColor(Color.Black)
-                    Text(this.dialogMessage).fontSize(15).fontColor(Color.Black)
-                    Row(space: 12) {
-                        if (this.dialogIsConfirm) {
-                            Button("取消")
-                                .fontSize(16)
-                                .onClick({ _ => this.finishDialog(false) })
-                        }
-                        Button("确定")
-                            .fontSize(16)
-                            .onClick({ _ => this.finishDialog(true) })
-                    }
-                }
-                .width(76.percent)
-                .padding(18)
-                .backgroundColor(Color.White)
-                .borderRadius(14)
-            }
-            .width(100.percent)
-            .height(100.percent)
-            .justifyContent(FlexAlign.Center)
-            .backgroundColor(Color.Black)
+            CjDialogHost(
+                windowLabel: this.windowLabel,
+                requestId: this.dialogRequestId,
+                title: this.dialogTitle,
+                message: this.dialogMessage,
+                twoKey: this.dialogIsConfirm,
+                kind: this.dialogKind
+            )
         }
         }.width(100.percent).height(100.percent)
     }
 
     /** 从宿主取一条待呈现对话框并点亮 overlay（proxy 回调里调：UI 线程 + 组件上下文） */
     private func presentPendingDialog(): Unit {
+        /* 上一条还没被回填就不再取新请求。页面连发两条（菜单点击与另一条撞在同一帧）时，
+           后一条会顶掉前一条的 `dialogRequestId`，而前一条在框架侧 `awaitingDialogs` 里仍挂着——
+           真机日志里就是 `dialog take id=1` 紧跟 `dialog take id=2`，最后只回填了 id=2，
+           id=1 一直悬挂到 120s 超时。等当前这条被回填、overlay 收起后再取下一条即可。
+
+           判据用「请求 id == 已回填 id」而**不是** `dialogActive`：后者一旦置起就不复位，
+           拿它当闸门会把收起之后的第二次点菜单也一并挡掉（表现为「只弹得出第一次」）。 */
+        if (this.dialogRequestId != dialogAnsweredIdOf(this.windowLabel)) {
+            return
+        }
         match (arkWebTakeDialog(this.windowLabel)) {
             case Some(request) =>
                 Hilog.info(1, "CjTauri", "dialog present label=${this.windowLabel} id=${request.id.toString()} title=${request.title}")
@@ -279,19 +278,10 @@ class CjTauriWebView {
                 this.dialogIsConfirm = request.isConfirm()
                 this.dialogTitle = request.title
                 this.dialogMessage = request.message
+                this.dialogKind = request.kind
                 this.dialogActive = true
             case None => ()
         }
-    }
-
-    /**
-     * overlay 按钮回调（普通 onClick，不走 JS 桥接栈）。
-     * 先收起再回填：回填进框架的队列锁，连点时第二下不该压在同一个 id 上。
-     */
-    private func finishDialog(confirmed: Bool): Unit {
-        let id = this.dialogRequestId
-        this.dialogActive = false
-        answerArkWebDialog(this.windowLabel, id, confirmed)
     }
 
     /**

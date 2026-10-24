@@ -14,15 +14,19 @@
   实现，`@When[env == "ohos"]` 一平台一份。按 AGENTS §2，新增宿主能力仍是「先扩 `WebViewHost` 接口、
   再改各平台实现」，但不要求鸿蒙侧补同名 `cj_bridge_*` 导出（无 C 桥平台：核心 FFI 一律
   `@When` 门禁 + 如实降级，见 §4）。
-- **宿主能力位：只有菜单置 1，其余全 0**——`CJ_CAP_MENU` 已于 2026-10-24 真机取证
+- **宿主能力位：只有菜单置 1，其余五项为 0**——`CJ_CAP_MENU` 已于 2026-10-24 真机取证
   （点得动菜单项、原生回投 `{"kind":"menu","id":…}`、页面收到 `menu:click`，见文末「菜单能力位」）；
-  托盘 / 全局快捷键 / 拖放 / 原生对话框 / 通知 / 标题栏副标题一律如实拒绝（对应位为 0）。
+  托盘 / 全局快捷键 / 拖放 / 通知 / 标题栏副标题一律如实拒绝（对应位为 0）。
   按 AGENTS §1 门禁 4：**没有实机证据的能力位不许上报**，所以它们不会因为「代码里写了」就变成 1。
-  注意「对话框」一项的边界：应用侧用声明式 overlay 能弹框（见 §4 踩坑清单），但那不是宿主能力，
-  所以这个位仍是 0。
-  另：**剪贴板没有能力位**（`native/core/bridge_core.h` 里只有 menu / tray / hotkey / dragdrop /
-  dialog / notification / subtitle 那几位），所以下面「剪贴板」一节的落地**不改任何位**——
-  插件可用与否只看宿主有没有实现 `clipboardWriteText` / `clipboardReadText`。
+  **注意「对话框」与「剪贴板」根本不占能力位**——`bridge_core.h` 的全部位就是
+  menu / tray / dragdrop / notification / hotkey / subtitle 这六个，没有 dialog、也没有 clipboard。
+  两者的真实形态都是**插件命令**，开关在能力清单的 `commands`（或命名权限集）里：
+  - 对话框：`dialog:message` / `dialog:confirm` / `dialog:open` → 宿主 `showMessageDialog()`
+    在鸿蒙侧是「入队 + 有界轮询等 UI 侧回填」（不占 UI 线程），**渲染由应用侧 `CjDialogHost`
+    组件完成**（ArkUI 只能在应用侧），真机四段日志已取证；
+  - 剪贴板：`clipboard:*` 直连 NDK pasteboard，**真机写通、读被 `READ_PASTEBOARD` 挡住**
+    （系统权限等级 `SYSTEM_BASIC`，普通调试证书声明了也装不上，详见文末「剪贴板」一节）。
+  所以「能力位表里看不到对话框/剪贴板」= 它们不在这张表里，不是「能力不可用」；判据是那三条命令调得通不通。
 
 ⚠️ **两条与桌面平台不同的硬约束**（真机踩过，改动前务必看）：
 

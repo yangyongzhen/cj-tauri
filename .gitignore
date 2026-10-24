@@ -1,5 +1,7 @@
 # 构建产物
 target/
+# sync 按清单派生的目标端工程（cj-tauri.toml 是单一真相，targets/ 随时可重新生成、不入库）
+examples/*/targets/
 dist-npm/
 dist-win/
 # E2E 取证产物（scripts/e2e-evidence.sh 写给 check-static 对账用）：

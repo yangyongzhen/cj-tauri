@@ -168,9 +168,14 @@ public class ArkWebDialogRequest {
         this.message = message
     }
 
-    /** 是否「确定 / 取消」两键（其余 kind 只有一个确定键，弹出即成立） */
+    /**
+     * 是否「确定 / 取消」两键（`info` / `warning` / `error` 只有一个确定键，弹出即成立）
+     *
+     * 判定本身在 `src/dialog_spec.cj`（三平台共用一份）：这里原先写死 `kind == "confirm"`，
+     * 而这个文件带平台门禁、桌面编不到，同一个 kind 在两个平台各判一次就迟早判岔。
+     */
     public func isConfirm(): Bool {
-        return this.kind == "confirm"
+        return dialogShapeIsTwoKey(dialogShapeOf(this.kind))
     }
 }
 
@@ -471,7 +476,7 @@ public class ArkWebHost <: WebViewHost {
         let _ = enabled
     }
 
-    /** 能力位全 0：鸿蒙侧还没有任何一项宿主级能力通过实机取证（AGENTS §1 门禁 4） */
+    /** 能力位：菜单已置 1（2026-10-24 真机取证），其余仍为 0（AGENTS §1 门禁 4） */
     public func hostCapabilities(): Int32 {
         /*
          * 菜单是鸿蒙侧第一项真落地的宿主能力：框架存模型（arkweb_menu.cj）、应用侧 bindMenu 画、

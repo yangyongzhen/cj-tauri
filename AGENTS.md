@@ -18,8 +18,8 @@
 ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文件、构建走骨架自带的 `build-hap.sh`
 （`cj-tauri build|run` 检出该工程后直接转交它；旧形态工程 = 工程根无 `cj-tauri.toml`，CLI 命令双轨兼容）。
 平台状态：**Windows（WebView2）已实机跑通**、**Linux（WebKitGTK）已跑通**、
-**鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；**多窗口 label 路由已取证**，
-宿主能力位仍全 0，判据见 `native/platforms/harmonyos/README.md`；`examples/ohos/` 下 music / movie
+**鸿蒙（ArkWeb）宿主已真机闭环**（宿主写在仓颉侧、不走 C 桥；**多窗口 label 路由已取证**、
+**菜单能力位已落地取证**，其余能力位仍为 0，判据见 `native/platforms/harmonyos/README.md`；`examples/ohos/` 下 music / movie
 两个示例与 `create --template ohos` 生成的工程都能编出 hap）。
 
 ## 1. 交付门禁
@@ -162,8 +162,13 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   回投 `platform=ohos`、同轮 `SIGSEGV` 0；同日第二轮又把**多窗口 label 路由**取证完——两窗各认自己的
   宿主、跨窗定向投递双向成立、报文 `window=` 与页面自认 `me=` 逐条恒等，判据见 §4 与
   `docs/鸿蒙ArkWeb接入踩坑.md` §8.1 / §8.2），
-  但 **C 桥（`cj_core_*`）仍未落地**、宿主能力位仍全 0（菜单 / 托盘 / 快捷键 / 拖放 / 对话框
-  一律如实拒绝，`hostCapabilities()` 返回 0）。**`@Component` / `Web` / `javaScriptProxy` 属应用侧**——
+  但 **C 桥（`cj_core_*`）仍未落地**、宿主能力位**只有菜单一项置 1**（2026-10-24 真机取证；
+  其余五项为 0，`hostCapabilities()` 返回 `CJ_CAP_MENU`）。**对话框与剪贴板不占能力位**——
+  `bridge_core.h` 的位只有 menu / tray / dragdrop / notification / hotkey / subtitle 六个，
+  对话框（`dialog:*`）与剪贴板（`clipboard:*`）都是**插件命令**，开关在能力清单的 `commands`；
+  鸿蒙上对话框经 `showMessageDialog()` 入队、由应用侧 `CjDialogHost` 渲染（真机已取证），
+  剪贴板直连 NDK pasteboard（写通、读被 `SYSTEM_BASIC` 权限挡住）。
+  **`@Component` / `Web` / `javaScriptProxy` 属应用侧**——
   框架包只要引用 ArkUI，鸿蒙包初始化链就会跳坏地址、启动即 SIGSEGV，详见 §4）、`native/tests/`（桩自检）。
   **FFI/源文件归属判据「谁调用谁包内」**；新平台从照抄 Windows 桩的同名导出开始。构建脚本
   `native/build_linux.sh` / `build_win.bat` 留在 native/ 根作入口（源文件路径已指子目录），

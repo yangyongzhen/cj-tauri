@@ -47,6 +47,12 @@ import stdx.encoding.json.JsonString
 @When[env == "ohos"]
 import cjTauri.platform.*
 
+// chdir：musl libc 的 C 函数（与 serial_ohos.cj 的 FFI 同模式；@When 门禁保桌面零影响）。
+// foreign func 是包级符号——必须放文件顶层，嵌进类体会报「member function can not be foreign」。
+@When[env == "ohos"]
+@C
+foreign func chdir(path: CString): Int32
+
 /**
  * 鸿蒙宿主的进程级运行时：沙箱目录、各窗口宿主、跨线程队列开关
  *
@@ -75,6 +81,11 @@ public class ArkWebRuntime {
      *
      * 用 `context.filesDir`：鸿蒙上它是应用私有可写目录，进程重启后内容仍在，
      * 于是页面文件可以在**每次启动**重建（内容由应用决定，不做持久化依赖）。
+     *
+     * **cwd 同时切进沙箱**：鸿蒙上进程 cwd 指向不可写位置（实测 errno 13），而应用唯一
+     * 免权限可写的就是沙箱目录。相对路径（业务的工作区、store 插件的落盘、scope 的
+     * `$CWD` 变量）全部以 cwd 为基准——不切的话，所有按相对路径落盘的插件在设备上
+     * 全部不可用。这等价于 Tauri 移动端的做法：路径基准必须是 appDataDir，不是进程 cwd。
      */
     public static func configure(filesDir: String): Unit {
         if (filesDir.size == 0) {
@@ -82,6 +93,14 @@ public class ArkWebRuntime {
             return
         }
         ArkWebRuntime.sandboxDir = filesDir
+        unsafe {
+            let cpath = LibC.mallocCString(filesDir)
+            let r = chdir(cpath)
+            LibC.free(cpath)
+            if (r != 0) {
+                eprintln("[cj-tauri] chdir(${filesDir}) failed: errno=${r}（相对路径落盘仍以原 cwd 为基准）")
+            }
+        }
         eprintln("[cj-tauri] ArkWeb sandbox: ${filesDir}")
     }
 

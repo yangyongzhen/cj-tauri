@@ -1,4 +1,4 @@
-package markdown_notes
+package markdownNotes
 
 import std.collection.*
 import std.fs.*
@@ -13,7 +13,9 @@ import std.fs.*
  * （见 AGENTS §4 的三引号坑）。base64 的字符表只有 `A-Za-z0-9+/=`，生成与解码都不涉及转义，坏不了。
  */
 
-/** vendor 库的固定顺序（与 scripts/pack-win-single.sh 的 VENDOR_FILES 逐字对齐） */
+/** vendor 库的固定顺序（下标即语义：0=marked 1=hljs 2..4=主题 CSS，见 main.cj 的 vendorText）。
+ *  存的是**逻辑名**（供 TauriApp.readAsset：桌面按 assets/ 前缀读盘、鸿蒙按 rawfile 名读 hap）；
+ *  磁盘回落（vendorOrFile）按新形态布局加 assets/ 前缀。 */
 let VENDOR_FILES: Array<String> = [
     "ui/vendor/marked.min.js", "ui/vendor/highlight.min.js",
     "ui/vendor/github-dark-dimmed.min.css", "ui/vendor/github-dark.min.css",
@@ -88,20 +90,9 @@ func readTextFile(path: String, what: String): String {
         bytes = File.readFrom(path)
     } catch (e: Exception) {
         throw Exception("读不到${what} ${path}（${e}）——请在 examples/markdown-notes 目录下启动：" +
-            "capabilities/ 与 ui/ 都按项目根相对路径读")
+            "assets/ui/ 都按项目根相对路径读")
     }
     return String.fromUtf8(bytes)
-}
-
-/**
- * 内嵌优先：打包产物里 base64 非空就用它，否则按相对路径读盘（仓库内正常构建走这条）。
- * `what` 只用于读盘失败时的报错文案，内嵌路径用不到它。
- */
-func textOrFile(b64: String, path: String, what: String): String {
-    if (b64.size > 0) {
-        return decodeBase64(b64)
-    }
-    return readTextFile(path, what)
 }
 
 /**
@@ -120,7 +111,7 @@ func vendorOrFile(i: Int64): Option<String> {
         return None
     }
     try {
-        return Some(readTextFile(VENDOR_FILES[i], "vendor 库"))
+        return Some(readTextFile("assets/" + VENDOR_FILES[i], "vendor 库"))
     } catch (e: Exception) {
         let _ = e
         return None

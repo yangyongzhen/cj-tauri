@@ -1,26 +1,38 @@
+# 业务包：业务代码的唯一真相（RFC-002 §7.3——骨架永远是外壳，业务只有一份）。
+# output-type = "static"：桌面骨架（targets/desktop）与鸿蒙入口（targets/ohos/entry）
+# 都以 path 依赖引用本包——同一份业务代码，多个目标各编各的产物。
+#
+# 与旧形态的差别：这里不再有 `-L../../native -lcjtbridge` 与 `--subsystem=windows`——
+# 那些是**最终链接**的事，由派生骨架（targets/desktop、targets/ohos/entry）的 toml 负责。
+# 业务包只编静态库，链什么由各目标端自己决定（RFC-002 §7.3）。
 [package]
   cjc-version = "1.0.5"
-  name = "markdown_notes"
-  description = "cj-tauri 示例：Markdown 笔记/编辑器（fs 路径 scope + store 记忆，零 Node）"
+  name = "markdownNotes"
+  description = "markdown-notes - cj-tauri 业务包"
   version = "0.1.0"
   target-dir = ""
-  output-type = "executable"
+  output-type = "static"
   compile-option = ""
   override-compile-option = ""
   link-option = ""
   package-configuration = {}
 
 [dependencies]
+  # cj-tauri 框架本体（本仓库内相对路径）
   cjTauri = { path = "../.." }
-
-[target.x86_64-unknown-linux-gnu]
-  link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0 -lsqlite3"
 
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
     path-option = ["${CANGJIE_STDX}"]
 
-[target.x86_64-w64-mingw32]
-  link-option = "-L../../native -lcjtbridge --subsystem=windows"   # GUI 子系统：双击不弹 DOS 黑窗口，stderr 仍走重定向（AGENTS §4）
-
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["${CANGJIE_STDX}"]
+
+[target.aarch64-linux-ohos]
+  # 鸿蒙目标：交叉编译工具链与 sysroot 由 DevEco 仓颉套件提供，路径全部走环境变量
+  # （与框架根 cjpm.toml 同口径；末尾 --dy-std 不可省，原因见框架根 toml 的鸿蒙段注释）
+  compile-option = "-B \"${DEVECO_CANGJIE_HOME}/build-tools/third_party/llvm/bin\" -B \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/sysroot/usr/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/clang/15.0.4/lib/aarch64-linux-ohos\" -L \"${DEVECO_OH_NATIVE_HOME}/llvm/lib/aarch64-linux-ohos\" --sysroot \"${DEVECO_OH_NATIVE_HOME}/sysroot\" --dy-std"
+
+[target.aarch64-linux-ohos.bin-dependencies]
+    # stdx 必须用鸿蒙版（CANGJIE_STDX_OHOS，桌面版 ABI 不通）；CANGJIE_OHOS_LIBS 指 DevEco
+    # 套件的 api/lib/linux_ohos_aarch64_cjnative/ohos（仓颉标准库 + ohos API 绑定）
+    path-option = ["${CANGJIE_STDX_OHOS}", "${CANGJIE_OHOS_LIBS}", "${AARCH64_MACRO_LIBS}", "${AARCH64_KIT_LIBS}"]

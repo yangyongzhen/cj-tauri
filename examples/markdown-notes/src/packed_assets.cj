@@ -1,4 +1,4 @@
-package markdown_notes
+package markdownNotes
 
 /**
  * 单文件打包用的内嵌资源（存根）

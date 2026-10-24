@@ -92,6 +92,19 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 按逻辑名读一份资产文本（如 `ui/vendor/marked.min.js`），走装配时登记的解析器：
+     * 桌面 = DirectoryAssetResolver（assets/ 下按名读盘），鸿蒙 = RawfileAssetResolver（hap rawfile）。
+     * 给业务侧的窄口——vendor 库注入这类「装配期要拿资产原文」的需求不必自己碰解析器字段。
+     * 未登记解析器或读不到都回 None，调用方按「没有 = 降级」处理（如 stderr 提示 + 退化渲染）。
+     */
+    public func readAsset(name: String): Option<String> {
+        match (this.assetResolver) {
+            case Some(r) => return r.readText(name)
+            case None => return None
+        }
+    }
+
+    /**
      * 登记一个附加窗口（**试验性**：批次 3「多窗口 UI」的最小切片，先给出可验证的通路）
      *
      * 语义：本方法只**登记 + 装配宿主**，原生窗口在 run() / runUrl() 里统一创建——

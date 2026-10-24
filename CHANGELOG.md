@@ -160,6 +160,15 @@
   框架不绑 ArkTS。降级版真机复验：启动正常、`page end label=main`、自检 6 条路径 errno 照旧。
   决策全文见 `docs/设计决策记录.md` D-022 附段。
 
+- **鸿蒙骨架的宿主对话框抽成 `CjDialogHost` 组件（应用侧 overlay，框架仍不引 ArkUI）**：
+  `cli/templates/ohos-skeleton/entry/src/main/cangjie/dialog_host.cj` 承载此前内联在 `index.cj`
+  里的 overlay——父组件只负责取请求、传 `requestId` / `kind` / `title` / `message`，卡片渲染与
+  「点击后自己收起」都归组件（`answered` 记住已回填的 id，与 `requestId` 不等时才画）。
+  视觉按真机反馈重做：遮罩由不透明黑改为**半透明带 alpha**（能透出页面原有内容）、卡片宽度收敛上限、
+  标题加粗 + 正文分级、按钮右对齐、确定键按 `kind` 上色。单键（`info`）与双键（`confirm`）同一套。
+  判据：真机 `dialog take` → `dialog present` → 点确定 → `dialog answer … confirmed=true` →
+  页面 `resolved`，且关闭之后页面**可继续交互**（点顶栏「编辑」即切换视图）。
+
 ### Changed
 
 - 官网架构小节接入**多端总图**（`docs/images/architecture-multiplatform.png` → `website/assets/`）：
@@ -179,6 +188,18 @@
   `atm perm -g` 授权目录权限后 `access=true` 但 `open` 仍拒。已按两处缺口提 issue：
   #136（`FileIo.open` 与文档「支持使用 URI 打开文件」不符）与 #137（缺 `DocumentViewPicker` 绑定）。
   骨架恢复为「只保证沙箱内文件可用」，`cj-tauri test` 的静态检查与两端 `cjpm build` 均通过。
+
+### Fixed
+
+- **对话框关闭后整页点不动（鸿蒙骨架）**：overlay 外层是 100%×100% 的透明容器，卡片收起后它仍在，
+  ArkUI 里照样参与命中测试、吞掉落在页面上的点击——真机表现就是「点完对话框，点哪都没反应」。
+  修法是收起时整块 `.visibility(Visibility.None)`（`Hidden` 不够：不画但仍占位并响应事件），
+  组件内按 `requestId != answered` 二选一。判据：点确定后点顶栏「编辑」，视图当场从分屏切成编辑。
+- **同屏两条对话框请求会互相顶掉、前一条悬挂到 120s 超时**：父组件此前每轮轮询都无条件取请求，
+  页面连发两条时 `dialog take id=1` 紧跟 `dialog take id=2`，只有后一条被回填。
+  现在按「请求 id == 已回填 id」放行（`dialog_host.cj` 的 `dialogAnswered` / `dialogAnsweredIdOf`
+  按窗口记录），上一条答完之前不再取新的。**判据别用 `dialogActive`**——它置起后不复位，
+  拿它当闸门会把收起之后的第二次点菜单一并挡掉（只弹得出第一次）。
 
 ## [2.0.0] - 2026-10-23
 

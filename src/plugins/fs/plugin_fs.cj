@@ -10,12 +10,20 @@ import stdx.encoding.json.*
  * 官方插件 fs：文件读写（纯仓颉，零 C 桥改动，RFC-001 §7.3）
  *
  * 命令：fs:readText / fs:writeText / fs:exists / fs:list / fs:remove
+ *   / fs:mkdir / fs:rename / fs:copy / fs:stat
  *   - readText / writeText：整文件读写（writeText 是覆盖写：已存在会截断，不存在则创建）
  *   - exists：路径是否存在
  *   - list：**平铺一层**列目录，返回 [{ name, dir, size }]；不递归，顺序就是文件系统给的顺序（展示排序交给前端）
  *   - remove：只删**单个文件**，目标是目录一律拒——std.fs 的 remove 能把**空目录**也删掉，
  *     所以这层挡在调用前（不做递归删除）；文件不存在同样报错：调用方本想删的东西没删掉，
  *     静默回 true 等于把失败伪装成成功
+ *   - mkdir：建目录，入参 { path, recursive? }；目标已存在报错（与 std.fs 语义一致，
+ *     不静默回落成「已存在即成功」——调用方分不清建成了还是本来就有）
+ *   - rename / copy：入参 { path, newPath, overwrite? }，**两个路径都过 scope 校验**
+ *     （ newPath 同样是页面可控路径，漏校验等于 scope 形同虚设）；overwrite 缺省 false，
+ *     覆盖既有文件必须页面显式声明
+ *   - stat：单路径元信息 { name, dir, size, lastModified }（lastModified 是平台本地时区的
+ *     可读字符串，比较排序交给前端）
  * 权限：**不自动放行**，应用要在 capabilities 里显式声明，两种写法等价：
  *   "commands": ["fs:readText", "fs:exists"]        // 明文逐条（旧写法，一直支持）
  *   "permissions": ["fs:readonly"]                  // 命名权限集（v1.1，一次放行一组）
@@ -43,6 +51,10 @@ public class FsPlugin <: Plugin {
         m.add("exists", FsCommands())
         m.add("list", FsCommands())
         m.add("remove", FsCommands())
+        m.add("mkdir", FsCommands())
+        m.add("rename", FsCommands())
+        m.add("copy", FsCommands())
+        m.add("stat", FsCommands())
         return m
     }
 
@@ -59,6 +71,7 @@ public class FsPlugin <: Plugin {
         ro.add("readText")
         ro.add("exists")
         ro.add("list")      // 列目录也是读操作：只读应用（如文件浏览）要能拿它，但拿不到 remove
+        ro.add("stat")      // 元信息同样是读操作：不暴露任何写能力
         m.add("readonly", ro)
         let all = ArrayList<String>()
         all.add("readText")
@@ -66,6 +79,10 @@ public class FsPlugin <: Plugin {
         all.add("exists")
         all.add("list")
         all.add("remove")
+        all.add("mkdir")
+        all.add("rename")
+        all.add("copy")
+        all.add("stat")
         m.add("default", all)
         return m
     }
@@ -81,7 +98,11 @@ public class FsPlugin <: Plugin {
             " writeText: function (args) { return window.__CJ_TAURI__.invoke('fs:writeText', args); }," +
             " exists: function (args) { return window.__CJ_TAURI__.invoke('fs:exists', args); }," +
             " list: function (args) { return window.__CJ_TAURI__.invoke('fs:list', args); }," +
-            " remove: function (args) { return window.__CJ_TAURI__.invoke('fs:remove', args); }" +
+            " remove: function (args) { return window.__CJ_TAURI__.invoke('fs:remove', args); }," +
+            " mkdir: function (args) { return window.__CJ_TAURI__.invoke('fs:mkdir', args); }," +
+            " rename: function (args) { return window.__CJ_TAURI__.invoke('fs:rename', args); }," +
+            " copy: function (args) { return window.__CJ_TAURI__.invoke('fs:copy', args); }," +
+            " stat: function (args) { return window.__CJ_TAURI__.invoke('fs:stat', args); }" +
             " }; })();\n"
     }
 }
@@ -99,6 +120,10 @@ class FsCommands <: CommandHandler {
             case "fs:exists" => this.exists(args, ipc)
             case "fs:list" => this.listEntries(args, ipc)
             case "fs:remove" => this.removeFile(args, ipc)
+            case "fs:mkdir" => this.mkdir(args, ipc)
+            case "fs:rename" => this.doRename(args, ipc)
+            case "fs:copy" => this.doCopy(args, ipc)
+            case "fs:stat" => this.stat(args, ipc)
             case _ => throw CommandException("unknown fs command: ${cmd}")
         }
     }
@@ -119,6 +144,18 @@ class FsCommands <: CommandHandler {
                 case _ => throw CommandException("fs: argument \"${key}\" must be a string")
             }
             case None => throw CommandException("fs: missing argument \"${key}\"")
+        }
+    }
+
+    /** 取可选布尔参数：缺省回 false；给了但不是布尔当场拒（写 true/false 以外的东西多半是调用方写错） */
+    private func optionalBool(args: JsonObject, key: String): Bool {
+        match (args.get(key)) {
+            case Some(v) => match (v.kind()) {
+                case JsonKind.JsBool => return v.asBool().getValue()
+                case JsonKind.JsNull => return false
+                case _ => throw CommandException("fs: argument \"${key}\" must be a boolean")
+            }
+            case None => return false
         }
     }
 
@@ -190,5 +227,72 @@ class FsCommands <: CommandHandler {
         } catch (e: Exception) {
             throw CommandException("fs:remove failed: ${e}")
         }
+    }
+
+    /**
+     * 建目录。目标已存在是**错误**而不是成功：recursive 也一样（std.fs 的语义），
+     * 静默回 true 会让调用方分不清「刚建出来」和「本来就有」，前端要幂等就先 exists 再 mkdir。
+     */
+    private func mkdir(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        let recursive = this.optionalBool(args, "recursive")
+        try {
+            Directory.create(path, recursive: recursive)
+            return JsonBool(true)
+        } catch (e: Exception) {
+            throw CommandException("fs:mkdir failed: ${e}")
+        }
+    }
+
+    /** rename/copy 共用：目标路径参数同样过 scope 校验（newPath 也是页面可控路径） */
+    private func scopedNewPath(args: JsonObject, ipc: IpcContext): String {
+        return ipc.resolveScopedPath("fs", this.requireString(args, "newPath"))
+    }
+
+    /**
+     * 重命名（可移动到同盘另一目录）。overwrite 缺省 false：撞上既有路径即报错。
+     * 方法名刻意叫 doRename：成员方法与 std.fs 的顶层 rename 同名时，
+     * 方法体内的裸调用会解析回自身而不是库函数。
+     */
+    private func doRename(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        let newPath = this.scopedNewPath(args, ipc)
+        let overwrite = this.optionalBool(args, "overwrite")
+        try {
+            rename(path, to: newPath, overwrite: overwrite)
+            return JsonBool(true)
+        } catch (e: Exception) {
+            throw CommandException("fs:rename failed: ${e}")
+        }
+    }
+
+    /** 复制文件或目录（std.fs 的 copy 目录语义是递归拷贝）。overwrite 缺省 false。命名理由同 doRename */
+    private func doCopy(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        let newPath = this.scopedNewPath(args, ipc)
+        let overwrite = this.optionalBool(args, "overwrite")
+        try {
+            copy(path, to: newPath, overwrite: overwrite)
+            return JsonBool(true)
+        } catch (e: Exception) {
+            throw CommandException("fs:copy failed: ${e}")
+        }
+    }
+
+    /** 单路径元信息。mtime 给可读字符串：前端只做展示，排序/比较用 size 或自己解析 */
+    private func stat(args: JsonObject, ipc: IpcContext): JsonValue {
+        let path = this.scopedPath(args, ipc)
+        let info: FileInfo
+        try {
+            info = FileInfo(path)
+        } catch (e: Exception) {
+            throw CommandException("fs:stat failed: ${e}")
+        }
+        let obj = JsonObject()
+        obj.put("name", JsonString(info.name))
+        obj.put("dir", JsonBool(info.isDirectory()))
+        obj.put("size", JsonInt(info.size))
+        obj.put("lastModified", JsonString(info.lastModificationTime.toString()))
+        return obj
     }
 }

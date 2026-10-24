@@ -218,12 +218,16 @@ func testFsPluginSurface(): Unit {
     let p = FsPlugin()
     @Expect(p.name(), "fs")
     let names = pluginCommandNames(p)
-    @Expect(names.size, 5)
+    @Expect(names.size, 9)
     var hasRead = false
     var hasWrite = false
     var hasExists = false
     var hasList = false
     var hasRemove = false
+    var hasMkdir = false
+    var hasRename = false
+    var hasCopy = false
+    var hasStat = false
     for (n in names) {
         if (n == "fs:readText") {
             hasRead = true
@@ -240,12 +244,28 @@ func testFsPluginSurface(): Unit {
         if (n == "fs:remove") {
             hasRemove = true
         }
+        if (n == "fs:mkdir") {
+            hasMkdir = true
+        }
+        if (n == "fs:rename") {
+            hasRename = true
+        }
+        if (n == "fs:copy") {
+            hasCopy = true
+        }
+        if (n == "fs:stat") {
+            hasStat = true
+        }
     }
     @Expect(hasRead, true)
     @Expect(hasWrite, true)
     @Expect(hasExists, true)
     @Expect(hasList, true)                     // 目录列举：笔记工具的文件树靠它，应用层不必自己拼 std.fs
     @Expect(hasRemove, true)
+    @Expect(hasMkdir, true)
+    @Expect(hasRename, true)
+    @Expect(hasCopy, true)
+    @Expect(hasStat, true)
 }
 
 @Test
@@ -262,7 +282,7 @@ func testFsPluginDeclaresPermissionSets(): Unit {
     let sets = pluginPermissionSets(FsPlugin())
     @Expect(sets.size, 2)
     let ro = sets.get("fs:readonly").getOrThrow()
-    @Expect(ro.size, 3)
+    @Expect(ro.size, 4)
     var roHasWrite = false
     var roHasRemove = false
     for (m in ro) {
@@ -275,7 +295,7 @@ func testFsPluginDeclaresPermissionSets(): Unit {
     }
     @Expect(roHasWrite, false)                 // 只读集不含写：最小权限不打折
     @Expect(roHasRemove, false)                // 删也同理——列目录是「读」，删除不是
-    @Expect(sets.get("fs:default").getOrThrow().size, 5)
+    @Expect(sets.get("fs:default").getOrThrow().size, 9)
 }
 
 @Test

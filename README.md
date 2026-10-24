@@ -84,6 +84,24 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 - **配套脚手架**：`cj-tauri create/dev/build/run/info/doctor`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完；
   `doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
 
+## 安全模型：可被外部审视的证据
+
+安全设计不靠文字自证——下面的每条断言都对应 `src/tests/` 里的真实用例
+（`bash scripts/test.sh` 可复跑，当前 **329 条全绿**；详细设计见 `docs/安全模型.md`）：
+
+| 威胁 | 防线 | 断言（测试用例） |
+|---|---|---|
+| 页面调未授权命令 | 能力清单默认最小权限，未声明即拒 | `testHubRejectsCommandNotAllowed` / `testRegistryEmptyDeniesEverything` |
+| 页面调未注册命令 | 命令必须实现+注册+放行三处齐全 | `testHubRejectsUnregisteredCommand` |
+| 页面发未声明事件 | 事件同样进白名单 | `testEmitRequiresDeclaredEvent` / `testFrontendEmitDeniedEventIsRejected` |
+| 只注册权限集、清单没引用 | 集声明 ≠ 放行 | `testRegisteredPermissionSetNotReferencedStaysDenied` |
+| 声明了没人提供的权限集 | 只提示不生效，不静默放行 | `testPermissionSetWithoutProviderIsInert` |
+| 路径穿越 / 越界读写 | 路径 scope：先 deny 后 allow，`..` 词法折叠 + 规范化 | `scope_test.cj`（`*` 不跨目录分隔符、`**` 跨、deny 命中即拒） |
+| 运行期加白被滥用 | 注册中心拒通配，只收具体值 | `testRuntimeAllowExtendsManifestScope` |
+| 页面可控 URL 出网（SSRF） | http/ws 主机白名单，没写 = 全拒 | `plugin_http_test.cj` 7 条（userinfo 伪造 / 非 http 协议 / IPv6 等） |
+| 慢命令冻住 UI 线程 | 命令异步分发，worker 执行 | `testDispatchReturnsBeforeSlowCommandFinishes` |
+| 异常静默吞掉 | 拒绝/异常都回投前端 + stderr 留痕 | `testHubReportsCommandException` / `testHubReportsUnexpectedException` |
+
 ## 快速开始
 
 ### 方式一：npm（跨平台，推荐）
@@ -303,6 +321,9 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [串口/网络调试助手开发记](docs/仓颉版串口调试助手-开发记.md) | 一个窗口两条链路（串口 / TCP·UDP）：探针自检与对端取证、平台层串口读超时的定位、免 SDK 单文件包 |
 | [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 可行性论证 / 开发全程踩坑 |
 | [设计决策记录](docs/设计决策记录.md) | 为什么长这样：同进程桥、能力分级、scope 语义等 12 条决策的理由、代价与复评触发条件 |
+| [安全模型](docs/安全模型.md) | 威胁模型、分层防线（默认拒绝 / 权限集 / 路径 scope / 出网收口）、与 Tauri 2 的对比 |
+| [与 Tauri 的差异清单](docs/与Tauri的差异.md) | 从 Tauri 2 过来的人看：概念映射、行为差异、平台能力差异、迁移清单 |
+| [平台能力矩阵](docs/平台能力矩阵.md) | 命令 / 插件 / 宿主能力 × Windows / Linux / 鸿蒙：哪些能用、哪些未验证、哪些不支持 |
 | [需求追踪矩阵](docs/需求追踪.md) | 每个能力做到哪了：五级状态 + 可复核证据 |
 | [源码结构](docs/源码结构.md) | 想改框架先看：`src/` 分层与文件归属、依赖方向与禁止项、何时该拆/不该拆 |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | 变更记录 / 开发规范 / 贡献流程 / 依赖与许可 |

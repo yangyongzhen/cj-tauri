@@ -16,6 +16,20 @@
 
 ### Added
 
+- **清单新增 `[links]` 段：应用自己给目标端追加链接选项**（`desktop-linux` / `desktop-windows` / `ohos`）。
+  要用 SDK 没有仓颉绑定的原生能力时只能 FFI 直连系统 `.so`，而符号必须出现在**最终链接**那一侧——
+  桌面是 `targets/desktop`（`output-type = "executable"`）、鸿蒙是 `targets/ohos/entry`（`dynamic`，
+  框架自己的 `cjpm.toml` 写了不生效），这两份 toml 都是 `sync` 生成的、按约定不能手改。
+  此前用户加一个原生库只能改框架生成器（等于 fork 框架），现在写在清单里即可：
+  `[links] ohos = "-lohbattery_info"` → 生成物 `link-option = "-lpasteboard -ludmf -lohbattery_info"`。
+  语义是**追加**在框架默认值之后（顶不掉 `-lcjtbridge` / `-lpasteboard` 这些必需项）；三端分开写是因为
+  同一个库在三端上名字通常不同（`-lfoo` / `foo.lib` / `-lfoo_ndk.z`）。
+  **未写该段时生成物逐字节不变**，老工程 `cj-tauri check` 不判漂移——实测两份工程（写 / 不写 `[links]`）
+  `check` 均 EXIT=0，两份生成的 `entry/cjpm.toml` 唯一差异就是追加项那一行。
+  值里含双引号或换行会在 `validate()` 当场拒（否则拼出坏 toml，报错点会漂到 cjpm 的解析里，看不出是清单写错），
+  拼错的键同样报错。CLI 侧补了 5 条单测（`cli/src/manifest_test.cj`；CLI 是 executable 工程，
+  子包不能 import 根包，测试只能放根包内）。用法与实战教程见
+  `docs/实战-自定义插件读取设备电量.md` 与 `docs/扩展系统插件指南.md`。
 - **鸿蒙（ArkWeb）宿主能力位落地第一项：菜单**。框架新增 `src/arkweb_menu.cj`（`MenuModel` /
   `MenuItem` / `MenuItemKind` → 扁平菜单，解析宿主回投的 `{"kind":"menu","id":…}`），
   `src/host_arkweb.cj` 的 `setMenu` / `setMenuItemState` 由「如实拒绝」改为真落地，

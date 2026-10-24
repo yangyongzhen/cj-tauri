@@ -21,3 +21,13 @@
 
 [capabilities]
   dir = "assets/capabilities"
+
+[links]
+  # 各目标端**追加**的链接选项（拼在框架默认值之后；留空 = 只用默认）。
+  # 什么时候需要它：要调的原生能力在仓颉 SDK 里没有绑定，只能 FFI 直连系统库——
+  # 符号必须出现在最终链接那一侧，而那份 cjpm.toml 是 sync 生成的、不能手改。
+  # 例：鸿蒙读设备电量走系统 C API（ohbattery_info.h），写 ohos = "-lohbattery_info"
+  # 三端分开写是因为同一个库在三端上名字通常不同（-lfoo / foo.lib / -lfoo_ndk.z）。
+  desktop-linux = ""
+  desktop-windows = ""
+  ohos = ""

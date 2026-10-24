@@ -106,7 +106,30 @@ page        = "ui/index.html"       # 默认页面（逻辑名，编译期校验
 
 [capabilities]
 dir         = "assets/capabilities" # 声明源：编译期编成注册表，运行时不读盘
+
+[links]                             # 可选：应用自己给各目标端追加链接选项
+ohos            = "-lohbattery_info"    # → 鸿蒙 entry 的 link-option
+desktop-linux   = "-lcamera"            # → 桌面 Linux 骨架的 link-option
+desktop-windows = "camera.lib"          # → 桌面 Windows 骨架的 link-option
 ```
+
+### `[links]`：为什么这个口子必须留在清单里
+
+要用 SDK **没有仓颉绑定**的原生能力（电量、传感器、某个厂商 SDK）时只能 FFI 直连系统 `.so`，
+而符号必须出现在**最终链接**那一侧——桌面是 `targets/desktop`（`output-type = "executable"`）、
+鸿蒙是 `targets/ohos/entry`（`output-type = "dynamic"`），两份 toml 都由 `sync` 派生。
+框架自己的 `cjpm.toml` 写 `link-option` **到不了那一层**（框架是 static 包），
+所以缺了这个段，用户加库的唯一办法就是改框架生成器——等于 fork 框架。
+
+四条语义：
+
+1. **追加不覆盖**：框架必需项（`-lcjtbridge` / `-lpasteboard` / `--subsystem=windows`）顶不掉；
+2. **三端各一份**：同一个库在三端上名字通常不同，因此按 `ohos` / `desktop-linux` /
+   `desktop-windows` 分开写，而不是一个值拼三端；
+3. **未写即零影响**：不写该段的工程，生成物与加这个能力之前**逐字节相同**，`check` 不判漂移
+   （老工程升级 CLI 不会莫名其妙变红）；
+4. **不改能力位**：`[links]` 只回答「我能链什么」，`CJ_CAP_*` 回答「宿主原生支持什么」，
+   两者不是一回事——加了库不代表宿主能力位该置 1。
 
 三个必须由清单派生的东西（否则又散开）：
 

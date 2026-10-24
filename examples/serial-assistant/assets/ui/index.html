@@ -493,6 +493,61 @@
       });
   }
 
+  /* ── 设备自检（鸿蒙真机取证）──
+     设备上没有环境变量，探针配置由业务侧 deviceProbeEnabled() 注入 deviceProbe:true。
+     做法：先枚举（serial:list），再对一批候选节点逐个 serial:open，把 errno 文案原样报出来
+     ——「打不开」本身就是结论，不吞异常、不美化（§41.4 的取证口径）。
+     每条同时经 probeLog 写进设备日志（hilog tag CjSerialProbe）：设备上 eprintln 不进 hilog，
+     这是 hdc shell hilog 里能逐条对账的唯一通道。 */
+  var DEVICE_CANDIDATES = [
+    '/dev/bus/ttyUSB0', '/dev/bus/ttyACM0',
+    '/dev/ttyUSB0', '/dev/ttyACM0', '/dev/ttyS0', '/dev/ttyAMA0'
+  ];
+
+  function plog(text) {
+    addLine('sys', text);
+    if (window.__CJ_TAURI__) {
+      window.__CJ_TAURI__.invoke('probeLog', { text: text }).catch(function () {});
+    }
+  }
+
+  function runDeviceProbe(p) {
+    plog('[device] probe start baud=' + p.baud);
+    ser().list().then(function (r) {
+      var ports = (r && r.ports) ? r.ports : [];
+      plog('[device] list: ' + ports.length + ' port(s)' +
+        (ports.length ? ' -> ' + ports.join(',') : ''));
+      var queue = ports.slice();
+      for (var i = 0; i < DEVICE_CANDIDATES.length; i++) {
+        if (queue.indexOf(DEVICE_CANDIDATES[i]) < 0) { queue.push(DEVICE_CANDIDATES[i]); }
+      }
+      var idx = 0;
+      function next() {
+        if (idx >= queue.length) {
+          plog('[device] probe done (tried ' + queue.length + ' path(s))');
+          return;
+        }
+        var path = queue[idx];
+        idx += 1;
+        ser().open({ path: path, baud: parseInt(p.baud, 10), dataBits: 8, parity: 'none', stopBits: 1 })
+          .then(function (o) {
+            plog('[device] open OK ' + path + ' handle=' + o.handle);
+            return ser().close({ handle: o.handle }).then(function (v) {
+              plog('[device] close ' + path + ' -> ' + v);
+              next();
+            });
+          })
+          .catch(function (e) {
+            plog('[device] open FAIL ' + path + ' => ' + e.message);
+            next();
+          });
+      }
+      next();
+    }).catch(function (e) {
+      plog('[device] list FAIL => ' + e.message);
+    });
+  }
+
   /* ── 控件接线 ── */
   $('bConnect').onclick = function () { state.connected ? disconnect() : connect(); };
   $('bSend').onclick = send;
@@ -600,7 +655,9 @@
     }).catch(function () { $('ver').textContent = ''; });
     var probe = window.__SERIAL_PROBE__ || null;
     refreshPorts(probe ? probe.path : null);
-    if (probe) {
+    if (probe && probe.deviceProbe) {
+      runDeviceProbe(probe);
+    } else if (probe) {
       runProbe(probe);
     } else {
       addLine('sys', '（手动模式：选端口 → 连接 → 收发。没插设备或刚接上就点「↻ 刷新」）');

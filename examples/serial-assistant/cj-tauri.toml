@@ -1,0 +1,29 @@
+# cj-tauri 应用清单——整个工程的单一真相（RFC-002 §7）。
+# cj-tauri sync 从这里派生 targets/ 骨架（desktop/ohos）；cj-tauri check 校验它并检测骨架漂移。
+[app]
+  name = "serial-assistant"
+  version = "0.1.0"
+  # 应用标识：桌面是安装 ID，鸿蒙直接是 bundleName（每段须字母开头、只含字母数字下划线）
+  # 取 com.yang.testcj 是有意的：本机鸿蒙调试证书（examples/ohos/ohos-music/build-profile.json5
+  # 那份）就是按这个 bundleName 签的，沿用即可 `bash tools/apply-signing.sh` 后直接装真机。
+  # 换成别的 id 必须在 DevEco 里对本工程重新「自动签名」，否则装包阶段就会被拒。
+  # 代价：它与 ohos-capabilities / ohos-music / ohos-movie 共用同一个 bundleName，
+  # 装这个就顶掉那几个（调试期可接受，别在同一台机器上期待它们共存）。
+  id = "com.yang.testcj"
+  # 业务包名（cjpm 约束①：toml 模块名必须等于源包名）
+  package = "serialAssistant"
+
+[[windows]]
+  label = "main"
+  title = "串口调试助手 · cj-tauri"
+  # 1180×780：参数面板一行放得下（设备 / 波特率 / 数据位 / 校验 / 停止位）+ 收发日志两栏并排，
+  # 与旧形态 run(main.cj) 里的 WindowConfig 同尺寸
+  width = 1180
+  height = 780
+
+[assets]
+  # 骨架 launcher 加载的页面（相对资产根 assets/）；dev 模式自动改写到 Vite dev server
+  page = "ui/index.html"
+
+[capabilities]
+  dir = "assets/capabilities"

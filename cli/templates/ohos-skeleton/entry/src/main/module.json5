@@ -20,6 +20,14 @@
       {
         "name": "ohos.permission.INTERNET"
       }
+      /* 串口（serial 插件）要在真机上用 USB 串口时，按需再加（⚠️ 可能需要系统签名，
+         普通调试证书装包会报 9568289，加之前先确认你的签名方式——装不上就删掉）：
+      ,{
+        "name": "ohos.permission.ACCESS_DDK_USB"
+      },
+      {
+        "name": "ohos.permission.ACCESS_DDK_USB_SERIAL"
+      } */
     ],
     "installationFree": false,
     "srcEntry": "ohos_app_cangjie_entry.MyAbilityStage",

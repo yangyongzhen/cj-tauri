@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 LOG="${1:-/tmp/serial-assistant.log}"
-APP="$HERE/target/release/bin/main"
+APP="$HERE/targets/desktop/target/release/bin/main"
 BRIDGE="$ROOT/native/libcjtbridge.so"
 DEV_FILE="$LOG.dev"
 RX_FILE="$LOG.rx"
@@ -48,10 +48,10 @@ if [ "${SERIAL_IN_XVFB:-}" != "1" ] \
     exec xvfb-run -a -s "-screen 0 1280x800x24" "$0" "$LOG"
 fi
 
-cd "$HERE"   # 工作目录 = 工程根：capabilities/ 与 ui/ 按相对路径读
+cd "$HERE"   # 工作目录 = 工程根：assets/ 下的页面与能力清单按相对路径读
 
-echo "[run] 构建 $HERE"
-cjpm build > "$LOG.build" 2>&1 || { tail -40 "$LOG.build"; exit 1; }
+echo "[run] 构建 $HERE/targets/desktop（业务包是 static，实际链接发生在派生骨架里）"
+( cd "$HERE/targets/desktop" && cjpm build ) > "$LOG.build" 2>&1 || { tail -40 "$LOG.build"; exit 1; }
 
 echo "[run] 起虚拟串口对端（pty）"
 : > "$DEV_FILE"
@@ -88,7 +88,7 @@ CJ_SERIAL_PROBE_BAUD=115200 \
 CJ_SERIAL_PROBE_DATA=cj-tauri-ping \
 CJ_SERIAL_PROBE_READ_MS=600 \
 CJ_SERIAL_PROBE_QUIT=1 \
-    ./target/release/bin/main > "$LOG" 2>&1 &
+    ./targets/desktop/target/release/bin/main > "$LOG" 2>&1 &
 APP_PID=$!
 
 RC=99

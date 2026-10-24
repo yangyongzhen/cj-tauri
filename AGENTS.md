@@ -885,10 +885,28 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   放进 PATH 而**没 `export CANGJIE_STDX`**，cjpm 展开 `${CANGJIE_STDX}` 得到空值，报的却是
   `root package 'cjTauri' imports package 'stdx.encoding.json' … not added as a dependency in cjpm.toml`
   （看着像 toml 漏配）——**凡是「探到了变量」，先 `export` 再谈进 PATH**。
-- **实机入口的「产物新鲜度」检查只认探针自己的源码 = 假红**（2026-10-15 实测）：`ls -t src/*.cj` 给的是
-  **相对名**，拿它比绝对路径的产物**永远判「不比它新」**（一条永不触发的检查）；而且探针静态链的是框架，
-  只盯 `$FIXTURE/src` 会漏掉框架改动——本轮框架给 `system:host` 补了 `hotkey` 字段、探针产物没重建，
-  页面读到 `hotkey=undefined`，断言白红一轮。两处都改绝对路径比较，并把 `$E2E_ROOT/src/*.cj` 一起计入。
+- **鸿蒙上「把 `ohos.ark_interop` 链进来」无害，「执行 `JSRuntime()`」必 SIGABRT（纯仓颉进程没有 ArkTS VM）**
+  （2026-10-24 真机 A/B 定死，`examples/serial-assistant` 的 `serialManager` 路线由此撤销）：
+  三组对照（同机同业务码，只换串口后端）把范围夹得很干净——① 真有互操作并去用（`spawn` 出 owner 线程建
+  `JSRuntime()`）：应用**启动即 `signal:6`**，hilog 停在 `startApp begin`，连骨架的 `initScripts` 都不打；
+  ② 只链不用（同名符号全留，owner 线程刻意不起）：**正常启动**、`page end label=main`、页面自检跑完；
+  ③ 互操作整段摘掉：同样正常。`llvm-objdump -p <模块.so>` 复核②**确实还链着**
+  `libohos.ark_interop.so` / `libohos.ark_interop_helper.so`（`NEEDED` 两条在、4 个 `JSRuntime` 未定义符号）
+  ——所以**不是链接问题、也不是「Cangjie 轻量线程没有 VM」**：把创建点挪到 UI 线程
+  （`onWindowStageCreate`，与 ArkTS 同一条线程）同样只打出一行 `runtime probe begin [ui-thread]` 就当场消失。
+  **判据**：能不能建 `JSRuntime` 取决于**进程里有没有 ArkTS 运行**，与代码放框架包还是应用业务包无关
+  （放业务包一样 abort）。要调 `@ohos.usbManager.serial` 这类无 `@permission` 的 NAPI 模块，
+  只能由**真正的 ArkTS 侧**发起（混合工程 / 应用自宿主 ArkTS 模块），框架只留接口。
+  同族风险面：任何想「纯仓颉自建 runtime 调 ArkTS 模块」的写法（`requireArkModule` 只是第一个受害者）。
+  落法参考：`src/plugins/serial/serial_manager_ohos.cj` 现在是**如实降级**（同名导出、一律报不可用、
+  不 import `ark_interop`），应用恢复正常启动；POSIX `/dev/ttyS*` 通路不受影响。
+  完整对照表与命令见 `docs/设计决策记录.md` D-022 附段。
+- **`llvm-nm.exe` 在本机 SDK 里可能根本不存在，用它会拿到「0 个未解析符号」的假绿**（2026-10-24 实测）：
+  `third_party/llvm/bin/` 里只有 `llvm-objdump.exe`（没有 `llvm-nm` / `llvm-readelf`），
+  而 `llvm-nm -D --undefined-only x.so | grep cj_bridge` 在命令不存在时输出为空、`grep -c` 得 0
+  ——恰好等于「干净」的读数，于是「产物符号干净」这个结论可以被一条根本没跑起来检查凭空支撑。
+  **分类器的输出先拿一个已知结论校准**：先 `llvm-objdump -h <so>` 确认工具真能读到文件，
+  再用 `llvm-objdump -p`（`NEEDED`）/ `-T`（动态符号）出结论。
 
 ## 5. 文档与提交
 

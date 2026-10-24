@@ -16,6 +16,59 @@
 
 ### Added
 
+- **`serial` 插件支持鸿蒙（NDK FFI 直连 musl libc）**：新增 `src/plugins/serial/serial_ohos.cj`，
+  取代此前的 P-1 桩——`open` / `tcgetattr` / `tcsetattr` / `cfsetispeed` / `poll` 等 POSIX 串口面
+  按 `@C foreign` 直连（`termios` 按 musl aarch64 的字节布局手工读写，不做 `@C` 结构体映射），
+  不经 C 桥、与 `clipboard` 插件同模式。端口枚举覆盖鸿蒙特有的 `/dev/bus/ttyUSB*` 落点；
+  **白名单在鸿蒙侧就是本文件**（桌面真正边界在 C 桥 core，这里镜像 `serialPathLooksAllowed`，
+  页面可控字符串绝不只靠上层命令层校验）。读超时用 `poll`（有数据才 `read`，与桌面 Linux 桥同口径）。
+  边界如实：设备节点访问可能要求 DDK/USB 权限乃至系统签名（`ohos.permission.ACCESS_DDK_USB*`
+  用普通调试证书装包报 `9568289`，骨架模板里已注释、按需启用），打不开时如实报错不伪装成功。
+  `ohos-skeleton` 的 `module.json5` 同步补了这两条权限的注释块。**当前状态（2026-10-24 更新）：
+  FFI 通路已真机取证通过**——`examples/serial-assistant` 在 HarmonyOS PC（3QC0124B20000048）上装启，
+  启动链 `startApp begin (business = serialAssistant.build())` → `page begin/end label=main` 完整，
+  页面自检经 `probeLog` 进 hilog（tag `CjSerialProbe`）留证：`serial:list` 回 0 个端口，
+  6 条候选路径的 errno 如实分流（`/dev/bus/ttyUSB*` = `Permission denied` 即 DDK/系统签名门槛、
+  `/dev/ttyUSB*` = `No such file or directory`、`/dev/ttyS0` = `tcgetattr failed: I/O error`），
+  即「FFI → musl libc → 内核 open → errno 回页面」这条链路成立。**真实串口的收发回环仍未取证**
+  （需接真实设备且具备节点权限），故仍不标「可用」（`docs/需求追踪.md` PLG-004 与
+  `docs/平台能力矩阵.md` 同口径）。
+  **同日权限取证（决定后续路线，重要）**：`/dev/ttyS0` 是 `0666 root:root`——`open` 通过、`tcgetattr`
+  才报 `I/O error`，说明卡点不在文件权限位；`/dev/bus` 与 `/sys/bus/usb/devices` 连 `hdc shell`
+  （uid 2000 / `u:r:sh:s0`）都 `ls`/`stat` 皆 permission denied；`ohos.permission.ACCESS_DDK_USB_SERIAL`
+  的 `grantMode` 是 `SYSTEM_GRANT`、`availableLevel` 是 `SYSTEM_BASIC`，**普通调试证书拿不到**。
+  而 SDK 里 `@ohos.usbManager.serial`（namespace `serialManager`，**无 `@permission` 注解**）提供
+  `getPortList` / `requestSerialRight` / `open` / `setAttribute` / `read` / `write` / `close`，
+  是三方向 USB 串口的正路（框架代管节点，不必碰 `/dev/bus`）；仓颉 SDK 无该绑定，要用得走
+  Cangjie↔ArkTS 互操作。**结论：`serial_ohos.cj` 现有裸 `open` 路线只对已授权/系统签名环境成立，
+  对普通三方应用不成立**——要真机可用需改走 `serialManager` 或补 ACL 签名，二者都需要一次架构选择。
+- **`serial` 插件补上鸿蒙的 `serialManager` 后端（路线 A 落地，2026-10-24）**：新增
+  `src/plugins/serial/serial_manager_ohos.cj`，把上面那条结论落实到代码——USB 串口改走 ArkTS 的
+  `@ohos.usbManager.serial`（`getPortList` 枚举 / `open` 前 `requestSerialRight` 取用户授权 /
+  `setAttribute` 下发波特率与帧格式 / `readSync`·`writeSync` 收发 / `close`），**全程不碰 `/dev/bus`**，
+  因此不需要 `ACCESS_DDK_USB_SERIAL` 那条 `SYSTEM_GRANT`+`SYSTEM_BASIC` 的门槛。
+  接入点完全落在既有入口上，页面无感：`serialOpen` 先走 POSIX，打不开才转 `serialManager`；
+  `serialRead/Write/Close` 按句柄空间分流（USB 句柄 = `1_000_000_000 + portId`，与 POSIX 的 `fd + 1`
+  不重叠）；`serialPortList` 把 `serialManager` 认得的端口合并进 `/dev` 扫描结果并去重。
+  三条实现约束（都是互操作库的形状，写死在注释里免得后来者重踩）：① `JSRuntime` **线程绑定**——
+  所以起**一个专用 owner 线程**持有 runtime，其余线程投作业队列等结果，不做「谁调谁建」的共享单例；
+  ② `JSBoolean` **没有取值接口**（只暴露 `toJSValue()`），所以「有没有授权」不查 `hasSerialRight`，
+  而是「直接 `open`，抛错就 `requestSerialRight` 再按窗口重试」；③ `JSFunction` **只能 `call` 不能 `new`**，
+  构造不出 `Uint8Array`，故借 `@ohos.buffer` 的 `buffer.from(arrayBuffer)` 拿到共享内存的 Buffer 视图，
+  写完再用 `JSArrayBuffer.readBytes()` 取回字节。**取证状态：编译侧已过、运行期未验**——
+  桌面 `cjpm build` 零警告；鸿蒙侧 `hvigor` 的 `CompileCangjie` 通过（hap 重打 2 097 601 字节），
+  确认 `ohos.ark_interop` 在纯仓颉 entry 里可用（互操作不需要混合工程）。**运行期三项仍待真机**：
+  `requireArkModule("@ohos.usbManager.serial")` 能否在仓颉自建的 runtime 里加载、无事件循环时
+  `requestSerialRight` 的 Promise 能否推进、owner 线程绑定在设备上的实际表现；因此 PLG-004 仍不标「可用」。
+- **`examples/serial-assistant` 迁移到新形态工程（RFC-002 §7）**：新增 `cj-tauri.toml` 清单
+  （`[app]` 含 id/package、`[[windows]]`、`[assets] page="ui/index.html"`、`[capabilities] dir="assets/capabilities"`），
+  业务包改为 `output-type = "static"` 并补 `[target.aarch64-linux-ohos]` 交叉编译段，页面与能力清单
+  移入 `assets/`，`src/main.cj` 只留 `public func build(): AppSpec`（窗口/页面/能力目录一律由清单派生，
+  桌面与鸿蒙共用这一份）。旧形态的链接选项（`-lcjtbridge`、`--subsystem=windows`）移交给派生骨架，
+  业务包不再自带。同时补了**设备侧自检通道**：设备上没有环境变量，故 `build()` 按平台注入
+  `window.__SERIAL_PROBE__ = { …, deviceProbe: true }`，页面改为「枚举 → 逐个尝试 open → 如实报 errno」，
+  每条经 `probeLog` 命令写进 hilog——`eprintln` 在设备上不进 hilog，这是唯一能逐条对账的通道。
+  新增 `cj-tauri sync desktop|ohos` 派生骨架 + `cj-tauri check` 全绿。
 - **新增「平台能力矩阵」文档**（`docs/平台能力矩阵.md`）：一张表回答「某命令 / 插件 / 宿主能力
   在我的目标平台上能不能用」——宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框 / 通知 / 剪贴板）、
   全部官方插件、内置命令与核心机制，按 Linux / Windows / 鸿蒙三列标注实机取证、桩、未验证与不支持，
@@ -86,6 +139,19 @@
   不把这条权限写进骨架 `module.json5`（否则所有生成工程装不上）。
   真机证据见 `examples/ohos/ohos-capabilities/docs/device-evidence.txt`，
   平台说明见 `native/platforms/harmonyos/README.md` 的「剪贴板」一节。
+
+- **鸿蒙 `serial` 后端的 `serialManager` 互操作路线撤销，改为如实降级**：
+  `src/plugins/serial/serial_manager_ohos.cj` 不再 import `ohos.ark_interop`，
+  六个同名导出（`usbSerialOpenByPath` / `usbSerialReadHandle` / `usbSerialWriteHandle` /
+  `usbSerialCloseHandle` / `usbSerialListNames` / `usbSerialIsHandle`）一律返回「不可用」
+  并把原因写进错误槽。**真机 A/B 三组对照**（同机同业务码，只换后端）：真有互操作并去用
+  → 启动即 `signal:6`（SIGABRT，日志停在 `startApp begin`）；只链不用 → 正常启动；
+  整段摘掉 → 正常启动。`llvm-objdump -p` 确认第二组仍链着 `libohos.ark_interop.so`（`NEEDED` 在）、
+  4 个 `JSRuntime` 未定义符号——**链接无害、执行 `JSRuntime()` 才 abort**；把创建点挪到 UI 线程
+  （`onWindowStageCreate`）同样当场消失，故根因是**纯仓颉进程里没有 ArkTS VM**，不是线程选错。
+  结论：`serialManager` 只能由真正的 ArkTS 侧调用（混合工程/应用自宿主 ArkTS），
+  框架不绑 ArkTS。降级版真机复验：启动正常、`page end label=main`、自检 6 条路径 errno 照旧。
+  决策全文见 `docs/设计决策记录.md` D-022 附段。
 
 ### Changed
 

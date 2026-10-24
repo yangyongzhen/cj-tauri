@@ -1,6 +1,6 @@
 package cjTauri.plugins.serial
 
-// 桌面两端包装函数用（ohos 桩在 serial_ohos_stub.cj，RFC §4.6.4 P-1）；
+// 桌面两端包装函数用（ohos 走 NDK FFI 直连，实现在 serial_ohos.cj，批次 4）；
 // foreign 声明不带门禁：ohos 侧无引用即不要求符号，不产生链接错误
 @When[env != "ohos"]
 import std.collection.*

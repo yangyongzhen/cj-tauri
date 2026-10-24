@@ -28,7 +28,7 @@ for %%I in ("%SCRIPT_DIR%..\..\native") do set "NATIVE=%%~fI"
 if "%CANGJIE_HOME%"=="" set "CANGJIE_HOME=D:\Program Files (x86)\Cangjie"
 if "%CANGJIE_STDX%"=="" set "CANGJIE_STDX=D:\cangjie-stdx\windows_x86_64_cjnative\dynamic\stdx"
 
-set "APP=%SCRIPT_DIR%target\release\bin\main.exe"
+set "APP=%SCRIPT_DIR%targets\desktop\target\release\bin\main.exe"
 set "LOG=%TEMP%\cj-serial-assistant.log"
 set "PLOG=%TEMP%\cj-serial-peer.log"
 set "RX=%TEMP%\cj-serial-peer-rx.log"
@@ -47,9 +47,12 @@ set "PATH=%CANGJIE_HOME%\runtime\lib\windows_x86_64_cjnative;%CANGJIE_HOME%\bin;
 
 cd /d "%SCRIPT_DIR%"
 
-echo [run] building: cjpm build ...
+echo [run] building: targets\desktop -- static package, link happens in the skeleton
+pushd "%SCRIPT_DIR%targets\desktop"
 call cjpm build
-if errorlevel 1 (
+set "BUILD_RC=%ERRORLEVEL%"
+popd
+if not "%BUILD_RC%"=="0" (
     echo [ERROR] cjpm build failed -- check PATH / CANGJIE_HOME.
     exit /b 1
 )

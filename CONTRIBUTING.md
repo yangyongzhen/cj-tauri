@@ -106,6 +106,37 @@ docs: document the capability loader
 - `main`：稳定发布分支
 - 功能分支：`feat/<描述>` 或 `fix/<描述>`
 
+## 想做什么，改哪几处
+
+不同类型的贡献各自要动的位置（细节契约见 `AGENTS.md` §2，这里只给地图）：
+
+**加一个命令**（三处联动，漏一处就用不了）：
+
+1. 实现 `CommandHandler`（建议放 `src/` 对应职责的文件）；
+2. `TauriApp.register("cmd", Handler())` 注册；
+3. 能力清单 `capabilities/*.json` 的 `commands` 里声明。
+
+**加一个插件**（同样是三处联动，命令键写「短名」，前缀框架补）：
+
+1. 新建 `src/plugins/<名字>/` 子包，实现 `Plugin`（必写 `name()` + `commands()`）；
+   FFI 声明随插件放同目录——判据是「谁调用谁包内」；
+2. 装配：`TauriApp().plugin(XxxPlugin())`；
+3. 能力清单 `commands` 里声明 `"<插件名>:<短名>"`。
+   可跑样板见 `examples/plugin-fs/`，设计见 `docs/RFC-插件体系.md`。
+
+**加一个宿主能力**（如菜单、托盘这类窗口级能力）：
+
+1. 先扩 `WebViewHost` 接口（`src/host.cj`）；
+2. 改各平台实现（`src/host_webview2.cj` / `src/host_webkit.cj`）；
+3. 在 C 桥加**同名同签名**的 `cj_bridge_*` 导出（`native/platforms/*/bridge_*.c`，两平台导出名必须一致）。
+
+**适配一个新平台**：从照抄 Windows 桩的同名导出开始（`native/platforms/<平台>/`），平台差异只允许出现在
+仓颉侧 `@When` 条件编译与 `native/platforms/*/bridge_*.c` 两处。平台判据与鸿蒙侧的坑见
+`native/platforms/harmonyos/README.md` 与 `docs/鸿蒙ArkWeb接入踩坑.md`。
+
+**只改文档 / 示例 / 模板**：文档改动过 `bash scripts/check-static.sh` 即可提交（它不需要 SDK）；
+改模板（`cli/templates/`）时要确认 `cj-tauri create` 生成的新工程能编过。
+
 ## 提交 PR
 
 1. Fork 本仓库并创建功能分支

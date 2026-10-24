@@ -207,6 +207,31 @@ else
     bad "bridge_core 自检失败（明细见上）"
 fi
 
+# ------------------------------------------- 8b. 宿主能力位两侧逐位对齐
+# AGENTS §2 的契约：`CJ_CAP_*` 在 C 桥（native/core/bridge_core.h）与仓颉侧（src/host.cj）里
+# 必须**逐位一致**，「两侧不许各写各的」。这句话此前只是两边注释里的约定，没有任何机制拦着，
+# 于是真的漂过一位：C 侧的 `CJ_CAP_NOTIFICATION = 8` 置了（Linux / Windows 都置），仓颉侧既没有
+# 常量也没有可读字段，`system:host` 的返回里根本没有 notification 键（页面读到 undefined、不是
+# false）——而两侧注释还各自写着「逐位对齐」。所以按名字比对两张表：任一侧多一位、少一位、
+# 或同一位值不同，都在这里红。
+section "宿主能力位两侧逐位对齐"
+before=$fails
+cap_h=$(grep -oE '^#define[[:space:]]+CJ_CAP_[A-Z_]+[[:space:]]+[0-9]+' native/core/bridge_core.h \
+    | awk '{print $2, $3}' | sort || true)
+cap_cj=$(grep -oE 'public const CJ_CAP_[A-Z_]+: Int32 = [0-9]+' src/host.cj \
+    | sed -E 's/^public const (CJ_CAP_[A-Z_]+): Int32 = ([0-9]+)$/\1 \2/' | sort || true)
+if [ -z "$cap_h" ] || [ -z "$cap_cj" ]; then
+    bad "能力位表解析为空（header 侧 $(printf '%s' "$cap_h" | wc -l) 条 / 仓颉侧 $(printf '%s' "$cap_cj" | wc -l) 条）——写法变了就同步改本项的正则，别让它空过"
+else
+    drift=$(diff <(printf '%s\n' "$cap_h") <(printf '%s\n' "$cap_cj") || true)
+    if [ -n "$drift" ]; then
+        bad "两侧能力位不一致（< 只在 bridge_core.h，> 只在 src/host.cj，数值不同也会列出）："
+        printf '%s\n' "$drift" | sed 's/^/        /'
+    else
+        ok "$(printf '%s\n' "$cap_h" | wc -l) 个能力位在 C 桥与仓颉侧逐位一致"
+    fi
+fi
+
 # ------------------------------------------------- 9. E2E 入口卫生
 # 两个要求，缺一个都会让「实机验证」退化成自说自话：
 #   - source scripts/e2e/lib.sh：平台判定、断言收集、证据收口、应用收尾都在公共层，

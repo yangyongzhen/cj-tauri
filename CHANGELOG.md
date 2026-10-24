@@ -107,6 +107,12 @@
 
 ### Fixed
 
+- `examples/cjnote` 聊天直连对「要求 SNI 的服务端」（CDN 前端常见）**握手必然失败**
+  （`TlsException: alert handshake failure (1040)`，且极易被误判成证书校验问题）：stdx.net.http
+  不把 URL 主机名填进 SNI（`TlsClientConfig.serverName` 默认 `None` = 不传该扩展），服务端
+  直接回 alert 40。`aiTlsConfigFor()` 显式补上 `cfg.serverName = host` 作为 workaround——
+  curl / openssl 带 SNI 同端点均正常，显式设置后同一端点立即打通；stdx 侧已准备向官方提 issue，
+  修好后可撤。
 - `examples/ai-chat` 一键部署**在 Windows 上必然失败**并错报成「解包/安装失败」：那句「安装目录可读」
   的检查拿 `File(Path(dir), OpenMode.Read)` 去开**目录**，Windows 对目录 open 直接回 `Access is denied`
   （Linux 上 `open(O_RDONLY)` 目录能过，所以这条只在 Windows 炸）。改用 `exists(Path(dir))`，两平台同一口径。

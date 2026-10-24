@@ -157,6 +157,10 @@ func aiInsecureHosts(): ArrayList<String> {
 func aiTlsConfigFor(endpoint: String): TlsClientConfig {
     var cfg = TlsClientConfig()
     let host = aiHostOf(endpoint)
+    // stdx.net.http 不把 URL 主机名填进 SNI（TlsClientConfig.serverName 默认 None = 不传该扩展），
+    // 要求 SNI 的服务端（CDN 前端）直接回 alert 40 handshake failure——必须显式补上。
+    // 已向仓颉官方提 issue，此处是该缺陷的 workaround，修好后可撤。
+    cfg.serverName = host
     for (h in aiInsecureHosts()) {
         if (h == host) {
             cfg.verifyMode = CertificateVerifyMode.CustomVerify({ _ => true })

@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "windows": ["main"],
-  "commands": ["report", "notes:env", "system:version"],
+  "commands": ["report", "notes:env", "system:version", "system:host"],
   "permissions": ["fs:default", "store:default", "dialog:default"],
   "scopes": {
     "fs": {

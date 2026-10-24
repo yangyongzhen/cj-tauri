@@ -611,6 +611,23 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `Content-Type` 从 `resp.header` 里大小写不敏感地找。**别往 hap 里塞 OpenSSL**——运行时是 musl
   静态链，AOSP 那份的 ABI/符号对不上，设备 `/system/lib64` 也读不了。判据见
   `docs/鸿蒙ArkWeb接入踩坑.md` §10.15。
+- **鸿蒙纯仓颉 hap 读不了「别人授权的文件」——三条路全堵，别再实现，等官方**（2026-10-24 真机
+  markdown-notes，issue #136 / #137）：① 文件管理器「打开方式」**能拉起**（viewData skill 声明
+  UTD 名 + MIME + `"scheme": "file"` 后应用上榜，`onNewWant` 收到
+  `uri=file://docs/… flags=67`，含 `FLAG_AUTH_READ_URI_PERMISSION`），但 `FileIo.open(uri)` 报
+  `13900012`，hilog 是 `FILE-FS: Failed to open OpenFileByPath error -13`——**函数名就写着** URI
+  被转成路径后走路径式打开，授权位没被用上；② 仓颉 SDK **没有 `ohos.file.picker` 绑定**
+  （`api/modules/linux_ohos_aarch64_cjnative/ohos/` 下只有 `date_picker`/`text_picker` 这类 ArkUI
+  组件，`grep DocumentViewPicker` 零命中），而纯仓颉 hap 里 ArkTS 模块不产出 `.abc`
+  （`requireArkModule` 直接 SIGABRT，见 #135）；③ 补 `READ_WRITE_DOCUMENTS_DIRECTORY` +
+  `atm perm -g` 授权成功、`FileIo.access(path)` 回 `true`，`open` 仍 `13900012`——**`access=true`
+  不代表可读**。两个假线索省点时间：不是百分号编码（decode 前后同错）、不是文件不存在
+  （应用视图 `/storage/Users/currentUser/Documents` ↔ 设备真路径
+  `/storage/media/100/local/files/Docs`，`Documents`≠`Docs`，文件管理器「最近」里的条目可能压根不存在）；
+  权限声明也不是差异点（对照应用只声明 INTERNET 也能打开外部文件）。
+  **重开条件**写在 `docs/需求追踪.md` PLT-005；骨架里那套实验通路（ArkTS 助手 / `arkts_picker.cj` /
+  `file_picker.cj` / `open_with.cj` / `arkOptions.runtimeOnly` / 该权限声明）已全部撤回，
+  撤的时候**别把 `2in1` + `checkDeviceTypes=false` + `INTERNET` 一起带走**（那是别的验证过的正式配置）。
 - **Git Bash 下调 `hdc` 的远端路径会被 MSYS 改写**（2026-10-24 实测，ohos-capabilities 取证）：
   `hdc shell snapshot_display -f /data/local/tmp/x.jpeg` 报
   `error: fileName D:/Program Files/Git/data/local/tmp/x.jpeg invalid`——`/data/...` 被当成 POSIX 路径
@@ -907,6 +924,24 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   ——恰好等于「干净」的读数，于是「产物符号干净」这个结论可以被一条根本没跑起来检查凭空支撑。
   **分类器的输出先拿一个已知结论校准**：先 `llvm-objdump -h <so>` 确认工具真能读到文件，
   再用 `llvm-objdump -p`（`NEEDED`）/ `-T`（动态符号）出结论。
+- **鸿蒙 PC 上「串口打不开」先归因镜像缺驱动，别归因硬件——`/dev/ttyUSB*` 不存在永远不是硬件判据**
+  （2026-10-24 真机实测，接 D-022 那轮 serial 降级）：唯一能用的枚举通道是
+  `hidumper -s UsbService -a 'usb_host -a'`（`ls /sys/bus/usb/devices`、`ls /dev`、`cat /proc/modules`
+  一律 Permission denied；**目录被拒不等于节点不存在，逐路径 `stat -L` 才可信**）。
+  插入坞/适配器前后读数 2 → 6 条：4 个 xHCI 根集线器 + 1 个 hub（`0x214B:0x7260`，clazz 9）
+  + 1 个 HID 无线接收器（`YICHIP 0x3151:0x3020`，clazz 0 / 接口 clazz 3）——
+  **内核枚举正常，但一个串口类设备（clazz `0x0a` CDC-ACM / `0xff` 厂商自定义）都没有**。
+  同一时刻 hilog 把真因写得很直白：`DdkSysfsGetActiveInterfaces num error` →
+  `get active interfaces failed:-1` → `DdkDevMgrCreateDevice: sysfs get device failed:-1`、
+  `g_usbPnpDeviceTableListHead is empty`、`load libusb_pnp_sample_driver.z.so failed, errno=2`、
+  `load libusbhost_acm.z.so failed, errno=2` → `can not found driver libusbhost_acm.z.so`、
+  `check dev path, path not exist … /dev/bus/usb/003/002`。**驱动库在镜像里根本不存在**
+  （`stat -L` 对 `/system/lib64`、`/vendor/lib64` 两处都回 ENOENT；而 `ls /system/lib64` 是 Permission denied
+  ——所以「`ls | grep usbhost` 输出为空」证明不了任何事，别拿它当结论）。
+  于是设备描述符拿得到、**没有驱动接管**：不建 `/dev/ttyUSB*`、不建 `/dev/bus/usb/*`，
+  任何应用（含系统串口工具）都打不开。**判据**：要判硬件只能换一台 USB-serial 栈正常的机器；
+  Windows 还得先装 CH340/CP210x/FTDI 驱动——**Windows 不自带**，缺驱动的典型形状正是
+  「端口(COM 和 LPT)里什么都没有」+「其他设备」里一个黄色感叹号，与「适配器坏」同形。
 
 ## 5. 文档与提交
 

@@ -45,6 +45,15 @@ public class ArkWebMenuItem {
 
     public let label: String
 
+    /**
+     * 快捷键词法原文（如 `Ctrl+O`），应用没写就是空串。
+     *
+     * 桌面两平台由宿主把它翻成真热键（Windows `RegisterHotKey` / Linux X11 grab），
+     * 鸿蒙宿主**没有**这层，所以应用侧要自己认键：按 accel 匹配按键再回投 `menu:click`
+     * （骨架 `index.cj` 的 `menuAccelKey` + `onKeyEvent`）。别把 accel 只当展示字段丢掉。
+     */
+    public let accel: String
+
     public var enabled: Bool
 
     public var checked: Bool
@@ -53,13 +62,14 @@ public class ArkWebMenuItem {
     public let children: ArrayList<ArkWebMenuItem>
 
     public init(kind: String, id: String, label: String, enabled: Bool, checked: Bool,
-                children: ArrayList<ArkWebMenuItem>) {
+                children: ArrayList<ArkWebMenuItem>, accel!: String = "") {
         this.kind = kind
         this.id = id
         this.label = label
         this.enabled = enabled
         this.checked = checked
         this.children = children
+        this.accel = accel
     }
 
     public func isSubmenu(): Bool {
@@ -80,7 +90,8 @@ public class ArkWebMenuItem {
         for (child in this.children) {
             copyChildren.add(child.snapshot())
         }
-        return ArkWebMenuItem(this.kind, this.id, this.label, this.enabled, this.checked, copyChildren)
+        return ArkWebMenuItem(this.kind, this.id, this.label, this.enabled, this.checked, copyChildren,
+                              accel: this.accel)
     }
 
     /** 按 id 找一项（含子孙），找不到回 None——`setMenuItemState` 的查找键 |
@@ -135,7 +146,7 @@ public func parseArkWebMenuWire(wire: String): ArrayList<ArkWebMenuItem> {
                 let label = wireField(fields, 2)
                 let flags = parseWireFlags(wireField(fields, 3))
                 let item = ArkWebMenuItem(kind, id, label, (flags & 1) != 0, (flags & 2) != 0,
-                                          ArrayList<ArkWebMenuItem>())
+                                          ArrayList<ArkWebMenuItem>(), accel: wireField(fields, 4))
                 /* 跳级（depth 大于当前栈深）按最深层挂，少画一层但不错位 */
                 var slot = depth
                 if (slot >= stack.size) {

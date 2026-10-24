@@ -151,6 +151,44 @@
     background: #2a1b24; border: 1px solid var(--accent2); color: #ffd5dd;
     border-radius: 8px; font-size: 12.5px; white-space: pre-wrap; display: none;
   }
+  /* 「打开…」的页内文件浏览器：宿主没有原生文件对话框时（鸿蒙侧能力位 0）用它。
+     列目录走 fs:list、点开走 fs:readText，路径照旧经清单 scope 判定。 */
+  #browser {
+    position: fixed; inset: 0; z-index: 40; display: none;
+    align-items: center; justify-content: center; background: rgba(6, 8, 14, .62);
+  }
+  #browser.show { display: flex; }
+  #browserBox {
+    display: flex; flex-direction: column; width: min(680px, 88vw); max-height: 76vh;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+  }
+  #browserHead {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    background: var(--panel2); border-bottom: 1px solid var(--line);
+  }
+  #browserPath {
+    flex: 1 1 auto; min-width: 0; font-size: 12.5px; color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+  }
+  #browserList { overflow: auto; padding: 6px 0; }
+  .bbtn {
+    flex: 0 0 auto; padding: 3px 10px; font-size: 12px; cursor: pointer;
+    color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .bbtn:hover { background: var(--active); border-color: var(--accent); }
+  .bbtn[disabled] { opacity: .45; cursor: default; }
+  .browser-row {
+    display: flex; align-items: center; gap: 10px; margin: 0 8px; padding: 7px 10px;
+    font-size: 13px; color: var(--fg); cursor: pointer; border-radius: 6px;
+  }
+  .browser-row:hover { background: var(--active); }
+  .browser-row .nm {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .browser-row .sz { flex: 0 0 auto; font-size: 11.5px; color: var(--dim); }
+  .browser-row.dir .nm { color: var(--accent); }
   .empty { color: var(--dim); font-size: 13px; padding: 10px; white-space: normal; }
   /* 应用主题（视图菜单「界面主题」单选组）：html 根类切换 CSS 变量整体换肤。
      :root 默认值 = 深色（跟随系统在系统深色时落到它）；各浅色系另写变量。
@@ -220,6 +258,19 @@
     <span id="version">—</span>
   </footer>
   <div id="toast"></div>
+  <!-- 「打开…」的页内文件浏览器：宿主没有原生文件对话框时（鸿蒙侧能力位 0）回落用它。
+       只在沙箱内浏览——路径照旧交清单 scope 判定，越界由共享层拒绝并如实显示。 -->
+  <div id="browser">
+    <div id="browserBox">
+      <div id="browserHead">
+        <button type="button" class="bbtn" id="browserUp">上级</button>
+        <button type="button" class="bbtn" id="browserRoot">工作区</button>
+        <span id="browserPath">—</span>
+        <button type="button" class="bbtn" id="browserClose">关闭</button>
+      </div>
+      <div id="browserList"></div>
+    </div>
+  </div>
 
 <script>/*__VENDOR_JS__*/</script>
 <script>
@@ -232,7 +283,7 @@
   var WS = 'notes';
   var LAST_KEY = 'last-open';        // store 里记最近打开的笔记，重启还在
   var THEME_KEY = 'apptheme';        // 界面主题记忆（跟随系统/浅色/深色/护眼/墨黑）
-  var state = { files: [], current: null, saved: '', sortBy: 'name', theme: 'system' };
+  var state = { files: [], current: null, saved: '', sortBy: 'name', theme: 'system', hostPlatform: '' };
 
   function $(id) { return document.getElementById(id); }
 
@@ -448,18 +499,154 @@
     });
   }
 
-  /** 「文件 → 打开…」：原生文件选择框选路径，读回内容进编辑器。
-      选中文件可以落在工作区外——scope 已放宽到 $HOME（deny 兜 .ssh/.git/*.secret.md）。 */
+  // ------------------------------------------------------------ 系统文件选择器（鸿蒙侧）
+  // 拉起选择器要 UI 线程 + UIAbilityContext，这两样只有应用侧有（骨架的 file_picker.cj），
+  // 所以走一条控制报文 `{"type":"pick"}`，结果由原生用 runJavaScript 回投——`javaScriptProxy`
+  // 的返回值传不回页面（踩坑文档 §8.1），只能「先挂回调、再由原生推」。
+  var pickWaiter = null;
+  window.__cjPickResult = function (r) {
+    var cb = pickWaiter;
+    pickWaiter = null;
+    if (cb) { cb(r || { ok: false, reason: 'empty result' }); }
+  };
+
+  function pickAvailable() {
+    return !!(window.__CJ_TAURI__ && typeof window.__CJ_TAURI__.pick === 'function');
+  }
+
+  /** 发起一次选择并等结果（只允许一笔在途；120s 兜底，避免回调永久挂着） */
+  function openViaSystemPicker() {
+    return new Promise(function (resolve) {
+      pickWaiter = resolve;
+      try {
+        window.__CJ_TAURI__.pick();
+      } catch (e) {
+        pickWaiter = null;
+        resolve({ ok: false, reason: String(e) });
+        return;
+      }
+      setTimeout(function () {
+        if (pickWaiter === resolve) {
+          pickWaiter = null;
+          resolve({ ok: false, reason: 'timeout' });
+        }
+      }, 120000);
+    });
+  }
+
+  /** 把读回的正文载入编辑器；保存落成工作区副本（外部 URI 只授予读权限） */
+  function loadPickedNote(r) {
+    var name = String(r.name || 'picked.md');
+    var slash = name.lastIndexOf('/');
+    if (slash >= 0) { name = name.slice(slash + 1); }
+    if (!/\.md$/i.test(name)) { name += '.md'; }
+    var text = String(r.text === undefined || r.text === null ? '' : r.text);
+    state.current = WS + '/' + name;
+    state.saved = '';
+    $('editor').value = text;
+    $('editingName').textContent = name + '（外部文件）';
+    $('wsHint').textContent = '来自 ' + String(r.uri || name) + ' · 保存会写成工作区副本 notes/' + name;
+    setPreview(text);
+    markDirty();
+    status('已载入 ' + name + '（' + text.length + ' 字符），保存会落到工作区副本', 'ok');
+    return text;
+  }
+
+  /** 「文件 → 打开…」：鸿蒙侧走系统文件选择器，桌面走原生对话框，都不可用才回落页内浏览 */
   function openViaDialog() {
-    invoke('dialog:open', {
+    if (pickAvailable()) {
+      return openViaSystemPicker().then(function (r) {
+        if (r && r.ok) { return loadPickedNote(r); }
+        var reason = String((r && r.reason) || 'unknown');
+        if (reason === 'cancelled') { status('未选择文件', ''); return null; }
+        report('UI 系统选择器不可用（' + reason + '），回落页内浏览');
+        return browserShow(WS);
+      });
+    }
+    return invoke('dialog:open', {
       title: '打开 Markdown 文件',
       filter: 'Markdown|*.md|所有文件|*.*'
     }).then(function (picked) {
       if (!picked || typeof picked !== 'string') { status('未选择文件', ''); return null; }
       return openNote(picked);
     }).catch(function (e) {
-      toast('打开失败：' + errText(e));
+      // 未知宿主（既没有系统选择器、也没有原生对话框）时的兜底：页内浏览永远可用
+      report('UI 原生对话框不可用，回落页内浏览：' + errText(e));
+      browserShow(WS);
+      return null;
     });
+  }
+
+  // ------------------------------------------------------------------ 页内文件浏览器
+  // 鸿蒙侧没有原生文件对话框（宿主能力位 0），系统文件选择器回投的 URI 又读不出内容
+  // （仓颉 fs 只吃沙箱路径，AGENTS §4），「打开…」于是落到页内浏览：fs:list 列目录、
+  // fs:readText 读内容。路径仍在清单 scope 内，越界由共享层拒绝并如实显示。
+  var br = { dir: WS, entries: [] };
+
+  function browserShow(dir) {
+    return browserLoad(dir || WS);
+  }
+
+  function browserHide() {
+    $('browser').classList.remove('show');
+  }
+
+  function browserLoad(dir) {
+    return invoke('fs:list', { path: dir }).then(function (items) {
+      br.dir = dir;
+      br.entries = (items || []).slice();
+      // fs:list 不保证顺序：目录在前，再按名字（与侧栏 sortBy=name 一致）
+      br.entries.sort(function (a, b) {
+        if (!!a.dir !== !!b.dir) { return a.dir ? -1 : 1; }
+        return String(a.name) < String(b.name) ? -1 : 1;
+      });
+      browserRender();
+      $('browser').classList.add('show');
+      return br.entries;
+    }).catch(function (e) {
+      toast('列目录失败：' + errText(e));
+      return null;
+    });
+  }
+
+  function browserRender() {
+    var box = $('browserList');
+    $('browserPath').textContent = br.dir;
+    $('browserUp').disabled = !browserParent(br.dir);
+    box.innerHTML = '';
+    if (!br.entries.length) {
+      box.innerHTML = '<div class="empty">这个目录里没有文件</div>';
+      return;
+    }
+    for (var i = 0; i < br.entries.length; i++) {
+      (function (it) {
+        var row = document.createElement('div');
+        row.className = 'browser-row' + (it.dir ? ' dir' : '');
+        var nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = it.dir ? String(it.name) + '/' : String(it.name);
+        var sz = document.createElement('span');
+        sz.className = 'sz';
+        sz.textContent = it.dir ? '' : (Number(it.size) + ' B');
+        row.appendChild(nm);
+        row.appendChild(sz);
+        row.onclick = function () {
+          var p = br.dir.replace(/\/+$/, '') + '/' + it.name;
+          if (it.dir) { browserLoad(p); return; }
+          browserHide();
+          openNote(p);
+        };
+        box.appendChild(row);
+      })(br.entries[i]);
+    }
+  }
+
+  /** 上一级；工作区（notes）之上不再往上——scope 只放行 $CWD/notes 与 $HOME */
+  function browserParent(dir) {
+    var d = String(dir || '').replace(/\/+$/, '');
+    if (!d || d === WS) { return ''; }
+    var cut = d.lastIndexOf('/');
+    return cut <= 0 ? '' : d.slice(0, cut);
   }
 
   // ------------------------------------------------------------------ 动作
@@ -774,6 +961,16 @@
         return null;
       });
     }
+    // 页内文件浏览器：关闭 / 回工作区 / 上级；点遮罩空白处也关（点内容区不关）
+    $('browserClose').onclick = function () { browserHide(); };
+    $('browserRoot').onclick = function () { browserLoad(WS); };
+    $('browserUp').onclick = function () {
+      var up = browserParent(br.dir);
+      if (up) { browserLoad(up); }
+    };
+    $('browser').onclick = function (ev) {
+      if (ev.target === $('browser')) { browserHide(); }
+    };
     // 侧栏页签：文件列表 / 大纲
     $('tabFiles').onclick = function () { switchSideTab('files'); };
     $('tabOutline').onclick = function () { switchSideTab('outline'); };
@@ -853,6 +1050,14 @@
         : (v && v.version ? v.version : JSON.stringify(v));
       $('version').textContent = 'cj-tauri ' + text;
     }).catch(function () { $('version').textContent = 'cj-tauri ?'; });
+
+    // 宿主平台：`dialog:open` 在鸿蒙侧只能如实回空串（与「用户取消」同形），
+    // 所以「打开…」要先知道自己在哪台宿主上（见 openViaDialog）。取不到就留空串 → 走原有 dialog 路。
+    invoke('system:host').then(function (h) {
+      state.hostPlatform = (h && h.platform) ? String(h.platform) : '';
+      report('UI-READY 宿主 platform=' + state.hostPlatform + ' menu=' + (h && h.menu));
+      return null;
+    }).catch(function (e) { report('UI-WARN system:host 不可用：' + errText(e)); });
 
     refreshList().then(function () {
       report('UI-READY notes 列表已取回：' + state.files.length + ' 项');

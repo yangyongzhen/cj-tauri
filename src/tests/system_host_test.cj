@@ -35,6 +35,9 @@ func testSystemHostReportsNamedBooleansForInjectedBits(): Unit {
     @Expect(data.get("menu").getOrThrow().asBool().getValue(), true)
     @Expect(data.get("tray").getOrThrow().asBool().getValue(), true)
     @Expect(data.get("dragDrop").getOrThrow().asBool().getValue(), false)
+    // notification（CJ_CAP_NOTIFICATION = 8）：与 dragDrop(4) / hotkey(16) 是三个独立的位；
+    // 这一位曾整条漏在仓颉侧（C 桥置了、可读形态里没有字段），所以单独钉一条
+    @Expect(data.get("notification").getOrThrow().asBool().getValue(), false)
     // platform 由仓颉侧条件编译给（windows / linux），不该是空串
     @Expect(data.get("platform").getOrThrow().asString().getValue().size > 0, true)
     // logFile（RFC-003 第 5 期）：进程级字段，用例环境没开日志 → 空串（字段在、值才空）
@@ -51,6 +54,21 @@ func testSystemHostReportsAllFalseWhenPlatformHasNothing(): Unit {
     @Expect(data.get("menu").getOrThrow().asBool().getValue(), false)
     @Expect(data.get("tray").getOrThrow().asBool().getValue(), false)
     @Expect(data.get("dragDrop").getOrThrow().asBool().getValue(), false)
+    @Expect(data.get("notification").getOrThrow().asBool().getValue(), false)
+}
+
+@Test
+func testSystemHostMapsNotificationBitIndependently(): Unit {
+    // 只置通知位（8）：它左右两个邻居 dragDrop(4) / hotkey(16) 必须仍是 false。
+    // 这一条正是那位曾经的缺口——C 侧 `CJ_CAP_NOTIFICATION` 置了、仓颉侧没有对应的位与字段，
+    // `system:host` 少了 notification 键（不是值为 false，是根本没这个键），页面读到的就是 undefined。
+    let asked = ArrayList<String>()
+    let ctx = hostCtxWith(CJ_CAP_NOTIFICATION, asked)
+    let data = SystemCommands().handle("system:host", JsonObject(), ctx).asObject()
+    @Expect(data.get("notification").getOrThrow().asBool().getValue(), true)
+    @Expect(data.get("dragDrop").getOrThrow().asBool().getValue(), false)
+    @Expect(data.get("hotkey").getOrThrow().asBool().getValue(), false)
+    @Expect(data.get("menu").getOrThrow().asBool().getValue(), false)
 }
 
 @Test

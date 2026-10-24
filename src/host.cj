@@ -30,6 +30,12 @@ public const CJ_CAP_TRAY: Int32 = 2
 
 public const CJ_CAP_DRAG_DROP: Int32 = 4
 
+/** 平台通知（与 native/bridge_core.h 的 CJ_CAP_NOTIFICATION 逐位对齐；Linux = freedesktop
+    Notifications，Windows 侧同样置位）。这一位曾漏在仓颉侧：C 侧置了、`system:host` 却看不到，
+    两侧「逐位对齐」的契约当场破了——`scripts/check-static.sh` 现在按名字比对两边的常量表，
+    加位时漏了哪一侧都会在门禁上红。 */
+public const CJ_CAP_NOTIFICATION: Int32 = 8
+
 /** 全局快捷键（与 native/bridge_core.h 的 CJ_CAP_HOTKEY 逐位对齐；Linux = 编进了 X11 支持） */
 public const CJ_CAP_HOTKEY: Int32 = 16
 
@@ -52,14 +58,18 @@ public class HostCapabilities {
     public let menu: Bool
     public let tray: Bool
     public let dragDrop: Bool
+    public let notification: Bool
     public let hotkey: Bool
     public let subtitle: Bool
 
-    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool, hotkey: Bool, subtitle: Bool) {
+    /** 字段顺序按 `native/bridge_core.h` 的位序（menu / tray / dragDrop / notification / hotkey / subtitle），
+        不是为了好看：位置参数一旦与位序错开，读的人就得来回对表，漏位也就更难发现。 */
+    public init(platform: String, menu: Bool, tray: Bool, dragDrop: Bool, notification: Bool, hotkey: Bool, subtitle: Bool) {
         this.platform = platform
         this.menu = menu
         this.tray = tray
         this.dragDrop = dragDrop
+        this.notification = notification
         this.hotkey = hotkey
         this.subtitle = subtitle
     }
@@ -71,18 +81,21 @@ public class HostCapabilities {
             (caps & CJ_CAP_MENU) != 0,
             (caps & CJ_CAP_TRAY) != 0,
             (caps & CJ_CAP_DRAG_DROP) != 0,
+            (caps & CJ_CAP_NOTIFICATION) != 0,
             (caps & CJ_CAP_HOTKEY) != 0,
             (caps & CJ_CAP_SUBTITLE) != 0
         )
     }
 
-    /** `system:host` 的返回形状：`{"platform":"linux","menu":true,"tray":true,"dragDrop":true,"hotkey":true,"subtitle":true}` */
+    /** `system:host` 的返回形状：
+        `{"platform":"linux","menu":true,"tray":true,"dragDrop":true,"notification":true,"hotkey":true,"subtitle":true}` */
     public func toJson(): JsonValue {
         var obj = JsonObject()
         obj.put("platform", JsonString(this.platform))
         obj.put("menu", JsonBool(this.menu))
         obj.put("tray", JsonBool(this.tray))
         obj.put("dragDrop", JsonBool(this.dragDrop))
+        obj.put("notification", JsonBool(this.notification))
         obj.put("hotkey", JsonBool(this.hotkey))
         obj.put("subtitle", JsonBool(this.subtitle))
         return obj

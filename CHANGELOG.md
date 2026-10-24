@@ -191,6 +191,17 @@
 
 ### Fixed
 
+- **`system:host` 永远看不到通知能力位（两侧表漂了一位）**：`native/core/bridge_core.h` 早有
+  `CJ_CAP_NOTIFICATION = 8`（Linux 的 freedesktop Notifications、Windows 的 Shell_NotifyIconW 都真的
+  置了它，core 还会打 `notify=%d`），但仓颉侧 `src/host.cj` 既没有这条常量、`HostCapabilities` 也没有
+  可读字段——于是 `system:host` 的返回里**根本没有 `notification` 键**（页面拿到 `undefined`，不是
+  `false`），应用据此判断「这台机器能不能发通知」永远是错的，而两侧注释还各自写着「逐位对齐」。
+  现已补上常量与 `notification` 字段（`fromBits` / `toJson`，字段顺序按 header 位序），返回值变为
+  `{platform, menu, tray, dragDrop, notification, hotkey, subtitle}`。**根子是「契约只写在注释里、
+  没有机制拦着」**，所以 `scripts/check-static.sh` 新增第 8b 项：按名字比对两边的 `CJ_CAP_*` 表，
+  任一侧多一位 / 少一位 / 数值不同都红（反向验证过：人为删掉仓颉侧那一位即报
+  `CJ_CAP_NOTIFICATION 8` 缺失）。单测补了「只置第 8 位时 `notification=true` 且左右邻居
+  `dragDrop` / `hotkey` 仍为 `false`」，钉住位与位的独立性。
 - **对话框关闭后整页点不动（鸿蒙骨架）**：overlay 外层是 100%×100% 的透明容器，卡片收起后它仍在，
   ArkUI 里照样参与命中测试、吞掉落在页面上的点击——真机表现就是「点完对话框，点哪都没反应」。
   修法是收起时整块 `.visibility(Visibility.None)`（`Hidden` 不够：不画但仍占位并响应事件），

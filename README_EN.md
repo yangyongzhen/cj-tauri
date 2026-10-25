@@ -2,40 +2,54 @@
 
 # cj-tauri · Tauri, in Cangjie
 
-**A hybrid desktop-app framework in Huawei's Cangjie language — statically compiled Cangjie backend + system WebView front end, no bundled Chromium, multi-MB binaries.**
+**Keep writing the front end as the Web; the back end is a statically compiled Cangjie binary —
+no bundled Chromium, 4.7–10.3 MB artifacts, verified on real hardware across Windows, Linux and
+HarmonyOS PC (2in1).**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)](#examples)
+Bidirectional IPC bridge · capability whitelist (commands / events / paths / egress — four gates) ·
+14 official plugins · twenty-odd runnable examples · every example ships an unattended self-check
+
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20HarmonyOS%20PC-blue)](#examples)
 [![Cangjie](https://img.shields.io/badge/SDK-1.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![QQ Group](https://img.shields.io/badge/QQ%20group-92381027-red)](#repos--push)
 
-Front-end in any web technology; the back-end is an auditable static binary: bidirectional IPC
-bridge, capability security model, 14 official plugins, 26 runnable examples. Both Linux
-(WebKitGTK) and Windows (WebView2) backends are working on real hardware; HarmonyOS ArkWeb is scaffolded.
+📖 Website <https://yangyongzhen.github.io/cj-tauri/> (bilingual · 24 on-device screenshots)&nbsp;·&nbsp; 💬 QQ group **92381027**
 
-> 📖 **Website**: <https://yangyongzhen.github.io/cj-tauri/> — bilingual, features, 19 real-screenshot carousel and doc links.
-
-> 💬 **QQ group**: **92381027** — usage questions, feature ideas, plugin and debugging chat welcome.
-
-[Screenshots](#screenshots) · [Getting started](#getting-started) · [Why cj-tauri](#why-cj-tauri) · [Examples](#examples) · [Architecture](#architecture) · [Docs](#documentation)
+[Get started](#30-seconds-to-a-first-app) · [Why cj-tauri](#why-cj-tauri) · [Examples](#examples) ·
+[Architecture](#architecture) · [Docs](#documentation)
 
 </div>
 
 ## 30 seconds to a first app
 
-**Fastest path: the npm scaffold, three commands** (prerequisites: the
-[Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx; Windows additionally needs mingw gcc
-and the WebView2 Runtime (bundled with Win11), Linux needs `libwebkit2gtk-4.1-dev`):
+**A. Just want to see it run? Download and double-click — no SDK, no runtime, no install.**
+
+| Artifact | Size | What it is |
+|---|---|---|
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) | 10.3 MB | AI chat client: multi-provider streaming Markdown chat + a local-Agent mode, one click to switch |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) | 5.63 MB | Serial + TCP/UDP combined debug assistant |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) | 5.69 MB | Modbus TCP/RTU debugging tool |
+
+All ten single-file artifacts were measured on real machines (4.69–32.8 MB; PE import tables carry
+only system DLLs, `Subsystem=GUI` so double-click opens no console; see
+[the distribution measurements](docs/分发形态实测.md)) →
+[full download table](#option-2-download-single-file-tools-no-install-no-sdk)
+
+**B. Want your own app? Three commands.**
+
+Prerequisites: the [Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx (Windows additionally
+needs mingw gcc and the WebView2 Runtime, bundled with Win11; Linux needs `libwebkit2gtk-4.1-dev`).
+Not sure what is missing? Run `doctor` first:
 
 ```bash
-npx cj-tauri create myapp          # no install needed
-cd myapp
-npx cj-tauri dev                   # takes over the Vite dev server (Vue/React templates), HMR in-window
+npx cj-tauri doctor              # names what is missing and how to fix it — first thing on a new machine
+npx cj-tauri create myapp        # no install needed
+cd myapp && npx cj-tauri dev     # takes over the Vite dev server (Vue/React templates), HMR in-window
 ```
 
-No SDK? The repo ships **eight statically linked single-file Windows tools** (4.69–9.79 MB,
-no install, double-click to run; every PE import table audited) —
-[download directly](#option-2-download-single-file-tools-no-install-no-sdk).
+**C. Prefer no npm at all?** Build from source (Windows): `git clone … && native\build_win.bat && cli\cj-tauri.bat create myapp`
+— details in [Option 3: build from source](#option-3-build-from-source). For a HarmonyOS PC project use
+`create --template ohos`; the same business code is derived into a hap project by `cj-tauri sync ohos`.
 
 ![cj-tauri hello example](docs/images/cj_tauri.png)
 

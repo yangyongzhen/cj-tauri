@@ -97,4 +97,7 @@ echo "[test] platform=$(uname -s) CANGJIE_HOME=$CANGJIE_HOME"
 # C 桥公共核心的自检先跑：它不需要 SDK / 图形栈（本机没有 C 编译器时脚本自己跳过），
 # 跟 cjpm test 分开，出问题时一眼能看出是哪一层。
 bash "$ROOT/scripts/test-bridge-core.sh"
+# fs 单测按固定基座目录 /tmp/fs-unit-test 复用（plugin_fs_test.cj），基座还在就撞
+# 「already exists」——会话交接 §四十五 留的欠账：第二次跑必红。入口处统一清掉。
+rm -rf /tmp/fs-unit-test
 exec cjpm test --no-color "$@"

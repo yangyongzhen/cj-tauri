@@ -116,10 +116,25 @@ public class WsSession {
     }
 }
 
+/**
+ * 鸿蒙侧 ws 如实降级：stdx 的 WebSocket 升级依赖 OpenSSL（帧掩码随机数走 RAND_bytes），
+ * 而仓颉运行时在设备上装不了 OpenSSL 3（真机：`Can not load openssl library or function
+ * RAND_bytes`），SDK 也没有 `ohos.net.websocket` 绑定（183 个绑定逐一确认）。
+ * connect 当场拒绝并说明原因，不留「openssl 半死」的模糊报错（同 http:postStream 的口径）。
+ */
+@When[env == "ohos"]
+func wsUnavailableOnOhos(): Unit {
+    throw CommandException(
+        "ws:connect is not available on HarmonyOS: stdx WebSocket requires OpenSSL (RAND_bytes), which the Cangjie runtime cannot load on-device, and there is no ohos.net.websocket binding. Use http:post for request/response traffic.")
+}
+
+@When[env != "ohos"]
+func wsUnavailableOnOhos(): Unit {
+}
+
 /** ws 命令处理器：connect 收 {url}，send 收 {text}，close 无参 */
 public class WsCommands <: CommandHandler {
     private let sess: WsSession
-
     public init(sess: WsSession) {
         this.sess = sess
     }
@@ -149,6 +164,9 @@ public class WsCommands <: CommandHandler {
     }
 
     private func doConnect(url: String, host: String): JsonValue {
+        // 鸿蒙侧如实降级（见 wsUnavailableOnOhos）：desktop 该函数是空实现。
+        // 放在 scope 判定**之后**——安全判定先于可用性判定，越界请求该报 scope 错而不是平台错
+        wsUnavailableOnOhos()
         this.sess.lock.lock()
         let busy = this.sess.connected
         this.sess.lock.unlock()

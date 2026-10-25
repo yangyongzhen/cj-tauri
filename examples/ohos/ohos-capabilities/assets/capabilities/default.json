@@ -10,11 +10,17 @@
     "clipboard:write",
     "clipboard:read"
   ],
-  "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default"],
-  "events": ["tick", "menu:click", "mqtt:message", "mqtt:state"],
+  "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default", "ws:default", "log:default", "sqlite:default"],
+  "events": ["tick", "menu:click", "mqtt:message", "mqtt:state", "ws:frame", "ws:state"],
   "scopes": {
     "http": {
       "allow": ["www.baidu.com", "httpbin.org"]
+    },
+    "ws": {
+      "allow": ["127.0.0.1"]
+    },
+    "sqlite": {
+      "allow": ["$CWD/**", "$CWD"]
     },
     "fs": {
       "allow": ["probe-fs/**", "probe-fs", "probe-fs.txt", "$CWD/probe-fs/**", "$CWD/probe-fs"],

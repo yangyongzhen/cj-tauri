@@ -16,6 +16,34 @@
 
 ### Added
 
+- **`sqlite` 插件鸿蒙真机落地（amalgamation 随包编 so，ohos 桩退役）**：设备与 NDK 都没有
+  sqlite 库（`stat -L` 五个候选路径 ENOENT、sysroot 无 aarch64 libsqlite），改走
+  amalgamation（SQLite 本体 public domain，随包不产生附许可证义务）用 NDK clang 编
+  `libsqlite3.so` 放 `entry/libs/arm64-v8a/` 随 hap 分发，entry link-option 加
+  `-L/-lsqlite3` 生成 DT_NEEDED；`sqlite_ohos_stub.cj` 整文件删除，
+  `plugin_sqlite.cj` / `sqlite_ffi.cj` 的 10 处 `@When[env != "ohos"]` 门禁摘除——
+  **真实现三端共用**。真机（2026-10-25）exec 建库建表→query 回读逐字一致→info
+  （`sqliteVersion 3.50.4`）→tables 全 PASS，越界 path 如实拒绝。两个形状：
+  只读命令对不存在的库如实报错（先 exec 再查）；`query` 每格是 `{type,value}` 对象。
+  见 `examples/ohos/ohos-capabilities/docs/evidence-ws-log-sqlite-verify.md`。
+
+- **`ws` 插件鸿蒙侧如实降级**：stdx WebSocket 依赖 OpenSSL（帧掩码随机数走 RAND_bytes），
+  仓颉运行时设备上装不了 OpenSSL 3（真机 connect 实测死于此），SDK 也无
+  `ohos.net.websocket` 绑定（183 个绑定逐一确认）。`connect` 现在**在 scope 判定之后**
+  当场拒绝并说明原因（`wsUnavailableOnOhos` 双平台分支，desktop 空实现）——安全判定
+  先于可用性判定，越界请求报 scope 错而不是平台错。真机 2 PASS（降级拒绝 + 越界拒绝）。
+
+- **`log` 插件鸿蒙降级契约真机取证**：`log:path` 回空串、`log:write` 返 false
+  （不伪装成功）2 PASS（2026-10-25）。
+
+- **`fs` 单测基座目录前置清理进 `scripts/test.sh`**：`/tmp/fs-unit-test` 按固定名复用、
+  基座还在就撞「already exists」（会话交接 §四十五 留的欠账），入口处统一清掉。
+
+- **骨架 `build-hap.sh`（`cli/templates/ohos-skeleton/`）加 assets 自动同步段**：
+  构建前把工程根 `assets/ui`、`assets/capabilities` 拷进 rawfile——消除「改了 assets
+  不 sync 直接构建、hap 装旧页且改动静默丢失」的坑（探针工程实测踩过：探针行全无、
+  又无失败行）。
+
 - **`fs` / `mqtt` / `redis` 插件鸿蒙真机核验通过（2026-10-25，探针应用 `ohos-capabilities`）**：
   三条命令面跨平台共用、无平台代码改动——`fs` 沙箱内九条命令全链（write/read/stat/mkdir/copy/
   rename/list/remove + exists），scope 口径定案：鸿蒙进程 cwd = 应用 el2 沙箱 `files` 目录，

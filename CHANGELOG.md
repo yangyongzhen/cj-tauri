@@ -301,12 +301,25 @@
   判据：真机 `dialog take` → `dialog present` → 点确定 → `dialog answer … confirmed=true` →
   页面 `resolved`，且关闭之后页面**可继续交互**（点顶栏「编辑」即切换视图）。
 
+- **`ai-chat` 的网页站点库新增 MiniMax（`https://agent.minimax.cn/`），并把常用的四个站前置**：
+  站点表仍只在仓颉侧维护一份（`examples/ai-chat/src/webtab.cj` 的 `WEB_TAB_SITES`），页面经 `webtab:list`
+  拉取，不抄第二份。当前顺序（实机截图核对）：DeepSeek → 智谱清言 → 文心一言 → 腾讯元宝 → Kimi →
+  豆包 → 通义千问 → **MiniMax** → ChatGPT。新条目的 `note` 为「MiniMax 官方 Agent…」、站点色沿用
+  `#ff5a1f`（橙），卡片在侧栏「网页」面板里可见可点。单文件包同轮重打，
+  `examples/ai-chat/dist-single/ai-chat.exe` 10 789 376 字节 / 10.29 MiB（较上一轮 +1 024 字节）。
+  **取证范围**：卡片顺序与 MiniMax 入口是在**包内产物**上抓图核对的；点开 MiniMax 之后第三方页面本身
+  的渲染**本轮未单独截图取证**——它走的是与 DeepSeek 相同的 `webtab:show` 通路（那一条前轮已实机取证），
+  但「能打开卡片」与「站点自身正常渲染」是两件事，别把前者当后者的凭证。
+
 ### Changed
 
 - **`ai-chat` 的窗口标题改成产品名 `ai-chat, made by cj-tauri`**（页面 `<title>` 同步）：原先只写
   「AI 对话」，从标题栏看不出这是 cj-tauri 的示例，推广时不好认领。实机读回
   `(Get-Process ai-chat).MainWindowTitle` 即新名字；单文件包同轮重打
   （`examples/ai-chat/dist-single/ai-chat.exe` 10 788 352 字节 / 10.29 MiB，子系统仍 `00000002`）。
+  **同轮把页面内文案也一并改成同名**：左上角标识由「AI 对话」改为 `ai-chat`，首屏大标题改为 `ai-chat`
+  + 下一行 `made by cj-tauri`（页面自检断言里的旧文案同步替换，否则自检当场变红）。
+  实机截图（`1320×860`，包内产物）确认标题栏、左上标识、首屏三处一致。
 - **重打 `cjnote` / `ai-chat` 的 Windows 单文件包**：`cjnote.exe` 34 352 640 字节（32.8 MiB）、
   `ai-chat.exe` 10 711 040 字节（10.2 MiB），两者子系统均 `00000002`（GUI，双击不弹控制台）、
   导入表只有 Windows 系统 DLL。同轮移除误入库的 `examples/cjnote/dist-single/cjnote`——那是 **Linux ELF**

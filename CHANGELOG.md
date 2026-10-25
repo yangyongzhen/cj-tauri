@@ -25,9 +25,13 @@
   **命令名、入参、返回值、主机白名单判定两平台完全一致**（判定只在 `plugin_http.cj` 与
   `parsePageHeaders` 各一份，不在平台实现里重判），前端一行都不用改。
   两处如实边界：① `http:postStream` 在鸿蒙**当场拒绝**并说明原因（系统栈一次回整包、无增量块，
-  仓颉绑定上的 `requestInStream` 未验证），不返回假句柄；② **鸿蒙分支尚未真机构建取证**
-  （本机无鸿蒙仓颉工具链，桌面 `cjpm build` 走 `@When` 分支编不到它），矩阵标「已落地未验证」，
-  两处待真机确认的形状（`RequestMethod` 成员名、`HttpRequestOptions.extraData`）已在文件头注明。
+  仓颉绑定上的 `requestInStream` 未验证），不返回假句柄。真机核验（2026-10-25，ohos-capabilities
+  探针，4/4）：https GET 走系统栈 TLS 回 200、http GET 照旧、POST 体经 `extraData: StringData(body)`
+  回显成功、`http:postStream` 拒绝报文原样带回原因；两处待核形状定案——`RequestMethod.Post/Delete`
+  成员名正确，`extraData` 实际收 `HttpData` 枚举（真机首编即报，已修）。框架因此新增
+  `ohos.net.http` 依赖：鸿蒙入口（最终链接侧）link-option 补 `-lohos.net.http`
+  （`cli/src/manifest.cj` 两个 arch 段），缺了应用启动即
+  `relocating failed: ohos.net.http:*_ti`。取证见 `examples/ohos/ohos-capabilities/docs/evidence-http-verify.md`。
 
 - **`fs` 插件补齐目录/移动/复制/元信息四条命令**：`fs:mkdir`（`{ path, recursive? }`，目标已存在
   如实报错，不伪装成幂等成功）、`fs:rename` / `fs:copy`（`{ path, newPath, overwrite? }`，

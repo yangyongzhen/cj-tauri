@@ -116,7 +116,7 @@ func ohosRequest(method: String, url: String, headers: HashMap<String, String>,
         } else {
             HttpRequestOptions(
                 method: ohosMethodOf(method),
-                extraData: body,
+                extraData: StringData(body),
                 expectDataType: HttpDataType.ArrayBuffer,
                 header: hdrs,
                 readTimeout: timeoutMs,

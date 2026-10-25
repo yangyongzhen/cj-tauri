@@ -184,6 +184,44 @@
       }
       probeClipboard();
 
+      // http 插件（鸿蒙侧走系统网络栈 ohos.net.http）：四条核验点——
+      // ① https GET 走 OS 的 TLS（仓颉运行时装不了 OpenSSL 3，stdx 的 https 必死）；
+      // ② http GET（非 TLS 路径照旧）；
+      // ③ POST 用 extraData 承载体（该字段在仓内无用法先例，本次真机要核的形状）；
+      // ④ http:postStream 必须如实拒绝（系统栈一次回整包，没有增量块）。
+      function probeHttp() {
+        tauri.invoke('http:get', { url: 'https://www.baidu.com/' })
+          .then(function (r) {
+            report('PASS http https-get status=' + r.status + ' ctype=' + r.contentType
+              + ' len=' + r.body.length + ' truncated=' + r.truncated);
+          })
+          .catch(function (err) { report('FAIL http https-get ' + err.message); });
+
+        tauri.invoke('http:get', { url: 'http://www.baidu.com/' })
+          .then(function (r) {
+            report('PASS http plain-get status=' + r.status + ' len=' + r.body.length);
+          })
+          .catch(function (err) { report('FAIL http plain-get ' + err.message); });
+
+        var body = JSON.stringify({ hello: 'cj-tauri', n: 42 });
+        tauri.invoke('http:post', { url: 'https://httpbin.org/post', body: body })
+          .then(function (r) {
+            var echoed = r.body.indexOf('cj-tauri') >= 0;
+            report((echoed ? 'PASS' : 'FAIL') + ' http post status=' + r.status
+              + ' echoed=' + echoed + ' len=' + r.body.length);
+          })
+          .catch(function (err) { report('FAIL http post ' + err.message); });
+
+        tauri.invoke('http:postStream', { url: 'https://httpbin.org/post', body: body })
+          .then(function () {
+            report('FAIL http postStream should have been rejected on HarmonyOS');
+          })
+          .catch(function (err) {
+            report('PASS http postStream rejected: ' + err.message);
+          });
+      }
+      probeHttp();
+
       // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
       tauri.listen('menu:click', function (payload) {
         report('PASS menu click id=' + payload.id

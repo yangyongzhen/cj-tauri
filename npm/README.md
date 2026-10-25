@@ -144,6 +144,18 @@ main window keeps system default 2090x1394 px at density 190% on screen 3120x208
 已知限制：首次 `dev` / `build` 会把 C 桥构建到**框架目录的 `native/`** 下（应用 `cjpm.toml` 的
 链接参数指向那里），所以包安装目录需要可写；如果装在只读路径下，请改用仓库内运行方式。
 
+## 2.1.0 变更
+
+- **新增**：单窗口多 WebView 内嵌视图（`webview:*`，一个窗口内挂多个页面视图、LRU 上限 4 枚，
+  ai-chat 的九家网页版标签页即由它驱动）；`fs:mkdir` / `fs:rename` / `fs:copy` / `fs:stat` 四条命令
+  （带 overwrite 与双路径 scope 校验）；`http` 插件鸿蒙传输层（走 `ohos.net.http` 系统栈，https 恢复可用）；
+  `sqlite` / `serial` 鸿蒙落地；`system:host` 补 `notification` 能力位；CLI `doctor` 补 SDK 下载指路。
+- **修复**：Linux C 桥 `duplicate member 'h'` 编译错误（内嵌视图的几何字段与宿主指针撞名）、
+  `ai-chat` 收起侧栏后内嵌视图不跟随变宽、鸿蒙宿主能力位文档口径（菜单位已真机取证，不再是全 0）。
+- 鸿蒙侧真机取证：`fs` / `mqtt` / `redis` / `sqlite` / `store` / `http` 与菜单能力位。
+
+完整变更见仓库的 `CHANGELOG.md` 的 `[2.1.0] - 2026-10-25`。
+
 ## 2.0.0 变更
 
 - **不兼容**：删除已失效的公开 API `setHostFactory` / `requireInjectedHost`（框架侧单槽宿主注入）。

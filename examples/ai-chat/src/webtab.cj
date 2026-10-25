@@ -52,6 +52,9 @@ class WebTabSite {
 /**
  * 站点表：新增一家只改这里（外加 UI 不用动——卡片由 `webtab:list` 驱动渲染）。
  *
+ * **数组顺序就是标签条顺序**：常用的四家（DeepSeek / 智谱清言 / 文心一言 / 腾讯元宝）排在最前，
+ * 其余按需往后放，别让用户在一排里找入口。
+ *
  * `accent` 是卡片色块的品牌色，纯展示用；换一家站点不必同步改前端。
  * ChatGPT 那条在国内多数网络不可达，注记里写明了，别让用户以为是应用的问题。
  */
@@ -59,6 +62,15 @@ let WEB_TAB_SITES: Array<WebTabSite> = [
     WebTabSite(
         "deepseek", "DeepSeek", "https://chat.deepseek.com/",
         "深度思考 R1 / V3，额度与网页版一致", "#4d6bfe"),
+    WebTabSite(
+        "chatglm", "智谱清言", "https://chatglm.cn/",
+        "GLM 系列，支持联网与智能体", "#3859ff"),
+    WebTabSite(
+        "yiyan", "文心一言", "https://yiyan.baidu.com/",
+        "百度文心，插件生态较全", "#2932e1"),
+    WebTabSite(
+        "yuanbao", "腾讯元宝", "https://yuanbao.tencent.com/chat/",
+        "混元 + DeepSeek 双模型可切", "#0052d9"),
     WebTabSite(
         "kimi", "Kimi", "https://www.kimi.com/",
         "长文本与联网检索，支持拖文件", "#111827"),
@@ -69,14 +81,8 @@ let WEB_TAB_SITES: Array<WebTabSite> = [
         "tongyi", "通义千问", "https://www.tongyi.com/qianwen/",
         "阿里通义，文档与代码能力见长", "#615ced"),
     WebTabSite(
-        "chatglm", "智谱清言", "https://chatglm.cn/",
-        "GLM 系列，支持联网与智能体", "#3859ff"),
-    WebTabSite(
-        "yuanbao", "腾讯元宝", "https://yuanbao.tencent.com/chat/",
-        "混元 + DeepSeek 双模型可切", "#0052d9"),
-    WebTabSite(
-        "yiyan", "文心一言", "https://yiyan.baidu.com/",
-        "百度文心，插件生态较全", "#2932e1"),
+        "minimax", "MiniMax", "https://agent.minimax.cn/",
+        "MiniMax 官方 Agent，长任务与多步执行见长", "#ff5a1f"),
     WebTabSite(
         "chatgpt", "ChatGPT", "https://chatgpt.com/",
         "OpenAI 官方；国内网络通常直连不通", "#10a37f")

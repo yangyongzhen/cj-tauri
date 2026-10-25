@@ -2067,7 +2067,7 @@ function applyMode() {
     if (t !== 'convs' && t !== 'webtab') { stabs[i].style.display = agent ? '' : 'none'; }
   }
   $('wsBadge').style.display = agent ? '' : 'none';
-  $('brandName').textContent = agent ? 'cjh 客户端' : 'AI 对话';
+  $('brandName').textContent = agent ? 'cjh 客户端' : 'ai-chat';
   $('cjhState').style.display = agent ? '' : 'none';
   if (!agent) {
     applyMode.wasAgent = false;                     // 复位：下次真进 Agent 还要重新探活（见下面 guard）
@@ -2426,9 +2426,10 @@ function renderMsgs() {
     // 空会话欢迎页：给新用户一个明确的起点（也顺便展示能力面）
     var w = document.createElement('div');
     w.style.cssText = 'margin:120px auto 0;text-align:center;color:var(--dim);max-width:460px';
-    w.innerHTML = '<div style="font-size:34px;font-weight:700;margin-bottom:10px;' +
+    w.innerHTML = '<div style="font-size:34px;font-weight:700;margin-bottom:2px;' +
       'background:linear-gradient(90deg,var(--acc),var(--acc2));' +
-      '-webkit-background-clip:text;background-clip:text;color:transparent">AI 对话</div>' +
+      '-webkit-background-clip:text;background-clip:text;color:transparent">ai-chat</div>' +
+      '<div style="font-size:12px;letter-spacing:.12em;margin-bottom:12px;opacity:.75">made by cj-tauri</div>' +
       '<div style="line-height:2">在下面输入框开始提问，Enter 发送。<br>' +
       '流式回复 · Markdown 渲染 · 多会话 · 本地保存<br>' +
       '第一次使用请先点左下角「设置」填 API Key</div>';
@@ -3279,7 +3280,7 @@ function selfcheck() {
   appMode = 'chat'; applyMode(); renderConvs();
   var _stabs = document.querySelectorAll('.stab');
   var _hiddenInChat = $('wsBadge').style.display === 'none' && $('cjhState').style.display === 'none' &&
-                      $('brandName').textContent === 'AI 对话' && $('btnMode').textContent.indexOf('聊天') !== -1;
+                      $('brandName').textContent === 'ai-chat' && $('btnMode').textContent.indexOf('聊天') !== -1;
   for (var _si = 0; _si < _stabs.length; _si++) {
     // 只考查 cjh 的那三面（技能/MCP/文件）；webtab 是外站网页版入口，聊天模式下本就常显，
     // 把它算进来会让这条断言恒假——断言的对象是「cjh 能力面被藏起来」，不是「所有非会话 tab」。

@@ -222,6 +222,166 @@
       }
       probeHttp();
 
+      // fs 探针：**独立逐步**——每条命令各自报 PASS/FAIL（带步骤名），不串在一条 promise 链里，
+      // 避免上轮那种「第一步就被 scope 拒、两条拒绝 PASS 误读成链路成功」的歧义。
+      function fsStep(label, cmd, args) {
+        return tauri.invoke(cmd, args).then(
+          function (r) { report('PASS fsC ' + label + ' ' + JSON.stringify(r)); return r; },
+          function (e) { report('FAIL fsC ' + label + ' ' + e.message); return null; }
+        );
+      }
+      function probeFs() {
+        var A = '/data/storage/el1/base/haps/entry/files/probe-fs/hello.txt';
+        // 诊断轮：两条候选路径各写一次，看哪条能过 scope（错误信息带口径）
+        fsStep('write-rel', 'fs:writeText', { path: 'probe-fs/hello.txt', contents: 'cj-rel' });
+        fsStep('write-abs', 'fs:writeText', { path: A, contents: 'cj-abs' });
+        // 越界（allow 不命中）与 deny 命中（绝对路径形式）独立验
+        fsStep('outside(expect-reject)', 'fs:readText', { path: '../etc/passwd' });
+        fsStep('deny(expect-reject)', 'fs:writeText', { path: A.replace('hello.txt', 'secret.txt'), contents: 'x' });
+      }
+      // fs 诊断轮结论（2026-10-25 真机）：
+      // cwd = 应用 el2 files 目录（/data/storage/el2/base/haps/entry/files），相对路径折叠到它；
+      // scope 用 $CWD 前缀命中；writeText 不自动建父目录（先 mkdir）。
+      // 诊断段已撤，正式轮只留主链与两条期望拒绝。
+      function fsStepReject(label, cmd, args) {
+        // 期望被拒的步骤：被拒记 PASS（判据含原因），没被拒反而记 FAIL
+        return tauri.invoke(cmd, args).then(
+          function () { report('FAIL fsR ' + label + ' should have been rejected'); },
+          function (e) {
+            if (e.message.indexOf('outside the authorized scope') >= 0) {
+              report('PASS fsR ' + label + ' rejected');
+            } else {
+              report('FAIL fsR ' + label + ' wrong-reason: ' + e.message);
+            }
+          }
+        );
+      }
+
+      // fs 正式轮：诊断轮已定口径（cwd = 应用 el2 files 目录，scope 用 $CWD 前缀命中；
+      // writeText 不自动建父目录——先 mkdir 再写）。链式推进，每步独立报 PASS/FAIL，
+      // 前一步失败就停在原地，后面的步骤不再跑。
+      function fsRun(label, cmd, args, next) {
+        return tauri.invoke(cmd, args).then(
+          function (r) { report('PASS fsR ' + label + ' ' + JSON.stringify(r)); if (next) { next(); } },
+          function (e) { report('FAIL fsR ' + label + ' ' + e.message); }
+        );
+      }
+      function probeFsChain() {
+        // mkdir 对已存在目标如实报错（命令面语义）——统一走 exists 幂等探测，保证重跑可复现
+        fsMkdirIdem('mkdir', 'probe-fs', fsChainRest);
+      }
+      function fsMkdirIdem(label, path, next) {
+        tauri.invoke('fs:exists', { path: path }).then(
+          function (ex) {
+            if (ex) {
+              report('PASS fsR ' + label + ' (already exists, skipped)');
+              next();
+            } else {
+              fsRun(label, 'fs:mkdir', { path: path, recursive: true }, next);
+            }
+          },
+          function (e) { report('FAIL fsR ' + label + '-exists ' + e.message); }
+        );
+      }
+      function fsChainRest() {
+        fsRun('write', 'fs:writeText', { path: 'probe-fs/hello.txt', contents: 'cj-fs-' + Date.now() }, function () {
+            fsRun('read', 'fs:readText', { path: 'probe-fs/hello.txt' }, function (r) {
+              report('PASS fsR read-back ' + r);
+              fsRun('stat', 'fs:stat', { path: 'probe-fs/hello.txt' }, function () {
+                fsMkdirIdem('mkdir-sub', 'probe-fs/sub', function () {
+                  fsRun('copy', 'fs:copy', { path: 'probe-fs/hello.txt', newPath: 'probe-fs/sub/copy.txt', overwrite: true }, function () {
+                    fsRun('rename', 'fs:rename', { path: 'probe-fs/sub/copy.txt', newPath: 'probe-fs/sub/renamed.txt' }, function () {
+                      fsRun('list', 'fs:list', { path: 'probe-fs/sub' }, function (ls) {
+                        var names = (ls || []).map(function (e) { return e.name; }).join(',');
+                        report('PASS fsR list-entries ' + names);
+                        fsRun('remove', 'fs:remove', { path: 'probe-fs/sub/renamed.txt' }, function () {
+                          // fs:remove 只删文件、拒绝目录是命令面语义（与桌面一致）——记 SKIP 不算失败
+                          report('SKIP fsR cleanup-dir (fs:remove is file-only by contract)');
+                        });
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+          // 越界与 deny 独立验（相对路径）：../etc/passwd 不命中 allow；
+        // deny 的判读依据是对照——同形态 hello.txt 写成功而 secret 前缀被拒，才证明 deny 生效
+        fsStepReject('outside-scope', 'fs:readText', { path: '../etc/passwd' });
+        fsStepReject('deny-path', 'fs:writeText', { path: 'probe-fs/secret.txt', contents: 'x' });
+      }
+      probeFsChain();
+
+      // mqtt 插件：对端是 PC 上的本仓 mock broker，经 `hdc rport tcp:18830 tcp:18830`
+      // 反向转发——设备连自己的 127.0.0.1:18830，hdc 把它转发到 PC 的 broker
+      // （公网明文 broker 1883 已实测被网络拦：connect timeout）。自收回环对账。
+      function probeMqtt() {
+        var topic = 'cj-tauri-probe-' + Date.now();
+        var got = 0;
+        tauri.listen('mqtt:message', function (p) {
+          got += 1;
+          report('PASS mqtt message topic=' + p.topic + ' payload=' + JSON.stringify(p.text || p.payload || p));
+        });
+        tauri.mqtt.connect({ host: '127.0.0.1', port: 18830, clientId: 'cj-probe-' + Date.now() })
+          .then(function (c) {
+            report('PASS mqtt connect ' + JSON.stringify(c));
+            return tauri.mqtt.subscribe({ filter: topic, qos: 1 });
+          })
+          .then(function (s) {
+            report('PASS mqtt subscribe ' + JSON.stringify(s));
+            return tauri.mqtt.publish({ topic: topic, qos: 1, text: 'cj-mqtt-' + Date.now() });
+          })
+          .then(function (pub) {
+            report('PASS mqtt publish ' + JSON.stringify(pub));
+            // 回推是异步的：4 秒后用 recent 对账（事件先到就不依赖这条）
+            setTimeout(function () {
+              tauri.mqtt.recent({ limit: 10 }).then(function (r) {
+                report('PASS mqtt recent buffered=' + r.buffered + ' items=' + JSON.stringify((r.items || []).map(function (x) { return x.topic; })));
+                return tauri.mqtt.status();
+              }).then(function (st) {
+                report('PASS mqtt status ' + JSON.stringify(st));
+                return tauri.mqtt.disconnect();
+              }).then(function (d) {
+                report((got > 0 ? 'PASS' : 'FAIL') + ' mqtt round-trip got=' + got);
+                report('PASS mqtt disconnect ' + JSON.stringify(d));
+              }).catch(function (e2) { report('FAIL mqtt tail ' + e2.message); });
+            }, 4000);
+          })
+          .catch(function (err) { report('FAIL mqtt ' + err.message); });
+      }
+      probeMqtt();
+
+      // redis 插件：对端是 PC 上的本仓 mock-redis，经 `hdc rport tcp:6380 tcp:6379`
+      // 反向转发——设备连自己的 127.0.0.1:6380。最小闭环：connect → SET → GET 对账 → status → disconnect。
+      function probeRedis() {
+        var key = 'probe-' + Date.now();
+        var token = 'cj-redis-' + Date.now();
+        tauri.redis.connect({ host: '127.0.0.1', port: 6380 })
+          .then(function (c) {
+            report('PASS redis connect ' + JSON.stringify(c));
+            return tauri.redis.valueWrite({ key: key, type: 'string', op: 'set', value: token });
+          })
+          .then(function (w) {
+            report('PASS redis set ' + JSON.stringify(w));
+            return tauri.redis.value({ key: key });
+          })
+          .then(function (v) {
+            // value 命令的 value 字段是展示对象 {bytes, truncated, text, hex}（redisValueDisplay）
+            var text = (v && v.value && v.value.text !== undefined) ? v.value.text : JSON.stringify(v);
+            report((text === token ? 'PASS' : 'FAIL') + ' redis get round-trip expect=' + token + ' actual=' + text);
+            return tauri.redis.status();
+          })
+          .then(function (st) {
+            report('PASS redis status ' + JSON.stringify(st));
+            return tauri.redis.disconnect();
+          })
+          .then(function (d) {
+            report('PASS redis disconnect ' + JSON.stringify(d));
+          })
+          .catch(function (err) { report('FAIL redis ' + err.message); });
+      }
+      probeRedis();
+
       // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
       tauri.listen('menu:click', function (payload) {
         report('PASS menu click id=' + payload.id

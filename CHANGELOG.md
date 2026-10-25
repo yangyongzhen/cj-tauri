@@ -16,6 +16,18 @@
 
 ### Added
 
+- **`fs` / `mqtt` / `redis` 插件鸿蒙真机核验通过（2026-10-25，探针应用 `ohos-capabilities`）**：
+  三条命令面跨平台共用、无平台代码改动——`fs` 沙箱内九条命令全链（write/read/stat/mkdir/copy/
+  rename/list/remove + exists），scope 口径定案：鸿蒙进程 cwd = 应用 el2 沙箱 `files` 目录，
+  清单 allow 走 `$CWD` 前缀；`mqtt` 经 `hdc rport` 反向转发连本机 mock broker，全链 PASS
+  （CONNACK / SUBACK QoS1 / PUBLISH 回推 / PUBACK / status / disconnect，got=10 条报文逐条留证；
+  公网明文 broker 1883 实测被设备网络拦，取证对端走 rport + 本机 mock）；`redis` 同法连本机
+  mock-redis，connect→SET→GET 逐字对账→status→disconnect 全链 PASS。
+  取证与坑（`**` 不匹配裸目录、`writeText` 不自动建父目录、`redis:value` 的 value 是展示对象）见
+  `examples/ohos/ohos-capabilities/docs/evidence-fs-mqtt-redis-verify.md`。
+  **notification 鸿蒙侧评估为 blocked**：仓颉 SDK 无 `ohos.notification` 绑定（183 个绑定逐一确认），
+  ArkTS 通道被 D-022 封死，剩 NDK 直连 C API 一条未验证的路。
+
 - **`http` 插件打通鸿蒙（系统网络栈 `ohos.net.http`）**：仓颉运行时在鸿蒙上装不了 OpenSSL 3
   （真机 `MUSL-LDSO: load libcrypto_openssl.z.so failed … errno=2`），stdx 的 TLS 从第一步就失败，
   于是此前 `http:get` 在鸿蒙上是「https 全灭、http 照旧」的半死状态。现在把传输层抽成契约

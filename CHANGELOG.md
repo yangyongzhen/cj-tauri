@@ -253,6 +253,12 @@
 
 ### Changed
 
+- **重打 `cjnote` / `ai-chat` 的 Windows 单文件包**：`cjnote.exe` 34 352 640 字节（32.8 MiB）、
+  `ai-chat.exe` 10 711 040 字节（10.2 MiB），两者子系统均 `00000002`（GUI，双击不弹控制台）、
+  导入表只有 Windows 系统 DLL。同轮移除误入库的 `examples/cjnote/dist-single/cjnote`——那是 **Linux ELF**
+  产物（无 `.exe` 后缀，Windows 上根本执行不了），单文件包目录只该有 `<名字>.exe`。
+  打包前必须 `export CANGJIE_STDX=<stdx>/<三元组>/dynamic/stdx`（框架 `cjpm.toml` 的
+  `bin-dependencies` 靠进程环境变量展开，漏设报的是「框架缺依赖」）。
 - 官网架构小节接入**多端总图**（`docs/images/architecture-multiplatform.png` → `website/assets/`）：
   讲清工程根只有一份业务代码、`cj-tauri.toml` 是单一真相、`sync` 据此派生 `targets/desktop` 与
   `targets/ohos`，分别落到 WebKitGTK / WebView2 / ArkWeb。`scripts/site-check.sh` 的「同源拷贝不许漂移」

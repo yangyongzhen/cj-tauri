@@ -2,9 +2,10 @@
 
 # cj-tauri · Tauri, in Cangjie
 
-**Keep writing the front end as the Web; the back end is a statically compiled Cangjie binary —
+**A hybrid desktop-app framework in Huawei's Cangjie language — statically compiled Cangjie backend + system WebView front end.**
+Keep writing the front end as the Web; the back end is a statically compiled Cangjie binary —
 no bundled Chromium, 4.7–10.3 MB artifacts, verified on real hardware across Windows, Linux and
-HarmonyOS PC (2in1).**
+HarmonyOS PC (2in1).
 
 Bidirectional IPC bridge · capability whitelist (commands / events / paths / egress — four gates) ·
 14 official plugins · twenty-odd runnable examples · every example ships an unattended self-check

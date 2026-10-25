@@ -528,6 +528,12 @@
         logLine('tick #' + payload.n);
       });
 
+      // 跨窗定向投递的**接收端**：第二窗发的命令经 emitToWindow 推到这里。
+      // 报文里带 window=main（定向），页面侧只要收到就说明路由没串台。
+      tauri.listen('crosstalk:probe', function (payload) {
+        report('PASS main got directed event payload=' + payload);
+      });
+
       // 页面 → 原生菜单：勾选态改动（走 menu 插件，验证宿主侧状态回写）
       var checked = true;
       document.getElementById('toggleChecked').onclick = function () {

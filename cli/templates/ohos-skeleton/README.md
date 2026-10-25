@@ -46,6 +46,11 @@ bash build-hap.sh --install
 
 改了鸿蒙侧仓颉代码却没生效时：`bash build-hap.sh --clean`（hvigor 与框架 cjpm 各有一份增量缓存）。
 
+**DevEco IDE 内点 Build 不经过 build-hap.sh**：assets 自动同步段（工程根 assets/ → rawfile）在
+命令行入口里，IDE 构建不会执行——在 IDE 里改了 `assets/ui` 或 `assets/capabilities` 后，
+要么回命令行跑一次 `bash build-hap.sh`，要么重跑 `cj-tauri sync ohos`；直接 IDE 构建装出来的是旧页
+（判据：hap 内 `unzip -p *.hap resources/rawfile/ui/index.html` 不含你的改动）。
+
 ## 签名
 
 模板**不带证书**（调试证书由每台机器的 DevEco 本机生成、与华为账号绑定，不该入库）。

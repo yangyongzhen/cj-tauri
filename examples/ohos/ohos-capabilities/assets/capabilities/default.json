@@ -5,13 +5,14 @@
     "greet",
     "timer",
     "probeLog",
+    "probeEmitTo",
     "system:version",
     "system:host",
     "clipboard:write",
     "clipboard:read"
   ],
   "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default", "ws:default", "log:default", "sqlite:default", "store:default"],
-  "events": ["tick", "menu:click", "mqtt:message", "mqtt:state", "ws:frame", "ws:state"],
+  "events": ["tick", "menu:click", "mqtt:message", "mqtt:state", "ws:frame", "ws:state", "crosstalk:probe"],
   "scopes": {
     "http": {
       "allow": ["www.baidu.com", "httpbin.org"]

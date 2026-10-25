@@ -29,6 +29,71 @@ public func probeLog(text: String): Unit {
     Hilog.info(1, "CjProbe", text)
 }
 
+/*
+ * 第二扇窗的内联页面（多窗口组合验证用）
+ *
+ * `addWindow` 目前只接内联页面（src/app.cj 的契约），所以这里给一份精简探针：
+ * ① 页面自认 label 必须是 second（`__CJ_TAURI_LABEL__` 由宿主注入）；
+ * ② 第二窗自己的 sqlite / store 命令往返成立（证明命令分发按 `ipc.window` 找到 second 宿主，
+ *    结果没有回投到第一扇窗）；
+ * ③ 主窗的 `probe-key` 在第二窗读不到——store 是**应用级共享**存储，键隔离即语义正确
+ *   （真串台会表现为第二窗读到第一窗的键值）。
+ *
+ * 注意：内联 JS 里**不写反斜杠**（三引号字符串会先吃掉转义，AGENTS §4）；换行用
+ * `String.fromCharCode(10)`。sqlite:exec 不收 params，值直接内联。
+ */
+let SECOND_PAGE_HTML: String = """
+<!doctype html><html><head><meta charset="utf-8"><title>second</title></head><body>
+<h3>second window probe</h3><pre id="out"></pre>
+<script>
+(function () {
+  var outEl = document.getElementById('out');
+  function out(t) { if (outEl) { outEl.textContent = outEl.textContent + t + String.fromCharCode(10); } }
+  function wait(n) {
+    if (!window.__CJ_TAURI__ || !window.__CJ_TAURI__.invoke) {
+      if (n <= 0) { out('bridge missing'); return; }
+      setTimeout(function () { wait(n - 1); }, 50);
+      return;
+    }
+    var t = window.__CJ_TAURI__;
+    var me = typeof window.__CJ_TAURI_LABEL__ === 'undefined' ? 'unset' : window.__CJ_TAURI_LABEL__;
+    function report(text) {
+      t.invoke('probeLog', { text: text }).catch(function (e) { out('probeLog fail ' + e.message); });
+    }
+    report('PASS second window up me=' + me);
+    var db = 'second-window.db';
+    /* SQL 里的字符串字面量必须用**单引号**包：SQLite 把双引号优先当标识符，
+       写成 VALUES (cj-second) 会被解析成列名表达式、报 no such column: cj（实测踩过）。 */
+    t.invoke('sqlite:exec', { path: db, sql: "CREATE TABLE IF NOT EXISTS t2(id INTEGER PRIMARY KEY, v TEXT); DELETE FROM t2; INSERT INTO t2(v) VALUES ('cj-second')" })
+      .then(function () { return t.invoke('sqlite:query', { path: db, sql: 'SELECT v FROM t2 ORDER BY id' }); })
+      .then(function (q) {
+        var ok = q && q.rows && q.rows.length === 1;
+        var val = ok ? q.rows[0][0].value : null;
+        report((ok && val === 'cj-second' ? 'PASS' : 'FAIL') + ' second sqlite round-trip v=' + val);
+        return t.invoke('store:set', { key: 'second-key', value: 'second-value' });
+      })
+      .then(function () { return t.invoke('store:get', { key: 'second-key' }); })
+      .then(function (v) {
+        report((v === 'second-value' ? 'PASS' : 'FAIL') + ' second store round-trip v=' + v);
+        return t.invoke('store:get', { key: 'probe-key', default: 'absent' });
+      })
+      .then(function (p) {
+        report('INFO second reads main-window key probe-key=' + p);
+        // 跨窗定向投递的**发送端**：投给对面（main）。发给自己在路由错误的实现下也会通过，
+        // 等于没测；延迟 2.5s 是等主窗页面把 listen 注册上（它前序还有一串探针）。
+        setTimeout(function () {
+          t.invoke('probeEmitTo', { target: 'main', event: 'crosstalk:probe', payload: 'from-second' })
+            .then(function () { report('INFO second emitted directed event to main'); })
+            .catch(function (e) { report('FAIL second emit ' + e.message); });
+        }, 2500);
+      })
+      .catch(function (e) { report('FAIL second ' + e.message); });
+  }
+  wait(120);
+})();
+</script>
+</body></html>"""
+
 @When[env != "ohos"]
 public func probeLog(text: String): Unit {
     println("[CjProbe] ${text}")
@@ -54,9 +119,45 @@ public class ProbeLogCommand <: CommandHandler {
 }
 
 /**
- * greet 命令（对标 tauri command）
- * 前端：tauri.invoke("greet", { name: "..." })
+ * 定向投递探针：把事件推给**对面窗口**
+ *
+ * 为什么必须「对面」：`emitToWindow` 若退化成广播、或路由错成「总是本窗」，
+ * 「发给自己」的断言在错误实现下同样会通过——等于没测（AGENTS §4 的多窗口判据）。
+ * 真正被验证的是「第二窗发的命令 → 主窗页面收到事件」，两端各自回投一条证据。
  */
+public class ProbeEmitToCommand <: CommandHandler {
+    private let app: TauriApp
+
+    public init(app: TauriApp) {
+        this.app = app
+    }
+
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
+        let target = probeArg(args, "target")
+        let event = probeArg(args, "event")
+        let payload = probeArg(args, "payload")
+        if (target.size == 0 || event.size == 0) {
+            throw Exception("probeEmitTo: target / event required")
+        }
+        this.app.emitToWindow(event, JsonString(payload), target)
+        return JsonBool(true)
+    }
+}
+
+/** 取字符串型命令参数（缺省回空串）——探针命令的小工具 */
+func probeArg(args: JsonObject, key: String): String {
+    if (let Some(v) <- args.get(key)) {
+        match (v.kind()) {
+            case JsonKind.JsString => return v.asString().getValue()
+            case _ => ()
+        }
+    }
+    return ""
+}
+
+
 public class GreetCommand <: CommandHandler {
     public init() {}
 
@@ -158,10 +259,17 @@ public func build(): AppSpec {
         // store 插件：真机核验持久化 KV——落盘 <cwd>/store.json（鸿蒙 cwd = el2 files 目录，可写）
         .plugin(StorePlugin())
         .wire({ app =>
+            // 第二扇窗（多窗口组合验证）：label 必须与骨架 index.cj 里 SECOND_WINDOW_LABEL 一致
+            // ——框架按 label 查宿主、按 label 落页面（cj-tauri-second.html），两处不一致就白屏。
+            // **AppSpec.wire 是单槽**（后一次调用覆盖前一次），addWindow 必须并进这个 lambda。
+            // addWindow 只接内联页面（src/app.cj 的契约），所以给一份精简探针页。
+            app.addWindow("second", WindowConfig("ohos-capabilities second", 900, 560), SECOND_PAGE_HTML)
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())
             // 页面断言写设备日志：能力位取证靠它（见 probeLog 的注释）
             app.register("probeLog", ProbeLogCommand())
+            // 跨窗定向投递探针（wrapper 收 app 才能调 emitToWindow）
+            app.register("probeEmitTo", ProbeEmitToCommand(app))
             // 菜单栏必须在 run 之前挂：预置类宿主能力要赶在页面加载前定稿
             app.setMenu(demoMenu())
         })

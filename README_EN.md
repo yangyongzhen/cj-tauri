@@ -255,7 +255,7 @@ asserted screenshots), `cj-tauri-troubleshoot` (field-tested pitfall quick refer
 - ✅ Async command dispatch (slow commands never freeze the window), multi-window routing by label,
   machine-readable plugin manifest via `info --json`
 - ✅ Engineering: 144 unit tests + SDK-free static gates (what CI runs) + unattended example self-checks
-- 🔜 HarmonyOS ArkWeb backend (scaffolded), macOS WebView, more official plugins (tray, global shortcuts)
+- 🔜 Remaining HarmonyOS host capability bits (menu already device-verified; tray / hotkeys / drag-and-drop / notification honestly report 0 — dialogs use an app-side overlay and occupy no bit), macOS WebView, more official plugins
 
 ## Repos
 

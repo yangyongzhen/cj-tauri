@@ -76,7 +76,7 @@
   <text x="766" y="718" font-size="12" fill="#E6F5F2" text-anchor="middle">src/host_arkweb.cj（宿主编排）</text>
   <text x="766" y="740" font-size="12" fill="#E6F5F2" text-anchor="middle">应用侧 ArkUI：Web + javaScriptProxy</text>
   <text x="766" y="762" font-size="12" fill="#E6F5F2" text-anchor="middle">真机闭环：版本往返 · 多窗口 label</text>
-  <text x="766" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">宿主能力位仍如实报 0 · C 桥未落地</text>
+  <text x="766" y="784" font-size="12" fill="#E6F5F2" text-anchor="middle">菜单能力位已真机取证 · 其余如实报 0 · C 桥未落地</text>
 
   <path d="M480 878 V 900" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
   <text x="492" y="895" font-size="12" fill="#64748B">cj_bridge_* 同名同签名</text>

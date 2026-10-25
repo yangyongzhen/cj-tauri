@@ -16,6 +16,24 @@
 
 ### Added
 
+- **鸿蒙真机 E2E 入口 `scripts/e2e/test-ohos-capabilities.sh`**：驱动 `examples/ohos/ohos-capabilities`
+  探针应用（页面自跑全量断言、经 `probeLog` 写设备 hilog tag `CjProbe`），脚本负责装机、
+  流式抓 hilog、按断言名取命中次数，产出 `dist/e2e-evidence/windows-ohos-capabilities.json`。
+  非 Windows 宿主默认跳过（真机取证依赖 Windows 侧 hdc + DevEco 签名），`CJ_TAURI_E2E_REQUIRE=windows`
+  可让「错机」判失败；`check-static.sh` 第 9 项守它的入口形态（platform 守卫 + 驱动 fixture）。
+
+- **多窗口 × sqlite/store 组合鸿蒙真机取证通过（47 PASS）**：第二窗（label `second`，
+  业务侧 `addWindow` 内联页面）与主窗在同进程并行跑——两窗各自登记、各自落
+  `cj-tauri-<label>.html`、页面自认 `me=second` 与原生报文 `window=` 恒等；
+  第二窗的 `sqlite:exec/query`（自己的库 `second-window.db`）与 `store:set/get` 往返逐字回读；
+  **跨窗定向投递成立**：第二窗 `invoke('probeEmitTo', {target:'main'})` → 业务侧
+  `app.emitToWindow(...)` → 主窗 `crosstalk:probe` 监听收到（`PASS main got directed event
+  payload=from-second`）——定向投递发给**对面**窗口才算测了路由。
+  零框架代码改动。同轮修掉两处探针侧写法：`AppSpec.wire` **单槽**导致分次 `.wire()` 静默丢弃
+  （`addWindow` 从未执行、第二窗白屏且无提示，落法是并进同一个 lambda）；内联页 SQL 字面量
+  用了裸词 / 双引号 → SQLite 当标识符解析报 `no such column: cj`，改单引号。
+  见 `examples/ohos/ohos-capabilities/docs/evidence-multiwindow-verify.md`。
+
 - **`store` 插件鸿蒙真机取证通过（7 PASS + 跨重启持久化）**：set（嵌套 JSON）→get 逐字
   回读→keys→delete→get 缺省值→clear 全 PASS，persist-key 跨 force-stop 存活
   （store.json 落 `<cwd>/store.json`，鸿蒙 cwd = 应用 el2 files 目录）。零平台代码改动。

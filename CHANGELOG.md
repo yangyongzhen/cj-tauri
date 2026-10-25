@@ -2936,7 +2936,7 @@ expand/fill、页面 `100vh` 与外层 flex 都跟着变（隔离副本在 Xvfb 
 - `TauriApp.openDevTools()`、命令处理器里的 `ipc.openDevTools()`、内置命令 `system:devtools`，
   以及 `WindowConfig.devTools = false` 的禁用开关。新增框架源码 `src/window.cj`。
 - 两平台 C 桥新增同名导出 `cj_bridge_set_window` 与 `cj_bridge_open_devtools`。
-- 文档：`docs/仓颉版Tauri-介绍与使用指南.md`（指南体）与 `docs/仓颉版Tauri-博客稿.md`（博客体）。
+- 文档：`docs/promotion/仓颉版Tauri-介绍与使用指南.md`（指南体）与 `docs/promotion/仓颉版Tauri-博客稿.md`（博客体）。
 - 工程文件：本 `CHANGELOG.md`、`AGENTS.md`（开发规范契约）、`scripts/check-version.sh`（版本一致性自检）。
 
 ### Changed

@@ -967,7 +967,10 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   该目录由各示例自己的 `.gitignore` 用 `!vendor/cjh/bin/**` 开口子，`scripts/check-static.sh` 的
   「构建产物」检查按同一口径放行**这棵树里的** `.dll` 并把放行条数打进日志——**口径不放宽到任意 `*.dll`**。
   提交前 `git status` 自查，用**显式路径** `git add`，避免 `git add -A` 扫进无关文件。
-- `docs/仓颉版Tauri-介绍与使用指南.md` 与 `docs/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
+- `docs/promotion/` 专门收纳**对外发表与推广类文稿**（博客稿、介绍与使用指南、渠道评估与投稿素材、
+  英文技术稿），工程文档（RFC、使用文档、进度记录、会话交接）留在 `docs/` 根——两类东西的生命周期
+  与读者都不同，混在一层会让「改哪份会被外部引用」这件事失去边界。其中
+  `docs/promotion/仓颉版Tauri-介绍与使用指南.md` 与 `docs/promotion/仓颉版Tauri-博客稿.md` 是**发表用文稿**：
   需要更新时另存新文件或先确认，不要为同步 API 直接覆盖。
 - 代码以 **MIT** 发布（根 `LICENSE`）；引入第三方代码或资源时，必须在本文件登记其来源与许可证。
   当前已登记的第三方代码：**three.js r160**（`examples/typing-poem/ui/vendor/three.min.js`，669 884 字节，

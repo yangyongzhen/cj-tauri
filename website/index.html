@@ -115,8 +115,8 @@
             <span class="chip chip--ok"><span class="dot"></span><span data-en="Windows · WebView2 verified">Windows WebView2 实机</span></span>
             <span class="chip chip--ok"><span class="dot"></span><span data-en="Linux · WebKitGTK verified">Linux WebKitGTK 实机</span></span>
             <span class="chip chip--ok"><span class="dot"></span><span data-en="0 third-party runtime DLLs">0 个第三方运行时 DLL</span></span>
-            <span class="chip"><span data-en="261 unit tests">261 个单元测试</span></span>
-            <span class="chip"><span data-en="8 E2E entries">8 条 E2E 入口</span></span>
+            <span class="chip"><span data-en="347 unit tests">347 个单元测试</span></span>
+            <span class="chip"><span data-en="10 E2E entries">10 条 E2E 入口</span></span>
             <span class="chip"><span data-en="HarmonyOS PC (ArkWeb) · on-device">鸿蒙 PC（ArkWeb）· 实机</span></span>
           </div>
         </div>
@@ -268,6 +268,13 @@
         <figcaption class="arch__cap" data-en="Source: docs/images/architecture.svg (versioned with the code)">图片来源：<code>docs/images/architecture.svg</code>（与代码同仓版本化）</figcaption>
       </figure>
 
+      <figure class="arch reveal" style="margin-top:14px">
+        <img src="assets/architecture-runtime-bridge.png" width="2440" height="1480"
+             alt="cj-tauri 运行时桥接图：页面 ↔ 内置注入脚本 ↔ 仓颉宿主（host_webkit / host_webview2 / host_arkweb）↔ C 桥 core 与平台原语"
+             data-en-alt="cj-tauri runtime bridging: the page ↔ the injected bridge script ↔ the Cangjie host (host_webkit / host_webview2 / host_arkweb) ↔ the C bridge core and per-platform primitives">
+        <figcaption class="arch__cap" data-en="The runtime view of the same picture: docs/images/architecture-runtime-bridge.png (versioned with the code)">同一张图的运行时视角：<code>docs/images/architecture-runtime-bridge.png</code>（与代码同仓版本化）</figcaption>
+      </figure>
+
       <div class="grid grid--4 reveal" style="margin-top:24px">
         <article class="feat">
           <h3 class="feat__h"><span class="chip chip--mute">01</span><span data-en="Frontend">前端</span></h3>
@@ -300,9 +307,16 @@
         </article>
       </div>
 
-      <p class="note" data-en="The same code is not written twice per target either: the project root stays the only business copy, and the target skeletons are derived from it.">
-        同一份代码也不会按端各写一遍：工程根永远是唯一的业务代码，目标端骨架由 <code>sync</code> 从它派生。
+      <p class="note" data-en="The same code is not written twice per target either: the project root stays the only business copy, and the target skeletons are derived from it by cj-tauri sync, driven by the cj-tauri.toml manifest.">
+        同一份代码也不会按端各写一遍：工程根永远是唯一的业务代码，<code>cj-tauri.toml</code> 是单一真相，
+        目标端骨架由 <code>sync</code> 从它派生。
       </p>
+      <figure class="arch reveal" style="margin-top:14px">
+        <img src="assets/architecture-sync-flow.png" width="2440" height="2040"
+             alt="cj-tauri 清单与骨架派生流程图：cj-tauri.toml 清单 → cj-tauri sync（按目标端派生骨架）→ targets/desktop 与 targets/ohos → 各端构建，业务代码以 path 依赖进入"
+             data-en-alt="cj-tauri manifest and skeleton derivation: the cj-tauri.toml manifest → cj-tauri sync derives per-target skeletons → targets/desktop and targets/ohos → per-target builds, with the business code referenced as a path dependency">
+        <figcaption class="arch__cap" data-en="How one codebase becomes per-target builds: docs/images/architecture-sync-flow.png (versioned with the code)">一份业务代码怎么走到各端构建：<code>docs/images/architecture-sync-flow.png</code>（与代码同仓版本化）</figcaption>
+      </figure>
       <figure class="arch reveal" style="margin-top:14px">
         <img src="assets/architecture-multiplatform.png" width="2440" height="1800"
              alt="cj-tauri 一份代码多端产物：工程根只有一份业务代码（src/main.cj 的 build()、assets/ui 前端、assets/capabilities 能力清单），cj-tauri.toml 是单一真相，CLI 的 sync 据此派生 targets/desktop 与 targets/ohos 两套骨架，分别落到 WebKitGTK / WebView2 / ArkWeb"
@@ -317,8 +331,10 @@
       <div class="sec-head">
         <span class="kicker" data-en="Code">代码</span>
         <h2 class="sec-title" data-en="Three files and you have a desktop app">三个文件，一个桌面应用</h2>
-        <p class="sec-lead" data-en="A command on the Cangjie side, one line in the manifest to allow it, one invoke on the page. There is nothing else to wire by hand.">
+        <p class="sec-lead" data-en="A command on the Cangjie side, one line in the manifest to allow it, one invoke on the page. The project root keeps a cj-tauri.toml manifest plus src/ and assets/ — there is nothing else to wire by hand, and cj-tauri sync derives the per-target skeletons from it.">
           仓颉侧写一个命令、清单里放行一行、页面上 invoke 一次——没有别的仪式，也不用改构建脚本。
+          工程根是一份 <code>cj-tauri.toml</code> 清单加 <code>src/</code> 与 <code>assets/</code>，
+          各端骨架由 <code>cj-tauri sync</code> 从它派生。
         </p>
       </div>
 
@@ -354,7 +370,7 @@
 
         <div class="panel" id="panel-cap" role="tabpanel" aria-labelledby="tab-cap" hidden>
           <div class="code">
-            <div class="code__bar"><span>capabilities/default.json</span><span class="code__lang">JSON</span></div>
+            <div class="code__bar"><span>assets/capabilities/default.json</span><span class="code__lang">JSON</span></div>
 <pre class="code__body">{
   <span class="t-p">"identifier"</span>: <span class="t-s">"default"</span>,
   <span class="t-p">"windows"</span>: [<span class="t-s">"main"</span>],
@@ -379,7 +395,7 @@
 
         <div class="panel" id="panel-js" role="tabpanel" aria-labelledby="tab-js" hidden>
           <div class="code">
-            <div class="code__bar"><span>ui/index.html</span><span class="code__lang">JavaScript</span></div>
+            <div class="code__bar"><span>assets/ui/index.html</span><span class="code__lang">JavaScript</span></div>
 <pre class="code__body"><span class="t-c">// 桥在 document-start 注入，页面脚本执行时就已经存在；</span>
 <span class="t-c">// 应用侧仍建议等一次（模板里的 waitForBridge），免得构建形态不同步。</span>
 <span class="t-k">const</span> cj = window.__CJ_TAURI__;
@@ -409,9 +425,9 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
 
 <span class="t-c"># 换机器第一件事：doctor 逐行说缺什么、怎么补</span>
 <span class="t-cmd">npx cj-tauri doctor</span>
-<span class="t-out">[ok]   cangjie sdk  1.2.0   /opt/cangjie/cangjie</span>
-<span class="t-out">[ok]   stdx         found   $CANGJIE_STDX</span>
-<span class="t-out">[miss] webkit2gtk-4.1     sudo apt install libwebkit2gtk-4.1-dev</span></pre>
+<span class="t-out">[ok]   仓颉 SDK    1.2.0   /opt/cangjie/cangjie</span>
+<span class="t-out">[ok]   stdx        found   $CANGJIE_STDX</span>
+<span class="t-out">[miss] webkit2gtk-4.1  sudo apt install libwebkit2gtk-4.1-dev</span></pre>
           </div>
         </div>
       </div>
@@ -751,8 +767,8 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
           <p class="stat__l" data-en="Cold start on Linux (process start → the bridge logs the window title); 48/54/57 ms over 3 runs">Linux 冷启动（进程启动 → 桥打出窗口标题行），3 次取样 48/54/57 ms</p>
         </div>
         <div class="stat">
-          <p class="stat__n">261<span class="stat__u" data-en=" tests / 8 E2E"> 单测 / 8 E2E</span></p>
-          <p class="stat__l" data-en="Cangjie-side unit tests plus a stub-platform self-check for the shared C core, and eight unattended E2E entries">仓颉侧单元测试 + 共享 C 核心的桩平台自检，另有 8 条无人值守 E2E 入口</p>
+          <p class="stat__n">347<span class="stat__u" data-en=" tests / 10 E2E"> 单测 / 10 E2E</span></p>
+          <p class="stat__l" data-en="Cangjie-side unit tests plus a stub-platform self-check for the shared C core, and ten unattended E2E entries (nine on Linux, one on Windows)">仓颉侧单元测试 + 共享 C 核心的桩平台自检，另有 10 条无人值守 E2E 入口（Linux 9 条、Windows 1 条）</p>
         </div>
       </div>
 
@@ -792,9 +808,9 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
             <div class="term">
               <div class="term__bar">doctor</div>
 <pre><span class="t-cmd">$ npx cj-tauri doctor</span>
-<span class="t-out">[ok]   cangjie sdk     1.2.0    /opt/cangjie/cangjie</span>
+<span class="t-out">[ok]   仓颉 SDK     1.2.0    /opt/cangjie/cangjie</span>
 <span class="t-out">[ok]   cjpm            found</span>
-<span class="t-out">[ok]   c bridge        libcjtbridge.so (22 exports)</span>
+<span class="t-out">[ok]   C 桥            native/libcjtbridge.so [已构建]</span>
 <span class="t-out">[miss] webkit2gtk-4.1  sudo apt install libwebkit2gtk-4.1-dev</span></pre>
             </div>
           </div>
@@ -810,9 +826,9 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
             <div class="term">
               <div class="term__bar">create</div>
 <pre><span class="t-cmd">$ npx cj-tauri create myapp</span>
-<span class="t-out">  scaffolding app (inline HTML template) ...</span>
-<span class="t-out">  capabilities/default.json written</span>
-<span class="t-out">  next: cd myapp &amp;&amp; npx cj-tauri dev</span></pre>
+<span class="t-out">[cj-tauri] 已创建项目 myapp/</span>
+<span class="t-out">  cj-tauri.toml + src/ + assets/（ui 前端、能力清单）</span>
+<span class="t-out">  next: cd myapp &amp;&amp; npx cj-tauri sync</span></pre>
             </div>
           </div>
         </div>
@@ -857,7 +873,7 @@ cj.<span class="t-f">listen</span>(<span class="t-s">"tick"</span>, e =&gt; {
         </div>
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="Linux (WebKitGTK)">Linux（WebKitGTK）</span></p>
-          <p class="plat__s" data-en="Verified on real hardware, including clipboard readback, a real notification on the session bus, X11 global hotkeys and a tray icon through libayatana-appindicator3; all eight Linux E2E entries run here (Windows has one of its own).">实机跑通，含外部回读剪贴板、会话总线上实收通知、X11 全局快捷键与 libayatana-appindicator3 托盘图标；8 条 Linux E2E 入口都在这里跑（Windows 侧另有 1 条）。</p>
+          <p class="plat__s" data-en="Verified on real hardware, including clipboard readback, a real notification on the session bus, X11 global hotkeys and a tray icon through libayatana-appindicator3; nine of the ten Linux E2E entries run here (Windows has one of its own).">实机跑通，含外部回读剪贴板、会话总线上实收通知、X11 全局快捷键与 libayatana-appindicator3 托盘图标；10 条 E2E 入口有 9 条在这里跑（Windows 侧另有 1 条）。</p>
         </div>
         <div class="plat__i">
           <p class="plat__h"><span class="dot" style="color:var(--ok)"></span><span data-en="HarmonyOS PC (ArkWeb)">鸿蒙 PC（ArkWeb）</span></p>

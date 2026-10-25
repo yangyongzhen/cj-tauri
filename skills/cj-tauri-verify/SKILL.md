@@ -62,7 +62,18 @@ $CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/l
 - 一次性探针才另写脚本；**写完的断言不要只留在 `/tmp`**——它随 /tmp 消失后就无法重跑；
 - 断言**只看日志里的效果**（桥/应用自己打的 stderr 行），不靠「我点过了 / 我调过了」；
 - `grep -aF` 按整行前缀取证据（如 `[cj-bridge]`），别用会在正文里撞词的中缀——
-  过滤词本身也会骗人；
+  过滤词本身也会骗人；needle 别夹会变动的字段（耗时、端口、临时路径）——
+  `-> 200 4B 1ms truncated=false` 整段当 needle 必然假红，截到稳定边界（`-> 200 4B`）为止；
+- **断言名有两个禁区**（证据层按 `name:needle` 拆分）：名字不能含 `:`（会被劈成两半，
+  明细在日志里也判未命中）、不能含反引号（会被 shell 当命令替换，报 `command not found` 且名字被替换成空）；
+- 页面自检经 `report` 回投时**行序不保证**（命令按 worker 并发分发，聚合行落盘后还可能来明细）——
+  判据只能取**计数一致**（聚合行的 `passed` == PASS 明细条数且 `failed` == 0），
+  「最后一条必须是 DONE」会假红，「只看有没有 FAIL 行」会假绿；
+- 对端 mock 的日志别同时写 stdout 与 stderr 再 `>f 2>&1` 收——同一行出现两次，
+  计数类断言（「对端看见几次接入」）凭空翻倍；取证通道本身要先去重；
+- `xvfb-run -a …` 会把子进程 stderr 并进 stdout（收尾是 `"$@" 2>&1`）——外面写 `cmd 2> app.log`
+  什么都收不到，stdout 反而装满 stderr；要单独留 stderr 就把重定向**放进里层**：
+  `xvfb-run -a … bash -c '<app> 2> app.log'`；
 - 等窗口/等就绪用有界轮询（`xdotool search --name`），别用固定 `sleep`。
 
 ### 5. 没有真设备时造虚拟设备

@@ -29,6 +29,8 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | FFI 调用报 count 参数错 | `CPointer` 调用要**具名传参** `count=` |
 | `ld.lld: undefined symbol: cjTauri:cj_bridge_*` | 子包（单测）调不了框架的 `foreign func`；在框架包内包一层可跨包函数 |
 | `undefined reference to cjTauri.plugins.<插件>:…` | **先 `cjpm clean`**：增量缓存里的旧链接列表没带上新 import 的插件库，clean 后同一条构建即链上、`cjpm.toml` 一行不用改；别一上来就抄别的示例补 `-l` |
+| 运行期 `undefined symbol: stdx.net.tls:TlsException.ti`（或其它 `stdx.*:*.ti`），看着像链接错误 | **示例产物陈旧 + stdx 版本错配**：产物是旧 stdx 编的、运行时加载了新 stdx（实测 `TlsException` 在 1.0.5.1 有导出、1.2.0.1 已移除）。判据 `nm -D --defined-only <stdx>/dynamic/stdx/libstdx.net.tls.so \| grep -c TlsException` 两版各数一次。落法：换过 stdx 版本后示例必须 `cjpm clean` 重编——E2E 里「产物在就不重编」的省时闸门会把版本错配伪装成符号问题 |
+| 只删了 `incremental-cache.json` 后，下次 build 抛 `DataModelException: This data is not DataModelSeq` 且**退出码仍是 0**、产物没刷新 | cjpm 的增量缓存**不止一个文件**，只删一个留下损坏的依赖缓存（栈在 `loadDepIncrementalCache`）。要清就 `cjpm clean`（安全：`libcjtbridge.so` 在 `native/` 根不在 `target/`）；判据看产物 mtime，别看退出码 |
 | `stdx.net.http` 报 TLS must be configured | `ClientBuilder().tlsConfig(TlsClientConfig())` 必须显式配 |
 | `readToEnd(resp.body)` 编译不过 | 它要求 `Seekable`；自己按块读（`ByteBuffer.write` + `body.read(chunk)`） |
 | 浮点转整数运行时炸 | `Int64(x * 10.0)` 越界抛异常（不像 C 静默截断）；转换前先夹范围 |
@@ -82,6 +84,25 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 第二扇窗的对话框在**别人窗口里弹出来**，自己那个从不出现，页面却显示 `confirmed=true` | 插件在 `setup()` 里固定了 `app.webviewHost()`（只代表默认窗），所有窗的 `dialog:*` 排进同一个队列。判据看 `dialog take` 的 `id` 是否**各宿主独立从 1 起**。落法：`attachHostResolver({ label => app.hostOf(label) })` + 命令实现多收 `ipc`（解析器在场而窗口未登记就抛错，别回落单槽）。`clipboard` / `notification` 仍是固定宿主，用前先问「是否只在默认窗可用」 |
 | 新增宿主回调后 C 侧签名不对 | `cj_on_*_fn` 首参必须 `struct cj_host *`（回调要自带身份） |
 | 改了 C 桥导出后链接炸一串 undefined reference | 桥是本地产物不入库；先 `bash native/build_linux.sh`（或 `native\build_win.bat`）重建再构建/测试 |
+
+### 鸿蒙侧（改 `@When[env == "ohos"]` 分支 / 上真机前先读）
+
+| 症状 / 写法 | 原因与修法 |
+|---|---|
+| `@When` 的鸿蒙条件写什么 | `os` 取值**就是 `"Linux"`**、`arch` **不可用**（桌面 aarch64 Linux 同值，用它门禁会把有 C 桥的桌面平台一起摘掉）；唯一可靠判据是 **`env`**（`aarch64-linux-ohos` → `"ohos"`，桌面 → `"gnu"`）。一律写 `@When[env == "ohos"]` / `@When[env != "ohos"]` |
+| 应用一启动就 SIGSEGV / 白屏秒退，hilog 里连 `AbilityStage.onCreate` 都没有 | 先查 `llvm-nm -D --undefined-only <模块.so> \| grep cj_bridge`——核心包**不带 `@When` 的 `foreign func`** 在无桥平台上留成未解析符号，模块加载期直接崩（编译期不报）。落法：FFI 声明与薄包装同口径 `@When[env != "ohos"]`，并为无桥平台写如实降级（返回 false/空串 + 一行 stderr），别假装成功 |
+| 框架包一引用 ArkUI 就启动即崩 | `@Component` / `Web` / `javaScriptProxy` 属**应用侧**——框架包（独立编译单元）引用 `kit.ArkUI` 后合并进应用动态库，包初始化链跳坏地址。框架只导出 ArkUI-free 的桥接函数 |
+| 页面拉原生数据拿到 `null`（参数进得去、`methodList` 枚举也对） | `javaScriptProxy` 的**返回值传不回页面**，是平台限制不是写法错。取数模型改成「原生推」：页面 `setInterval` 发心跳，原生在回调里 `runJavaScript` 推出去 |
+| `eprintln` 的日志在设备上看不到 | `eprintln` 不进 hilog，框架 stderr 全不可见；诊断要写 hilog，且 hilog 缓冲会滚掉启动瞬间的行——取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用） |
+| 「改了没变化」/ 对照实验失真 | hvigor 的 `CompileCangjie` 与框架侧 cjpm **各有一份增量缓存**，只清一边时旧 `.so` 被喂回来。重编前 `rm -rf entry/build` + 清框架 `target/`；判据看产物（`.so` 尺寸 / `llvm-nm` 符号数），不看 `build success` |
+| 声明了权限却装不上包（`code:9568289 install failed`） | 权限位先查 `grantMode`/`availableLevel`（`hdc shell "atm dump -d -p <权限>"`）：`USER_GRANT` 要求 module.json5 带 `reason` + `usedScene`，`SYSTEM_BASIC` 还要签名 profile 带 ACL——**这类权限写进骨架等于让所有生成的工程装不上**，如实降级返回 None 才是诚实落法 |
+| 调了系统原生 C API 却启动即 SIGSEGV | 查 `readelf -d <模块.so> \| grep <库>`：`foreign func` 直连后产物里留着一堆 `U OH_*` 而 `DT_NEEDED` 里没有那个库 = 模块加载期解析不到符号。链接开关要写在**入口模块**的 `cjpm.toml`（`output-type = "dynamic"`，最终链接在那儿）——鸿蒙工程的 entry `cjpm.toml` 是**生成物**，改模板没用，**必须改生成器**（两个 arch 段都要）。设备侧查库用 `hdc shell stat -L <路径>`，`ls /system/lib64` 是 Permission denied 别读成「没有这个库」 |
+| PC 上窗口是竖屏窄窗、页面响应式救不了 | 先看 `deviceTypes`：只写 `phone`/`tablet` 时系统按手机应用给竖窗；桌面形态要写 `2in1`，且仓颉构建插件默认限制 phone/tablet，放行开关是 `entry/build-profile.json5` 的 `cangjieOptions.checkDeviceTypes = false` |
+| `resize()` 写了 1440×900 只占半屏 | `resize()` / `moveWindowTo()` 收的是**像素不是 vp**（3120×2080 的机器上 1440px 只占 46%），日志照打「resized」不抛错，只有 `hidumper -s WindowManagerService` 读矩形才露馅；且 `densityPixels` 是 `Float32`，`Float64 * Float32` 报 invalid binary operator 还会连带把同一行日志报成参数不匹配 |
+| 第二扇窗白屏、永不建 Web | 每个窗口都要**各自等宿主登记**：只等默认 label 时，第二窗的组件 `aboutToAppear` 读到的地址还是空串。判据：hilog 里 `host pageUrl label=<label>` 与 `page begin label=<label>` 每个 label 各一行 |
+| 给 `@Component` 传参报 `missing arguments for parameter list '(Option<CustomView>, …)'` | 两种写法都撞它：普通 `var` 成员 + 外面传值；或 `@Prop` 但调用点挂了链式修饰（宏补不上 `__gen_parent`）。落法：`@Prop` 成员 + **调用点纯调用**，尺寸交给外层容器 |
+| 页面触发的对话框调 `showAlertDialog` / `showDialog` 静默不弹（不抛异常、tid 还是 UI 主线程） | 命令式弹窗 API 在 `javaScriptProxy` 回调的**同步栈**上被静默丢弃，spawn 到工作线程也救不了。落法：组件加 `@State`，回调里只置状态，`build()` 里把 overlay 渲染成根 Stack 最后一个子节点；`@State` 不能与 `private` 同用 |
+| Git Bash 下 `hdc shell … /data/local/tmp/x.jpeg` 报路径变成 `D:/Program Files/Git/data/...` | MSYS 把远端 POSIX 路径转写成本地路径；**远端路径**一律带 `MSYS_NO_PATHCONV=1`；`hdc file recv` 的本地落盘则相反——先 `cd` 到目标目录只传文件名，给绝对路径会被拼上 cwd |
 
 ### C 桥 / 宿主层（改 `native/*.c` 时）
 

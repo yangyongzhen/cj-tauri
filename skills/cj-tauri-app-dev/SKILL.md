@@ -71,6 +71,12 @@ serial（串口）、store（持久化 KV）、clipboard（剪贴板）、notifi
 http（出网白名单）、ws（WebSocket）、mqtt、redis（协议纯仓颉）、log（轮转落盘）、sqlite（FFI 直连系统库）；
 插件向示例照 `examples/plugin-fs/`。
 
+**插件要上鸿蒙时的分层范式（照 `src/plugins/http/` 抄）**：命令面与全部判定（白名单 / 入参 /
+返回值形状）留在 `plugin_<名>.cj`；「怎么发出去」抽成 `http_backend.cj` 契约（形状 + 取头 + 解析），
+平台实现各一份——`http_desktop.cj`（`@When[env != "ohos"]`）与 `http_ohos.cj`
+（`@When[env == "ohos"]`，鸿蒙装不了 OpenSSL，网络走系统栈 `ohos.net.http`）。
+**平台实现里不重判**；鸿蒙侧调不通时只改那一支，不动命令面。serial 的 `serial_ohos.cj` 是同款范式。
+
 **带路径参数的插件还有第三层闸门（路径 scope，RFC-003 第 4 期）**：命令放行 ≠ 路径放行。
 清单可加 `"scopes": { "fs": { "allow": ["$HOME/notes/**"], "deny": ["**/id_rsa"] } }`；
 插件侧用 `Plugin.scopeAware()` 声明「我懂 scope」，再对页面可控的路径参数调

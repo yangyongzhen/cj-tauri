@@ -2,36 +2,50 @@
 
 # cj-tauri · 仓颉版 Tauri
 
-**用华为仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端，产物不带 Chromium、几 MB 级。**
+**前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–10.3 MB，
+Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。**
+
+IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门）· 14 个官方插件 ·
+二十多个可运行示例 · 每个示例都带无人值守自检
 
 [![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux%20%7C%20%E9%B8%BF%E8%92%99%20PC-blue)](#示例一览)
 [![Cangjie](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)](./LICENSE)
-[![QQ 群](https://img.shields.io/badge/QQ%E7%BE%A4-92381027-red)](#仓库与推送)
 
-前端用任意 Web 技术，后端是可审计的静态二进制：IPC 双向桥、能力白名单安全模型、14 个官方插件、
-28 个可运行示例。Linux（WebKitGTK）、Windows（WebView2）与鸿蒙 PC（ArkWeb）均已实机跑通。
+📖 在线官网 <https://yangyongzhen.github.io/cj-tauri/>（中英双语 · 24 屏实机截图）&nbsp;·&nbsp; 💬 QQ 群 **92381027**
 
-> 📖 **在线官网**：<https://yangyongzhen.github.io/cj-tauri/> —— 中英双语，特性、24 屏实机截图与文档入口。
-
-> 💬 **QQ 技术交流群**：**92381027** —— 使用问题、功能建议、插件与踩坑交流都欢迎。
-
-[运行效果](#运行效果) · [快速开始](#快速开始) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [示例一览](#示例一览) · [架构](#架构) · [文档](#文档索引)
+[立即上手](#30-秒上手) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [示例一览](#示例一览) ·
+[架构](#架构) · [文档索引](#文档索引) · [与 Tauri 的差异](docs/与Tauri的差异.md)
 
 </div>
 
 ## 30 秒上手
 
-**最快路径：npm 脚手架，三行命令出第一个应用**（前置：[仓颉 SDK](docs/使用文档.md#2-环境准备) 1.0.5+ 与 stdx；Windows 另需 mingw gcc 与 WebView2 Runtime（Win11 自带），Linux 需 `libwebkit2gtk-4.1-dev`）：
+**A. 想先看效果？下载就能用 —— 不装 SDK、不装运行时、双击即启动**
+
+| 产物 | 体积 | 是什么 |
+|---|---|---|
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) | 10.3 MB | AI 对话客户端：多服务商流式 Markdown 聊天 + 接本机 Agent 的模式，一键切换 |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) | 5.63 MB | 串口 + TCP/UDP 二合一调试助手 |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) | 5.69 MB | Modbus TCP/RTU 调试工具 |
+
+十份单文件产物全部实机实测（4.69–32.8 MB；PE 导入表只有系统 DLL，`Subsystem=GUI` 双击不弹控制台；
+冷启动与依赖口径见[分发形态实测](docs/分发形态实测.md)）→ [完整下载表](#方式二直接下载单文件工具免安装免-sdk)
+
+**B. 想要自己的应用？三行命令**
+
+前置：[仓颉 SDK](docs/使用文档.md#2-环境准备) 1.0.5+ 与 stdx（Windows 另需 mingw gcc 与 WebView2 Runtime，
+Win11 自带；Linux 需 `libwebkit2gtk-4.1-dev`）。不确定缺什么就先跑一次 `doctor`：
 
 ```bash
-npx cj-tauri create myapp          # 免安装，直接跑
-cd myapp
-npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
+npx cj-tauri doctor              # 逐行告诉你「缺了什么、怎么补」，新机器第一件事
+npx cj-tauri create myapp        # 免安装，直接跑
+cd myapp && npx cj-tauri dev     # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
 ```
 
-不想装 SDK？仓库随版本分发**十份静态链接的单文件 Windows 工具**（4.69–32.8 MB，免安装、
-双击即用，PE 导入表全部实测过）——[直接下载](#方式二直接下载单文件工具免安装免-sdk)。
+**C. 不碰 npm？** 源码构建（Windows）：`git clone … && native\build_win.bat && cli\cj-tauri.bat create myapp`
+—— 细节见[方式三：源码构建](#方式三源码构建)；鸿蒙 PC 工程用 `create --template ohos`，
+同一份业务代码由 `cj-tauri sync ohos` 派生成 hap 工程。
 
 ![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
 

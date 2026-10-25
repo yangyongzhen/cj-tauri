@@ -382,6 +382,95 @@
       }
       probeRedis();
 
+      // ws 插件：**鸿蒙侧如实降级**——stdx WebSocket 依赖 OpenSSL（RAND_bytes），设备上装不了，
+      // SDK 也没有 ohos.net.websocket 绑定（真机 connect 实测死于 RAND_bytes 后落降级分支）。
+      // 本段核验的是「降级契约」：connect 当场拒绝且原因可读；scope 越界同样当场拒。
+      function wsStep(label, cmd, args) {
+        return tauri.invoke(cmd, args).then(
+          function (r) { report('PASS ws ' + label + ' ' + JSON.stringify(r)); return r; },
+          function (e) { report('FAIL ws ' + label + ' ' + e.message); return null; }
+        );
+      }
+      function probeWs() {
+        tauri.invoke('ws:connect', { url: 'ws://127.0.0.1:8765/' })
+          .then(function (c) {
+            report('FAIL ws degraded-connect should have been rejected on HarmonyOS');
+            return null;
+          })
+          .catch(function (e) {
+            if (e.message.indexOf('not available on HarmonyOS') >= 0) {
+              report('PASS ws degraded-connect rejected: ' + e.message);
+            } else {
+              report('FAIL ws degraded-connect wrong-reason: ' + e.message);
+            }
+            return null;
+          });
+        // 越界：scopes.ws 没放行的主机期望当场拒
+        tauri.invoke('ws:connect', { url: 'ws://example.com:80/' })
+          .then(function () { report('FAIL ws outside-scope should have been rejected'); })
+          .catch(function (e2) {
+            if (e2.message.indexOf('outside the authorized scope') >= 0) {
+              report('PASS ws outside-scope rejected');
+            } else {
+              report('FAIL ws outside-scope wrong-reason: ' + e2.message);
+            }
+          });
+      }
+      probeWs();
+
+      // log 插件：鸿蒙降级契约——log:path 回空串（没开）、log:write 返 false（不伪装成功）
+      function probeLogPlugin() {
+        tauri.invoke('log:path')
+          .then(function (p) {
+            report((p === '' ? 'PASS' : 'FAIL') + ' log path empty=' + JSON.stringify(p));
+            return tauri.invoke('log:write', { line: 'probe-' + Date.now() });
+          })
+          .then(function (w) {
+            report((w === false ? 'PASS' : 'FAIL') + ' log write-degraded=' + JSON.stringify(w));
+          })
+          .catch(function (err) { report('FAIL log ' + err.message); });
+      }
+      probeLogPlugin();
+
+      // sqlite 插件：FFI 直连随包 libsqlite3.so（设备/NDK 都无系统 sqlite，amalgamation 编出）。
+      // 最小闭环：info → exec 建表插行 → query 回读对账 → 越界 path 被拒。
+      function probeSqlite() {
+        var dbPath = 'probe-' + Date.now() + '.db';
+        // exec 用读写连接（不存在的库会建出）；info/tables/query 用只读连接——
+        // 只读 + 不存在 = 打开失败（框架设计：不顺手造空库），所以必须先 exec 再查
+        tauri.invoke('sqlite:exec', { path: dbPath,
+            sql: 'CREATE TABLE t(id INTEGER PRIMARY KEY, note TEXT); INSERT INTO t(note) VALUES (' + "'cj-sqlite'" + ')' })
+          .then(function (e) {
+            report('PASS sqlite exec ' + JSON.stringify(e));
+            return tauri.invoke('sqlite:query', { path: dbPath, sql: 'SELECT id, note FROM t ORDER BY id' });
+          })
+          .then(function (q) {
+            // rows 的每格是 {type, value} 对象（sqliteReadCell），取 [1].value 对账
+            var ok = q && q.rows && q.rows.length === 1 && q.rows[0][1].value === 'cj-sqlite';
+            report((ok ? 'PASS' : 'FAIL') + ' sqlite query round-trip ' + JSON.stringify(q));
+            return tauri.invoke('sqlite:info', { path: dbPath });
+          })
+          .then(function (i) {
+            report('PASS sqlite info ' + JSON.stringify(i));
+            return tauri.invoke('sqlite:tables', { path: dbPath });
+          })
+          .then(function (t) {
+            report('PASS sqlite tables ' + JSON.stringify(t));
+          })
+          .catch(function (err) { report('FAIL sqlite ' + err.message); });
+        // 越界：scopes.sqlite 之外的路径期望被拒
+        tauri.invoke('sqlite:info', { path: '../etc/probe-external.db' })
+          .then(function () { report('FAIL sqlite outside-scope should have been rejected'); })
+          .catch(function (e2) {
+            if (e2.message.indexOf('outside the authorized scope') >= 0) {
+              report('PASS sqlite outside-scope rejected');
+            } else {
+              report('FAIL sqlite outside-scope wrong-reason: ' + e2.message);
+            }
+          });
+      }
+      probeSqlite();
+
       // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
       tauri.listen('menu:click', function (payload) {
         report('PASS menu click id=' + payload.id

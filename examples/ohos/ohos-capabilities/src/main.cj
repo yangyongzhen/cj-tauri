@@ -7,6 +7,9 @@ import cjTauri.plugins.http.*
 import cjTauri.plugins.fs.*
 import cjTauri.plugins.mqtt.*
 import cjTauri.plugins.redis.*
+import cjTauri.plugins.ws.*
+import cjTauri.plugins.log.*
+import cjTauri.plugins.sqlite.*
 import stdx.encoding.json.*
 import std.collection.*
 @When[env == "ohos"]
@@ -141,6 +144,16 @@ public func build(): AppSpec {
         // redis 插件：真机核验 RESP2 明文 TCP——对端是 PC 上的本仓 mock-redis，
         // 经 `hdc rport tcp:6380 tcp:6379` 反向转发（设备连自己的 127.0.0.1:6380）
         .plugin(RedisPlugin())
+        // ws 插件：真机核验 RFC6455 明文握手（stdx WebSocket.upgradeFromClient）——
+        // 对端是 PC 上的 python websockets echo，经 `hdc rport tcp:8765 tcp:8765` 反向转发；
+        // 主机白名单在 default.json 的 scopes.ws（没写 = 全拒）
+        .plugin(WsPlugin())
+        // log 插件：真机核验鸿蒙降级契约——writeLogLine 返 false、logFile 回空串
+        .plugin(LogPlugin())
+        // sqlite 插件：真机核验 FFI 直连——设备与 NDK 都没有 sqlite 库，走 amalgamation
+        // （public domain）随包编 so：libsqlite3.so 放 entry/libs/arm64-v8a/ 随 hap 分发，
+        // entry link-option 加 -L/-lsqlite3 生成 DT_NEEDED（缺了模块加载期 U 解析失败）
+        .plugin(SqlitePlugin())
         .wire({ app =>
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())

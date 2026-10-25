@@ -119,7 +119,6 @@ foreign func sqlite3_enable_load_extension(db: CPointer<Unit>, onoff: Int32): In
  * `load_extension()` 加载任意原生库。**必须按语句判**：路径 scope 只管得住本次命令收到的那个路径，
  * 管不住 SQL 里写死的另一个路径（D-018 第 4 条）。被拒时留一行 stderr，取证时能对上账。
  */
-@When[env != "ohos"]
 @C
 func sqliteAuthorizer(app: CPointer<Unit>, code: Int32, arg1: CString, arg2: CString,
                       dbName: CString, triggerName: CString): Int32 {
@@ -151,7 +150,6 @@ func sqliteCString(s: CString): String {
 }
 
 /** 取最近一次错误文案；db 为空时给固定文案，避免收尾路径上再炸一次 */
-@When[env != "ohos"]
 func sqliteLastError(db: CPointer<Unit>): String {
     if (db.isNull()) {
         return "unknown error (null db handle)"
@@ -160,7 +158,6 @@ func sqliteLastError(db: CPointer<Unit>): String {
 }
 
 /** 关掉句柄：对空指针安全（出错路径也要能收尾），关不掉只记一行 stderr 不抛 */
-@When[env != "ohos"]
 func sqliteCloseQuietly(db: CPointer<Unit>): Unit {
     if (db.isNull()) {
         return
@@ -178,7 +175,6 @@ func sqliteCloseQuietly(db: CPointer<Unit>): Unit {
  * 不存在的文件 + 只读 = 打开失败（不会顺手造一个空库）。
  * 打开失败与护栏装不上都抛 `CommandException`（前端拿到可读文案）。
  */
-@When[env != "ohos"]
 func sqliteOpenGuarded(path: String, readonly: Bool): CPointer<Unit> {
     var db: CPointer<Unit> = CPointer<Unit>()
     let flags = if (readonly) {
@@ -205,7 +201,6 @@ func sqliteOpenGuarded(path: String, readonly: Bool): CPointer<Unit> {
 }
 
 /** 本机链接的 SQLite 版本（`sqlite:info` 回投给页面，对账时也用它） */
-@When[env != "ohos"]
 func sqliteLibVersion(): String {
     return sqliteCString(unsafe { sqlite3_libversion() })
 }

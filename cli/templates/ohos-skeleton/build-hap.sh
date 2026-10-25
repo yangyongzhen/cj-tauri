@@ -154,6 +154,19 @@ if [ "$do_clean" = "1" ]; then
     rm -rf "$ROOT_DIR/entry/build"
 fi
 
+# assets 同步：唯一真相在工程根 assets/（RFC-002 §7），构建前拷进骨架 rawfile——
+# 页面与能力清单是 hap 的 rawfile 真文件，只改 assets 不 sync 直接构建会装出**旧页**：
+# 页面自检照跑、改动静默丢失（2026-10-25 真机实测，探针行全无、又无失败行）。
+# 有 sync 生成的工程根（cj-tauri.toml 在上三级）才做这一步；手工工程自行维护 rawfile。
+APP_ROOT="$ROOT_DIR/../.."
+if [ -f "$APP_ROOT/cj-tauri.toml" ] && [ -d "$APP_ROOT/assets" ]; then
+    RAWFILE="$ROOT_DIR/entry/src/main/resources/rawfile"
+    mkdir -p "$RAWFILE"
+    cp -r "$APP_ROOT/assets/ui" "$RAWFILE/ui"
+    cp -r "$APP_ROOT/assets/capabilities" "$RAWFILE/capabilities"
+    echo "[ohos] assets 已从工程根同步到 rawfile（ui/ + capabilities/）"
+fi
+
 # **必须 `--no-daemon`**：hvigor 的常驻 daemon 里 CompileCangjie 用的是它启动时那份 env，
 # 本脚本 export 的 PATH / CANGJIE_HOME 根本进不去（表现是「手跑 cjpm 成功、hvigor 一跑就 opt 崩」）。
 mkdir -p .buildlog

@@ -303,6 +303,10 @@
 
 ### Changed
 
+- **`ai-chat` 的窗口标题改成产品名 `ai-chat, made by cj-tauri`**（页面 `<title>` 同步）：原先只写
+  「AI 对话」，从标题栏看不出这是 cj-tauri 的示例，推广时不好认领。实机读回
+  `(Get-Process ai-chat).MainWindowTitle` 即新名字；单文件包同轮重打
+  （`examples/ai-chat/dist-single/ai-chat.exe` 10 788 352 字节 / 10.29 MiB，子系统仍 `00000002`）。
 - **重打 `cjnote` / `ai-chat` 的 Windows 单文件包**：`cjnote.exe` 34 352 640 字节（32.8 MiB）、
   `ai-chat.exe` 10 711 040 字节（10.2 MiB），两者子系统均 `00000002`（GUI，双击不弹控制台）、
   导入表只有 Windows 系统 DLL。同轮移除误入库的 `examples/cjnote/dist-single/cjnote`——那是 **Linux ELF**
@@ -329,6 +333,11 @@
 
 ### Fixed
 
+- **`ai-chat` 收起侧栏后内嵌网页视图不跟着变宽（右侧空出一条）**：内嵌视图的矩形只在
+  `window.addEventListener('resize')` 上重报，而折叠侧栏是 `#side` 的 `display` 切换——不改窗口尺寸、
+  也就不触发 resize，视图停在「侧栏还在」时的旧位置。`toggleSide()` 里补一次 `scheduleWebRect()`
+  （节流 80ms，与 resize 同一条上报路径）。包内 A/B 取证：侧栏展开时 DeepSeek 页面从 x≈265 起，
+  收起后铺到 x=0（同一份 exe、只差这一次点击）。
 - **`system:host` 永远看不到通知能力位（两侧表漂了一位）**：`native/core/bridge_core.h` 早有
   `CJ_CAP_NOTIFICATION = 8`（Linux 的 freedesktop Notifications、Windows 的 Shell_NotifyIconW 都真的
   置了它，core 还会打 `notify=%d`），但仓颉侧 `src/host.cj` 既没有这条常量、`HostCapabilities` 也没有

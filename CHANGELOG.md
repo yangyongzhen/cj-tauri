@@ -16,6 +16,19 @@
 
 ### Added
 
+- **`http` 插件打通鸿蒙（系统网络栈 `ohos.net.http`）**：仓颉运行时在鸿蒙上装不了 OpenSSL 3
+  （真机 `MUSL-LDSO: load libcrypto_openssl.z.so failed … errno=2`），stdx 的 TLS 从第一步就失败，
+  于是此前 `http:get` 在鸿蒙上是「https 全灭、http 照旧」的半死状态。现在把传输层抽成契约
+  （`http_backend.cj` 的 `HttpReply` / `HttpResponseStream` / `parsePageHeaders`）：
+  桌面两侧（`http_desktop.cj`，`@When[env != "ohos"]`）继续走 stdx + 显式 SNI，
+  鸿蒙（`http_ohos.cj`，`@When[env == "ohos"]`）走系统网络栈，TLS / 证书链 / 代理交给 OS。
+  **命令名、入参、返回值、主机白名单判定两平台完全一致**（判定只在 `plugin_http.cj` 与
+  `parsePageHeaders` 各一份，不在平台实现里重判），前端一行都不用改。
+  两处如实边界：① `http:postStream` 在鸿蒙**当场拒绝**并说明原因（系统栈一次回整包、无增量块，
+  仓颉绑定上的 `requestInStream` 未验证），不返回假句柄；② **鸿蒙分支尚未真机构建取证**
+  （本机无鸿蒙仓颉工具链，桌面 `cjpm build` 走 `@When` 分支编不到它），矩阵标「已落地未验证」，
+  两处待真机确认的形状（`RequestMethod` 成员名、`HttpRequestOptions.extraData`）已在文件头注明。
+
 - **`fs` 插件补齐目录/移动/复制/元信息四条命令**：`fs:mkdir`（`{ path, recursive? }`，目标已存在
   如实报错，不伪装成幂等成功）、`fs:rename` / `fs:copy`（`{ path, newPath, overwrite? }`，
   **两个路径都过 scope 校验**——`newPath` 同样是页面可控路径；`overwrite` 缺省 `false`）、

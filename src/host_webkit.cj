@@ -149,6 +149,15 @@ foreign func cj_bridge_set_tray(h: CPointer<Unit>, wire: CString): Unit
 foreign func cj_bridge_set_window_visible(h: CPointer<Unit>, visible: Int32): Unit
 
 /**
+ * 把 h 挂到 owner 下（transient-for + skip_taskbar_hint）：不重复占任务栏、跟随属主显隐
+ *
+ * 与 Windows 侧同名同签名，上层调用点不分平台（§2 的跨平台约束）。
+ */
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_set_owner_window(h: CPointer<Unit>, owner: CPointer<Unit>): Unit
+
+/**
  * 最小化到托盘策略位（须在 start 之前调）：GTK 侧据此把 window-state-event 里的 iconify 改写成 hide
  */
 @When[os == "Linux" && env != "ohos"]
@@ -318,6 +327,23 @@ public class WebKitHost <: WebViewHost {
         }
     }
 
+    public func setOwnerWindow(ownerLabel: String): Unit {
+        if (ownerLabel.size == 0) {
+            return
+        }
+        // 与 setWindowVisible 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）
+        this.ensureHandle()
+        match (HostGlobals.handleOfLabel(ownerLabel)) {
+            case Some(ownerHandle) =>
+                unsafe {
+                    cj_bridge_set_owner_window(this.handle, ownerHandle)
+                }
+            case None =>
+                // 外观修饰失败不该拦着开窗，但要在日志里留凭证
+                eprintln("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
+        }
+    }
+
     public func setWindowVisible(visible: Bool): Unit {
         // 与 setTray 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）；就绪后投 GTK 线程执行
         this.ensureHandle()
@@ -466,6 +492,8 @@ public class WebKitHost <: WebViewHost {
         HostGlobals.registerHostRoute(this.handle, { json => this.shellHandler(json) },
                                       { => this.onDestroy() },
                                       { path => this.dialogResult = path })
+        // label → 句柄：附庸窗（setOwnerWindow）按 label 找属主窗，登记点与路由表同步
+        HostGlobals.registerHostHandle(this.windowLabel, this.handle)
         var devTools: Int32 = 0
         if (this.config.devTools) {
             devTools = 1

@@ -16,6 +16,37 @@
 
 ### Added
 
+- **附庸窗（owned window）：`WebViewHost.setOwnerWindow(label)` + C 桥 `cj_bridge_set_owner_window`**：
+  把一扇窗挂到另一扇窗下——Windows 落 `GWLP_HWNDPARENT` 并补 `WS_EX_TOOLWINDOW`，Linux 落
+  `gtk_window_set_transient_for` + `skip_taskbar_hint`/`skip_pager_hint`，于是这扇窗**不再单独占
+  任务栏与 Alt-Tab 一格**（Windows 实机读数：`WS_EX_TOOLWINDOW` 置位，且 `GW_OWNER` 回读等于主窗句柄，
+  见 `examples/ai-chat/docs/evidence-webtab-owner-windows.md`）；最小化/隐藏时的联动交给系统对 owned window
+  的既有处理，**Windows 侧未单独取证**——想依赖它就得先补一次同调用内的 A/B。**在 `load()` 之前调**（与 `setWindowConfig` 同段）：
+  属主状态记进宿主，平台建窗装配期一次挂好，任务栏从头到尾只一格；`load()` 之后调也支持
+  （投 UI 线程），代价是按钮先出现再消失。属主尚未建窗 / 未登记时只打一行 stderr 并跳过——
+  它是外观修饰，不该拦住开窗。两平台同名同签名（§2），鸿蒙走接口默认实现（无系统任务栏语义）。
+  事后复核打在同一行：Windows `GetWindow(hwnd,GW_OWNER)=…`、Linux `gtk_window_get_transient_for`，
+  免得只有「我调过了」而没有凭证。ai-chat 的网页版窗口用它。
+
+- **ai-chat 网页版启动台（`webtab:list` / `webtab:open`）**：侧栏新增「网页」tab，以卡片列出
+  DeepSeek / Kimi / 豆包 / 通义千问 / 智谱清言 / 腾讯元宝 / 文心一言 / ChatGPT 八家网页版；
+  点一张卡片 = 开一扇原生窗口加载该站真实地址（`resolveHost(label)` + `host.load(PageSource.Url(…))`，
+  C 桥在自己的宿主线程建窗跑消息循环），登录态随应用用户数据目录留存，关窗再点即重开。
+  这扇窗**挂在主窗下当附庸窗**（`setOwnerWindow(DEFAULT_WINDOW_LABEL)`，见上一条）：不再单独占
+  任务栏/Alt-Tab 一格，是主窗的一块延伸而不是「第二个应用」。
+  **不做 iframe 嵌入**：iframe 里是第三方上下文，WebView2 默认拦第三方 cookie 导致登录态存不住，
+  站点跳 OAuth 时多自带 `X-Frame-Options` 直接白屏，弹窗也会被拦——表现是「页面看得见、登录过不去」。
+  两处安全设计：命令**只认站点 id**（页面不能传 URL，否则等于把「加载任意网页」交给页面，
+  可钓鱼 / 可探内网）；外链窗口在 document-start 把 `window.__CJ_TAURI__` 抹掉——能力校验是全局的
+  （`CapabilityRegistry` 不按窗口分权），第三方页面不该握宿主桥。站点表只在 `src/webtab.cj` 的
+  `WEB_TAB_SITES` 维护，前端卡片由 `webtab:list` 驱动渲染，加一家不用改页面。
+  面板不受模式显隐约束（它是纯前端服务入口，与 cjh 无关），聊天模式下同样常显。
+  站点表在**页面启动时**就预热一次（`waitForBridge()` 之后），切到「网页」只是把面板 display
+  打开——不必等到那一刻才发 IPC 往返 + 8 张卡片的首次合成（从托盘隐藏恢复后首次切换尤其明显：
+  WebView2 还在唤醒，整段等待都压在用户眼皮底下）。`webtab:list` 3.5 秒仍未回则把占位文案
+  换成「还没回来 + 怎么重试」，不让「正在读站点表…」无声地一直转下去——它是一张静态表，
+  毫秒级就该回来，迟迟不回本身就说明桥没把结果投回来，这一点该如实说出来。
+
 - **鸿蒙真机 E2E 入口 `scripts/e2e/test-ohos-capabilities.sh`**：驱动 `examples/ohos/ohos-capabilities`
   探针应用（页面自跑全量断言、经 `probeLog` 写设备 hilog tag `CjProbe`），脚本负责装机、
   流式抓 hilog、按断言名取命中次数，产出 `dist/e2e-evidence/windows-ohos-capabilities.json`。

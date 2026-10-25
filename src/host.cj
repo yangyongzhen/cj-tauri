@@ -241,6 +241,26 @@ public interface WebViewHost {
     func setMinimizeToTray(enabled: Bool): Unit
 
     /**
+     * 把本窗口挂到另一扇窗下（**附庸窗 / owned window**）：不重复占任务栏、跟随属主显隐
+     *
+     * 为什么需要它：像 ai-chat 的「网页版」这类**入口聚合窗**，本质是主窗延伸出来的一块，
+     * 独立在任务栏再占一格、还能飘到主窗背后去，用户就会把它当成第二个应用。
+     *
+     * 时机：**在 `load()` 之前**调（与 `setWindowConfig` 同段）——C 桥把属主记进宿主状态，
+     * 平台建窗装配期按它定稿，于是任务栏从头到尾只占一格；`load()` 之后再调也能用
+     * （投 UI 线程执行），代价是任务栏按钮会先出现再消失。Windows 落 `GWLP_HWNDPARENT`
+     * 并补 `WS_EX_TOOLWINDOW`，Linux 落 `gtk_window_set_transient_for` + `skip_taskbar_hint`；
+     * 鸿蒙没有系统任务栏语义，走默认实现即可（应用内窗口）。属主未登记 / 本窗尚未创建时
+     * **只打一行 stderr 并跳过**——这是外观修饰，不该让开窗失败。
+     *
+     * 默认实现是空：只有「有系统窗口系统」的平台才需要覆盖它。
+     */
+    func setOwnerWindow(ownerLabel: String): Unit {
+        // 默认实现是空（鸿蒙等无系统任务栏语义的平台）：显式弃用参数，保住零警告
+        let _ = ownerLabel
+    }
+
+    /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
      *
      * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。
@@ -412,6 +432,22 @@ class HostRoute {
     }
 }
 
+/**
+ * 一条「窗口 label → 系统句柄」登记：附庸窗按 label 找属主窗的句柄
+ *
+ * 与 `HostRoute` 分开是因为用途不同：路由表按**句柄**查回调（C 侧把句柄带回来），
+ * 这里按**label** 查句柄（应用侧只知道主窗的 label）。
+ */
+class HostHandleEntry {
+    let label: String
+    let handle: CPointer<Unit>
+
+    init(label: String, handle: CPointer<Unit>) {
+        this.label = label
+        this.handle = handle
+    }
+}
+
 class HostGlobals {
     // 前端消息：**有意保留单槽**。报文自带发起窗口的 window label（架构文档 §7.3），
     // TauriApp 给所有窗口装的是同一只派发器，路由不靠句柄（见 src/app.cj 的 wireHostCallbacks）。
@@ -422,6 +458,10 @@ class HostGlobals {
     // （见 docs/架构演进-多平台与多窗口.md §7.5）。
     // 登记发生在 prepareHost（run() 之前、宿主线程还没起），派发时才读表 → 登记期没有并发。
     static var hostRoutes: ArrayList<HostRoute> = ArrayList<HostRoute>()
+    // label → 系统句柄：附庸窗（`setOwnerWindow`）要按 label 找属主窗的句柄。
+    // 与上面同理——登记发生在 prepareHost（宿主线程还没起），读取发生在 load() 之后，
+    // 登记期没有并发；句柄随窗口重建而更新（同 label 覆盖）。
+    static var hostHandles: ArrayList<HostHandleEntry> = ArrayList<HostHandleEntry>()
 
     /**
      * 登记（或更新）一条宿主级路由
@@ -450,6 +490,31 @@ class HostGlobals {
         for (r in HostGlobals.hostRoutes) {
             if (hostHandleEquals(r.handle, handle)) {
                 return Some(r)
+            }
+        }
+        return None
+    }
+
+    /**
+     * 登记（或更新）某窗口的系统句柄；同一 label 重复登记＝覆盖（窗口重建后句柄会变）
+     */
+    static func registerHostHandle(label: String, handle: CPointer<Unit>): Unit {
+        for (i in 0..HostGlobals.hostHandles.size) {
+            if (HostGlobals.hostHandles[i].label == label) {
+                HostGlobals.hostHandles[i] = HostHandleEntry(label, handle)
+                return
+            }
+        }
+        HostGlobals.hostHandles.add(HostHandleEntry(label, handle))
+    }
+
+    /**
+     * 按 label 取句柄；查不到返回 None（该窗口尚未 prepare，或 label 写错）
+     */
+    static func handleOfLabel(label: String): Option<CPointer<Unit>> {
+        for (h in HostGlobals.hostHandles) {
+            if (h.label == label) {
+                return Some(h.handle)
             }
         }
         return None

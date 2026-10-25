@@ -295,6 +295,30 @@
           color:var(--dim); border:1px solid transparent; cursor:pointer; }
   .stab:hover { color:var(--fg); }
   .stab.active { background:var(--panel2); color:var(--fg); border-color:var(--line); }
+  /* ---- 网页版启动台：站点卡片列表 ----
+   * 数据来自 `webtab:list`（站点表在 src/webtab.cj），颜色由后端给的 accent 驱动——
+   * 页面不抄一份站点清单，加一家只改仓颉侧那张表。 */
+  .wt-hero { padding:2px 2px 10px; }
+  .wt-hero h3 { font-size:12.5px; font-weight:600; margin-bottom:4px; }
+  .wt-hero p { font-size:11px; color:var(--dim); line-height:1.65; }
+  .wt-card { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:10px;
+             border:1px solid var(--line); background:var(--panel2); margin-bottom:7px;
+             cursor:pointer; transition:border-color .15s ease, transform .15s ease; }
+  .wt-card:hover { border-color:var(--acc); transform:translateY(-1px); }
+  .wt-card.busy { opacity:.55; pointer-events:none; }
+  .wt-logo { width:32px; height:32px; flex:0 0 32px; border-radius:9px; display:flex;
+             align-items:center; justify-content:center; font-size:14px; font-weight:700;
+             color:#fff; letter-spacing:.5px; user-select:none; }
+  .wt-meta { flex:1 1 auto; min-width:0; }
+  .wt-name { font-size:12.5px; font-weight:600; }
+  .wt-note { font-size:10.5px; color:var(--dim); margin-top:2px; line-height:1.5;
+             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wt-go { flex:0 0 auto; font-size:10.5px; color:var(--dim); border:1px solid var(--line);
+           border-radius:999px; padding:3px 9px; transition:color .15s, border-color .15s; }
+  .wt-card:hover .wt-go { color:var(--acc); border-color:var(--acc); }
+  .wt-foot { font-size:10.5px; color:var(--dim); line-height:1.65; padding:8px 2px 2px;
+             border-top:1px dashed var(--line); margin-top:4px; }
+  .wt-empty { font-size:11.5px; color:var(--dim); padding:8px 2px; line-height:1.6; }
   .sidepanel { flex:1 1 auto; overflow-y:auto; padding:10px; }
   .card { border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-bottom:6px;
           font-size:12.5px; cursor:default; }
@@ -419,12 +443,16 @@
       <button class="stab" data-tab="skills">技能</button>
       <button class="stab" data-tab="mcp">MCP</button>
       <button class="stab" data-tab="files">文件</button>
+      <!-- 网页版与 cjh 无关（是纯前端服务的入口），所以它在聊天模式**也常显**——
+           与技能/MCP/文件那三面的显隐规则不同，见 switchTab 与 applyMode 里的排除项 -->
+      <button class="stab" data-tab="webtab">网页</button>
     </div>
     <div id="convSearchWrap"><input id="convSearch" type="text" placeholder="搜索会话（标题 / 正文）"></div>
     <div id="convList"></div>
     <div id="panelSkills" class="sidepanel" style="display:none"></div>
     <div id="panelMcp" class="sidepanel" style="display:none"></div>
     <div id="panelFiles" class="sidepanel" style="display:none"></div>
+    <div id="panelWeb" class="sidepanel" style="display:none"></div>
     <div id="sideBtns">
       <button id="btnNew">新会话</button>
       <button id="btnCfg" class="ghost">设置</button>
@@ -792,7 +820,9 @@ function syncProviderToCjh(reason) {
  * 否则那三块一隐，页面就停在「什么都不显示」的状态。 */
 var curSideTab = 'convs';
 function switchTab(tab) {
-  if (appMode !== 'agent' && tab !== 'convs') { tab = 'convs'; }   // 聊天模式只有「会话」这一块
+  // 聊天模式只留「会话」与「网页」两块：其余三面是 cjh 的能力，聊天模式下没有它们。
+  // 网页版是**纯前端服务**的入口，与 cjh 无关，所以两种模式都常显。
+  if (appMode !== 'agent' && tab !== 'convs' && tab !== 'webtab') { tab = 'convs'; }
   curSideTab = tab;
   var tabs = document.querySelectorAll('.stab');
   for (var i = 0; i < tabs.length; i++) {
@@ -803,9 +833,89 @@ function switchTab(tab) {
   $('panelSkills').style.display = tab === 'skills' ? '' : 'none';
   $('panelMcp').style.display = tab === 'mcp' ? '' : 'none';
   $('panelFiles').style.display = tab === 'files' ? '' : 'none';
+  $('panelWeb').style.display = tab === 'webtab' ? '' : 'none';
   if (tab === 'skills') { loadSkills(); }
   if (tab === 'mcp') { loadMcp(); }
   if (tab === 'files') { loadFiles(''); }
+  if (tab === 'webtab') { loadWebTabs(); }
+}
+
+/* ---- 网页版启动台：站点表来自 webtab:list，点卡片 = 开一扇独立原生窗口 ----
+ *
+ * 为什么不 iframe 嵌进主页面：iframe 里是第三方上下文，WebView2 默认拦第三方 cookie，
+ * 登录态存不住；站点跳 OAuth 时多自带 X-Frame-Options，登录那步直接白屏；弹窗也会被拦。
+ * 表现是「页面看得见、登录过不去」——比打不开更难查。所以每家一个真窗口（各自一个
+ * WebView2，共用本应用的用户数据目录），登录一次就记住，功能与浏览器里一致。
+ *
+ * 站点清单只在仓颉侧维护（src/webtab.cj 的 WEB_TAB_SITES），页面不抄第二份：
+ * 加一家只改那张表，卡片自动出现。
+ */
+function loadWebTabs() {
+  var el = $('panelWeb');
+  if (el.getAttribute('data-ready') === '1') { return; }   // 面板只在首次进入时拉一次
+  el.innerHTML = '<div class="wt-empty">正在读站点表…</div>';
+  // 兜底：webtab:list 只是一张静态表，毫秒级就该回来。迟迟不回多半是桥没把结果投回来
+  // （命令没放行 / worker 卡住 / 窗口刚从托盘恢复还在唤醒），别让占位文案无声转下去——
+  // 那会被读成「界面死了」。只改文案，不下别的结论。
+  var slow = setTimeout(function () {
+    if (el.getAttribute('data-ready') !== '1') {
+      el.innerHTML = '<div class="wt-empty">站点表还没回来（webtab:list 未响应）。' +
+        '切到别的标签再回来可以重试；若一直如此，检查能力清单是否放行了 webtab:list。</div>';
+    }
+  }, 3500);
+  window.__CJ_TAURI__.invoke('webtab:list', {}).then(function (list) {
+    clearTimeout(slow);
+    renderWebTabs(Array.isArray(list) ? list : []);
+  }).catch(function (e) {
+    clearTimeout(slow);
+    el.innerHTML = '<div class="wt-empty">读站点表失败：' +
+      escHtml(String(e && e.message ? e.message : e).slice(0, 160)) + '</div>';
+  });
+}
+
+function renderWebTabs(list) {
+  var el = $('panelWeb');
+  var h = '<div class="wt-hero"><h3>网页版</h3><p>点一下就在独立窗口里打开该站点，' +
+          '登录一次即记住。走的是它们自己的网页版额度，与应用内的服务商配置无关。</p></div>';
+  if (list.length === 0) {
+    h += '<div class="wt-empty">站点表为空：webtab:list 没返回条目（检查能力清单里是否放行了 webtab:list）。</div>';
+  }
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i] || {};
+    var name = String(s.name || '');
+    // 色块里放站点名首字（中文取第一个汉字，英文取首字母），没有就退回一个圆点
+    var mark = name.length > 0 ? name.charAt(0) : '·';
+    h += '<div class="wt-card" data-id="' + escHtml(String(s.id || '')) + '" title="' +
+         escHtml(String(s.url || '')) + '">' +
+           '<div class="wt-logo" style="background:' + escHtml(String(s.accent || '#6c8cff')) + '">' +
+             escHtml(mark) + '</div>' +
+           '<div class="wt-meta"><div class="wt-name">' + escHtml(name) + '</div>' +
+             '<div class="wt-note">' + escHtml(String(s.note || '')) + '</div></div>' +
+           '<div class="wt-go">打开</div>' +
+         '</div>';
+  }
+  h += '<div class="wt-foot">账号与密码只在这些站点自己的页面里输入，本应用不读取、不保存；' +
+       '窗口关掉再点即重新打开，登录态仍在。</div>';
+  el.innerHTML = h;
+  el.setAttribute('data-ready', '1');
+  var cards = el.querySelectorAll('.wt-card');
+  for (var j = 0; j < cards.length; j++) {
+    cards[j].onclick = function () { openWebTab(this.getAttribute('data-id'), this); };
+  }
+}
+
+function openWebTab(id, card) {
+  if (!id) { return; }
+  if (card) { card.className = 'wt-card busy'; }
+  window.__CJ_TAURI__.invoke('webtab:open', { id: id }).then(function (r) {
+    if (card) { card.className = 'wt-card'; }
+    var shown = r && r.action === 'shown';
+    toast((shown ? '已唤回窗口：' : '已打开窗口：') + String((r && r.id) || id) +
+          '（在独立窗口里操作，关掉不影响本应用）');
+  }).catch(function (e) {
+    if (card) { card.className = 'wt-card'; }
+    toast('打开失败：' + String(e && e.message ? e.message : e).slice(0, 160), true);
+  });
 }
 
 /* ---- 技能列表：/api/skills → {skills:[{name,description,tools,enabled}]} ---- */
@@ -1802,7 +1912,9 @@ function applyMode() {
   // 留在界面上只会让人以为这些也能用。侧栏品牌与连接行同样按模式说真话，不留 cjh 字样。
   var stabs = document.querySelectorAll('.stab');
   for (var i = 0; i < stabs.length; i++) {
-    if (stabs[i].getAttribute('data-tab') !== 'convs') { stabs[i].style.display = agent ? '' : 'none'; }
+    // webtab 不属于 cjh 的能力面（它开的是外站网页版的独立窗口），两种模式都留着
+    var t = stabs[i].getAttribute('data-tab');
+    if (t !== 'convs' && t !== 'webtab') { stabs[i].style.display = agent ? '' : 'none'; }
   }
   $('wsBadge').style.display = agent ? '' : 'none';
   $('brandName').textContent = agent ? 'cjh 客户端' : 'AI 对话';
@@ -2800,6 +2912,51 @@ function openCfg() {
 }
 function closeCfg() { $('mask').className = ''; $('provForm').style.display = 'none'; editIdx = -1; }
 
+/* ---- 网页版启动台探针（CJ_AICHAT_PROBE_WEBTAB=1）----
+ * 与主自检分开跑：这一轮会真的弹出一扇原生窗口（DeepSeek 网页版）并留在桌面，
+ * 常规自检不该带这个副作用。四条判据：站点表在 / 开得出来 / 重复点击是「唤回」而不是再建 /
+ * 页面传 URL 会被白名单挡住（这条是「不开放任意网址」的证据）。 */
+function webtabProbe() {
+  var out = [];
+  var push = function (s) { out.push(s); };
+  var report = function () {
+    var asserts = out.filter(function (x) { return x.indexOf('INFO') !== 0; });
+    var pass = asserts.filter(function (x) { return x.indexOf('PASS') === 0; }).length;
+    window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] WEBTAB ' + pass + '/' + asserts.length }).catch(function () {});
+    out.forEach(function (x) { window.__CJ_TAURI__.invoke('log:write', { line: '[aichat] ' + x }).catch(function () {}); });
+  };
+  var fail = function (tag) {
+    return function (e) {
+      push('FAIL ' + tag + ' ' + String(e && e.message ? e.message : e).slice(0, 70));
+      report();
+    };
+  };
+  window.__CJ_TAURI__.invoke('webtab:list', {}).then(function (list) {
+    var arr = Array.isArray(list) ? list : [];
+    var hit = false;
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] && arr[i].id === 'deepseek' && String(arr[i].url).indexOf('chat.deepseek.com') !== -1) { hit = true; }
+    }
+    push((arr.length >= 6 ? 'PASS' : 'FAIL') + ' webtab-list count=' + arr.length);
+    push((hit ? 'PASS' : 'FAIL') + ' webtab-list-url id=deepseek');
+    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'deepseek' });
+  }, fail('webtab-list')).then(function (r1) {
+    push((r1 && r1.action === 'opened' ? 'PASS' : 'FAIL') + ' webtab-open action=' + (r1 && r1.action));
+    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'deepseek' });
+  }, fail('webtab-open')).then(function (r2) {
+    push((r2 && r2.action === 'shown' ? 'PASS' : 'FAIL') + ' webtab-reopen action=' + (r2 && r2.action));
+    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'https://example.com' });
+  }, fail('webtab-reopen')).then(function (bad) {
+    push('FAIL webtab-reject 非法 id 被接受 action=' + (bad && bad.action));
+    report();
+  }, function (e) {
+    var m = String(e && e.message ? e.message : e);
+    // 白名单生效的判据就是这条业务错误；别的错误照实报红，别让它冒充通过
+    push((m.indexOf('unknown web tab') !== -1 ? 'PASS' : 'FAIL') + ' webtab-reject ' + m.slice(0, 60));
+    report();
+  });
+}
+
 /* ---- 自检探针（CJ_AICHAT_SELFCHECK=1 时无人值守跑一轮） ---- */
 function selfcheck() {
   var r = [];
@@ -2944,7 +3101,10 @@ function selfcheck() {
   var _hiddenInChat = $('wsBadge').style.display === 'none' && $('cjhState').style.display === 'none' &&
                       $('brandName').textContent === 'AI 对话' && $('btnMode').textContent.indexOf('聊天') !== -1;
   for (var _si = 0; _si < _stabs.length; _si++) {
-    if (_stabs[_si].getAttribute('data-tab') !== 'convs') {
+    // 只考查 cjh 的那三面（技能/MCP/文件）；webtab 是外站网页版入口，聊天模式下本就常显，
+    // 把它算进来会让这条断言恒假——断言的对象是「cjh 能力面被藏起来」，不是「所有非会话 tab」。
+    var _t = _stabs[_si].getAttribute('data-tab');
+    if (_t !== 'convs' && _t !== 'webtab') {
       _hiddenInChat = _hiddenInChat && _stabs[_si].style.display === 'none';
     }
   }
@@ -3497,6 +3657,10 @@ function autoGrowInput() {
 
 /* ---- 启动 ---- */
 waitForBridge().then(function () {
+  // 网页启动台的站点表在这时候就拉好：切到「网页」只是把面板 display 打开，
+  // 不再等一次 IPC 往返 + 8 张卡片的首次合成（从托盘恢复后首次切换尤其明显）。
+  // 失败也没关系——loadWebTabs 自己的 catch 会把原因写进面板，切过去能看到。
+  loadWebTabs();
   $('btnNew').onclick = function () { if (!streaming) { newConv(); } };
   $('btnCfg').onclick = openCfg;
   $('btnTheme').onclick = cycleTheme;
@@ -3597,6 +3761,8 @@ waitForBridge().then(function () {
   });
   // 一键部署探针：桥就绪后单独跑一轮（探针定义在上面的 probeDeploy，不进 selfcheck）
   if (window.__AICHAT_PROBE_DEPLOY__) { setTimeout(probeDeploy, 1200); }
+  // 网页版探针：同样单独一轮（它会真的开一扇原生窗口，所以不能并进 selfcheck）
+  if (window.__AICHAT_PROBE_WEBTAB__) { setTimeout(webtabProbe, 1200); }
   loadState().then(function () {
     if (convs.length === 0) { newConv(); } else { renderConvs(); renderMsgs(); }
     if (window.location.search.indexOf('selfcheck') !== -1 || window.__CJ_TAURI_SELF_CHECK__) {

@@ -127,10 +127,15 @@ typedef struct plat_host {
     int hotkey_count;
     /* --- 最小化到托盘：托盘没装上时「降级为普通最小化」只出声一次 --- */
     int min_to_tray_warned;
+    /* --- 附庸窗：跨线程改属主时先记在这里，由 UI 线程取用（WM_CJT_OWNER 里读） --- */
+    cj_host *pending_owner;
 } plat_host;
 
 /* 拖放目标的挂/摘（定义在文件后部）：controller 完成回调与 wnd_proc 都要调 */
 static void drag_dest_apply(cj_host *h, plat_host *p, int enabled);
+
+/* 附庸窗的属主关系落地（定义在文件后部）：建窗装配期与 WM_CJT_OWNER 都要调 */
+static void window_apply_owner(plat_host *p, plat_host *owner_p);
 
 /* ===== 同步原语（core 只用这些，绝不直接碰 Win32）=====
    与 Linux 桥的 pthread_mutex + pthread_cond 一一对应；用条件变量而不是「事件」的好处是
@@ -228,6 +233,7 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_HOTKEYS (WM_APP + 12)   /* 运行期换快捷键表：lParam = strdup 的线路文本（UI 线程释放）*/
 #define WM_CJT_VISIBLE (WM_APP + 13)   /* 运行期改可见性：wParam = 0 隐藏 / 1 显示 */
 #define WM_CJT_TRAY_NOTIFY (WM_APP + 14) /* 托盘图标的回调消息（Shell_NotifyIconW 的 uCallbackMessage）*/
+#define WM_CJT_OWNER (WM_APP + 15)     /* 运行期改属主窗：UI 线程读 p->pending_owner 应用 */
 
 /* 托盘菜单项的命令 id 从 1000 起：TrackPopupMenu 的 WM_COMMAND 也落到本窗口，
    与菜单栏的命令 id（从 1 起）分开放，WM_COMMAND 才能判别是哪一个表。 */
@@ -1125,6 +1131,13 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             window_apply_visible(p, (int)wp);
         }
         return 0;
+    case WM_CJT_OWNER:
+        if (p && p->hwnd) {
+            plat_host *op = p->pending_owner ? (plat_host *)p->pending_owner->plat : NULL;
+            p->pending_owner = NULL;
+            window_apply_owner(p, op);
+        }
+        return 0;
     case WM_CJT_TRAY_NOTIFY: {
         /* 托盘图标回调：NOTIFYICON_VERSION_4 口径下 wParam 是图标坐标、lParam 低位是事件。
            左键与右键都弹菜单——Linux 的 appindicator 本来就只有菜单（没有「图标激活」语义），
@@ -1455,6 +1468,12 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
        WebView2 还没就绪也无妨——SW_HIDE 是窗口层状态，页面照常加载。 */
     if (!h->win_visible) {
         window_apply_visible(p, 0);
+    }
+    /* 附庸窗属主：同样在装配期定稿——先占一个任务栏按钮再摘掉，用户会看见闪一下。
+       属主窗可能本窗建好时还没建（应用先开后窗），那时 window_apply_owner 会打一行
+       「owner hwnd 未就绪」并留待运行期再设（应用在属主建好后自己再调一次即可）。 */
+    if (h->owner) {
+        window_apply_owner(p, (plat_host *)h->owner->plat);
     }
     /* 创建 WebView2 环境（完成/失败都在回调 env_Invoke 中处理）。
        用户数据档案：显式选目录（env 覆盖优先，默认 %LOCALAPPDATA%\cj-tauri\<exe名>.WebView2），
@@ -2310,6 +2329,48 @@ void cj_plat_set_window_visible(cj_host *h, int visible) {
         return;
     }
     PostMessageW(p->hwnd, WM_CJT_VISIBLE, visible ? 1 : 0, 0);
+}
+
+/* ===== 附庸窗（owned window）=====
+   一个 owner 关系带出两条系统行为，正是应用要的那两条：
+   ① owned window **不单独占任务栏按钮**（系统只给 owner 那格）；
+   ② 属主最小化 / 隐藏时一并收起来，属主激活时它总在属主之上，不会漂到别的窗口后面去。
+   再补 WS_EX_TOOLWINDOW 从 Alt-Tab 列表里也摘掉——否则它仍以「同一应用的第二个窗口」出现，
+   而它本来就是主窗的一块延伸。解除隶属（owner=NULL）时两样一起还原。 */
+static void window_apply_owner(plat_host *p, plat_host *owner_p) {
+    if (!p || !p->hwnd) return;
+    if (owner_p && !owner_p->hwnd) {
+        /* 属主还没建窗：此刻挂不上，如实说一句就返回（运行期再调一次即可） */
+        fprintf(stderr, "[cj-bridge] owner window not created yet, skip\n");
+        return;
+    }
+    HWND owner = owner_p ? owner_p->hwnd : NULL;
+    LONG_PTR ex = GetWindowLongPtrW(p->hwnd, GWL_EXSTYLE);
+    LONG_PTR want = owner ? (ex | WS_EX_TOOLWINDOW) : (ex & ~(LONG_PTR)WS_EX_TOOLWINDOW);
+    if (want != ex) {
+        SetWindowLongPtrW(p->hwnd, GWL_EXSTYLE, want);
+    }
+    SetWindowLongPtrW(p->hwnd, GWLP_HWNDPARENT, (LONG_PTR)owner);
+    /* 改 EXSTYLE / owner 之后要 SWP_FRAMECHANGED 让系统重算非客户区与任务栏归属 */
+    SetWindowPos(p->hwnd, NULL, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    /* 事后复核并打进同一行：SetWindowLongPtrW 对已存在窗口不报错也不保证生效，
+       只打「我调过了」等于没有凭证（§4 的 SetMenu 那条教训）。 */
+    fprintf(stderr, "[cj-bridge] owner window applied: owner=%p GetWindow(hwnd,GW_OWNER)=%p taskbar=%s\n",
+            (void *)owner, (void *)GetWindow(p->hwnd, GW_OWNER), owner ? "hidden" : "shown");
+}
+
+void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->hwnd) return; /* 建窗前设的属主由 host_thread_main 按 h->owner 定稿 */
+    plat_host *op = owner ? (plat_host *)owner->plat : NULL;
+    if (cj_plat_is_ui_thread(h)) {
+        window_apply_owner(p, op);
+        return;
+    }
+    p->pending_owner = owner;
+    PostMessageW(p->hwnd, WM_CJT_OWNER, 0, 0);
 }
 
 /* 最小化到托盘这里只**记一条策略**（并重置提醒位）：真正的拦截发生在用户按下最小化的那一刻

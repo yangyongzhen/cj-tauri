@@ -148,6 +148,10 @@ typedef struct cj_host {
        真到最小化那一刻平台还会复核托盘是否真装上了（没有就如实降级为普通最小化 + 一行 stderr）。 */
     int minimize_to_tray;
 
+    /* 附庸窗属主（cj_bridge_set_owner_window 存入）：非 NULL = 本窗挂在 owner 下
+       （不重复占任务栏、跟随属主显隐）。平台建窗后读它定稿；owner 为 NULL = 解除隶属。 */
+    struct cj_host *owner;
+
     /* --- 预执行脚本（cj_bridge_add_init_script 追加，WebView 创建时逐条注入到
        document-start；插件的 jsShim 走这条通道，注册顺序排在 BRIDGE_JS 之后）--- */
     char **init_scripts;
@@ -266,6 +270,12 @@ void cj_plat_set_window_visible(cj_host *h, int visible);
    平台在**真要最小化那一刻**复核托盘是否真的装上了（能力位 / 应用有没有 setTray）：
    没装就降级为普通最小化并打一行 stderr——窗口藏起来却没有还原入口是比「不支持」更糟的结果。 */
 void cj_plat_set_minimize_to_tray(cj_host *h, int enabled);
+
+/* 附庸窗属主（cj_bridge_set_owner_window 存入 h->owner）：平台把 h 挂到 owner 下。
+   未就绪时**什么都不做**——平台建窗后读 h->owner 定稿；就绪后投 UI 线程执行
+   （Windows = GWLP_HWNDPARENT + WS_EX_TOOLWINDOW，Linux = gtk_window_set_transient_for +
+   skip_taskbar_hint）。owner 为 NULL 表示解除隶属。 */
+void cj_plat_set_owner_window(cj_host *h, cj_host *owner);
 
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
@@ -449,6 +459,11 @@ CJ_BRIDGE_API void cj_bridge_set_window_visible(cj_host *h, int visible);
 /* 最小化到托盘策略（须在 cj_bridge_start 之前调）：1 = 平台把「最小化」改写成「隐藏」。
    平台在真要最小化那一刻复核托盘是否装上，没装则降级为普通最小化 + 一行 stderr。 */
 CJ_BRIDGE_API void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled);
+
+/* 附庸窗（对标 owned window）：把 h 挂到 owner 下——不重复占任务栏、跟随属主显隐。
+   两头都能用：未 start 时只记下（平台建窗时按 h->owner 定稿，少一次任务栏按钮闪动），
+   start 之后投 UI 线程执行。owner 为空指针 = 解除隶属。两平台同名同签名。 */
+CJ_BRIDGE_API void cj_bridge_set_owner_window(cj_host *h, cj_host *owner);
 
 /* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
 CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);

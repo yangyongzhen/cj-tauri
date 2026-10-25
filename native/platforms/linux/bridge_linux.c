@@ -99,6 +99,8 @@ typedef struct plat_host {
     volatile int hk_done; /* grab 线程跑完（fini 回收状态的另一半条件）*/
     /* --- 窗口可见性 / 最小化到托盘（RFC-003 第 5 期余项）--- */
     int min_to_tray_warned; /* 「托盘没挂上，最小化降级」只出声一次（重新设策略时复位）*/
+    /* --- 附庸窗：跨线程改属主时先记下，由 GTK 线程的 idle 回调取用 --- */
+    cj_host *pending_owner;
 #ifdef CJ_HAVE_TRAY
     AppIndicator *tray;   /* 当前托盘；NULL = 没有。GTK 线程专属，重建 = 释放旧的再建 */
 #endif
@@ -229,6 +231,8 @@ static void tray_remove(plat_host *p);
 #endif
 /* 窗口可见性：装配点（建窗后按 h->win_visible 定稿）与运行期 g_idle 投递都要用，先声明 */
 static void window_apply_visible(plat_host *p, int visible);
+/* 附庸窗属主：同样两头都要用（装配期按 h->owner 定稿 / 运行期 g_idle 投递） */
+static void window_apply_owner(plat_host *p, plat_host *owner_p);
 /* 最小化到托盘的拦截点：建窗时挂 signal，定义在文件后段的平台原语区 */
 static gboolean on_window_state(GtkWidget *w, GdkEventWindowState *ev, gpointer ud);
 
@@ -677,6 +681,11 @@ static void *gtk_thread_main(void *arg) {
        （与拖放 / 托盘同一条「未就绪先记、建窗时读」的路）*/
     if (!h->win_visible) {
         window_apply_visible(p, 0);
+    }
+    /* 附庸窗属主：同样在装配期定稿（先显示再摘掉任务栏项，用户会看见闪一下）。
+       属主窗尚未建好时 window_apply_owner 会打一行说明并跳过，运行期再设即可。 */
+    if (h->owner) {
+        window_apply_owner(p, (plat_host *)h->owner->plat);
     }
     /* 最小化到托盘：拦 GTK 的图标化（真拦不拦看托盘**是否真的挂上了**，见 on_window_state）*/
     g_signal_connect(p->window, "window-state-event", G_CALLBACK(on_window_state), h);
@@ -1274,6 +1283,51 @@ static void window_apply_visible(plat_host *p, int visible) {
     fprintf(stderr, "[cj-bridge] window %s\n", visible ? "shown" : "hidden");
 }
 
+/* ===== 附庸窗（owned window）=====
+   GTK 侧同样是一个关系带出两条效果：transient-for 让本窗**总在属主之上**、属主图标化时
+   一并收起；skip_taskbar_hint 把它从任务栏与 Alt-Tab 列表里摘掉（窗口本来就是主窗的一块延伸）。
+   owner=NULL 解除隶属时两样一起还原。 */
+static void window_apply_owner(plat_host *p, plat_host *owner_p) {
+    if (!p || !p->window) return;
+    if (owner_p && !owner_p->window) {
+        fprintf(stderr, "[cj-bridge] owner window not created yet, skip\n");
+        return;
+    }
+    GtkWindow *win = GTK_WINDOW(p->window);
+    if (owner_p) {
+        gtk_window_set_transient_for(win, GTK_WINDOW(owner_p->window));
+        gtk_window_set_skip_taskbar_hint(win, TRUE);
+        gtk_window_set_skip_pager_hint(win, TRUE); /* 任务栏之外，工作区切换器里也别占一格 */
+    } else {
+        gtk_window_set_transient_for(win, NULL);
+        gtk_window_set_skip_taskbar_hint(win, FALSE);
+        gtk_window_set_skip_pager_hint(win, FALSE);
+    }
+    /* 事后查询复核打进同一行：GTK 的 hint 由窗口管理器执行，设了不等于生效
+       （§4 的 SetMenu 那条教训：只打「我调过了」等于没有凭证）。 */
+    fprintf(stderr, "[cj-bridge] owner window applied: owner=%p transient_for=%p skip_taskbar=%d\n",
+            (void *)(owner_p ? owner_p->window : NULL),
+            (void *)gtk_window_get_transient_for(win),
+            gtk_window_get_skip_taskbar_hint(win) ? 1 : 0);
+}
+
+typedef struct owner_idle {
+    cj_host *h;
+    cj_host *owner;
+} owner_idle;
+
+static gboolean owner_idle_cb(gpointer data) {
+    owner_idle *m = (owner_idle *)data;
+    if (!m) return G_SOURCE_REMOVE;
+    {
+        plat_host *p = m->h ? (plat_host *)m->h->plat : NULL;
+        plat_host *op = (m->owner && m->owner->plat) ? (plat_host *)m->owner->plat : NULL;
+        if (p) window_apply_owner(p, op);
+    }
+    free(m);
+    return G_SOURCE_REMOVE;
+}
+
 typedef struct visible_idle {
     cj_host *h;
     int visible;
@@ -1307,6 +1361,26 @@ void cj_plat_set_window_visible(cj_host *h, int visible) {
         m->h = h;
         m->visible = visible ? 1 : 0;
         g_idle_add(visible_idle_cb, m);
+    }
+}
+
+void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p) return;
+    if (!p->window) {
+        /* 未就绪：core 已把属主写进 h->owner，建窗时读（与可见性同一条路）*/
+        return;
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        window_apply_owner(p, owner ? (plat_host *)owner->plat : NULL);
+        return;
+    }
+    {
+        owner_idle *m = (owner_idle *)calloc(1, sizeof(*m));
+        if (!m) return;
+        m->h = h;
+        m->owner = owner;
+        g_idle_add(owner_idle_cb, m);
     }
 }
 

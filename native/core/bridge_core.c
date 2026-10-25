@@ -295,6 +295,17 @@ void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled) {
     cj_plat_set_minimize_to_tray(h, h->minimize_to_tray);
 }
 
+void cj_bridge_set_owner_window(cj_host *h, cj_host *owner) {
+    if (!h) return;
+    h->owner = owner;
+    cj_logf("[cj-bridge] set owner window: %s\n", owner ? "yes" : "none");
+    /* 与 set_window_visible 同形：未就绪时到此为止，平台建窗时读 h->owner 定稿
+       （建窗那一刻就挂好，不会先占一个任务栏按钮再消失）。 */
+    if (h->ready) {
+        cj_plat_set_owner_window(h, owner);
+    }
+}
+
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */
 
 void cj_bridge_start(cj_host *h, const char *html) {

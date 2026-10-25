@@ -32,12 +32,17 @@ func appContextFeatureProbe(): Unit {
     @Expect(ctx.dev, false)
 }
 
+/** 经函数返回：调用点看到的是 PageSource 全类型，match 的穷尽性检查才不会与流分析打架 */
+func assetPageSource(name: String): PageSource {
+    return PageSource.Asset(name)
+}
+
 @Test
 func pageSourceMatch(): Unit {
-    let src = PageSource.Asset("ui/index.html")
+    let src = assetPageSource("ui/index.html")
     match (src) {
         case Asset(name) => @Expect(name, "ui/index.html")
-        case _ => @Expect(false, true)   // 不应到达：Asset 之外的分支
+        case _ => @Expect(false, true)   // 不应到达：工厂只造 Asset
     }
 }
 
@@ -61,27 +66,33 @@ func mobileDiscoverSandbox(): Unit {
 /** 优先级最高者胜；create 返回假宿主（pickHost 会真实调用它） */
 class HighPrioProvider <: HostProvider {
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 10
     }
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         return FakeHost(label)
     }
 }
 
 class LowPrioProvider <: HostProvider {
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 1
     }
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         return FakeHost(label)
     }
 }
 
 class NullProvider <: HostProvider {
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 0
     }
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         return FakeHost(label)
     }
 }
@@ -236,9 +247,11 @@ func expectedDesktopOs(): String {
 /** 注册表有匹配时，resolveHost 必须取注册表而不是内置宿主 */
 class WinProvider <: HostProvider {
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 5
     }
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         return FakeHost(label)
     }
 }

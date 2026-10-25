@@ -48,7 +48,7 @@
   <rect x="492" y="500" width="428" height="92" rx="8" fill="#E4C189" filter="url(#sh)"/>
   <text x="706" y="530" font-size="14" font-weight="600" fill="#2D3748" text-anchor="middle">插件命令「&lt;插件名&gt;:&lt;短名&gt;」</text>
   <text x="706" y="554" font-size="12.5" fill="#3D2E15" text-anchor="middle">clipboard · dialog · fs · http · log · menu · mqtt · notification</text>
-  <text x="706" y="576" font-size="11.5" fill="#3D2E15" text-anchor="middle">redis · serial · shell · sqlite · store · ws（共 15 个子包 · 按需装配 + 清单放行）</text>
+  <text x="706" y="576" font-size="11.5" fill="#3D2E15" text-anchor="middle">redis · serial · shell · sqlite · store · ws（共 14 个插件包 · 按需装配 + 清单放行）</text>
 
   <path d="M254 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>
   <path d="M706 592 V 614" stroke="#94A3B8" stroke-width="2" fill="none" marker-end="url(#ar)"/>

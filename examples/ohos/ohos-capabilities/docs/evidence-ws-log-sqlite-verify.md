@@ -63,3 +63,39 @@ PASS sqlite outside-scope rejected（scopes.sqlite 之外的 path 当场拒）
   构建前把工程根 `assets/ui`、`assets/capabilities` 拷进 rawfile——消除「改了 assets
   不 sync 直接构建、hap 装旧页且改动静默丢失」的坑（本轮 http 探针第一轮踩的）。
   本地生成物已同步该段并验证（构建日志出现 `assets 已从工程根同步到 rawfile`）。
+
+---
+
+## store 插件真机取证（同日第五轮，2026-10-25）
+
+命令面跨平台共用、无平台代码改动——探针应用挂 `StorePlugin()`（落盘
+`<cwd>/store.json`，鸿蒙 cwd = el2 files 目录，可写），权限集 `store:default`。
+
+第一轮（`store-verify-hilog3.txt`，7 条断言）：
+
+```
+SKIP store persist first-round (no persisted key yet)   # 首轮无持久化键，如实记 SKIP
+PASS store set true
+PASS store get round-trip {"s":"cj-store","n":42,"nested":{"ok":true}}   # 任意 JSON 嵌套值逐字一致
+PASS store keys ["probe-key"]
+PASS store delete {"existed":true,"saved":true}
+PASS store get-default "fallback"                        # 键删后取缺省值
+PASS store clear / persist-write true                    # clear 后写 persist-key 供下一轮
+```
+
+第二轮（force-stop 重启，`store-verify-hilog4.txt`）：
+
+```
+PASS store persist survived-restart "cj-persist-1792897060760"   # 跨重启持久化的直接证据
+```
+
+**store 鸿蒙真机 7 PASS + 跨重启持久化成立**（force-stop 后 store.json 逐字回读）。
+探针页注意：开场探 persist-key、末尾重写——每轮重启自动打一条 persist 证据。
+
+### 同轮新坑：build-hap.sh 的 assets 同步段首版是嵌套拷贝
+
+`cp -r "$APP_ROOT/assets/ui" "$RAWFILE/ui"` 在 `RAWFILE/ui` **已存在**时会把 src 拷成
+`RAWFILE/ui/ui/`（嵌套目录）——rawfile 里的 index.html 静默变旧，探针行全无又无失败行
+（store 首轮取证就栽在这里）。修法：先 `rm -rf "$RAWFILE/ui" "$RAWFILE/capabilities"` 再拷。
+模板（`cli/templates/ohos-skeleton/build-hap.sh`）与本地生成物已同步修正，验证判据是
+hap 内 `grep -c probeStore index.html` 非零。

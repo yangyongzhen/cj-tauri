@@ -161,7 +161,9 @@ fi
 APP_ROOT="$ROOT_DIR/../.."
 if [ -f "$APP_ROOT/cj-tauri.toml" ] && [ -d "$APP_ROOT/assets" ]; then
     RAWFILE="$ROOT_DIR/entry/src/main/resources/rawfile"
-    mkdir -p "$RAWFILE"
+    mkdir -p "$RAWFILE/ui" "$RAWFILE/capabilities"
+    # 先清再拷：cp -r src dst 在 dst 已存在时会把 src 拷成 dst/ui/ui/（嵌套目录），页面静默变旧
+    rm -rf "$RAWFILE/ui" "$RAWFILE/capabilities"
     cp -r "$APP_ROOT/assets/ui" "$RAWFILE/ui"
     cp -r "$APP_ROOT/assets/capabilities" "$RAWFILE/capabilities"
     echo "[ohos] assets 已从工程根同步到 rawfile（ui/ + capabilities/）"

@@ -16,6 +16,13 @@
 
 ### Added
 
+- **`store` 插件鸿蒙真机取证通过（7 PASS + 跨重启持久化）**：set（嵌套 JSON）→get 逐字
+  回读→keys→delete→get 缺省值→clear 全 PASS，persist-key 跨 force-stop 存活
+  （store.json 落 `<cwd>/store.json`，鸿蒙 cwd = 应用 el2 files 目录）。零平台代码改动。
+  同轮修掉 assets 同步段首版的**嵌套拷贝坑**：`cp -r src dst` 在 dst 已存在时会把 src
+  拷成 `dst/ui/ui/`（页面静默变旧），先清再拷。见
+  `examples/ohos/ohos-capabilities/docs/evidence-ws-log-sqlite-verify.md`。
+
 - **`sqlite` 插件鸿蒙真机落地（amalgamation 随包编 so，ohos 桩退役）**：设备与 NDK 都没有
   sqlite 库（`stat -L` 五个候选路径 ENOENT、sysroot 无 aarch64 libsqlite），改走
   amalgamation（SQLite 本体 public domain，随包不产生附许可证义务）用 NDK clang 编

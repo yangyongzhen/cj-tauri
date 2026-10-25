@@ -10,6 +10,7 @@ import cjTauri.plugins.redis.*
 import cjTauri.plugins.ws.*
 import cjTauri.plugins.log.*
 import cjTauri.plugins.sqlite.*
+import cjTauri.plugins.store.*
 import stdx.encoding.json.*
 import std.collection.*
 @When[env == "ohos"]
@@ -154,6 +155,8 @@ public func build(): AppSpec {
         // （public domain）随包编 so：libsqlite3.so 放 entry/libs/arm64-v8a/ 随 hap 分发，
         // entry link-option 加 -L/-lsqlite3 生成 DT_NEEDED（缺了模块加载期 U 解析失败）
         .plugin(SqlitePlugin())
+        // store 插件：真机核验持久化 KV——落盘 <cwd>/store.json（鸿蒙 cwd = el2 files 目录，可写）
+        .plugin(StorePlugin())
         .wire({ app =>
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())

@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.1.0] - 2026-10-25
+
 ### Added
 
 - **附庸窗（owned window）：`WebViewHost.setOwnerWindow(label)` + C 桥 `cj_bridge_set_owner_window`**：
@@ -346,6 +348,11 @@
 
 ### Fixed
 
+- **Linux C 桥编不过（`duplicate member 'h'`）**：内嵌视图那轮给 `view_op` 加几何字段用了 `int h`，
+  与同结构体的宿主指针 `cj_host *h` 撞名（`view_slot` 的 `int h` 无重名不受影响）——Windows 侧
+  字段布局不同所以没暴露，Linux 侧 `native/build_linux.sh` 直接报错、`cj_bridge_view_*` 五个导出
+  落不了地，`cjpm test` 一串 `undefined reference`。高度字段改名 `hgt`，投递侧与 create / bounds
+  两个消费分支同步；顺带修掉三处 pointer/integer 错位赋值的连带警告。
 - **`ai-chat` 收起侧栏后内嵌网页视图不跟着变宽（右侧空出一条）**：内嵌视图的矩形只在
   `window.addEventListener('resize')` 上重报，而折叠侧栏是 `#side` 的 `display` 切换——不改窗口尺寸、
   也就不触发 resize，视图停在「侧栏还在」时的旧位置。`toggleSide()` 里补一次 `scheduleWebRect()`

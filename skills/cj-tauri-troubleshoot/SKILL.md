@@ -46,7 +46,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 
 | 症状 | 原因与修法 |
 |---|---|
-| 内联页面一行 JS 都不执行、stderr 无提示 | 三引号字符串处理反斜杠转义：JS 的 `\n` 被吃成真换行拆断 `<script>`。换行用 `String.fromCharCode(10)`，正则改 `indexOf`，改完 `node --check` 验；页面大就独立成 `ui/index.html` |
+| 内联页面一行 JS 都不执行、stderr 无提示 | 三引号字符串处理反斜杠转义：JS 的 `\n` 被吃成真换行拆断 `<script>`。换行用 `String.fromCharCode(10)`，正则改 `indexOf`，改完 `node --check` 验；页面大就独立成 `assets/ui/index.html`（旧形态工程是 `ui/index.html`） |
 | 前端读 `window.__CJ_TAURI__` 是 undefined | 桥/插件 shim 在 document-start 注入，但模块作用域别直接读；用 `waitForBridge` 轮询等桥出现 |
 | `command not registered` | 三处联动漏了第 2 处（`register` / `plugin()` 装配） |
 | `command not allowed` | 三处联动漏了第 3 处（capabilities `commands` / `permissions` 声明） |
@@ -65,7 +65,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 单文件包里「一键部署 / 拉起随包程序」报找不到安装包 | 打包器只内嵌页面 / vendor 前端资源 / 能力清单（按 `PACKED_*_B64` 存根声明），**`vendor/` 里的大二进制不会进 exe**。ai-chat 的 cjh zip（13 MB）就属于这类：单文件产物里如实报「找不到 cjh 安装包」，要装就设 `CJ_AICHAT_CJH_BUNDLE` 指过去 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 
-### 运行期 / 页面
+### 运行期 / scope 与出网白名单
 
 | 症状 | 原因与修法 |
 |---|---|

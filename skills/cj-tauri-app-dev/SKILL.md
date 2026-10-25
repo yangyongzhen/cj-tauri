@@ -23,37 +23,53 @@ gcc（Linux）或 llvm-mingw（Windows）/ WebKitGTK / WebView2。缺哪样补�
 安装指引、仓颉资料入口（官网 / 中心仓 / API / CangjieSkills 技能包）都在那个 skill 里。
 环境没齐就先装环境，**不要**在缺失的环境里试编译。
 
-### 1. 起工程
+### 1. 起工程（v2.0 新形态：一份清单 + sync 派生）
 
 ```bash
-cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / react（带 ui/ 前端工程）
+cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / react / ohos
 # 框架仓内没有可执行 CLI 时：bash cli/cj-tauri.sh create <名> --template app
 ```
 
-- 生成的 `cjpm.toml` 里 `cjTauri` 与 stdx 是**本机绝对路径**，换机器要改（框架依赖可改 `../..` 相对路径）。
-- 工作目录 = 项目根：`capabilities/` 与 `ui/` 都按相对路径读，启动器必须切到项目根再启动。
+生成的工程根是三样东西：
+
+- **`cj-tauri.toml`** —— 工程清单（id / 前端入口 / 目标端），**单一真相**；
+- `src/` —— 业务仓颉代码（`build()` 装配就在 `src/main.cj`）；
+- `assets/` —— `assets/ui/` 前端页面与 `assets/capabilities/` 能力清单。
+
+各端骨架（`targets/desktop`、`targets/ohos`）**不入库、不手写**：`cj-tauri sync [desktop|ohos]`
+从清单派生，业务代码以 path 依赖进入骨架。改了清单/模板后重跑 `sync` 即可。
+（旧形态工程 = 根目录没有 `cj-tauri.toml`，CLI 命令双轨兼容，但新工程一律走新形态。）
+
+- 生成的 `cjpm.toml` 里 `cjTauri` 与 stdx 是**本机绝对路径**，换机器要改（框架依赖可改 `../..` 相对路径）；
+- 工作目录 = 项目根：`assets/` 与 `cj-tauri.toml` 都按相对路径读，启动器必须切到项目根再启动。
 
 ### 2. 加命令（三处联动，漏一处就用不了）
 
 1. 实现 `CommandHandler`：`handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue`；
 2. `TauriApp().register("cmd", Handler())`；
-3. `capabilities/*.json` 的 `commands` 里声明。
+3. `assets/capabilities/*.json` 的 `commands` 里声明（旧形态工程则是根目录 `capabilities/`）。
 
 只做 1+3 → `command not registered`；只做 1+2 → `command not allowed`。
 
 ### 3. 加插件（同样三处联动）
 
-1. 实现 `Plugin`（必写 `name()` + `commands()`；要推事件 / 前端 shim 再写 `events()` / `jsShim()`），
-   实现文件放 `src/plugins/plugin_<名字>.cj`（**插件子包** `package cjTauri.plugins`，文件头写
-   `package cjTauri.plugins` + `import cjTauri.*`）；
+1. 实现 `Plugin`（必写 `name()` + `commands()`；要推事件 / 前端 shim / 权限集 / scope 再写
+   `events()` / `jsShim()` / `permissions()` / `scopeAware()`），实现文件放**插件子包**
+   `src/plugins/<名字>/plugin_<名字>.cj`（文件头 `package cjTauri.plugins.<名字>`，如
+   `src/plugins/fs/plugin_fs.cj`；FFI 声明也随插件放同目录）——**一个插件一个子包**：
+   链接粒度是「包 = 静态库」，挤同一个包会导致用谁都整包连坐；
 2. `TauriApp().plugin(XxxPlugin())`——命令自动注册成 `"<插件名>:<短名>"`；
+   **`commands()` 返回的 map 键必须写「短名」**，键里再写前缀就得到 `redis:redis:connect`
+   （所有命令以未注册告终）；
 3. capabilities 里声明 `"<插件名>:<短名>"`，或引用插件 `permissions()` 声明的**命名权限集**
    （`"permissions": ["fs:readonly"]`，成员展开后与明文名同权，单层展开不递归）。
 
 铁律：**插件只声明「我提供什么」，不自动放行**；清单不引用就不生效。
-官方插件样板：`src/plugins/` 子包下的 `plugin_fs.cj`（文件）、`plugin_dialog.cj`（对话框）、
-`plugin_shell.cj`（子进程）、`plugin_serial.cj`（串口）、`plugin_store.cj`（持久化 KV）、
-`plugin_clipboard.cj`（剪贴板）、`plugin_notification.cj`（系统通知）、`plugin_menu.cj`（菜单）。
+插件间**不得互相引用**（会重新引入连坐）；共用工具进核心共享层。
+官方插件样板：`src/plugins/` 下 14 个子包——fs（文件）、dialog（对话框）、shell（子进程）、
+serial（串口）、store（持久化 KV）、clipboard（剪贴板）、notification（系统通知）、menu（菜单）、
+http（出网白名单）、ws（WebSocket）、mqtt、redis（协议纯仓颉）、log（轮转落盘）、sqlite（FFI 直连系统库）；
+插件向示例照 `examples/plugin-fs/`。
 
 **带路径参数的插件还有第三层闸门（路径 scope，RFC-003 第 4 期）**：命令放行 ≠ 路径放行。
 清单可加 `"scopes": { "fs": { "allow": ["$HOME/notes/**"], "deny": ["**/id_rsa"] } }`；
@@ -64,7 +80,7 @@ cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / 
 
 ### 4. 写前端
 
-- 页面超过一屏就独立成 `ui/index.html` 由 `run()` 读入——**不要内联进仓颉三引号字符串**
+- 页面超过一屏就独立成 `assets/ui/index.html`（新形态）由 `run()` 读入——**不要内联进仓颉三引号字符串**
   （反斜杠转义与 `${}` 插值两个坑，见 `cj-tauri-troubleshoot`）；
 - 页面脚本**等桥出现再调**（模板里的 `waitForBridge`）；插件 shim 由宿主在 document-start 注入，
   页面第一行就能读 `window.__CJ_TAURI__.<插件名>`；
@@ -83,5 +99,6 @@ cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / 
 - 依赖方向单向：`app.cj → host.cj / ipc_hub.cj → capability.cj`，禁止反向与循环（跨层协作用回调注入）；
 - 平台差异只允许出现在 `@When` 条件编译与 C 桥（`native/bridge_*.c`）——上层禁止运行期平台分支；
 - **写仓颉代码只用已验证的 API，不猜签名**：拿不准先 grep `examples/` 与 `src/` 的同形用法；
-- 写代码前先看同形样板：`examples/` 下有十二个可跑示例（hello / todo_check / plugin-* / movie / music /
-  serial-assistant / ipc-bench…），业务向的照 `serial-assistant`、插件向的照 `plugin-fs`。
+- 写代码前先看同形样板：`examples/` 下 28 个可跑示例（hello / plugin-* / http-client / mqtt-client /
+  redis-client / music / serial-assistant / modbus-poll / markdown-notes / ai-chat…），
+  业务向的照 `serial-assistant`、插件向的照 `plugin-fs`；要接鸿蒙再看 `examples/ohos/`（music / movie）。

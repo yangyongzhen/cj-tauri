@@ -40,8 +40,8 @@ $CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/l
 
 ### 2. 跑
 
-工作目录 = 项目根（`capabilities/`、`ui/` 按相对路径读）。改过 C 桥导出先重建桥
-（`bash native/build_linux.sh`）再构建/测试，否则链接期一串 `undefined reference to cj_bridge_*`。
+工作目录 = 项目根（`assets/` 与 `cj-tauri.toml` 按相对路径读；旧形态工程则是 `capabilities/`、`ui/`）。
+改过 C 桥导出先重建桥（`bash native/build_linux.sh`）再构建/测试，否则链接期一串 `undefined reference to cj_bridge_*`。
 
 ### 3. 无显示环境
 

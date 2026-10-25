@@ -16,6 +16,20 @@ import std.unittest.testmacro.*
 
 const FS_T_BASE: String = "/tmp/fs-unit-test"
 
+/** 递归删除基座目录（用例前置清场）：上一轮跑完留下的树会让 mkdir / copy 撞「already exists」 */
+func fsWipeBase(dir: String): Unit {
+    if (!exists(dir)) {
+        return
+    }
+    if (FileInfo(dir).isDirectory()) {
+        for (info in Directory.readFrom(dir)) {
+            fsWipeBase("${dir}/${info.name}")
+        }
+    }
+    // std.fs 的 remove 同时管文件与空目录（fs:remove 的注释有说明），自底向上删到这里必然为空
+    remove(dir)
+}
+
 /** 取一条 fs 命令处理器 */
 func fsCmd(short: String): CommandHandler {
     return FsPlugin().commands().get(short).getOrThrow()
@@ -98,7 +112,9 @@ func testFsPermissionSetsGateWrites(): Unit {
 
 @Test
 func testFsMkdirCreatesAndRejectsDuplicate(): Unit {
-    // 基座目录先递归建出来（后面的用例都挂在这棵树上）
+    // 基座目录先递归建出来（后面的用例都挂在这棵树上）；上一轮的残留先清掉，
+    // 否则第二次跑 test.sh 时 mkdir / copy 会撞「already exists」（固定目录复用的代价）
+    fsWipeBase(FS_T_BASE)
     @Expect(fsRun("mkdir", fsArgsRecursive(FS_T_BASE)).asBool().getValue(), true)
     let dir = "${FS_T_BASE}/mkdir-a"
     @Expect(fsRun("mkdir", fsArgs(dir)).asBool().getValue(), true)

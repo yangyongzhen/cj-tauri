@@ -471,6 +471,53 @@
       }
       probeSqlite();
 
+      // store 插件：持久化 KV（落盘 <cwd>/store.json）——
+      // 开场先探 persist-key：上一轮写入、本轮重启后还在 = 跨重启持久化的直接证据；
+      // 末尾 clear 后重新写 persist-key，供下一轮验证。
+      function probeStore() {
+        var token = { s: 'cj-store', n: 42, nested: { ok: true } };
+        tauri.store.get({ key: 'persist-key', default: null })
+          .then(function (prev) {
+            if (prev !== null) {
+              report('PASS store persist survived-restart ' + JSON.stringify(prev));
+            } else {
+              report('SKIP store persist first-round (no persisted key yet)');
+            }
+            return tauri.store.set({ key: 'probe-key', value: token });
+          })
+          .then(function (w) {
+            report('PASS store set ' + JSON.stringify(w));
+            return tauri.store.get({ key: 'probe-key' });
+          })
+          .then(function (v) {
+            var ok = v && v.s === 'cj-store' && v.n === 42 && v.nested && v.nested.ok === true;
+            report((ok ? 'PASS' : 'FAIL') + ' store get round-trip ' + JSON.stringify(v));
+            return tauri.store.keys();
+          })
+          .then(function (ks) {
+            var has = ks && ks.indexOf('probe-key') >= 0;
+            report((has ? 'PASS' : 'FAIL') + ' store keys ' + JSON.stringify(ks));
+            return tauri.store.del({ key: 'probe-key' });
+          })
+          .then(function (d) {
+            report('PASS store delete ' + JSON.stringify(d));
+            return tauri.store.get({ key: 'probe-key', default: 'fallback' });
+          })
+          .then(function (v2) {
+            report((v2 === 'fallback' ? 'PASS' : 'FAIL') + ' store get-default ' + JSON.stringify(v2));
+            return tauri.store.clear();
+          })
+          .then(function (c) {
+            report('PASS store clear ' + JSON.stringify(c));
+            return tauri.store.set({ key: 'persist-key', value: 'cj-persist-' + Date.now() });
+          })
+          .then(function (p) {
+            report('PASS store persist-write ' + JSON.stringify(p));
+          })
+          .catch(function (err) { report('FAIL store ' + err.message); });
+      }
+      probeStore();
+
       // 原生菜单 → 页面：宿主把 shell 报文回投成 menu:click 事件
       tauri.listen('menu:click', function (payload) {
         report('PASS menu click id=' + payload.id

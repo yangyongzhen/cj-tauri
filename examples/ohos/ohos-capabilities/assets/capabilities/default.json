@@ -10,7 +10,7 @@
     "clipboard:write",
     "clipboard:read"
   ],
-  "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default", "ws:default", "log:default", "sqlite:default"],
+  "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default", "ws:default", "log:default", "sqlite:default", "store:default"],
   "events": ["tick", "menu:click", "mqtt:message", "mqtt:state", "ws:frame", "ws:state"],
   "scopes": {
     "http": {

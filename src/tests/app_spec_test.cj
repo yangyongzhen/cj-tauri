@@ -40,10 +40,12 @@ class AppSpecProbeProvider <: HostProvider {
     public var last: FakeHost = FakeHost("seed")
 
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 100
     }
 
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         this.last = FakeHost(label)
         return this.last
     }
@@ -58,7 +60,7 @@ func appSpecAssembleWiresApp(): Unit {
         .page(PageSource.Inline("<p/>"))
         .window(WindowConfig("spec窗", 640, 480))
         .plugin(StorePlugin())
-        .wire({ app =>
+        .wire({ _ =>
             box.on = true
         })
     let app = assemble(spec)
@@ -88,10 +90,12 @@ class RunProbeProvider <: HostProvider {
     public var last: FakeHost = FakeHost("seed")
 
     public func priority(target: TargetInfo): Int64 {
+        let _ = target
         return 200
     }
 
     public func create(label: String, target: TargetInfo): WebViewHost {
+        let _ = target
         this.last = FakeHost(label)
         return this.last
     }

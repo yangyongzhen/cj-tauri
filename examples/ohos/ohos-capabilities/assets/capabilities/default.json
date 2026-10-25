@@ -10,6 +10,11 @@
     "clipboard:write",
     "clipboard:read"
   ],
-  "permissions": ["menu:state"],
-  "events": ["tick", "menu:click"]
+  "permissions": ["menu:state", "http:default"],
+  "events": ["tick", "menu:click"],
+  "scopes": {
+    "http": {
+      "allow": ["www.baidu.com", "httpbin.org"]
+    }
+  }
 }

@@ -3,6 +3,7 @@ package ohosCapabilities
 import cjTauri.*
 import cjTauri.plugins.menu.*
 import cjTauri.plugins.clipboard.*
+import cjTauri.plugins.http.*
 import stdx.encoding.json.*
 import std.collection.*
 @When[env == "ohos"]
@@ -124,6 +125,10 @@ public func build(): AppSpec {
         // clipboard 插件：鸿蒙侧走原生 pasteboard（宿主实现见 host_arkweb.cj），
         // 命令是 clipboard:write / clipboard:read，能力清单里逐条声明才放行
         .plugin(ClipboardPlugin())
+        // http 插件：鸿蒙侧走系统网络栈 ohos.net.http（http_ohos.cj）——真机核验
+        // RequestMethod.Post/Delete 成员名、extraData 承载 POST 体、https 走 OS 的 TLS、
+        // postStream 如实拒绝；主机白名单在 assets/capabilities/default.json 的 scopes.http
+        .plugin(HttpPlugin())
         .wire({ app =>
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())

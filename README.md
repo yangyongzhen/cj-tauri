@@ -395,7 +395,7 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 - ✅ 工程化：294 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
 - ✅ 鸿蒙 PC（ArkWeb，2in1 桌面窗）：页面 `system:version` 往返、多窗口 label 路由、`music` / `movie` 两个示例
   真机闭环，`cj-tauri create --template ohos` 直接生成可直接编 hap 的工程
-- 🔜 鸿蒙宿主能力位（菜单 / 托盘 / 快捷键 / 拖放 / 对话框仍如实报 0）、macOS WebView、更多官方插件
+- 🔜 鸿蒙宿主其余能力位（菜单已真机取证；托盘 / 快捷键 / 拖放 / 通知仍如实报 0，对话框不占能力位走应用侧 overlay）、macOS WebView、更多官方插件
 
 ## 仓库与推送
 

@@ -2,6 +2,8 @@
 
 # cj-tauri · 仓颉版 Tauri
 
+**简体中文** · [**English**](./README_EN.md)
+
 **用华为仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端。**
 前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–10.3 MB，
 Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。

@@ -37,9 +37,17 @@ API Key 存本机 `store.json`（**不入库**，见根 `.gitignore`），不进
 
 ## 网页版入口
 
-侧栏「网页」tab 里是八家网页版的入口（DeepSeek / Kimi / 豆包 / 通义千问 / 智谱清言 / 腾讯元宝 /
-文心一言 / ChatGPT）。点一张卡片就在**当前窗口里**开一个标签页加载该站真实地址——登录、额度、功能
+侧栏「网页」tab 里是九家网页版的入口（DeepSeek / Kimi / 豆包 / 通义千问 / 智谱清言 / 腾讯元宝 /
+文心一言 / MiniMax / ChatGPT）。点一张卡片就在**当前窗口里**开一个标签页加载该站真实地址——登录、额度、功能
 与在浏览器里用完全一致；登录态随本应用的用户数据目录留存，标签页关掉再点即重开（登录还在）。
+
+![网页版标签页切换](../../docs/images/ai-chat-web-models.gif)
+
+*同一扇窗口里依次打开 DeepSeek → Kimi → 智谱清言 → MiniMax：标签一枚枚长出来，切换是原地切。*
+
+| DeepSeek | Kimi | MiniMax |
+| :--: | :--: | :--: |
+| ![DeepSeek 网页版](../../docs/images/example-ai-chat-web-deepseek.png) | ![Kimi 网页版](../../docs/images/example-ai-chat-web-kimi.png) | ![MiniMax 网页版](../../docs/images/example-ai-chat-web-minimax.png) |
 
 标签条在**顶栏右侧**（不在侧栏里），点一下即在已开的几个站点之间切换：只换谁露出来，
 **不重新加载、不丢滚动位置**。标签上的 `×` 关掉它并释放背后的渲染进程。网页视图开着的时候，
@@ -47,7 +55,7 @@ API Key 存本机 `store.json`（**不入库**，见根 `.gitignore`），不进
 才用的东西，摆在网页上方容易被误读成也归本应用管；切回会话即恢复。切到别的侧栏面板（技能 / MCP /
 文件）会把内嵌页面藏起来，切回来还是原来那一页。
 
-**同时存在的视图上限 4 个**（LRU 淘汰）：每个视图背后是一个渲染进程，八家全开约 300–600 MB，
+**同时存在的视图上限 4 个**（LRU 淘汰）：每个视图背后是一个渲染进程，九家全开约 300–600 MB，
 满了就淘汰最久没用过的那个；标签条本身可以多于 4 枚，点回去时重建视图、登录态仍在。
 视图是宿主自己的 WebView，与主页面共用同一个用户数据目录。
 
@@ -193,7 +201,7 @@ MSYS 的 GNU tar 排在前面，它不认 zip；② zip 里 4 个运行时 DLL�
 bash scripts/pack-win-single.sh examples/ai-chat     # 产物：examples/ai-chat/dist-single/ai-chat.exe
 ```
 
-产物是**一个文件**（实测 10.6 MB，`Subsystem = 00000002` 即 Windows GUI，双击不弹控制台；
+产物是**一个文件**（实测 10.3 MB / 10 789 376 字节，`Subsystem = 00000002` 即 Windows GUI，双击不弹控制台；
 导入表只有 msvcrt / KERNEL32 / WS2_32 / SHELL32 / dbghelp / ole32 / comdlg32 / USER32 / CRYPT32 这些系统库）。
 页面、highlight.js 与主题、`capabilities/app.json` 都 base64 编进二进制，运行时不再读 `ui/` 与 `capabilities/`。
 

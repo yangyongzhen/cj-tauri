@@ -30,7 +30,7 @@ cd myapp
 npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
 ```
 
-不想装 SDK？仓库随版本分发**八份静态链接的单文件 Windows 工具**（4.69–9.79 MB，免安装、
+不想装 SDK？仓库随版本分发**十份静态链接的单文件 Windows 工具**（4.69–32.8 MB，免安装、
 双击即用，PE 导入表全部实测过）——[直接下载](#方式二直接下载单文件工具免安装免-sdk)。
 
 ![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
@@ -49,6 +49,28 @@ npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板�
 
 *缺 cjh 时切 Agent 出引导卡：一键部署（用仓库自带安装包，本地 SHA256 校验后解包启动，不走网络）；
 失败回落第 2/3 步的手动安装——按平台给产物名与下载地址，选一次可执行文件当场拉起并记住路径。*
+
+顺手把**九家模型的网页版**也做进了同一个窗口（不是一个站点一个壳，而是主窗内嵌的浏览器视图 + 顶栏标签条）：
+点「打开」就在当前窗口里跑起它自己的网页版——DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 /
+腾讯元宝 / MiniMax / ChatGPT，登录一次就记住（登录态落在同一个 WebView2 用户目录里），额度走各自的账号：
+
+![ai-chat 网页版标签页切换](docs/images/ai-chat-web-models.gif)
+
+*同一扇窗口里依次打开 DeepSeek → Kimi → 智谱清言 → MiniMax：标签一枚枚长出来，切换是原地切，不弹第二个窗。*
+
+| 内嵌网页版：DeepSeek | Kimi | MiniMax |
+| :--: | :--: | :--: |
+| ![DeepSeek 网页版](docs/images/example-ai-chat-web-deepseek.png) | ![Kimi 网页版](docs/images/example-ai-chat-web-kimi.png) | ![MiniMax 网页版](docs/images/example-ai-chat-web-minimax.png) |
+
+*内嵌的是**真实 WebView2 视图**而不是 iframe：站点按自己的规则跑 JS、自己发请求，窗口缩放时视图跟着重排；
+最多同时保留 4 枚视图（LRU 淘汰），标签可多于视图数，点回去重建视图、登录态仍在。*
+
+单文件包**约 10 MB**（10.3 MB，免安装、双击即用，PE 导入表实测只依赖系统 DLL）：
+[下载 ai-chat.exe](https://atomgit.com/qq8864/cj-tauri/blob/main/examples/ai-chat/dist-single/ai-chat.exe)，
+也可在[单文件下载表](#方式二直接下载单文件工具免安装免-sdk)里取。
+
+> 截图取自 Windows 实机。Linux 侧已实现同一套 `WebViewHost` 视图接口（GtkOverlay + GtkFixed）**但尚未实机取证**；
+> 鸿蒙侧的视图能力位为 0，`webtab:*` 命令会如实返回业务错误、不会假装成功。
 
 用 cj-tauri 实现的 **Modbus 调试工具**（`examples/modbus-poll`，对标 Modbus Poll 并补齐其痛点）：
 
@@ -131,7 +153,7 @@ cd targets/ohos && npx cj-tauri run
 
 ### 方式二：直接下载单文件工具（免安装、免 SDK）
 
-仓库随版本分发静态链接的单文件 Windows 工具（点击下载，九份产物全部实测过导入表）：
+仓库随版本分发静态链接的单文件 Windows 工具（点击下载，十份产物全部实测过导入表）：
 
 **调试与工具类**：
 
@@ -152,12 +174,13 @@ cd targets/ohos && npx cj-tauri run
 
 | 应用 | 说明 |
 |---|---|
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe)（10.3MB） | AI 对话客户端：多会话 / 多服务商流式 Markdown 聊天，Agent 模式接本机 cjh；**主窗内嵌九家模型的网页版**（DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 / 腾讯元宝 / MiniMax / ChatGPT，顶栏标签条切换、登录态记住），[中文说明](examples/ai-chat/README.md) |
 | [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
 | [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
 | [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
 | [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（32.8MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（随包 release 到 `%LOCALAPPDATA%`、静默拉起、退出收尾）；体积大是因为 cjh 与 4 个运行时 DLL 一起嵌进了 exe，[中文说明](examples/cjnote/README.md) |
 
-体积、依赖与冷启动都是**实测**的：九份产物 4.69–32.8 MB（`cjnote` 那份含内嵌 AI 后端，其余 4.69–9.79 MB），
+体积、依赖与冷启动都是**实测**的：十份产物 4.69–32.8 MB（`cjnote` 那份含内嵌 AI 后端，其余 4.69–10.3 MB），
 PE 导入表里只有 Windows 系统 DLL
 （没有任何第三方运行时，非系统 DLL 一列全是 0），双击不弹控制台
 （`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，

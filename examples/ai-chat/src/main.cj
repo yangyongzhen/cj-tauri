@@ -82,7 +82,7 @@ public class QuitCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    let win = WindowConfig("AI 对话", 1320, 860)
+    let win = WindowConfig("ai-chat, made by cj-tauri", 1320, 860)
     win.devTools = true
 
     let app = TauriApp()

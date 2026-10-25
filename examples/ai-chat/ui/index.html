@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>AI 对话</title>
+<title>ai-chat, made by cj-tauri</title>
 <script>
 /*__VENDOR_JS__*/
 </script>
@@ -3828,7 +3828,14 @@ function applySide() {
   $('btnSide').textContent = sideHidden ? '☰ 展开' : '☰';
   $('btnSide').title = (sideHidden ? '展开' : '收起') + '侧栏（Ctrl+B）';
 }
-function toggleSide() { sideHidden = !sideHidden; applySide(); saveState(); }
+function toggleSide() {
+  sideHidden = !sideHidden;
+  applySide();
+  saveState();
+  // 折叠侧栏是 display 切换，不改窗口尺寸、也就不触发 resize：内嵌视图的矩形得自己重报，
+  // 否则它会卡在「侧栏还在」时的旧位置，右边空出一条（实测：收起后不铺满）。
+  scheduleWebRect();
+}
 function autoGrowInput() {
   var t = $('input');
   t.style.height = 'auto';                        // 先归零再量：不清掉旧内联高，scrollHeight 不会变小

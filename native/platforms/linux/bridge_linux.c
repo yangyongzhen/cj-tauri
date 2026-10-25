@@ -88,7 +88,7 @@ typedef struct view_op {
     cj_host *h;
     int opcode;
     long long id;
-    int x, y, w, h;
+    int x, y, w, hgt;
     int flag;   /* CJ_VIEW_OP_VISIBLE：1 显示 / 0 隐藏 */
     char *url;
 } view_op;
@@ -1457,7 +1457,7 @@ static void view_post(cj_host *h, int opcode, long long id, int x, int y, int w,
     op->x = x;
     op->y = y;
     op->w = w;
-    op->h = hgt;
+    op->hgt = hgt;
     op->flag = flag;
     if (url && url[0]) {
         size_t n = strlen(url) + 1;
@@ -1525,7 +1525,7 @@ static void view_apply_op(view_op *op) {
         vs->x = op->x;
         vs->y = op->y;
         vs->w = op->w;
-        vs->h = op->h;
+        vs->h = op->hgt;
         vs->visible = 1;   /* 新建的视图就是用户刚要看的那个 */
         {
             /* 默认 context 建视图：cookie / 登录态与主页面共用（与 Windows 的共享 environment 同义）。
@@ -1555,7 +1555,7 @@ static void view_apply_op(view_op *op) {
         vs->x = op->x;
         vs->y = op->y;
         vs->w = op->w;
-        vs->h = op->h;
+        vs->h = op->hgt;
         gtk_fixed_move(GTK_FIXED(p->fixed), vs->webview, vs->x, vs->y);
         gtk_widget_set_size_request(vs->webview, vs->w, vs->h);
         break;

@@ -4,6 +4,9 @@ import cjTauri.*
 import cjTauri.plugins.menu.*
 import cjTauri.plugins.clipboard.*
 import cjTauri.plugins.http.*
+import cjTauri.plugins.fs.*
+import cjTauri.plugins.mqtt.*
+import cjTauri.plugins.redis.*
 import stdx.encoding.json.*
 import std.collection.*
 @When[env == "ohos"]
@@ -129,6 +132,15 @@ public func build(): AppSpec {
         // RequestMethod.Post/Delete 成员名、extraData 承载 POST 体、https 走 OS 的 TLS、
         // postStream 如实拒绝；主机白名单在 assets/capabilities/default.json 的 scopes.http
         .plugin(HttpPlugin())
+        // fs 插件：鸿蒙沙箱内读写——真机核验 scope 相对路径口径与九条命令；
+        // 主机白名单在 assets/capabilities/default.json 的 scopes.fs（allow: probe-fs/**）
+        .plugin(FsPlugin())
+        // mqtt 插件：真机核验明文 TCP 出网（stdx socket 不碰 TLS，预期设备上可用）；
+        // 对端用公网明文 broker test.mosquitto.org:1883，自收回环对账（SUBACK + 收到自己的 PUBLISH）
+        .plugin(MqttPlugin())
+        // redis 插件：真机核验 RESP2 明文 TCP——对端是 PC 上的本仓 mock-redis，
+        // 经 `hdc rport tcp:6380 tcp:6379` 反向转发（设备连自己的 127.0.0.1:6380）
+        .plugin(RedisPlugin())
         .wire({ app =>
             app.register("greet", GreetCommand())
             app.register("timer", TimerCommand())

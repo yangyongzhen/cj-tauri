@@ -10,11 +10,15 @@
     "clipboard:write",
     "clipboard:read"
   ],
-  "permissions": ["menu:state", "http:default"],
-  "events": ["tick", "menu:click"],
+  "permissions": ["menu:state", "http:default", "fs:default", "mqtt:debug", "redis:default"],
+  "events": ["tick", "menu:click", "mqtt:message", "mqtt:state"],
   "scopes": {
     "http": {
       "allow": ["www.baidu.com", "httpbin.org"]
+    },
+    "fs": {
+      "allow": ["probe-fs/**", "probe-fs", "probe-fs.txt", "$CWD/probe-fs/**", "$CWD/probe-fs"],
+      "deny": ["**/secret*"]
     }
   }
 }

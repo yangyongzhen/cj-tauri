@@ -52,7 +52,15 @@ typedef struct env_handler {
 typedef struct ctrl_handler {
     ICoreWebView2CreateCoreWebView2ControllerCompletedHandler iface;
     cj_host *h;
+    /* 0 = 宿主自己的主 controller；>0 = 某个内嵌视图（PLT-006）。
+       两者共用同一张 vtable、靠这个字段分流——省掉一套重复的 COM 骨架。 */
+    long long view_id;
 } ctrl_handler;
+
+/* g_ctrl_vtbl 的本体定义在 ctrl_Invoke 之后，而内嵌视图在 view_open 里就要给
+   自己那份 handler 赋 vtable（漏了就是空 vtable：WebView2 从 EmbeddedBrowserWebView.dll
+   里一跳即 0xc0000005，2026-10-25 实机连崩两轮就是这么来的），故此处留暂定定义。 */
+static ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl g_ctrl_vtbl;
 
 typedef struct msg_handler {
     ICoreWebView2WebMessageReceivedEventHandler iface;
@@ -92,6 +100,55 @@ typedef struct hotkey_slot {
     int registered; /* RegisterHotKey 成功；失败的那条不参与回投 */
 } hotkey_slot;
 
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   一扇窗里可以有多个 WebView：每个视图一个 CoreWebView2Controller（共享宿主的 environment），
+   各自 Bounds + IsVisible，切换 tab 就是换谁可见。
+
+   **线程归属：视图表只归宿主 UI 线程。** 命令 worker 线程进来只做两件事——领一个 id
+   （InterlockedIncrement64，跨线程安全）+ PostMessageW(WM_CJT_VIEW) 把意图投过来；
+   表本身不加锁，也不存在两个线程同时改它的时刻。COM 对象同理：WebView2 的 controller
+   必须在创建它的线程上调用，而它就是在 UI 线程建的。
+
+   为什么不敢在调用线程直接建：官方 Known issues 记着「在同步调用栈上
+   CreateCoreWebView2Controller 会死锁」（Tauri 也照抄了这条警告）；投递到 UI 线程
+   是一次消息往返，天然避开。 */
+#define CJ_VIEW_MAX 8
+
+typedef struct view_slot {
+    long long id;              /* 0 = 空位；>0 = 对上层不透明的句柄 */
+    /* 这个视图独占的子窗口。WebView2 的 controller 与 HWND 是 1:1——
+       把第二个 controller 挂到主窗口的 HWND 上会在 EmbeddedBrowserWebView.dll 里
+       访问违例（2026-10-25 实机：点开第一张卡片，日志刚打出 view visible 就 0xc0000005 秒退）。
+       所以每个视图先建一个 WS_CHILD 子窗口当载体，controller 挂它。 */
+    HWND hwnd;
+    ICoreWebView2Controller *controller;
+    ICoreWebView2 *webview;
+    int visible;               /* 当前真的可见 */
+    int opening;               /* controller 还没回调回来 */
+    int want_visible;          /* opening 期间的意图，回调里一次性落地 */
+    RECT bounds;               /* 主窗口客户区里的逻辑坐标（WebView2 的 Bounds 单位就是 DIP）*/
+    char *pending_url;         /* UTF-8 待导航地址：controller 就绪后转换并 Navigate，随后释放 */
+    ctrl_handler handler;      /* 每视图一个回调对象（引用计数恒 1，随宿主存续）*/
+} view_slot;
+
+/* 跨线程投递的一条意图；url 由 UI 线程释放。 */
+typedef struct view_op {
+    int opcode;
+    long long id;
+    int x;
+    int y;
+    int w;
+    int h;
+    int flag;   /* CJ_VIEW_OP_VISIBLE 用：1 显示 / 0 隐藏 */
+    char *url;
+} view_op;
+
+#define CJ_VIEW_OP_CREATE 1
+#define CJ_VIEW_OP_VISIBLE 2
+#define CJ_VIEW_OP_BOUNDS 3
+#define CJ_VIEW_OP_NAVIGATE 4
+#define CJ_VIEW_OP_DESTROY 5
+
 /* ===== 每个宿主的平台私有状态 =====
    原先是一堆进程级单例（g_hwnd / g_controller / g_environment / g_webview / g_host_thread_id …）。
    现在挂在自己的 cj_host->plat 上，平台函数一律从入参句柄取状态。 */
@@ -129,6 +186,9 @@ typedef struct plat_host {
     int min_to_tray_warned;
     /* --- 附庸窗：跨线程改属主时先记在这里，由 UI 线程取用（WM_CJT_OWNER 里读） --- */
     cj_host *pending_owner;
+    /* --- 同窗内嵌视图（PLT-006）：表只归 UI 线程，口径见 view_slot 的注释 --- */
+    view_slot views[CJ_VIEW_MAX];
+    volatile LONG64 view_seq;   /* id 发号：worker 线程 InterlockedIncrement64 */
 } plat_host;
 
 /* 拖放目标的挂/摘（定义在文件后部）：controller 完成回调与 wnd_proc 都要调 */
@@ -234,6 +294,7 @@ static const wchar_t *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 #define WM_CJT_VISIBLE (WM_APP + 13)   /* 运行期改可见性：wParam = 0 隐藏 / 1 显示 */
 #define WM_CJT_TRAY_NOTIFY (WM_APP + 14) /* 托盘图标的回调消息（Shell_NotifyIconW 的 uCallbackMessage）*/
 #define WM_CJT_OWNER (WM_APP + 15)     /* 运行期改属主窗：UI 线程读 p->pending_owner 应用 */
+#define WM_CJT_VIEW (WM_APP + 16)      /* 同窗内嵌视图（PLT-006）：lParam = view_op*（UI 线程释放）*/
 
 /* 托盘菜单项的命令 id 从 1000 起：TrackPopupMenu 的 WM_COMMAND 也落到本窗口，
    与菜单栏的命令 id（从 1 起）分开放，WM_COMMAND 才能判别是哪一个表。 */
@@ -322,6 +383,293 @@ static ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerVtbl g_env_vtbl
     env_QueryInterface, env_AddRef, env_Release, env_Invoke
 };
 
+/* --- 同窗内嵌视图（PLT-006）：视图表、完成回调、投递分发 ---
+   下面全部只在**宿主 UI 线程**执行（wnd_proc 与 controller 回调都在那儿），所以视图表不加锁。 */
+
+static view_slot *view_find(plat_host *p, long long id) {
+    int i;
+    if (!p || id <= 0) return NULL;
+    for (i = 0; i < CJ_VIEW_MAX; i++) {
+        if (p->views[i].id == id) return &p->views[i];
+    }
+    return NULL;
+}
+
+static view_slot *view_alloc(plat_host *p) {
+    int i;
+    for (i = 0; i < CJ_VIEW_MAX; i++) {
+        if (p->views[i].id == 0) return &p->views[i];
+    }
+    return NULL;
+}
+
+/* 收掉一个视图：Close 之后必须 Release，否则那个 Edge 渲染进程会赖在后台不走。 */
+static void view_close(plat_host *p, view_slot *vs) {
+    if (!vs) return;
+    if (vs->controller) {
+        vs->controller->lpVtbl->Close(vs->controller);
+        vs->controller->lpVtbl->Release(vs->controller);
+    }
+    vs->controller = NULL;
+    vs->webview = NULL;
+    if (vs->hwnd) {
+        DestroyWindow(vs->hwnd);   /* 子窗口随 controller 一起走，留着就是个空壳挡鼠标 */
+        vs->hwnd = NULL;
+    }
+    if (vs->pending_url) {
+        free(vs->pending_url);
+        vs->pending_url = NULL;
+    }
+    vs->id = 0;
+    vs->visible = 0;
+    vs->opening = 0;
+    vs->want_visible = 0;
+}
+
+/* ===== 内嵌视图的载体子窗口 =====
+   WebView2 的 controller 与 HWND 是 1:1（原因见 view_slot.hwnd 的注释）。这个类只当画布：
+   窗口过程就是 DefWindowProcW，输入与绘制都由 WebView2 自己建在它里面的孙窗口接管。 */
+static const wchar_t *VIEW_CLASS = L"CjTauriViewWindow";
+
+static LRESULT CALLBACK view_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+/* 把视图窗口提到最前：主页面自己的 WebView 也是一个铺满客户区的子窗口，
+   两者是兄弟关系，不主动抬 z 序的话新视图会被它整块盖住——
+   现象就是「日志里 view ready visible=1，屏幕上却什么都没有」（2026-10-25 实机）。 */
+static void view_raise(view_slot *vs) {
+    if (!vs || !vs->hwnd) return;
+    SetWindowPos(vs->hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+/* 建 controller：共享宿主的 environment，因此 cookie / 登录态与主页面同源同库。 */
+static void view_open(cj_host *h, plat_host *p, view_slot *vs) {
+    HRESULT hr;
+
+    if (!p->environment) {
+        fprintf(stderr, "[cj-bridge] view create failed: environment not ready\n");
+        view_close(p, vs);
+        return;
+    }
+    /* 先给视图一个自己的子窗口（位置/尺寸取页面报来的矩形，主窗口客户区坐标） */
+    vs->hwnd = CreateWindowExW(0, VIEW_CLASS, L"",
+                               WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+                               vs->bounds.left, vs->bounds.top,
+                               vs->bounds.right - vs->bounds.left,
+                               vs->bounds.bottom - vs->bounds.top,
+                               p->hwnd, NULL, GetModuleHandleW(NULL), NULL);
+    if (!vs->hwnd) {
+        fprintf(stderr, "[cj-bridge] view child window failed: id=%lld err=%lu\n",
+                vs->id, (unsigned long)GetLastError());
+        view_close(p, vs);
+        return;
+    }
+    if (vs->want_visible) {
+        ShowWindow(vs->hwnd, SW_SHOWNOACTIVATE);
+        view_raise(vs);
+    }
+    vs->handler.iface.lpVtbl = &g_ctrl_vtbl;
+    vs->handler.h = h;
+    vs->handler.view_id = vs->id;
+    vs->opening = 1;
+    hr = p->environment->lpVtbl->CreateCoreWebView2Controller(
+            p->environment, vs->hwnd,
+            (ICoreWebView2CreateCoreWebView2ControllerCompletedHandler *)&vs->handler.iface);
+    if (FAILED(hr)) {
+        fprintf(stderr, "[cj-bridge] view CreateCoreWebView2Controller failed: id=%lld hr=0x%08lx\n",
+                vs->id, (unsigned long)hr);
+        view_close(p, vs);
+    }
+}
+
+/* 视图 controller 就绪：摆位置、按意图定可见性、导航到目标站点。
+   注意这里**刻意不注入 BRIDGE_JS、也不 add_WebMessageReceived**——内嵌视图装的是第三方站点，
+   它的脚本不该拿到 window.__CJ_TAURI__，更不该能调宿主命令（能力清单管不到外部页面，
+   一旦注入就等于把整份能力开放给任意网站）。要跟站点通信只能走 URL 参数 / 服务端。 */
+static HRESULT view_ctrl_completed(ctrl_handler *self, HRESULT errorCode,
+                                   ICoreWebView2Controller *result) {
+    cj_host *h = self ? self->h : NULL;
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    view_slot *vs = p ? view_find(p, self->view_id) : NULL;
+
+    if (!vs) {
+        /* 表里已经没有它（销毁请求先到了）：别把 controller 漏成孤儿 */
+        if (result) {
+            result->lpVtbl->Close(result);
+            result->lpVtbl->Release(result);
+        }
+        return S_OK;
+    }
+    if (FAILED(errorCode) || !result) {
+        fprintf(stderr, "[cj-bridge] view controller failed: id=%lld hr=0x%08lx\n",
+                self->view_id, (unsigned long)errorCode);
+        view_close(p, vs);
+        return S_OK;
+    }
+
+    vs->controller = result;
+    result->lpVtbl->AddRef(result);
+    result->lpVtbl->get_CoreWebView2(result, &vs->webview);
+    result->lpVtbl->put_ParentWindow(result, vs->hwnd);
+    /* controller 的 Bounds 是相对**它自己的父窗口**的：载体子窗口已经是视图大小，
+       所以这里永远是 (0,0,宽,高)，位置交给 MoveWindow。 */
+    {
+        RECT inner;
+        inner.left = 0;
+        inner.top = 0;
+        inner.right = vs->bounds.right - vs->bounds.left;
+        inner.bottom = vs->bounds.bottom - vs->bounds.top;
+        result->lpVtbl->put_Bounds(result, inner);
+    }
+    result->lpVtbl->put_IsVisible(result, vs->want_visible ? TRUE : FALSE);
+    if (vs->want_visible) {
+        view_raise(vs);
+    }
+    vs->opening = 0;
+    vs->visible = vs->want_visible;
+
+    if (vs->webview) {
+        ICoreWebView2Settings *settings = NULL;
+        if (SUCCEEDED(vs->webview->lpVtbl->get_Settings(vs->webview, &settings)) && settings) {
+            settings->lpVtbl->put_IsStatusBarEnabled(settings, FALSE);
+            settings->lpVtbl->put_IsZoomControlEnabled(settings, FALSE);
+            settings->lpVtbl->put_AreDefaultContextMenusEnabled(settings, TRUE);
+            settings->lpVtbl->put_AreDevToolsEnabled(settings, h->devtools ? TRUE : FALSE);
+            settings->lpVtbl->Release(settings);
+        }
+        if (vs->pending_url) {
+            wchar_t *w = utf8_to_wide(vs->pending_url);
+            if (w) {
+                vs->webview->lpVtbl->Navigate(vs->webview, w);
+                free(w);
+            }
+            free(vs->pending_url);
+            vs->pending_url = NULL;
+        }
+    }
+    fprintf(stderr, "[cj-bridge] view ready: id=%lld rect=%ld,%ld %ldx%ld visible=%d\n",
+            vs->id, (long)vs->bounds.left, (long)vs->bounds.top,
+            (long)(vs->bounds.right - vs->bounds.left),
+            (long)(vs->bounds.bottom - vs->bounds.top), vs->visible);
+    return S_OK;
+}
+
+/* UI 线程：把投递来的一条意图落到表上。op 由本函数释放（url 若被接走则所有权转移）。 */
+static void view_apply_op(cj_host *h, plat_host *p, view_op *op) {
+    view_slot *vs;
+
+    if (!op) return;
+    switch (op->opcode) {
+    case CJ_VIEW_OP_CREATE:
+        vs = view_alloc(p);
+        if (!vs) {
+            fprintf(stderr, "[cj-bridge] view create rejected: %d 个槽位都在用\n", CJ_VIEW_MAX);
+            break;
+        }
+        vs->id = op->id;
+        vs->bounds.left = op->x;
+        vs->bounds.top = op->y;
+        vs->bounds.right = op->x + op->w;
+        vs->bounds.bottom = op->y + op->h;
+        vs->want_visible = 1;   /* 新建的视图就是用户刚点开、要看的那个 */
+        vs->visible = 0;
+        vs->pending_url = op->url;
+        op->url = NULL;         /* 所有权交出去了，别在下面再释放一次 */
+        view_open(h, p, vs);
+        break;
+    case CJ_VIEW_OP_VISIBLE:
+        vs = view_find(p, op->id);
+        if (!vs) break;
+        if (vs->opening) {
+            vs->want_visible = op->flag ? 1 : 0;
+            break;
+        }
+        if (vs->hwnd) {
+            ShowWindow(vs->hwnd, op->flag ? SW_SHOWNOACTIVATE : SW_HIDE);
+            if (op->flag) view_raise(vs);
+        }
+        if (vs->controller) {
+            vs->controller->lpVtbl->put_IsVisible(vs->controller, op->flag ? TRUE : FALSE);
+        }
+        vs->visible = op->flag ? 1 : 0;
+        break;
+    case CJ_VIEW_OP_BOUNDS:
+        vs = view_find(p, op->id);
+        if (!vs) break;
+        vs->bounds.left = op->x;
+        vs->bounds.top = op->y;
+        vs->bounds.right = op->x + op->w;
+        vs->bounds.bottom = op->y + op->h;
+        if (vs->hwnd) {
+            MoveWindow(vs->hwnd, op->x, op->y, op->w, op->h, TRUE);
+            if (vs->visible) view_raise(vs);
+        }
+        if (!vs->opening && vs->controller) {
+            RECT inner;
+            inner.left = 0;
+            inner.top = 0;
+            inner.right = op->w;
+            inner.bottom = op->h;
+            vs->controller->lpVtbl->put_Bounds(vs->controller, inner);
+        }
+        fprintf(stderr, "[cj-bridge] view bounds: id=%lld rect=%d,%d %dx%d\n",
+                vs->id, op->x, op->y, op->w, op->h);
+        break;
+    case CJ_VIEW_OP_NAVIGATE:
+        vs = view_find(p, op->id);
+        if (!vs) break;
+        if (vs->opening) {
+            if (vs->pending_url) free(vs->pending_url);
+            vs->pending_url = op->url;
+            op->url = NULL;
+            break;
+        }
+        if (vs->webview && op->url) {
+            wchar_t *w = utf8_to_wide(op->url);
+            if (w) {
+                vs->webview->lpVtbl->Navigate(vs->webview, w);
+                free(w);
+            }
+        }
+        break;
+    case CJ_VIEW_OP_DESTROY:
+        view_close(p, view_find(p, op->id));
+        break;
+    default:
+        break;
+    }
+    if (op->url) free(op->url);
+    free(op);
+}
+
+/* 任意线程可调：领号 + 把意图投到 UI 线程。句柄当场返回，真正的 controller 稍后才有。 */
+static void view_post(cj_host *h, int opcode, long long id, int x, int y, int w, int hgt,
+                      int flag, const char *url) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    view_op *op;
+
+    if (!p || !p->hwnd) return;
+    op = (view_op *)calloc(1, sizeof(view_op));
+    if (!op) return;
+    op->opcode = opcode;
+    op->id = id;
+    op->x = x;
+    op->y = y;
+    op->w = w;
+    op->h = hgt;
+    op->flag = flag;
+    if (url && url[0]) {
+        size_t n = strlen(url) + 1;
+        op->url = (char *)malloc(n);
+        if (op->url) memcpy(op->url, url, n);
+    }
+    if (!PostMessageW(p->hwnd, WM_CJT_VIEW, 0, (LPARAM)op)) {
+        if (op->url) free(op->url);
+        free(op);
+    }
+}
+
 /* --- 控制器（WebView）创建完成：装配 WebView、注入桥、加载 HTML --- */
 
 static HRESULT STDMETHODCALLTYPE ctrl_QueryInterface(
@@ -348,6 +696,11 @@ static HRESULT STDMETHODCALLTYPE ctrl_Invoke(
     plat_host *p = h ? (plat_host *)h->plat : NULL;
     RECT rc;
     int i;
+
+    /* 内嵌视图的 controller 完成回调（PLT-006）：同一张 vtable，按 view_id 分流 */
+    if (self && self->view_id > 0) {
+        return view_ctrl_completed(self, errorCode, result);
+    }
 
     if (!h || !p) return S_OK;
     if (FAILED(errorCode) || !result) {
@@ -1138,6 +1491,16 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             window_apply_owner(p, op);
         }
         return 0;
+    case WM_CJT_VIEW:
+        /* 视图表的唯一写入点（PLT-006）：worker 线程只负责投递，这里才动表与 COM 对象 */
+        if (h && p && p->hwnd) {
+            view_apply_op(h, p, (view_op *)lp);
+        } else if (lp) {
+            view_op *op = (view_op *)lp;
+            if (op->url) free(op->url);
+            free(op);
+        }
+        return 0;
     case WM_CJT_TRAY_NOTIFY: {
         /* 托盘图标回调：NOTIFYICON_VERSION_4 口径下 wParam 是图标坐标、lParam 低位是事件。
            左键与右键都弹菜单——Linux 的 appindicator 本来就只有菜单（没有「图标激活」语义），
@@ -1195,6 +1558,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (p->drop_target) {
                 p->drop_target->lpVtbl->Release(p->drop_target);
                 p->drop_target = NULL;
+            }
+            /* 内嵌视图（PLT-006）：宿主没了，名下的 controller 当场收掉，
+               否则那些 Edge 渲染进程会留在后台（taskmgr 里能看到一串 msedgewebview2） */
+            {
+                int vi;
+                for (vi = 0; vi < CJ_VIEW_MAX; vi++) {
+                    if (p->views[vi].id) view_close(p, &p->views[vi]);
+                }
             }
             p->hwnd = NULL; /* 窗口没了：别再往它 PostMessage */
         }
@@ -1431,6 +1802,19 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
     wc.hIcon = icon_big; /* 可空：空则用系统默认 */
     wc.hIconSm = icon_small;
     RegisterClassExW(&wc);
+
+    /* 内嵌视图的载体窗口类（每个视图一个子窗口，见 VIEW_CLASS 的注释）。
+       注册失败不影响主窗；建不出子窗口时视图会如实报错。 */
+    {
+        WNDCLASSEXW vc;
+        ZeroMemory(&vc, sizeof(vc));
+        vc.cbSize = sizeof(vc);
+        vc.lpfnWndProc = view_wnd_proc;
+        vc.hInstance = wc.hInstance;
+        vc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+        vc.lpszClassName = VIEW_CLASS;
+        RegisterClassExW(&vc);
+    }
 
     /* 先记下宿主线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */
     p->thread_id = GetCurrentThreadId();
@@ -2371,6 +2755,53 @@ void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
     }
     p->pending_owner = owner;
     PostMessageW(p->hwnd, WM_CJT_OWNER, 0, 0);
+}
+
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   五个导出都只做「投递」：表与 COM 对象只在宿主 UI 线程动（见 view_apply_op）。
+   create 的句柄当场发出、controller 稍后才建，所以上层拿到的**不是**一个已经能用的视图
+   ——这也是接口注释里写明「别把返回值当加载成功」的原因。 */
+
+long long cj_plat_view_create(cj_host *h, const char *url, int x, int y, int w, int hgt) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    long long id;
+
+    if (!p || !p->hwnd) {
+        fprintf(stderr, "[cj-bridge] view create rejected: host window not ready\n");
+        return 0;
+    }
+    if (!p->environment) {
+        fprintf(stderr, "[cj-bridge] view create rejected: WebView2 environment not ready\n");
+        return 0;
+    }
+    /* 发号可以在 worker 线程做（InterlockedIncrement64），建表仍在 UI 线程 */
+    id = (long long)InterlockedIncrement64(&p->view_seq);
+    view_post(h, CJ_VIEW_OP_CREATE, id, x, y, w, hgt, 1, url);
+    return id;
+}
+
+void cj_plat_view_set_visible(cj_host *h, long long view, int visible) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !p->hwnd || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_VISIBLE, view, 0, 0, 0, 0, visible ? 1 : 0, NULL);
+}
+
+void cj_plat_view_set_bounds(cj_host *h, long long view, int x, int y, int w, int hgt) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !p->hwnd || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_BOUNDS, view, x, y, w, hgt, 0, NULL);
+}
+
+void cj_plat_view_navigate(cj_host *h, long long view, const char *url) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !p->hwnd || view <= 0 || !url) return;
+    view_post(h, CJ_VIEW_OP_NAVIGATE, view, 0, 0, 0, 0, 0, url);
+}
+
+void cj_plat_view_destroy(cj_host *h, long long view) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || !p->hwnd || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_DESTROY, view, 0, 0, 0, 0, 0, NULL);
 }
 
 /* 最小化到托盘这里只**记一条策略**（并重置提醒位）：真正的拦截发生在用户按下最小化的那一刻

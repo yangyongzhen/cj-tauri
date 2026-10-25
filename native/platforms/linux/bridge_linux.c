@@ -67,6 +67,38 @@ typedef struct menu_slot {
     int checked;
 } menu_slot;
 
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   一个宿主装多个 WebKitWebView：主视图与各视图都摆在同一个 GtkFixed 里（按客户区像素
+   定位），切换 tab 就是 gtk_widget_show / hide 换谁露出来。
+
+   线程纪律与 Windows 侧同形但更硬：**GTK 只在宿主自己的原生 pthread 上调**（仓颉轻量线程
+   的堆上协程栈会被 JSC 的栈边界校验 abort，见 AGENTS §4），所以 worker 线程进来一律
+   g_idle_add 把意图投到 GTK 线程，与 set_owner_window 走同一条路。 */
+#define CJ_VIEW_MAX 8
+
+typedef struct view_slot {
+    long long id;         /* 0 = 空位 */
+    GtkWidget *webview;   /* 这个视图自己的 WebKitWebView */
+    int visible;
+    int x, y, w, h;       /* 客户区坐标（与页面 getBoundingClientRect 同量纲）*/
+    char *pending_url;    /* UTF-8 待导航地址 */
+} view_slot;
+
+typedef struct view_op {
+    cj_host *h;
+    int opcode;
+    long long id;
+    int x, y, w, h;
+    int flag;   /* CJ_VIEW_OP_VISIBLE：1 显示 / 0 隐藏 */
+    char *url;
+} view_op;
+
+#define CJ_VIEW_OP_CREATE 1
+#define CJ_VIEW_OP_VISIBLE 2
+#define CJ_VIEW_OP_BOUNDS 3
+#define CJ_VIEW_OP_NAVIGATE 4
+#define CJ_VIEW_OP_DESTROY 5
+
 /* ===== 每个宿主的平台私有状态 =====
    原先是一堆进程级单例（g_window / g_view / g_gtk_thread …）：多窗口一落地就互相覆盖，
    而且「哪个窗口」这件事在 ABI 上根本传不进来。现在挂在自己的 cj_host->plat 上，
@@ -101,10 +133,19 @@ typedef struct plat_host {
     int min_to_tray_warned; /* 「托盘没挂上，最小化降级」只出声一次（重新设策略时复位）*/
     /* --- 附庸窗：跨线程改属主时先记下，由 GTK 线程的 idle 回调取用 --- */
     cj_host *pending_owner;
+    /* --- 同窗内嵌视图（PLT-006）：GtkOverlay 让主视图填满，GtkFixed 在其上按坐标摆视图 --- */
+    GtkWidget *stack;     /* GtkOverlay：第一个 child 是主视图（自动填满）*/
+    GtkWidget *fixed;     /* GtkFixed：内嵌视图的容器，坐标 = 页面 client 矩形 */
+    view_slot views[CJ_VIEW_MAX];
+    long long view_seq;   /* 句柄发号：命令 worker 线程会调，必须原子（__sync_add_and_fetch）*/
 #ifdef CJ_HAVE_TRAY
     AppIndicator *tray;   /* 当前托盘；NULL = 没有。GTK 线程专属，重建 = 释放旧的再建 */
 #endif
 } plat_host;
+
+/* 主视图的尺寸交给 GtkOverlay 管（第一个 child 自动填满），不再手工同步：
+   若把主视图也放进 GtkFixed，就得在 size-allocate 里反向设置它的 request，
+   等于在分配期改布局——退回两层（overlay 填满 + fixed 覆盖其上）可以完全避开这条。 */
 
 /* ===== 同步原语（core 只用这些，绝不直接碰 pthread）===== */
 
@@ -670,7 +711,15 @@ static void *gtk_thread_main(void *arg) {
     gtk_widget_set_no_show_all(p->topbar, TRUE);
     gtk_widget_set_no_show_all(p->subtitle, TRUE);
     gtk_box_pack_start(GTK_BOX(p->box), p->topbar, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(p->box), p->view, TRUE, TRUE, 0);
+    /* 主视图与内嵌视图分两层（PLT-006）：GtkOverlay 的第一个 child 是主视图、自动填满，
+       GtkFixed 叠在它上面按页面 client 矩形摆内嵌视图。切换 tab 就是 show/hide 换谁露出来。 */
+    p->fixed = gtk_fixed_new();
+    p->stack = gtk_overlay_new();
+    gtk_container_add(GTK_CONTAINER(p->stack), p->view);
+    gtk_widget_set_halign(p->fixed, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(p->fixed, GTK_ALIGN_FILL);
+    gtk_overlay_add_overlay(GTK_OVERLAY(p->stack), p->fixed);
+    gtk_box_pack_start(GTK_BOX(p->box), p->stack, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(p->window), p->box);
     /* 装配期就已经 set_menu 过：这时把菜单栏建出来（运行期再改的走 g_idle_add 到本线程）*/
     if (h->pending_menu_text && h->pending_menu_text[0]) {
@@ -1382,6 +1431,185 @@ void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
         m->owner = owner;
         g_idle_add(owner_idle_cb, m);
     }
+}
+
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   五个导出都只做一件事：把意图 g_idle_add 到 GTK 线程（worker 线程绝不碰 GTK），
+   真实的增删移全在 view_apply_op 里。 */
+
+static void view_apply_op(view_op *op);
+
+static gboolean view_idle_cb(gpointer data) {
+    view_apply_op((view_op *)data);
+    return G_SOURCE_REMOVE;
+}
+
+static void view_post(cj_host *h, int opcode, long long id, int x, int y, int w, int hgt,
+                      int flag, const char *url) {
+    view_op *op;
+
+    if (!h) return;
+    op = (view_op *)calloc(1, sizeof(*op));
+    if (!op) return;
+    op->h = h;
+    op->opcode = opcode;
+    op->id = id;
+    op->x = x;
+    op->y = y;
+    op->w = w;
+    op->h = hgt;
+    op->flag = flag;
+    if (url && url[0]) {
+        size_t n = strlen(url) + 1;
+        op->url = (char *)malloc(n);
+        if (op->url) memcpy(op->url, url, n);
+    }
+    /* 已经在 GTK 线程里调也走这条：少一条「我是不是已经在 GTK 线程」的分支 */
+    g_idle_add(view_idle_cb, op);
+}
+
+static view_slot *view_find(plat_host *p, long long id) {
+    int i;
+    if (!p || id <= 0) return NULL;
+    for (i = 0; i < CJ_VIEW_MAX; i++) {
+        if (p->views[i].id == id) return &p->views[i];
+    }
+    return NULL;
+}
+
+static view_slot *view_alloc(plat_host *p) {
+    int i;
+    for (i = 0; i < CJ_VIEW_MAX; i++) {
+        if (p->views[i].id == 0) return &p->views[i];
+    }
+    return NULL;
+}
+
+/* 收掉一个视图：webview 是 overlay 的子 widget，destroy 会连带把它从容器摘掉。 */
+static void view_close(plat_host *p, view_slot *vs) {
+    (void)p;
+    if (!vs) return;
+    if (vs->webview) {
+        gtk_widget_destroy(vs->webview);
+        vs->webview = NULL;
+    }
+    if (vs->pending_url) {
+        free(vs->pending_url);
+        vs->pending_url = NULL;
+    }
+    vs->id = 0;
+    vs->visible = 0;
+}
+
+/* GTK 线程：把一条意图落到表与容器上。op 由本函数释放。 */
+static void view_apply_op(view_op *op) {
+    plat_host *p;
+    view_slot *vs;
+
+    if (!op) return;
+    p = op->h ? (plat_host *)op->h->plat : NULL;
+    if (!p || !p->fixed) {
+        fprintf(stderr, "[cj-bridge] view op dropped: overlay not ready\n");
+        if (op->url) free(op->url);
+        free(op);
+        return;
+    }
+    switch (op->opcode) {
+    case CJ_VIEW_OP_CREATE:
+        vs = view_alloc(p);
+        if (!vs) {
+            fprintf(stderr, "[cj-bridge] view create rejected: %d 个槽位都在用\n", CJ_VIEW_MAX);
+            break;
+        }
+        vs->id = op->id;
+        vs->x = op->x;
+        vs->y = op->y;
+        vs->w = op->w;
+        vs->h = op->h;
+        vs->visible = 1;   /* 新建的视图就是用户刚要看的那个 */
+        {
+            /* 默认 context 建视图：cookie / 登录态与主页面共用（与 Windows 的共享 environment 同义）。
+               这里**不注入桥**：装的是第三方站点，它的脚本不该拿到 window.__CJ_TAURI__。 */
+            WebKitWebView *wv = WEBKIT_WEB_VIEW(webkit_web_view_new());
+            vs->webview = GTK_WIDGET(wv);
+            gtk_fixed_put(GTK_FIXED(p->fixed), vs->webview, vs->x, vs->y);
+            gtk_widget_set_size_request(vs->webview, vs->w, vs->h);
+            gtk_widget_show(vs->webview);
+            if (op->url) {
+                webkit_web_view_load_uri(wv, op->url);
+            }
+            fprintf(stderr, "[cj-bridge] view ready: id=%lld rect=%d,%d %dx%d url=%s\n",
+                    vs->id, vs->x, vs->y, vs->w, vs->h, op->url ? op->url : "");
+        }
+        break;
+    case CJ_VIEW_OP_VISIBLE:
+        vs = view_find(p, op->id);
+        if (!vs || !vs->webview) break;
+        if (op->flag) gtk_widget_show(vs->webview);
+        else gtk_widget_hide(vs->webview);
+        vs->visible = op->flag ? 1 : 0;
+        break;
+    case CJ_VIEW_OP_BOUNDS:
+        vs = view_find(p, op->id);
+        if (!vs || !vs->webview) break;
+        vs->x = op->x;
+        vs->y = op->y;
+        vs->w = op->w;
+        vs->h = op->h;
+        gtk_fixed_move(GTK_FIXED(p->fixed), vs->webview, vs->x, vs->y);
+        gtk_widget_set_size_request(vs->webview, vs->w, vs->h);
+        break;
+    case CJ_VIEW_OP_NAVIGATE:
+        vs = view_find(p, op->id);
+        if (!vs || !vs->webview || !op->url) break;
+        webkit_web_view_load_uri(WEBKIT_WEB_VIEW(vs->webview), op->url);
+        break;
+    case CJ_VIEW_OP_DESTROY:
+        view_close(p, view_find(p, op->id));
+        break;
+    default:
+        break;
+    }
+    if (op->url) free(op->url);
+    free(op);
+}
+
+long long cj_plat_view_create(cj_host *h, const char *url, int x, int y, int w, int hgt) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    long long id;
+
+    if (!p || !p->window) {
+        fprintf(stderr, "[cj-bridge] view create rejected: host window not ready\n");
+        return 0;
+    }
+    /* 发号要跨线程安全（调用方是命令 worker），建表仍在 GTK 线程 */
+    id = __sync_add_and_fetch(&p->view_seq, 1);
+    view_post(h, CJ_VIEW_OP_CREATE, id, x, y, w, hgt, 1, url);
+    return id;
+}
+
+void cj_plat_view_set_visible(cj_host *h, long long view, int visible) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_VISIBLE, view, 0, 0, 0, 0, visible ? 1 : 0, NULL);
+}
+
+void cj_plat_view_set_bounds(cj_host *h, long long view, int x, int y, int w, int hgt) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_BOUNDS, view, x, y, w, hgt, 0, NULL);
+}
+
+void cj_plat_view_navigate(cj_host *h, long long view, const char *url) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || view <= 0 || !url) return;
+    view_post(h, CJ_VIEW_OP_NAVIGATE, view, 0, 0, 0, 0, 0, url);
+}
+
+void cj_plat_view_destroy(cj_host *h, long long view) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    if (!p || view <= 0) return;
+    view_post(h, CJ_VIEW_OP_DESTROY, view, 0, 0, 0, 0, 0, NULL);
 }
 
 /* 最小化到托盘这里只**记一条策略**（并复位提醒位）：真正的拦截发生在用户按下最小化的那一刻

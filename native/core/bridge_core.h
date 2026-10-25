@@ -277,6 +277,26 @@ void cj_plat_set_minimize_to_tray(cj_host *h, int enabled);
    skip_taskbar_hint）。owner 为 NULL 表示解除隶属。 */
 void cj_plat_set_owner_window(cj_host *h, cj_host *owner);
 
+/* ---- 同窗内嵌视图（PLT-006 真标签页）----
+   在**已存在的宿主窗口**里再嵌一块独立的 WebView，占据客户区的一块矩形，同一时刻只显示一个。
+   成功返回视图句柄（>0），0 = 建不出来（宿主未就绪 / 本平台没这块 / 环境复用失败）。
+
+   为什么要有它：一个 cj_host 就是一扇系统窗口，而浏览器 tab 的语义是「一扇窗里换内容」。
+   用第二个宿主表达必然多一扇窗——这正是附庸窗形态的由来，也是它看起来像「又开了一个程序」的原因。
+   视图由平台持有与回收：**宿主销毁时平台必须先收掉自己名下的全部视图**（core 不管生命周期）。
+
+   线程口径：create / destroy 由命令 worker 线程调用，平台自己投宿主 UI 线程（Windows 必须如此：
+   在同步调用栈上 CreateCoreWebView2Controller 会死锁，见 Tauri 记录的 WebView2 issue）；
+   set_visible / set_bounds 允许高频，平台必须保证线程安全（Windows 走 PostMessageW，
+   Linux 走 g_idle_add）。 */
+long long cj_plat_view_create(cj_host *h, const char *url, int x, int y, int w, int hgt);
+/* 其余四个都带 h：视图没有自己的消息循环，平台要靠宿主句柄才能把动作投回宿主 UI 线程
+   （Windows = PostMessageW(hwnd)，Linux = g_idle_add）。句柄本身只在一个宿主内有效。 */
+void cj_plat_view_set_visible(cj_host *h, long long view, int visible);
+void cj_plat_view_set_bounds(cj_host *h, long long view, int x, int y, int w, int hgt);
+void cj_plat_view_navigate(cj_host *h, long long view, const char *url);
+void cj_plat_view_destroy(cj_host *h, long long view);
+
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
 
@@ -464,6 +484,28 @@ CJ_BRIDGE_API void cj_bridge_set_minimize_to_tray(cj_host *h, int enabled);
    两头都能用：未 start 时只记下（平台建窗时按 h->owner 定稿，少一次任务栏按钮闪动），
    start 之后投 UI 线程执行。owner 为空指针 = 解除隶属。两平台同名同签名。 */
 CJ_BRIDGE_API void cj_bridge_set_owner_window(cj_host *h, cj_host *owner);
+
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   在 h 这扇窗的客户区里嵌一块独立 WebView 加载 url，矩形为**客户区逻辑坐标**
+   （页面上报 getBoundingClientRect 的 CSS 像素即可，Windows DIP / GTK 逻辑像素与之等值）。
+   成功返回视图句柄（>0）；0 = 建不出来（h 为空 / url 空 / 宽高非正）。
+
+   使用契约：
+   - **创建是异步的**，句柄当场返回，加载完成不另发通知。判「真的打开了」看页面自身回投
+     （或导航后的标题），不要把这个返回值当加载成功的凭证。
+   - 切换 tab 只在 set_visible：**显示一个之前由应用把别的藏起来**，框架不做调度——
+     它不理解你的 tab 语义，也不该替你决定哪块该露出来。
+   - 宿主窗口 resize 时视图**不会**自动跟随，应用要按新矩形重调 set_bounds
+     （与 Tauri 的 auto_resize 缺省关闭是同一口径）。
+   - 视图共享宿主的 WebView2 environment / WebKit context，因此 cookie 与登录态是共用的。
+   - destroy 之后句柄立即失效；宿主销毁时平台会先把名下视图全部收掉，应用不必重复调。 */
+CJ_BRIDGE_API long long cj_bridge_view_create(cj_host *h, const char *url,
+                                              int x, int y, int w, int hgt);
+CJ_BRIDGE_API void cj_bridge_view_set_visible(cj_host *h, long long view, int visible);
+CJ_BRIDGE_API void cj_bridge_view_set_bounds(cj_host *h, long long view, int x, int y,
+                                             int w, int hgt);
+CJ_BRIDGE_API void cj_bridge_view_navigate(cj_host *h, long long view, const char *url);
+CJ_BRIDGE_API void cj_bridge_view_destroy(cj_host *h, long long view);
 
 /* shell 事件回调（菜单点击等；载荷见 cj_on_shell_fn 的注释，首参为宿主句柄）。 */
 CJ_BRIDGE_API void cj_bridge_set_shell_callback(cj_host *h, cj_on_shell_fn cb);

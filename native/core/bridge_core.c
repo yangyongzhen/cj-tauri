@@ -306,6 +306,50 @@ void cj_bridge_set_owner_window(cj_host *h, cj_host *owner) {
     }
 }
 
+/* ===== 同窗内嵌视图（PLT-006 真标签页）=====
+   core 只做参数校验与留痕，句柄与生命周期全在平台（它才认得自己的 controller / widget）。 */
+
+long long cj_bridge_view_create(cj_host *h, const char *url, int x, int y, int w, int hgt) {
+    long long view;
+
+    if (!h || !url || !url[0]) return 0;
+    if (w <= 0 || hgt <= 0) return 0;
+    if (strlen(url) > 2048) return 0;
+    view = cj_plat_view_create(h, url, x, y, w, hgt);
+    /* 成功失败都留痕：应用侧只会看到「点了没反应」，这一行是唯一能区分
+       「平台没这块」与「环境复用 / 宿主未就绪」的凭证 */
+    cj_logf("[cj-bridge] view create: rect=%d,%d %dx%d url=%s -> %lld\n",
+            x, y, w, hgt, url, view);
+    return view;
+}
+
+void cj_bridge_view_set_visible(cj_host *h, long long view, int visible) {
+    if (!h || view <= 0) return;
+    cj_logf("[cj-bridge] view visible: id=%lld visible=%d\n", view, visible ? 1 : 0);
+    cj_plat_view_set_visible(h, view, visible ? 1 : 0);
+}
+
+/* 高频调用（页面 resize / 布局变化都要同步），**不打日志**：一行一个矩形会把桥的日志冲掉，
+   真出问题看的是「切换后有没有显示」而不是矩形的每一次微调。 */
+void cj_bridge_view_set_bounds(cj_host *h, long long view, int x, int y, int w, int hgt) {
+    if (!h || view <= 0) return;
+    if (w <= 0 || hgt <= 0) return;
+    cj_plat_view_set_bounds(h, view, x, y, w, hgt);
+}
+
+void cj_bridge_view_navigate(cj_host *h, long long view, const char *url) {
+    if (!h || view <= 0 || !url || !url[0]) return;
+    if (strlen(url) > 2048) return;
+    cj_logf("[cj-bridge] view navigate: id=%lld url=%s\n", view, url);
+    cj_plat_view_navigate(h, view, url);
+}
+
+void cj_bridge_view_destroy(cj_host *h, long long view) {
+    if (!h || view <= 0) return;
+    cj_logf("[cj-bridge] view destroy: id=%lld\n", view);
+    cj_plat_view_destroy(h, view);
+}
+
 /* ===== 运行期操作（投递细节留给平台：各平台的原生时机与日志口径不同）===== */
 
 void cj_bridge_start(cj_host *h, const char *html) {

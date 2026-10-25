@@ -73,6 +73,33 @@ foreign func cj_bridge_open_devtools(h: CPointer<Unit>): Unit
 foreign func cj_bridge_set_dialog_callback(h: CPointer<Unit>, cb: CFunc<(CPointer<Unit>, CString) -> Unit>): Unit
 
 /**
+ * 同窗内嵌视图（PLT-006）：create 返回视图句柄（> 0 有效，0 = 平台未就绪 / 不支持）。
+ * 五条都只是「投递」——桥把动作 PostMessage 到宿主 UI 线程执行，句柄当场返回，
+ * 所以 create 成功不代表内容已经出来（真正的 controller 稍后才建）。
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_view_create(h: CPointer<Unit>, url: CString,
+                                   x: Int32, y: Int32, width: Int32, height: Int32): Int64
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_view_set_visible(h: CPointer<Unit>, view: Int64, visible: Int32): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_view_set_bounds(h: CPointer<Unit>, view: Int64,
+                                       x: Int32, y: Int32, width: Int32, height: Int32): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_view_navigate(h: CPointer<Unit>, view: Int64, url: CString): Unit
+
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_view_destroy(h: CPointer<Unit>, view: Int64): Unit
+
+/**
  * 原生对话框（阻塞式）：kind 0=打开文件 1=保存文件 2=info 3=warning 4=error 5=confirm。
  * 返回 1 = 用户确认；文件类选中路径经 cj_bridge_set_dialog_callback 注册的回调送回。
  */
@@ -254,6 +281,44 @@ public class WebView2Host <: WebViewHost {
     public func openDevTools(): Unit {
         unsafe {
             cj_bridge_open_devtools(this.handle)
+        }
+    }
+
+    // ===== 同窗内嵌视图（PLT-006）：桥侧把动作投回 UI 线程，这里只是转发 =====
+
+    public func createEmbeddedView(url: String, x: Int32, y: Int32, width: Int32, height: Int32): Int64 {
+        // 窗口没就绪时桥会如实回 0 并打一行 stderr（不是崩溃路径）
+        this.ensureHandle()
+        unsafe {
+            return cj_bridge_view_create(this.handle, LibC.mallocCString(url), x, y, width, height)
+        }
+    }
+
+    public func setEmbeddedViewVisible(view: Int64, visible: Bool): Unit {
+        var flag: Int32 = 0
+        if (visible) {
+            flag = 1
+        }
+        unsafe {
+            cj_bridge_view_set_visible(this.handle, view, flag)
+        }
+    }
+
+    public func setEmbeddedViewBounds(view: Int64, x: Int32, y: Int32, width: Int32, height: Int32): Unit {
+        unsafe {
+            cj_bridge_view_set_bounds(this.handle, view, x, y, width, height)
+        }
+    }
+
+    public func navigateEmbeddedView(view: Int64, url: String): Unit {
+        unsafe {
+            cj_bridge_view_navigate(this.handle, view, LibC.mallocCString(url))
+        }
+    }
+
+    public func destroyEmbeddedView(view: Int64): Unit {
+        unsafe {
+            cj_bridge_view_destroy(this.handle, view)
         }
     }
 

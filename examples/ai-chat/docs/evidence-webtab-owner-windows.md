@@ -1,5 +1,9 @@
 # 证据：网页版窗口作为附庸窗（Windows 桌面，2026-10-25）
 
+> **这份证据现在只代表 `setOwnerWindow` 这个框架能力本身**：ai-chat 的网页版入口已经改成
+> **同窗内嵌视图 + 顶栏标签条**（不再开窗），形态取证见 `evidence-webtab-embedded-windows.md`。
+> 保留下文是因为附庸窗这条路仍是公开 API，将来有「独立窗口但不占任务栏」的场景还要用它。
+
 对应能力：`WebViewHost.setOwnerWindow(label)` + C 桥 `cj_bridge_set_owner_window`。
 取证对象：`examples/ai-chat` 的网页版窗口（`webtab:open` 开出的 DeepSeek 窗口）。
 

@@ -319,6 +319,33 @@
   .wt-foot { font-size:10.5px; color:var(--dim); line-height:1.65; padding:8px 2px 2px;
              border-top:1px dashed var(--line); margin-top:4px; }
   .wt-empty { font-size:11.5px; color:var(--dim); padding:8px 2px; line-height:1.6; }
+  /* ---- 网页版标签栏：点开一个站点 = 主区切成该站点的内嵌视图（同窗真标签页）----
+   * 内嵌视图是**宿主原生控件**，盖在页面之上、不参与页面排版与裁剪，所以主区那几块
+   * 在 body.web-live 时让位（用 visibility 而不是 display：布局与矩形保持稳定，
+   * 否则主区一塌，上报的矩形跟着变，视图就会自己抖）。 */
+  .wt-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:9px; }
+  .wt-tab { display:flex; align-items:center; gap:5px; max-width:100%; padding:4px 7px;
+            border-radius:8px; border:1px solid var(--line); background:var(--panel2);
+            font-size:11.5px; color:var(--dim); cursor:pointer; }
+  .wt-tab:hover { color:var(--fg); }
+  .wt-tab.active { color:var(--fg); border-color:var(--acc); }
+  .wt-tab-dot { width:7px; height:7px; border-radius:50%; flex:0 0 7px; }
+  .wt-tab-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .wt-tab-x { opacity:.6; padding:0 2px; }
+  .wt-tab-x:hover { opacity:1; color:var(--acc); }
+  .wt-hintline { font-size:10.5px; color:var(--dim); margin:2px 0 9px; line-height:1.6; }
+  body.web-live #msgs, body.web-live #inputBar, body.web-live #typing { visibility:hidden; }
+  /* 站点标签条：住在顶栏右侧那一整块，不额外占一行高度——内嵌视图的矩形本来就取
+     topbar.bottom，标签条因此自动被让出去，不用另算偏移 */
+  #webTabStrip { display:none; flex:1 1 auto; min-width:0; gap:6px; align-items:center; }
+  body.web-live #webTabStrip { display:flex; }
+  #webTabList { display:flex; gap:6px; align-items:center; flex:1 1 auto; min-width:0;
+                overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+  #webTabList::-webkit-scrollbar { height:0; }
+  #webTabList .wt-tab { font-size:12px; padding:5px 9px; }
+  /* 网页视图里这些是「跟 AI 对话」的控件：留着会让人以为当前这页也归本应用管 */
+  body.web-live #convTitle, body.web-live #wsBadge, body.web-live #modelBadge,
+  body.web-live #btnMode, body.web-live #btnTheme, body.web-live #btnCompact { display:none; }
   .sidepanel { flex:1 1 auto; overflow-y:auto; padding:10px; }
   .card { border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-bottom:6px;
           font-size:12.5px; cursor:default; }
@@ -461,6 +488,9 @@
   <div id="main">
     <div id="topbar">
       <button id="btnSide" class="ghost tb-btn" title="收起 / 展开侧栏（Ctrl+B）">☰</button>
+      <!-- 站点标签条住在顶栏右侧（不再是侧栏里那一排）：只在网页视图出现，
+           此时会话那几枚控件一并隐藏——见下面的 body.web-live 规则 -->
+      <div id="webTabStrip"><div id="webTabList"></div></div>
       <div id="convTitle"></div>
       <span id="wsBadge" title="点击切换 cjh 工作区（agent 的操作根目录）">工作区: …</span>
       <span id="modelBadge" title="点击切换服务商 / 模型"></span>
@@ -837,19 +867,32 @@ function switchTab(tab) {
   if (tab === 'skills') { loadSkills(); }
   if (tab === 'mcp') { loadMcp(); }
   if (tab === 'files') { loadFiles(''); }
-  if (tab === 'webtab') { loadWebTabs(); }
+  if (tab === 'webtab') {
+    loadWebTabs();
+    // 切回来时把上次那一页重新露出来（active 记着，不重新加载页面）
+    if (webState.active) { activateWebTab(webState.active); }
+  } else {
+    // 别的面板要盖回主区：内嵌视图是原生控件，不藏起来会把内容一直挡着
+    hideWebViews();
+  }
 }
 
-/* ---- 网页版启动台：站点表来自 webtab:list，点卡片 = 开一扇独立原生窗口 ----
+/* ---- 网页版：同窗标签页（宿主内嵌视图）----
  *
- * 为什么不 iframe 嵌进主页面：iframe 里是第三方上下文，WebView2 默认拦第三方 cookie，
- * 登录态存不住；站点跳 OAuth 时多自带 X-Frame-Options，登录那步直接白屏；弹窗也会被拦。
- * 表现是「页面看得见、登录过不去」——比打不开更难查。所以每家一个真窗口（各自一个
- * WebView2，共用本应用的用户数据目录），登录一次就记住，功能与浏览器里一致。
+ * 点一张卡片 = 在主区里开一个**真标签页**（宿主内嵌视图），既不是新窗口也不是 iframe：
+ * 内嵌视图是宿主自己的 WebView，登录态与浏览器里一致；切换 tab 只是换谁露出来，
+ * 不重载也不丢滚动位置（「单视图复用 navigate」每切一次都要 1–3 秒重新加载，已否决）。
+ *
+ * 内嵌视图是**原生控件**，盖在页面之上、不参与页面排版，所以矩形得由页面按自己的布局
+ * 上报（topbar 以下整块）：resize / 侧栏折叠 / DPI 变化都要重报一次，否则它会盖住顶栏
+ * 或露出白边。坐标用 client 坐标（getBoundingClientRect，CSS px），与宿主的 DIP 同量纲。
  *
  * 站点清单只在仓颉侧维护（src/webtab.cj 的 WEB_TAB_SITES），页面不抄第二份：
  * 加一家只改那张表，卡片自动出现。
  */
+var webState = { sites: [], open: [], active: null };
+var webRectTimer = null;
+
 function loadWebTabs() {
   var el = $('panelWeb');
   if (el.getAttribute('data-ready') === '1') { return; }   // 面板只在首次进入时拉一次
@@ -865,7 +908,8 @@ function loadWebTabs() {
   }, 3500);
   window.__CJ_TAURI__.invoke('webtab:list', {}).then(function (list) {
     clearTimeout(slow);
-    renderWebTabs(Array.isArray(list) ? list : []);
+    webState.sites = Array.isArray(list) ? list : [];
+    renderWebPanel();
   }).catch(function (e) {
     clearTimeout(slow);
     el.innerHTML = '<div class="wt-empty">读站点表失败：' +
@@ -873,50 +917,156 @@ function loadWebTabs() {
   });
 }
 
-function renderWebTabs(list) {
+function siteOf(id) {
+  for (var i = 0; i < webState.sites.length; i++) {
+    if (webState.sites[i] && String(webState.sites[i].id) === id) { return webState.sites[i]; }
+  }
+  return null;
+}
+
+function webTabOf(id) {
+  for (var i = 0; i < webState.open.length; i++) {
+    if (webState.open[i].id === id) { return webState.open[i]; }
+  }
+  return null;
+}
+
+/* 主区矩形：topbar 以下、#main 底部以上（顶栏留给切换/主题这些按钮，别盖住） */
+function webRect() {
+  var main = $('main');
+  var top = $('topbar');
+  if (!main || !top) { return null; }
+  var mr = main.getBoundingClientRect();
+  var tr = top.getBoundingClientRect();
+  var y = Math.round(tr.bottom);
+  var w = Math.round(mr.width);
+  var h = Math.round(mr.bottom) - y;
+  if (w <= 0 || h <= 0) { return null; }
+  return { x: Math.round(mr.left), y: y, width: w, height: h };
+}
+
+/* 顶栏右侧那一排站点标签：点一下切换（不重载页面），× 关掉它并释放内嵌视图 */
+function renderWebChips() {
+  var list = $('webTabList');
+  if (!list) { return; }
+  var h = '';
+  for (var i = 0; i < webState.open.length; i++) {
+    var t = webState.open[i];
+    var on = (t.id === webState.active);
+    h += '<div class="wt-tab' + (on ? ' active' : '') + '" data-id="' + escHtml(t.id) + '" title="' +
+         escHtml(t.name) + '（点一下切过去，不重载）">' +
+           '<span class="wt-tab-dot" style="background:' + escHtml(t.accent) + '"></span>' +
+           '<span class="wt-tab-name">' + escHtml(t.name) + '</span>' +
+           '<span class="wt-tab-x" data-close="' + escHtml(t.id) + '" title="关闭这个标签页">×</span>' +
+         '</div>';
+  }
+  list.innerHTML = h;
+  var chips = list.querySelectorAll('.wt-tab');
+  for (var a = 0; a < chips.length; a++) {
+    chips[a].onclick = function (ev) {
+      var target = ev && ev.target ? ev.target : null;
+      var closeId = target && target.getAttribute ? target.getAttribute('data-close') : null;
+      if (closeId) { closeWebTab(closeId); return; }
+      activateWebTab(this.getAttribute('data-id'));
+    };
+  }
+}
+
+function renderWebPanel() {
   var el = $('panelWeb');
-  var h = '<div class="wt-hero"><h3>网页版</h3><p>点一下就在独立窗口里打开该站点，' +
+  renderWebChips();
+  var h = '';
+  h += '<div class="wt-hero"><h3>网页版</h3><p>点一下就在当前窗口里以标签页打开该站点，' +
           '登录一次即记住。走的是它们自己的网页版额度，与应用内的服务商配置无关。</p></div>';
-  if (list.length === 0) {
+  if (webState.sites.length === 0) {
     h += '<div class="wt-empty">站点表为空：webtab:list 没返回条目（检查能力清单里是否放行了 webtab:list）。</div>';
   }
-  for (var i = 0; i < list.length; i++) {
-    var s = list[i] || {};
+  for (var k = 0; k < webState.sites.length; k++) {
+    var s = webState.sites[k] || {};
     var name = String(s.name || '');
     // 色块里放站点名首字（中文取第一个汉字，英文取首字母），没有就退回一个圆点
     var mark = name.length > 0 ? name.charAt(0) : '·';
+    var badge = webTabOf(String(s.id || '')) ? '已打开' : '打开';
     h += '<div class="wt-card" data-id="' + escHtml(String(s.id || '')) + '" title="' +
          escHtml(String(s.url || '')) + '">' +
            '<div class="wt-logo" style="background:' + escHtml(String(s.accent || '#6c8cff')) + '">' +
              escHtml(mark) + '</div>' +
            '<div class="wt-meta"><div class="wt-name">' + escHtml(name) + '</div>' +
              '<div class="wt-note">' + escHtml(String(s.note || '')) + '</div></div>' +
-           '<div class="wt-go">打开</div>' +
+           '<div class="wt-go">' + badge + '</div>' +
          '</div>';
   }
   h += '<div class="wt-foot">账号与密码只在这些站点自己的页面里输入，本应用不读取、不保存；' +
-       '窗口关掉再点即重新打开，登录态仍在。</div>';
+       '标签页关掉再点即重新打开，登录态仍在（同一个用户数据目录）。</div>';
   el.innerHTML = h;
   el.setAttribute('data-ready', '1');
   var cards = el.querySelectorAll('.wt-card');
-  for (var j = 0; j < cards.length; j++) {
-    cards[j].onclick = function () { openWebTab(this.getAttribute('data-id'), this); };
+  for (var b = 0; b < cards.length; b++) {
+    cards[b].onclick = function () { activateWebTab(this.getAttribute('data-id')); };
   }
 }
 
-function openWebTab(id, card) {
+/* 打开或切换：同一条命令（存在就露出来、没建过就建），所以「点卡片」与「点 tab」同路径 */
+function activateWebTab(id) {
   if (!id) { return; }
-  if (card) { card.className = 'wt-card busy'; }
-  window.__CJ_TAURI__.invoke('webtab:open', { id: id }).then(function (r) {
-    if (card) { card.className = 'wt-card'; }
-    var shown = r && r.action === 'shown';
-    toast((shown ? '已唤回窗口：' : '已打开窗口：') + String((r && r.id) || id) +
-          '（在独立窗口里操作，关掉不影响本应用）');
+  var r = webRect();
+  if (!r) { return; }   // 主区尺寸读不到的瞬间（面板刚显示）不该往宿主递一个坏矩形
+  window.__CJ_TAURI__.invoke('webtab:show', { id: id, rect: r }).then(function () {
+    if (!webTabOf(id)) {
+      var s = siteOf(id);
+      webState.open.push({
+        id: id,
+        name: s ? String(s.name || id) : id,
+        accent: s ? String(s.accent || '#6c8cff') : '#6c8cff'
+      });
+    }
+    webState.active = id;
+    document.body.classList.add('web-live');
+    renderWebPanel();
   }).catch(function (e) {
-    if (card) { card.className = 'wt-card'; }
     toast('打开失败：' + String(e && e.message ? e.message : e).slice(0, 160), true);
   });
 }
+
+function closeWebTab(id) {
+  if (!id) { return; }
+  window.__CJ_TAURI__.invoke('webtab:close', { id: id }).catch(function () {});
+  webState.open = webState.open.filter(function (t) { return t.id !== id; });
+  if (webState.active === id) {
+    webState.active = null;
+    document.body.classList.remove('web-live');
+    renderWebPanel();
+    if (webState.open.length > 0) {
+      activateWebTab(webState.open[webState.open.length - 1].id);
+    }
+  } else {
+    renderWebPanel();
+  }
+}
+
+/* 切到别的侧栏面板（或聊天页）：把内嵌视图藏起来，页面重新露出来。
+ * active 记着不丢——切回来还是这一页，不用重新加载。 */
+function hideWebViews() {
+  document.body.classList.remove('web-live');
+  if (!webState.active) { return; }
+  window.__CJ_TAURI__.invoke('webtab:hide', {}).catch(function () {});
+}
+
+/* 布局变了重报矩形。节流 80ms：resize 一拖就是几百次，逐次投递没有意义 */
+function syncWebRect() {
+  if (!webState.active) { return; }
+  var r = webRect();
+  if (!r) { return; }
+  window.__CJ_TAURI__.invoke('webtab:bounds', { id: webState.active, rect: r }).catch(function () {});
+}
+
+function scheduleWebRect() {
+  if (!webState.active) { return; }
+  if (webRectTimer) { return; }
+  webRectTimer = setTimeout(function () { webRectTimer = null; syncWebRect(); }, 80);
+}
+
+window.addEventListener('resize', scheduleWebRect);
 
 /* ---- 技能列表：/api/skills → {skills:[{name,description,tools,enabled}]} ---- */
 function loadSkills() {
@@ -2912,10 +3062,12 @@ function openCfg() {
 }
 function closeCfg() { $('mask').className = ''; $('provForm').style.display = 'none'; editIdx = -1; }
 
-/* ---- 网页版启动台探针（CJ_AICHAT_PROBE_WEBTAB=1）----
- * 与主自检分开跑：这一轮会真的弹出一扇原生窗口（DeepSeek 网页版）并留在桌面，
- * 常规自检不该带这个副作用。四条判据：站点表在 / 开得出来 / 重复点击是「唤回」而不是再建 /
- * 页面传 URL 会被白名单挡住（这条是「不开放任意网址」的证据）。 */
+/* ---- 网页版标签页探针（CJ_AICHAT_PROBE_WEBTAB=1）----
+ * 与主自检分开跑：这一轮会**真的在主窗里建内嵌视图**并加载 DeepSeek 网页版，
+ * 常规自检不该带这个副作用（外网、渲染进程、几秒加载）。
+ * 判据：站点表在 / 首次 show 是 created 且拿到句柄 / 再 show 是 shown 且句柄不变
+ * （= 缓存复用，不是每次都重建）/ bounds 回 resized / hide 真的收起来 /
+ * 非法 id 被白名单挡住 / close 之后重建拿到**另一个**句柄（= 上一个真被销毁了）。 */
 function webtabProbe() {
   var out = [];
   var push = function (s) { out.push(s); };
@@ -2931,6 +3083,13 @@ function webtabProbe() {
       report();
     };
   };
+  // 探针直连命令，不经过侧栏面板：矩形的来源与真实点击同一条（webRect），取不到就退回一个安全值
+  var rect = function () {
+    var r = webRect();
+    if (!r) { r = { x: 60, y: 90, width: 900, height: 600 }; }
+    return r;
+  };
+  var view1 = 0;
   window.__CJ_TAURI__.invoke('webtab:list', {}).then(function (list) {
     var arr = Array.isArray(list) ? list : [];
     var hit = false;
@@ -2939,22 +3098,43 @@ function webtabProbe() {
     }
     push((arr.length >= 6 ? 'PASS' : 'FAIL') + ' webtab-list count=' + arr.length);
     push((hit ? 'PASS' : 'FAIL') + ' webtab-list-url id=deepseek');
-    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'deepseek' });
+    return window.__CJ_TAURI__.invoke('webtab:show', { id: 'deepseek', rect: rect() });
   }, fail('webtab-list')).then(function (r1) {
-    push((r1 && r1.action === 'opened' ? 'PASS' : 'FAIL') + ' webtab-open action=' + (r1 && r1.action));
-    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'deepseek' });
-  }, fail('webtab-open')).then(function (r2) {
-    push((r2 && r2.action === 'shown' ? 'PASS' : 'FAIL') + ' webtab-reopen action=' + (r2 && r2.action));
-    return window.__CJ_TAURI__.invoke('webtab:open', { id: 'https://example.com' });
-  }, fail('webtab-reopen')).then(function (bad) {
+    view1 = (r1 && r1.view) || 0;
+    push((r1 && r1.action === 'created' && view1 > 0 ? 'PASS' : 'FAIL') +
+         ' webtab-show action=' + (r1 && r1.action) + ' view=' + view1);
+    return window.__CJ_TAURI__.invoke('webtab:show', { id: 'deepseek', rect: rect() });
+  }, fail('webtab-show')).then(function (r2) {
+    push((r2 && r2.action === 'shown' && r2.view === view1 ? 'PASS' : 'FAIL') +
+         ' webtab-reshow action=' + (r2 && r2.action) + ' view=' + (r2 && r2.view));
+    return window.__CJ_TAURI__.invoke('webtab:bounds', { id: 'deepseek', rect: rect() });
+  }, fail('webtab-reshow')).then(function (r3) {
+    push((r3 && r3.action === 'resized' ? 'PASS' : 'FAIL') + ' webtab-bounds action=' + (r3 && r3.action));
+    return window.__CJ_TAURI__.invoke('webtab:hide', {});
+  }, fail('webtab-bounds')).then(function (r4) {
+    var n = r4 ? Number(r4.hidden) : -1;
+    push((n >= 1 ? 'PASS' : 'FAIL') + ' webtab-hide hidden=' + n);
+    return window.__CJ_TAURI__.invoke('webtab:show', { id: 'https://example.com', rect: rect() });
+  }, fail('webtab-hide')).then(function (bad) {
     push('FAIL webtab-reject 非法 id 被接受 action=' + (bad && bad.action));
-    report();
+    return window.__CJ_TAURI__.invoke('webtab:close', { id: 'deepseek' });
   }, function (e) {
     var m = String(e && e.message ? e.message : e);
     // 白名单生效的判据就是这条业务错误；别的错误照实报红，别让它冒充通过
     push((m.indexOf('unknown web tab') !== -1 ? 'PASS' : 'FAIL') + ' webtab-reject ' + m.slice(0, 60));
+    return window.__CJ_TAURI__.invoke('webtab:close', { id: 'deepseek' });
+  }).then(function (r5) {
+    push((r5 && r5.action === 'closed' ? 'PASS' : 'FAIL') + ' webtab-close action=' + (r5 && r5.action));
+    return window.__CJ_TAURI__.invoke('webtab:show', { id: 'deepseek', rect: rect() });
+  }, fail('webtab-close')).then(function (r6) {
+    var v = (r6 && r6.view) || 0;
+    push((r6 && r6.action === 'created' && v > 0 && v !== view1 ? 'PASS' : 'FAIL') +
+         ' webtab-recreate action=' + (r6 && r6.action) + ' view=' + v);
+    // 收尾：别把探针建出来的视图留在主区上（它会一直盖着界面）
+    return window.__CJ_TAURI__.invoke('webtab:close', { id: 'deepseek' });
+  }, fail('webtab-recreate')).then(function () {
     report();
-  });
+  }, fail('webtab-cleanup'));
 }
 
 /* ---- 自检探针（CJ_AICHAT_SELFCHECK=1 时无人值守跑一轮） ---- */

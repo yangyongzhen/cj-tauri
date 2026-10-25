@@ -25,7 +25,10 @@
     "cjh:deploy",
     "app:allowHost",
     "webtab:list",
-    "webtab:open",
+    "webtab:show",
+    "webtab:bounds",
+    "webtab:hide",
+    "webtab:close",
     "system:version",
     "system:host"
   ],

@@ -126,6 +126,33 @@ foreign func cj_bridge_set_titlebar_subtitle(h: CPointer<Unit>, text: CString): 
 foreign func cj_bridge_set_drag_drop(h: CPointer<Unit>, enabled: Int32, files: Int32): Unit
 
 /**
+ * 同窗内嵌视图（PLT-006）：create 返回视图句柄（> 0 有效，0 = 平台未就绪 / 不支持）。
+ * 五条都只是「投递」——桥把动作 g_idle_add 到 GTK 线程执行，句柄当场返回，
+ * 所以 create 成功不代表内容已经出来（视图是随后建的）。
+ */
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_view_create(h: CPointer<Unit>, url: CString,
+                                   x: Int32, y: Int32, width: Int32, height: Int32): Int64
+
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_view_set_visible(h: CPointer<Unit>, view: Int64, visible: Int32): Unit
+
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_view_set_bounds(h: CPointer<Unit>, view: Int64,
+                                       x: Int32, y: Int32, width: Int32, height: Int32): Unit
+
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_view_navigate(h: CPointer<Unit>, view: Int64, url: CString): Unit
+
+@When[os == "Linux" && env != "ohos"]
+@C
+foreign func cj_bridge_view_destroy(h: CPointer<Unit>, view: Int64): Unit
+
+/**
  * 全局快捷键（RFC-003 第 5 期）：wire 一行一条 `<accel>:<id>`。
  * Linux 走 X11 grab（可选编译：桥没编 X11 支持时打一行 stderr 忽略）。
  */
@@ -252,6 +279,44 @@ public class WebKitHost <: WebViewHost {
     public func openDevTools(): Unit {
         unsafe {
             cj_bridge_open_devtools(this.handle)
+        }
+    }
+
+    // ===== 同窗内嵌视图（PLT-006）：桥侧把动作投回 GTK 线程，这里只是转发 =====
+
+    public func createEmbeddedView(url: String, x: Int32, y: Int32, width: Int32, height: Int32): Int64 {
+        // 窗口没就绪时桥会如实回 0 并打一行 stderr（不是崩溃路径）
+        this.ensureHandle()
+        unsafe {
+            return cj_bridge_view_create(this.handle, LibC.mallocCString(url), x, y, width, height)
+        }
+    }
+
+    public func setEmbeddedViewVisible(view: Int64, visible: Bool): Unit {
+        var flag: Int32 = 0
+        if (visible) {
+            flag = 1
+        }
+        unsafe {
+            cj_bridge_view_set_visible(this.handle, view, flag)
+        }
+    }
+
+    public func setEmbeddedViewBounds(view: Int64, x: Int32, y: Int32, width: Int32, height: Int32): Unit {
+        unsafe {
+            cj_bridge_view_set_bounds(this.handle, view, x, y, width, height)
+        }
+    }
+
+    public func navigateEmbeddedView(view: Int64, url: String): Unit {
+        unsafe {
+            cj_bridge_view_navigate(this.handle, view, LibC.mallocCString(url))
+        }
+    }
+
+    public func destroyEmbeddedView(view: Int64): Unit {
+        unsafe {
+            cj_bridge_view_destroy(this.handle, view)
         }
     }
 

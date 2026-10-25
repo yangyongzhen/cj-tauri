@@ -329,6 +329,60 @@ void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
     g_owner_has_owner = owner ? 1 : 0;
 }
 
+/* --- 内嵌视图（PLT-006）：桩只记调用与入参，语义契约由 core 的校验覆盖 --- */
+static int g_view_create_calls;
+static long long g_view_create_last;
+static int g_view_visible_calls;
+static int g_view_visible_last = -1;
+static int g_view_bounds_calls;
+static int g_view_bounds_last[4];
+static int g_view_navigate_calls;
+static int g_view_destroy_calls;
+static long long g_view_seq;
+
+long long cj_plat_view_create(cj_host *h, const char *url, int x, int y, int w, int hgt) {
+    (void)h;
+    if (!url || !url[0]) return 0;
+    g_view_create_calls++;
+    g_view_seq++;
+    g_view_create_last = g_view_seq;
+    g_view_bounds_last[0] = x;
+    g_view_bounds_last[1] = y;
+    g_view_bounds_last[2] = w;
+    g_view_bounds_last[3] = hgt;
+    return g_view_seq;
+}
+
+void cj_plat_view_set_visible(cj_host *h, long long view, int visible) {
+    (void)h;
+    (void)view;
+    g_view_visible_calls++;
+    g_view_visible_last = visible;
+}
+
+void cj_plat_view_set_bounds(cj_host *h, long long view, int x, int y, int w, int hgt) {
+    (void)h;
+    (void)view;
+    g_view_bounds_calls++;
+    g_view_bounds_last[0] = x;
+    g_view_bounds_last[1] = y;
+    g_view_bounds_last[2] = w;
+    g_view_bounds_last[3] = hgt;
+}
+
+void cj_plat_view_navigate(cj_host *h, long long view, const char *url) {
+    (void)h;
+    (void)view;
+    (void)url;
+    g_view_navigate_calls++;
+}
+
+void cj_plat_view_destroy(cj_host *h, long long view) {
+    (void)h;
+    (void)view;
+    g_view_destroy_calls++;
+}
+
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     g_caps_calls++;
@@ -1222,6 +1276,54 @@ int main(void) {
               "没有内嵌资源的产物如实回 0（普通构建就是这样，不是错误）");
         CHECK(cj_bridge_extract_assets("stub-missing") == -1,
               "平台报错时 core 回 -1（绝不把失败说成 0 个文件）");
+    }
+
+    /* ===== 同窗内嵌视图（PLT-006）：core 只做校验，句柄原样透传 ===== */
+    {
+        long long v;
+        int before = g_view_create_calls;
+
+        case_begin("embedded view");
+        CHECK(cj_bridge_view_create(NULL, "https://a", 0, 0, 100, 100) == 0,
+              "宿主为 NULL 被拒");
+        CHECK(cj_bridge_view_create(h, "", 0, 0, 100, 100) == 0, "空 url 被拒");
+        CHECK(cj_bridge_view_create(h, "https://a", 0, 0, 0, 100) == 0, "宽 0 被拒");
+        CHECK(cj_bridge_view_create(h, "https://a", 0, 0, 100, -3) == 0, "高负数被拒");
+        CHECK(g_view_create_calls == before, "被拒的请求一个都没落到平台");
+
+        v = cj_bridge_view_create(h, "https://example.com/x", 12, 34, 800, 560);
+        CHECK(v > 0, "合法请求拿到平台句柄");
+        CHECK(g_view_bounds_last[0] == 12 && g_view_bounds_last[1] == 34 &&
+              g_view_bounds_last[2] == 800 && g_view_bounds_last[3] == 560,
+              "矩形按客户区坐标原样转发");
+
+        cj_bridge_view_set_visible(h, v, 1);
+        CHECK(g_view_visible_last == 1, "显示转发到平台");
+        cj_bridge_view_set_visible(h, v, 0);
+        CHECK(g_view_visible_last == 0, "隐藏转发到平台");
+
+        g_view_bounds_calls = 0;
+        cj_bridge_view_set_bounds(h, v, 0, 40, 640, 480);
+        CHECK(g_view_bounds_calls == 1 && g_view_bounds_last[3] == 480, "重排矩形转发");
+        cj_bridge_view_set_bounds(h, v, 0, 40, 0, 480);
+        CHECK(g_view_bounds_calls == 1, "非法矩形不透传（宽 <=0）");
+
+        cj_bridge_view_navigate(h, v, "https://b");
+        CHECK(g_view_navigate_calls == 1, "导航转发");
+        cj_bridge_view_navigate(h, v, "");
+        CHECK(g_view_navigate_calls == 1, "空 url 导航被拒");
+
+        cj_bridge_view_destroy(h, v);
+        CHECK(g_view_destroy_calls == 1, "销毁转发");
+        cj_bridge_view_destroy(h, 0);
+        cj_bridge_view_set_visible(h, -2, 1);
+        cj_bridge_view_set_bounds(NULL, v, 0, 0, 640, 480);
+        cj_bridge_view_set_bounds(h, 0, 0, 0, 1, 1);
+        cj_bridge_view_navigate(h, -1, "x");
+        cj_bridge_view_set_visible(NULL, v, 1);
+        CHECK(g_view_destroy_calls == 1 && g_view_visible_calls == 2 &&
+              g_view_bounds_calls == 1,
+              "非正句柄与空宿主一律不落平台（未崩）");
     }
 
     fprintf(stderr, "[bridge-core] 断言 %d 项：通过 %d，失败 %d\n", g_pass + g_fail,

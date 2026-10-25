@@ -4,7 +4,6 @@ import std.env.*
 // cjTauri.plugins.fs 与 std.fs 短名相同（都叫 fs）：本应用的链接命令行会**漏掉插件那个库**，
 // 实测与 import 顺序无关（详见 cjpm.toml 的 link-option 注释）——靠清单显式补 -lcjTauri.plugins.fs。
 import cjTauri.plugins.fs.*
-import std.fs.*
 import std.collection.*
 import cjTauri.*
 import cjTauri.plugins.http.*
@@ -64,45 +63,6 @@ func inlineVendor(html: String): String {
     return html.replace("/*__VENDOR_JS__*/", js).replace("/*__VENDOR_CSS__*/", css)
 }
 
-/** 读托盘图标（可选）：仓里没有现成 png 就用主题默认（托盘照样出，无阻塞） */
-func iconPath(): String {
-    let cand = "ui/icon.png"
-    try {
-        let f = File(Path(cand), OpenMode.Read)
-        f.close()
-        return cand
-    } catch (e: Exception) {
-        let _ = e
-        return ""
-    }
-}
-
-/** 从 shell 事件信封里取 id（托盘点击 / 快捷键触发都带 `{"kind":…,"id":…}`）；
-    解析不了按「无 id」处理，不猜（clipboard-history 同款）。 */
-func shellEventId(json: String): String {
-    try {
-        let root = JsonValue.fromStr(json)
-        // JsonKind 没有 ==（AGENTS §4）：枚举比较只能走 match
-        let isObj = match (root.kind()) {
-            case JsonKind.JsObject => true
-            case _ => false
-        }
-        if (isObj) {
-            match (root.asObject().get("id")) {
-                case Some(v) =>
-                    match (v.kind()) {
-                        case JsonKind.JsString => return v.asString().getValue()
-                        case _ => ()
-                    }
-                case None => ()
-            }
-        }
-    } catch (e: Exception) {
-        eprintln("[cj-ai-chat] shell event 不是 JSON，按无 id 处理：${e}")
-    }
-    return ""
-}
-
 /** 前端主动退应用（quit 在平台层投 GUI 线程，命令里调是安全的） */
 public class QuitCommand <: CommandHandler {
     private let app: TauriApp
@@ -122,9 +82,8 @@ public class QuitCommand <: CommandHandler {
 }
 
 main(): Int64 {
-    let win = WindowConfig("AI 对话", 1080, 760)
+    let win = WindowConfig("AI 对话", 1320, 860)
     win.devTools = true
-    win.minimizeToTray = true
 
     let app = TauriApp()
         .window(win)
@@ -142,26 +101,10 @@ main(): Int64 {
         // 日志落盘：GUI 产物双击没控制台，报障时一个文件看全（C 桥 + 仓颉 + 页面 log:write）
         .setLogToDefaultFile("ai-chat")
 
-    // 托盘必须在 start() 之前定稿（RFC-002 §7.C）。对话工具常驻托盘是刚需：
-    // 「显示面板」放第一项——窗口藏起来之后只有这里或快捷键回得来。
-    let trayMenu = ArrayList<MenuItem>()
-    trayMenu.add(MenuItem.normal("show", "显示对话"))
-    trayMenu.add(MenuItem.separator())
-    trayMenu.add(MenuItem.normal("quit", "退出"))
-    app.setTray(TrayModel(iconPath(), "AI 对话", trayMenu))
-
-    // 全局快捷键：Ctrl+Alt+A 唤出面板（对话工具的肌肉记忆位）
-    app.setGlobalHotkeys(HotkeyModel().add("Ctrl+Alt+A", "show-panel"))
-
-    // 窗口级 shell 动作：还原可见性只能在原生侧做（页面没有 window.show）；
-    // quit 经命令层收口（与 clipboard-history 同款：run 之后框架收尾，不能直接 exit）。
-    app.onShellEvent({ json: String, label: String =>
-        let _ = label
-        eprintln("[cj-ai-chat] shell event: ${json}")
-        if (shellEventId(json) == "show" || shellEventId(json) == "show-panel") {
-            app.setWindowVisible(true)
-        }
-    })
+    // 本应用不驻留系统托盘（2026-10-25 用户裁定：网页入口改为主窗内的标签页之后，
+    // 「窗口藏进托盘再唤出」这套常驻形态就不需要了）。于是也不再有
+    // minimizeToTray 与「唤出面板」快捷键——窗口就是一个普通窗口。
+    // 想要托盘的话，框架能力位与 clipboard-history 示例仍是完整可用的样板。
 
     app.register("quit", QuitCommand(app))
 
@@ -174,12 +117,15 @@ main(): Int64 {
     app.register("cjh:deploy", cjhCmds)
     app.register("app:allowHost", AllowHostCommand(app))
 
-    // 网页版启动台（src/webtab.cj）：侧栏「网页版」里的每张卡片点开 = 一扇独立原生窗口
-    // 加载该站点真实地址。不 iframe 的理由见 webtab.cj 文件头——
-    // 能力清单的 commands 里同样要登记这两条（三处联动，漏一处就是 command not allowed）
-    let webTabs = WebTabCommands()
+    // 网页版启动台（src/webtab.cj）：侧栏「网页」里的每张卡片点开 = 同窗内嵌视图（真标签页）。
+    // 宿主按发起命令的窗口解析（多窗口下不串台）；能力清单的 commands 里同样要登记这五条
+    // （三处联动，漏一处就是 command not allowed）
+    let webTabs = WebTabCommands({ label => app.hostOf(label) })
     app.register("webtab:list", webTabs)
-    app.register("webtab:open", webTabs)
+    app.register("webtab:show", webTabs)
+    app.register("webtab:bounds", webTabs)
+    app.register("webtab:hide", webTabs)
+    app.register("webtab:close", webTabs)
 
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。

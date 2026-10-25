@@ -26,26 +26,45 @@
   （投 UI 线程），代价是按钮先出现再消失。属主尚未建窗 / 未登记时只打一行 stderr 并跳过——
   它是外观修饰，不该拦住开窗。两平台同名同签名（§2），鸿蒙走接口默认实现（无系统任务栏语义）。
   事后复核打在同一行：Windows `GetWindow(hwnd,GW_OWNER)=…`、Linux `gtk_window_get_transient_for`，
-  免得只有「我调过了」而没有凭证。ai-chat 的网页版窗口用它。
+  免得只有「我调过了」而没有凭证。**ai-chat 的网页版已改用同窗内嵌视图**（见下条），这条能力保留为
+  公开 API——「独立窗口但不占任务栏」的场景还要它。
 
-- **ai-chat 网页版启动台（`webtab:list` / `webtab:open`）**：侧栏新增「网页」tab，以卡片列出
-  DeepSeek / Kimi / 豆包 / 通义千问 / 智谱清言 / 腾讯元宝 / 文心一言 / ChatGPT 八家网页版；
-  点一张卡片 = 开一扇原生窗口加载该站真实地址（`resolveHost(label)` + `host.load(PageSource.Url(…))`，
-  C 桥在自己的宿主线程建窗跑消息循环），登录态随应用用户数据目录留存，关窗再点即重开。
-  这扇窗**挂在主窗下当附庸窗**（`setOwnerWindow(DEFAULT_WINDOW_LABEL)`，见上一条）：不再单独占
-  任务栏/Alt-Tab 一格，是主窗的一块延伸而不是「第二个应用」。
+- **内嵌视图（同窗多视图）：`WebViewHost.createEmbeddedView` 等五个成员 + C 桥 `cj_bridge_view_*`**：
+  在**已存在的宿主窗口**的指定矩形里再放一个 WebView——`createEmbeddedView(label, url, bounds)` 返回句柄，
+  之后 `setEmbeddedViewVisible` / `setEmbeddedViewBounds` / `navigateEmbeddedView` / `destroyEmbeddedView`
+  各按句柄操作。这是「一个窗口里放多个页面、像浏览器标签那样切」的底座（此前一个 `WebViewHost` 只能
+  独占一扇系统窗口，`PageSource.Url` 就必须开新窗）。Windows 落法是每个视图独占一个载体子窗口
+  （`CoreWebView2Controller` 与 HWND 1:1），共用同一个 `environment` / 用户数据目录，所以登录态在视图之间
+  是通的；Linux 落法是 `GtkOverlay` 打底 + `GtkFixed` 覆盖层里多个 `WebKitWebView`。**矩形用 client 坐标
+  （DIP）**，由页面按自己的布局上报，主窗 resize / 侧栏折叠 / DPI 变化都要重报（页面侧节流 80ms）。
+  三条实机踩过的坑：① 内嵌视图与主页面视图在 Windows 上是同一父窗口的子窗口，**先建的反被压在下面**——
+  必须显式把当前视图置顶，否则日志明明有 `visible=1`、界面上什么都看不见；② **必须在 worker 线程建**
+  （同步命令 / UI 线程 / 事件回调里建 WebView2 会死锁，官方 known issue）；③ 视图操作要回到**宿主自己的
+  UI 线程**，因此每个原语首参都是 `cj_host *`（非 UI 线程走 `PostMessage` 投递，与 `cj_plat_set_owner_window`
+  同款）。桩平台补了同名桩，`native/tests/test_bridge_core.c` 覆盖（247/247 全过）。
+  鸿蒙侧无 C 桥，走接口默认实现：**如实降级**，不假装支持。Linux 侧**未实机验证**。
+
+- **ai-chat 网页版：同窗标签页（`webtab:list` / `webtab:show` / `webtab:hide` / `webtab:close` / `webtab:bounds`）**：
+  侧栏「网页」tab 以卡片列出 DeepSeek / Kimi / 豆包 / 通义千问 / 智谱清言 / 腾讯元宝 / 文心一言 / ChatGPT
+  八家网页版；点一张卡片 = 在**当前窗口的内容区**开一个标签页（上一条的内嵌视图），**不再是新窗口**——
+  上一版的附庸窗形态已撤（用户实机反馈「弹一个新窗口体验不好」）。站点标签条住在**顶栏右侧**那一排
+  （侧栏里不再有标签条，侧栏只留站点库卡片），切 tab 只是换谁露出来，不重载、不丢滚动位置；切到别的
+  侧栏面板把视图藏起来、切回来还是那一页（不重新加载）。**同时存在的视图上限 4、LRU 淘汰**——每个视图
+  背后一个渲染进程，八家全开约 300–600 MB；淘汰最久没用过的那个、**绝不淘汰本次要显示的**，标签条本身
+  可以多于 4 枚，点回去时重建视图、登录态仍在（同一个用户数据目录）。网页视图下顶栏那几枚**会话态控件**
+  （会话标题「新会话」/ 服务商 / 模式 / 主题 / 紧凑）自动隐藏——`body.web-live` 上做 `display:none`，
+  回会话态即恢复。默认窗口从 1080×760 调到 **1320×860**（实机看过之后觉得偏小）。
   **不做 iframe 嵌入**：iframe 里是第三方上下文，WebView2 默认拦第三方 cookie 导致登录态存不住，
   站点跳 OAuth 时多自带 `X-Frame-Options` 直接白屏，弹窗也会被拦——表现是「页面看得见、登录过不去」。
-  两处安全设计：命令**只认站点 id**（页面不能传 URL，否则等于把「加载任意网页」交给页面，
-  可钓鱼 / 可探内网）；外链窗口在 document-start 把 `window.__CJ_TAURI__` 抹掉——能力校验是全局的
-  （`CapabilityRegistry` 不按窗口分权），第三方页面不该握宿主桥。站点表只在 `src/webtab.cj` 的
-  `WEB_TAB_SITES` 维护，前端卡片由 `webtab:list` 驱动渲染，加一家不用改页面。
-  面板不受模式显隐约束（它是纯前端服务入口，与 cjh 无关），聊天模式下同样常显。
-  站点表在**页面启动时**就预热一次（`waitForBridge()` 之后），切到「网页」只是把面板 display
-  打开——不必等到那一刻才发 IPC 往返 + 8 张卡片的首次合成（从托盘隐藏恢复后首次切换尤其明显：
-  WebView2 还在唤醒，整段等待都压在用户眼皮底下）。`webtab:list` 3.5 秒仍未回则把占位文案
-  换成「还没回来 + 怎么重试」，不让「正在读站点表…」无声地一直转下去——它是一张静态表，
-  毫秒级就该回来，迟迟不回本身就说明桥没把结果投回来，这一点该如实说出来。
+  安全设计：命令**只认站点 id**（页面不能传 URL，否则等于把「加载任意网页」交给页面，可钓鱼 / 可探内网）；
+  站点表只在 `src/webtab.cj` 的 `WEB_TAB_SITES` 维护，前端卡片由 `webtab:list` 驱动渲染，加一家不用改页面。
+  面板不受模式显隐约束（纯前端服务入口，与 cjh 无关），聊天模式下同样常显；站点表在**页面启动时**就预热
+  一次（`waitForBridge()` 之后），切到「网页」只是把面板 display 打开——不必等到那一刻才发 IPC 往返 +
+  8 张卡片的首次合成（从托盘隐藏恢复后首次切换尤其明显：WebView2 还在唤醒，整段等待都压在用户眼皮底下）。
+  `webtab:list` 3.5 秒仍未回则把占位文案换成「还没回来 + 怎么重试」——它是一张静态表，毫秒级就该回来，
+  迟迟不回本身就说明桥没把结果投回来，这一点该如实说出来。
+  取证：`examples/ai-chat/docs/evidence-webtab-embedded-windows.md`（Windows 实机截图 + 视图日志：
+  建/切/隐/重建、bounds 跟随、上限 4 的 LRU 淘汰）；Linux 同契约实现但**未实机验证**，鸿蒙如实降级。
 
 - **鸿蒙真机 E2E 入口 `scripts/e2e/test-ohos-capabilities.sh`**：驱动 `examples/ohos/ohos-capabilities`
   探针应用（页面自跑全量断言、经 `probeLog` 写设备 hilog tag `CjProbe`），脚本负责装机、
@@ -330,6 +349,14 @@
   现在按「请求 id == 已回填 id」放行（`dialog_host.cj` 的 `dialogAnswered` / `dialogAnsweredIdOf`
   按窗口记录），上一条答完之前不再取新的。**判据别用 `dialogActive`**——它置起后不复位，
   拿它当闸门会把收起之后的第二次点菜单一并挡掉（只弹得出第一次）。
+
+### Removed
+
+- **ai-chat 不再驻留系统托盘**（用户裁定 2026-10-25）：网页版入口改成本窗内的标签页之后，
+  「窗口藏进托盘再唤出」这套常驻形态就失去了理由——`setTray` / `minimizeToTray` /
+  「唤出面板」全局快捷键（`Ctrl+Alt+A`）与配套的 shell 事件解析一并删除，窗口回归普通窗口
+  （点关闭即退出）。框架侧的托盘能力位与 `clipboard-history` 示例不受影响，仍是完整可用的样板；
+  `system:host` 里 `tray=1` 报的是**平台支持**，与某个应用有没有用它无关。
 
 ## [2.0.0] - 2026-10-23
 

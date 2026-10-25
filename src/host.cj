@@ -261,6 +261,73 @@ public interface WebViewHost {
     }
 
     /**
+     * 在本窗口内创建一个内嵌视图（同窗真标签页，PLT-006），返回视图句柄（> 0 有效，0 = 不支持）
+     *
+     * 为什么需要它：像「网页版」这类入口聚合，把每个站点开成一个**独立窗口**会让任务栏越点越乱、
+     * 还会飘到主窗背后去。内嵌视图是同一扇窗里的真标签页——每个 tab 一个 WebView，
+     * 切换只是换谁露出来，不重载、也不丢滚动位置（vs「单视图 navigate」要等 1–3 秒重新加载）。
+     *
+     * 时机：**页面加载之后**（宿主窗口与主 WebView 都已经在）。命令 worker 线程里调也安全——
+     * 平台会把建视图的动作投回自己的 UI 线程（Windows 同步建 controller 会死锁，这是官方 known issue）。
+     * 返回值**当场**给出，真正的 WebView 稍后才建，所以「句柄有效」不等于「已经能看见内容」。
+     *
+     * **不注入桥**：内嵌视图装的是第三方站点，它的脚本不该拿到 `window.__CJ_TAURI__`，
+     * 更不该能调宿主命令（能力清单管不到外部页面，一旦注入就等于把整份能力开放给任意网站）。
+     * 要与站点通信只能走 URL 参数 / 服务端。
+     *
+     * 坐标是页面 client 坐标（与 `getBoundingClientRect()` 同量纲）：视图是**宿主原生控件**，
+     * 盖在页面之上、不参与页面排版与裁剪，所以应用要按自己的布局持续上报矩形。
+     * 默认实现返回 0：没有窗口内嵌能力的平台（鸿蒙走应用内窗口）如实降级，不假装成功。
+     */
+    func createEmbeddedView(url: String, x: Int32, y: Int32, width: Int32, height: Int32): Int64 {
+        let _ = url
+        let _ = x
+        let _ = y
+        let _ = width
+        let _ = height
+        return 0
+    }
+
+    /**
+     * 显示 / 隐藏内嵌视图——切换 tab 就是这一步（隐藏的视图照常停在原页面，不重载）
+     */
+    func setEmbeddedViewVisible(view: Int64, visible: Bool): Unit {
+        let _ = view
+        let _ = visible
+    }
+
+    /**
+     * 重排内嵌视图：父窗 resize、DPI 变化、页面自己的布局变化之后都要重报
+     *
+     * 原生视图**不会**跟随父窗缩放（与页面元素不同），少了这一路同步就会出现露白边 / 盖住侧栏。
+     */
+    func setEmbeddedViewBounds(view: Int64, x: Int32, y: Int32, width: Int32, height: Int32): Unit {
+        let _ = view
+        let _ = x
+        let _ = y
+        let _ = width
+        let _ = height
+    }
+
+    /**
+     * 让内嵌视图导航到新地址（同一 tab 内跳转用；开新 tab 请再调 createEmbeddedView）
+     */
+    func navigateEmbeddedView(view: Int64, url: String): Unit {
+        let _ = view
+        let _ = url
+    }
+
+    /**
+     * 销毁内嵌视图（关掉那个 tab）：平台会连带收掉它背后的渲染进程
+     *
+     * 窗口销毁时名下的视图由平台自己收，应用不必逐个 destroy——但**上限淘汰（LRU）必须显式调**，
+     * 否则关掉的 tab 只是看不见，内存还占着（一个站点少则几十 MB）。
+     */
+    func destroyEmbeddedView(view: Int64): Unit {
+        let _ = view
+    }
+
+    /**
      * 本宿主的静态能力位（`CJ_CAP_*` 的按位或）：能不能做菜单 / 托盘 / 文件拖入
      *
      * 宿主尚未创建（`dispose()` 之后 / `start()` 之前未分配句柄）返回 0。

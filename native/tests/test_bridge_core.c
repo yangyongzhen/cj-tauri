@@ -320,6 +320,15 @@ void cj_plat_set_minimize_to_tray(cj_host *h, int enabled) {
     g_min_tray_last = enabled;
 }
 
+/* ---- 附庸窗：桩平台同样只记录调用（owner 记成「有没有」而不是指针值）---- */
+static int g_owner_calls;
+static int g_owner_has_owner = -1;
+void cj_plat_set_owner_window(cj_host *h, cj_host *owner) {
+    (void)h;
+    g_owner_calls++;
+    g_owner_has_owner = owner ? 1 : 0;
+}
+
 int cj_plat_host_capabilities(cj_host *h) {
     (void)h;
     g_caps_calls++;

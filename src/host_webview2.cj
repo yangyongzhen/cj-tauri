@@ -158,6 +158,15 @@ foreign func cj_bridge_set_window_visible(h: CPointer<Unit>, visible: Int32): Un
 foreign func cj_bridge_set_minimize_to_tray(h: CPointer<Unit>, enabled: Int32): Unit
 
 /**
+ * 把 h 挂到 owner 下（owned window）：不重复占任务栏、跟随属主显隐
+ *
+ * 与 set_window_visible 同形——都要求两个句柄都已创建；owner 为空指针时桥侧不动。
+ */
+@When[os == "Windows"]
+@C
+foreign func cj_bridge_set_owner_window(h: CPointer<Unit>, owner: CPointer<Unit>): Unit
+
+/**
  * shell 事件回调（菜单点击等）：首参是宿主句柄，多窗口靠它分辨事件属于哪个窗口
  */
 @When[os == "Windows"]
@@ -320,6 +329,23 @@ public class WebView2Host <: WebViewHost {
         }
     }
 
+    public func setOwnerWindow(ownerLabel: String): Unit {
+        if (ownerLabel.size == 0) {
+            return
+        }
+        // 与 setWindowVisible 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）
+        this.ensureHandle()
+        match (HostGlobals.handleOfLabel(ownerLabel)) {
+            case Some(ownerHandle) =>
+                unsafe {
+                    cj_bridge_set_owner_window(this.handle, ownerHandle)
+                }
+            case None =>
+                // 外观修饰失败不该拦着开窗，但要在日志里留凭证
+                eprintln("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
+        }
+    }
+
     public func setWindowVisible(visible: Bool): Unit {
         // 与 setTray 同形：允许在 start() 之前调（桥记 pending，建窗时定稿）；就绪后投宿主 UI 线程
         this.ensureHandle()
@@ -466,6 +492,8 @@ public class WebView2Host <: WebViewHost {
         HostGlobals.registerHostRoute(this.handle, { json => this.shellHandler(json) },
                                       { => this.onDestroy() },
                                       { path => this.dialogResult = path })
+        // label → 句柄：附庸窗（setOwnerWindow）按 label 找属主窗，登记点与路由表同步
+        HostGlobals.registerHostHandle(this.windowLabel, this.handle)
         var devTools: Int32 = 0
         if (this.config.devTools) {
             devTools = 1

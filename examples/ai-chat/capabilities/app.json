@@ -24,6 +24,8 @@
     "cjh:start",
     "cjh:deploy",
     "app:allowHost",
+    "webtab:list",
+    "webtab:open",
     "system:version",
     "system:host"
   ],

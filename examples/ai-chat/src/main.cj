@@ -174,6 +174,13 @@ main(): Int64 {
     app.register("cjh:deploy", cjhCmds)
     app.register("app:allowHost", AllowHostCommand(app))
 
+    // 网页版启动台（src/webtab.cj）：侧栏「网页版」里的每张卡片点开 = 一扇独立原生窗口
+    // 加载该站点真实地址。不 iframe 的理由见 webtab.cj 文件头——
+    // 能力清单的 commands 里同样要登记这两条（三处联动，漏一处就是 command not allowed）
+    let webTabs = WebTabCommands()
+    app.register("webtab:list", webTabs)
+    app.register("webtab:open", webTabs)
+
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。
     let cjhUp = ensureCjhWeb()
@@ -201,6 +208,19 @@ main(): Int64 {
                 host.addInitScript(js)
                 eprintln("[cj-ai-chat] 探针模式已注入")
             case None => eprintln("[cj-ai-chat] 探针模式：主窗未登记，配置没注入")
+        }
+    }
+
+    // 网页版启动台探针（CJ_AICHAT_PROBE_WEBTAB=1）：与主自检**分开跑**——这一轮会真的
+    // 弹出一扇原生窗口（DeepSeek 网页版）并留在桌面，常规自检不该带这个副作用。
+    // 断言覆盖「站点表在 / 开得出来 / 重复点击不重复建 / 非法 id 被白名单挡住」四段。
+    if (envOr("CJ_AICHAT_PROBE_WEBTAB", "") == "1") {
+        let js = "window.__AICHAT_PROBE_WEBTAB__ = true;\n"
+        match (app.hostOf("main")) {
+            case Some(host) =>
+                host.addInitScript(js)
+                eprintln("[cj-ai-chat] 网页版探针已注入")
+            case None => eprintln("[cj-ai-chat] 网页版探针：主窗未登记，配置没注入")
         }
     }
 

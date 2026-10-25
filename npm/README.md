@@ -5,8 +5,10 @@
 WebView 宿主、IPC 双向桥（`invoke` / `resolve` / `event`）、能力安全模型（capability 白名单）。
 
 - 仓库与完整文档：<https://atomgit.com/qq8864/cj-tauri>
-- 当前版本：**2.0.0**（主版本：删除了已失效的 `setHostFactory` / `requireInjectedHost`，见文末「2.0.0 变更」）
-- 当前状态：**Windows（WebView2）、Linux（WebKitGTK）与鸿蒙 PC（ArkWeb）均已实机跑通**
+- 当前版本：**2.1.0**（本版新增：单窗口多 WebView 内嵌视图与 ai-chat 网页版标签页、`fs:mkdir/rename/copy/stat` 四条命令、
+  `http` / `sqlite` / `serial` 鸿蒙落地（真机取证）、`system:host` 补通知能力位；详见 CHANGELOG）
+- 当前状态：**Windows（WebView2）、Linux（WebKitGTK）与鸿蒙 PC（ArkWeb）均已实机跑通**，
+  鸿蒙侧菜单能力位与 fs/mqtt/redis/sqlite/store/http 真机取证通过
 
 ## 前置条件：仓颉 SDK
 

@@ -85,9 +85,9 @@ main(): Int64 {
     let win = WindowConfig("ai-chat, made by cj-tauri", 1320, 860)
     win.devTools = true
 
-    // 单文件包：先把嵌在 exe 里的随包 OpenSSL 释放到安装目录并预加载（本进程 https 直连要用；
-    // 按裸名找 libssl/libcrypto 在无 SDK 机器上会失败）。开发构建 / 目录包无内嵌资源时零副作用。
-    let _ = releaseEmbeddedTlsLibs()
+    // 单文件包：先把嵌在 exe 里的随包资源（OpenSSL DLL、cjh 安装包）释放到安装目录并预加载
+    // （本进程 https 直连与一键部署都要用）。开发构建 / 目录包无内嵌资源时零副作用。
+    let _ = releaseEmbeddedBundle()
     let app = TauriApp()
         .window(win)
         .plugin(HttpPlugin())

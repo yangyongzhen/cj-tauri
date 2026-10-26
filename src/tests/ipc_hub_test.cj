@@ -485,3 +485,79 @@ func testPlainEmitHasNoCoalesceField(): Unit {
     @Expect(JsonValue.fromStr(out[1]).asObject().get("coalesce").isNone(), true)
     @Expect(strField(out[1], "window"), "main")
 }
+
+/* ---- 串行组（issue #6-④）：同组命令严格按到达序执行 ---- */
+
+/** 慢处理器：先睡 delayMs 再回 "slow"——用它把「到达序」与「完成序」拉开 */
+class SleepyHandler <: CommandHandler {
+    let delayMs: Int64
+    public init(delayMs: Int64) {
+        this.delayMs = delayMs
+    }
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
+        sleep(Duration.millisecond * this.delayMs)
+        return JsonString("slow")
+    }
+}
+
+class InstantHandler <: CommandHandler {
+    public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
+        let _ = ipc
+        return JsonString("instant")
+    }
+}
+
+/** sink 里 data="slow" / data="instant" 两条 resolve 的下标（找不到回 -1） */
+func dataPos(sink: ArrayList<String>, value: String): Int64 {
+    var pos = -1
+    synchronized(TEST_SINK_LOCK) {
+        for (i in 0..sink.size) {
+            if (strField(sink.get(i).getOrThrow(), "data") == value) {
+                pos = i
+                break
+            }
+        }
+    }
+    return pos
+}
+
+@Test
+func testSerialGroupPreservesArrivalOrder(): Unit {
+    let sink = ArrayList<String>()
+    let hub = hubWith(["slowA", "fastA"], [], sink)
+    // 同组：慢的先到、快的后到。串行组必须让完成序 == 到达序——
+    // 若实现退回并发分发，fast（立即完成）几乎必然排在 slow（睡 200ms）前面
+    hub.registerSerial("slowA", SleepyHandler(200), "grp")
+    hub.registerSerial("fastA", InstantHandler(), "grp")
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":1,\"cmd\":\"slowA\"}")
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":2,\"cmd\":\"fastA\"}")
+    waitSink(sink, 2)
+    let slowPos = dataPos(sink, "slow")
+    let fastPos = dataPos(sink, "instant")
+    @Expect(slowPos >= 0, true)
+    @Expect(fastPos >= 0, true)
+    @Expect(slowPos < fastPos, true)
+}
+
+@Test
+func testNonSerialCommandsFinishOutOfOrder(): Unit {
+    let sink = ArrayList<String>()
+    let hub = hubWith(["slowB", "fastB"], [], sink)
+    // 反证（锚定「串行组确实改变了语义」）：同样的两条，普通 register 并发分发，
+    // 快的先完成。sleep 的 200ms 余量在 CI 上足够宽，不怕调度抖动造成假红。
+    hub.register("slowB", SleepyHandler(200))
+    hub.register("fastB", InstantHandler())
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":1,\"cmd\":\"slowB\"}")
+    hub.handleRawMessage("{\"type\":\"invoke\",\"id\":2,\"cmd\":\"fastB\"}")
+    waitSink(sink, 2)
+    let slowPos = dataPos(sink, "slow")
+    let fastPos = dataPos(sink, "instant")
+    @Expect(slowPos >= 0, true)
+    @Expect(fastPos >= 0, true)
+    @Expect(fastPos < slowPos, true)
+}

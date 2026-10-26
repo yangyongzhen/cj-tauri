@@ -1,6 +1,7 @@
 package cjTauri
 
 import std.collection.*
+import std.sync.*
 import stdx.encoding.json.*
 
 /**
@@ -114,6 +115,10 @@ public class IpcHub {
     // 只在前端 emit 时被调用；后端自己 emit 给前端的事件**不**回流到这里（否则「后端广播 → 监听器再广播」会自激）。
     private var eventListeners: HashMap<String, ArrayList<(JsonValue) -> Unit>> =
         HashMap<String, ArrayList<(JsonValue) -> Unit>>()
+    // 串行命令组（issue #6-④）：组名 → 组状态；命令名 → 组名。
+    // 同组命令严格按到达序执行（见 registerSerial 与 handleInvoke 的分流注释）。
+    private var serialGroups: HashMap<String, SerialGroup> = HashMap<String, SerialGroup>()
+    private var serialCmdToGroup: HashMap<String, String> = HashMap<String, String>()
 
     public init() {}
 
@@ -137,6 +142,21 @@ public class IpcHub {
 
     public func register(cmd: String, handler: CommandHandler): Unit {
         this.commands.add(cmd, handler)
+    }
+
+    /**
+     * 注册进串行组（issue #6-④）：同 group 的命令严格按**到达序**执行，
+     * 不同组 / 普通命令的并发语义不变。适用于共享一份可变宿主状态的命令族——
+     * webtab 的 show/hide/close/bounds 就是「页面快速连点」时乱序会让原生视图
+     * 与 DOM 状态错位的形状（ai-chat 实测，前端只能用 promise 队列自救）。
+     * 覆盖语义与 register 一致：同命令重复注册 = 替换。
+     */
+    public func registerSerial(cmd: String, handler: CommandHandler, group: String): Unit {
+        this.commands.add(cmd, handler)
+        if (!this.serialGroups.contains(group)) {
+            this.serialGroups.add(group, SerialGroup())
+        }
+        this.serialCmdToGroup.add(cmd, group)
     }
 
     public func hasCommand(cmd: String): Bool {
@@ -232,8 +252,41 @@ public class IpcHub {
             this.reject(req.id, "command not registered: ${req.cmd}", req.window)
             return
         }
-        // 3. 交给 worker 线程执行：调用线程立刻返回，UI 不被命令阻塞
-        let _ = spawn { => this.runCommand(req) }
+        // 3. 交给 worker 线程执行：调用线程立刻返回，UI 不被命令阻塞。
+        //    串行组的命令走入队（handleInvoke 跑在桥的消息回调线程上，入队顺序即到达顺序），
+        //    组 worker 单条消费——执行序严格等于到达序（issue #6-④）。
+        match (this.serialCmdToGroup.get(req.cmd)) {
+            case Some(group) => this.enqueueSerial(group, req)
+            case None => let _ = spawn { => this.runCommand(req) }
+        }
+    }
+
+    /** 串行组入队：锁内置 busy 检查——组闲则置忙并拉起组 worker，忙则只排队 */
+    private func enqueueSerial(group: String, req: InvokeRequest): Unit {
+        let g = this.serialGroups.get(group).getOrThrow()
+        g.lock.lock()
+        g.queue.add(req)
+        let needWorker = !g.busy
+        g.busy = true
+        g.lock.unlock()
+        if (needWorker) {
+            let _ = spawn { => this.drainSerial(g) }
+        }
+    }
+
+    /** 组 worker：取空为止；取与清 busy 在同一临界区，保证「空队」与「忙」不同时被观测到 */
+    private func drainSerial(g: SerialGroup): Unit {
+        while (true) {
+            g.lock.lock()
+            if (g.queue.size == 0) {
+                g.busy = false
+                g.lock.unlock()
+                return
+            }
+            let req = g.queue.remove(at: 0)
+            g.lock.unlock()
+            this.runCommand(req)
+        }
     }
 
     /** worker 线程上的实际执行：跑完（或抛错）就把 resolve / reject 回投给前端 */
@@ -334,4 +387,15 @@ public class IpcHub {
         }
         this.jsSink(IpcMessage.event(event, payload, window), window)
     }
+}
+
+/**
+ * 串行命令组的状态（issue #6-④）：队列 + busy 标志 + 一把锁。
+ * 入队只在桥的消息回调线程上发生（单线程），顺序即到达顺序；
+ * busy 与取队在锁内闭环——「空队」与「忙」不会同时被观测到，worker 不会漏拉也不会重复拉。
+ */
+internal class SerialGroup {
+    let lock: Mutex = Mutex()
+    var queue: ArrayList<InvokeRequest> = ArrayList<InvokeRequest>()
+    var busy: Bool = false
 }

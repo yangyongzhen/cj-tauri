@@ -124,11 +124,14 @@ main(): Int64 {
     // 宿主按发起命令的窗口解析（多窗口下不串台）；能力清单的 commands 里同样要登记这五条
     // （三处联动，漏一处就是 command not allowed）
     let webTabs = WebTabCommands({ label => app.hostOf(label) })
-    app.register("webtab:list", webTabs)
-    app.register("webtab:show", webTabs)
-    app.register("webtab:bounds", webTabs)
-    app.register("webtab:hide", webTabs)
-    app.register("webtab:close", webTabs)
+    // webtab 五条命令共享一份原生视图状态：页面快速连点时乱序会让原生视图与 DOM 错位
+    //（2026-10-26 实测，前端曾用 promise 队列自救）——改走框架串行组，按到达序执行（issue #6-④）。
+    // 前端的 webInvoke 排队保留：它保证「页面发出顺序 = 宿主收到顺序」，两层各管一段。
+    app.registerSerial("webtab:list", webTabs, "webtab")
+    app.registerSerial("webtab:show", webTabs, "webtab")
+    app.registerSerial("webtab:bounds", webTabs, "webtab")
+    app.registerSerial("webtab:hide", webTabs, "webtab")
+    app.registerSerial("webtab:close", webTabs, "webtab")
 
     // cjh web 托管：run 之前确保后端就绪（复用已运行的，或按 CJ_AICHAT_CJH spawn）。
     // 数据面不在这层——页面经 ws 插件连 ws://127.0.0.1:<port>/ws、经 http 插件打 /api/…。

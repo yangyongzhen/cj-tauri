@@ -239,6 +239,16 @@ public class TauriApp <: AppHost {
     }
 
     /**
+     * 注册进串行组（issue #6-④）：同 group 的命令严格按到达序执行，不同组 / 普通命令
+     * 的并发语义不变。适用于共享一份可变宿主状态的命令族——webtab 的 show/hide/close/bounds
+     * 这类「页面快速连点时乱序会让原生状态与 DOM 错位」的形状。链式返回 this，与 register 一致。
+     */
+    public func registerSerial(cmd: String, handler: CommandHandler, group: String): TauriApp {
+        this.hub.registerSerial(cmd, handler, group)
+        return this
+    }
+
+    /**
      * 装配插件（对标 Tauri v2 的 .plugin(...)）
      *
      * 插件的命令会自动加上 "<插件名>:" 前缀后注册；事件登记、前端 JS 与未授权提示

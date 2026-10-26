@@ -2961,7 +2961,18 @@ function testProvider() {
     var code = (r && r.status) ? r.status : 0;
     var head = 'HTTP ' + code + '（' + Math.max(1, Math.round((Date.now() - t0) / 1000)) + ' 秒）';
     if (code >= 200 && code < 300) {
-      testMsg('ok', '✓ 连通正常：' + head + (model ? '，模型 ' + model + ' 可用' : ''));
+      // 200 ≠「是 API」：中转站的网页首页对 POST 也回 200（2026-10-26 novacode 实测，
+      // 115KB 的 HTML 首页被误判「服务商可用」，真实聊天拿到的正是这份网页、没有 SSE）。
+      // 按 Content-Type 与响应开头分诊：HTML 如实报「填的是网页不是端点」。
+      // 成功分支也不再断言「模型可用」——200 只证明请求被接受，模型校验是服务端的事。
+      var ct = (r && r.contentType) ? String(r.contentType) : '';
+      var body = (r && r.body) ? String(r.body) : '';
+      if (ct.indexOf('text/html') >= 0 || /^\s*<(?:!doctype|html)/i.test(body)) {
+        testMsg('err', '✗ 能连通，但返回的是网页而不是 API（' + head +
+          '）——Base URL 填的是站点首页，要填到服务商的 chat/completions 端点那一层');
+        return;
+      }
+      testMsg('ok', '✓ 连通正常：' + head + '，返回的是 API 形状');
       return;
     }
     if (code === 401 || code === 403) { testMsg('err', '✗ 能连通，但鉴权失败：' + head + '——检查 API Key'); return; }

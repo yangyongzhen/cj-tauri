@@ -458,6 +458,47 @@ func cjhInstallDir(): String {
     return home + "/.local/share/cj-ai-chat"
 }
 
+/**
+ * 把随包 cjh 依赖里的 OpenSSL 库**预加载**进本进程（照 cjnote 的 preloadTlsLibs）。
+ *
+ * 为什么需要（2026-10-26 用户机器实测）：本进程自己的 https（配置模型后的直连请求）
+ * 走 stdx TLS，它按**裸名**找 `libcrypto-3-x64.dll` / `libssl-3-x64.dll`——SDK 与
+ * stdx 都不带这两个；开发机恰好命中 PATH 里 Git 自带的那份，别人双击就挂，表象是
+ * `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.`
+ * （请求根本没出网，与对端证书 / SNI / 出网白名单无关）。
+ *
+ * 一键部署的 selfcontained zip 本来就带这两个 DLL（CJH_WIN_RUNTIME_DLLS 校验过），
+ * 所以这是**零新增体积**的修法：按绝对路径加载一次，运行时再按裸名找就命中已加载
+ * 模块——不必改 PATH，也不必把 DLL 摆到 exe 旁。顺序 libcrypto 先、libssl 后
+ * （后者依赖前者的符号）。幂等：已在进程内时桥直接回 true。
+ * 覆盖范围是安装目录；用「选择 cjh 可执行文件…」指到别处时，把这两份 DLL 拷到
+ * 应用 exe 同目录同样有效（裸名搜索本来就含 exe 目录）。
+ */
+@When[os == "Windows"]
+func preloadTlsLibsFromDir(dir: String): Int64 {
+    if (dir.isEmpty()) {
+        return 0
+    }
+    var n = 0
+    for (name in ["libcrypto-3-x64.dll", "libssl-3-x64.dll"]) {
+        let p = dir + cjhPathSep() + name
+        if (fileReadable(p) && preloadEmbeddedLibrary(p)) {
+            n++
+        }
+    }
+    if (n > 0) {
+        eprintln("[cj-ai-chat] 随包 OpenSSL 已预加载：${n} 个（${dir}）")
+    }
+    return n
+}
+
+/** Linux 侧 openssl 由发行版系统包提供（本仓不随包分发），没有可预加载的库 */
+@When[os != "Windows"]
+func preloadTlsLibsFromDir(dir: String): Int64 {
+    let _ = dir
+    return 0
+}
+
 /** 对 bundle 做 SHA256 校验：读全量文件算摘要，与入库常量比对。失败给一行 stderr（带两个
     值方便对账），返回 false——验不过就绝不解包执行，这是部署命令的底线 */
 func cjhBundleVerified(bundle: String): Bool {
@@ -671,6 +712,8 @@ func cjhDeployAndStart(): JsonObject {
             case None => ()
         }
         eprintln("[cj-ai-chat] cjh bundle 已部署到 ${bin}")
+        // 部署目录里就有随包 OpenSSL：当场预加载，本进程的 https（聊天直连 / 测连通）才能起 TLS
+        let _ = preloadTlsLibsFromDir(installDir)
     }
     if (spawnCjhWeb(bin)) {
         obj.put("ok", JsonBool(true))

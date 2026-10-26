@@ -1011,7 +1011,7 @@ function activateWebTab(id) {
   if (!id) { return; }
   var r = webRect();
   if (!r) { return; }   // 主区尺寸读不到的瞬间（面板刚显示）不该往宿主递一个坏矩形
-  window.__CJ_TAURI__.invoke('webtab:show', { id: id, rect: r }).then(function () {
+  webInvoke('webtab:show', { id: id, rect: r }).then(function () {
     if (!webTabOf(id)) {
       var s = siteOf(id);
       webState.open.push({
@@ -1030,7 +1030,7 @@ function activateWebTab(id) {
 
 function closeWebTab(id) {
   if (!id) { return; }
-  window.__CJ_TAURI__.invoke('webtab:close', { id: id }).catch(function () {});
+  webInvoke('webtab:close', { id: id }).catch(function () {});
   webState.open = webState.open.filter(function (t) { return t.id !== id; });
   if (webState.active === id) {
     webState.active = null;
@@ -1044,12 +1044,23 @@ function closeWebTab(id) {
   }
 }
 
+/* webtab 命令排队：show/hide 是两个独立命令，宿主 worker 并发执行、顺序无保证（AGENTS §2）。
+ * 「网页面板里刚点开站点、很快又点会话标签」时 hide 先发出但后执行，原生视图就留在了显示态，
+ * 而页面 DOM 已按隐藏渲染——偶发「点了会话右侧还看着网页、要再切一次标签才好」的根因。
+ * 把 webtab 的全部 invoke 串成一条 promise 链：页面发出顺序即宿主执行顺序，乱序不再可能。 */
+function webInvoke(name, args) {
+  webState.q = (webState.q || Promise.resolve()).then(function () {
+    return window.__CJ_TAURI__.invoke(name, args);
+  });
+  return webState.q;
+}
+
 /* 切到别的侧栏面板（或聊天页）：把内嵌视图藏起来，页面重新露出来。
  * active 记着不丢——切回来还是这一页，不用重新加载。 */
 function hideWebViews() {
   document.body.classList.remove('web-live');
   if (!webState.active) { return; }
-  window.__CJ_TAURI__.invoke('webtab:hide', {}).catch(function () {});
+  webInvoke('webtab:hide', {}).catch(function () {});
 }
 
 /* 布局变了重报矩形。节流 80ms：resize 一拖就是几百次，逐次投递没有意义 */
@@ -1057,7 +1068,7 @@ function syncWebRect() {
   if (!webState.active) { return; }
   var r = webRect();
   if (!r) { return; }
-  window.__CJ_TAURI__.invoke('webtab:bounds', { id: webState.active, rect: r }).catch(function () {});
+  webInvoke('webtab:bounds', { id: webState.active, rect: r }).catch(function () {});
 }
 
 function scheduleWebRect() {
@@ -2330,7 +2341,7 @@ function renderConvs() {
       d.className = 'conv';
       d.textContent = '⟳ ' + (s.title || s.id);
       d.title = '恢复 cjh 会话 ' + (s.id || '');
-      d.onclick = function () { if (!streaming) { resumeCjhSession(s.id); } };
+      d.onclick = function () { if (!streaming) { hideWebViews(); resumeCjhSession(s.id); } };
       el.appendChild(d);
     });
     hits += cjhHits.length;
@@ -2376,7 +2387,7 @@ function renderConvs() {
     ed.title = '重命名';
     ed.onclick = function (ev) { ev.stopPropagation(); startRename(c.id); };
     d.appendChild(ed);
-    d.onclick = function () { if (!streaming && renamingId !== c.id) { closeCfg(); setCurId(c.id); renderConvs(); renderMsgs(); } };
+    d.onclick = function () { if (!streaming && renamingId !== c.id) { hideWebViews(); closeCfg(); setCurId(c.id); renderConvs(); renderMsgs(); } };
     d.ondblclick = function () { if (!streaming) { startRename(c.id); } };
     el.appendChild(d);
     hits++;

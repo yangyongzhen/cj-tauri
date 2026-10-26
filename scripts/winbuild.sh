@@ -198,26 +198,31 @@ echo "[winbuild] 生成内嵌资源：页面 ${#UI_B64} / vendor ${#VENDOR_B64} 
     printf 'public let PACKED_CAPS_B64: String = "%s"\n' "$CAPS_B64"
 } > "$WORK/app/src/packed_assets.cj"
 
-# ---------- ②b 框架副本：交叉 stdx 是 1.0.5.1，ws 插件的两行要在副本里摘掉 ----------
-# 为什么拷框架：ws 插件 import stdx.crypto.kit（DefaultCryptoKit 只做包初始化标记），而
-# crypto.kit 是 stdx 1.1+ 新增包，1.0.5.1 的 windows static 包没有它——仓库源码不能动（正常
-# 构建仍按 1.2.0 stdx 需要这个 import），所以把框架源码拷进 work 副本打补丁。行为等价的依据：
-# 1.0.5.1 的 libstdx.net.http.a 里没有 "Global crypto kit" 报错串（1.2.0 才引入该机制），
-# 旧栈不需要 kit 注册，摘掉 import 不改变 ws 行为。
+# ---------- ②b 框架副本：按 stdx 版本决定是否打补丁 ----------
+# 补丁针对 1.0.5.1（本机曾有唯一的 windows stdx）：ws 插件 import stdx.crypto.kit（DefaultCryptoKit
+# 只做包初始化标记）与 TlsClientConfig.serverName（显式 SNI）都是 1.1+ API，1.0.5.1 没有；
+# 而 1.0.5.1 的 http 栈没有 "Global crypto kit" 机制（libstdx.net.http.a 里无该报错串），摘掉等价。
+# 1.2.0.1 起（AtomGit Cangjie/cangjie_stdx 公开直链可下）这两个 API 都在，**不打补丁**——
+# 反过来在 1.2.0 的 http 栈上摘掉 kit 注册，ws 连接会运行时报 "Global crypto kit is not set"。
 WORK_FRAMEWORK="$WORK/framework"
 mkdir -p "$WORK_FRAMEWORK"
 cp "$ROOT/cjpm.toml" "$WORK_FRAMEWORK/"
 cp -r "$ROOT/src" "$WORK_FRAMEWORK/"
-WS_PLUGIN="$WORK_FRAMEWORK/src/plugins/ws/plugin_ws.cj"
-sed -i '/^import stdx.crypto.kit.\*/d; /kitMarker/d' "$WS_PLUGIN"
-# 校验只看代码行：文件头的注释原文里也引用了 stdx.crypto.kit 字样（stdx 的报错文案），不算数
-grep -n "stdx.crypto.kit" "$WS_PLUGIN" | grep -vE "^[0-9]+:[[:space:]]*//" | grep -q . && die "ws 插件副本补丁没打干净（仍有 stdx.crypto.kit 代码引用）"
-# 同源差异：TlsClientConfig.serverName（显式 SNI，2026-10-25 cjnote 的修复）也是 1.2.0 才有的
-# 字段，1.0.5.1 没有——副本里摘掉这行赋值，回退 stdx 默认 SNI 行为（按 URL host 自动带；
-# 显式写是为覆盖少数不自动发的对端，交叉包在这类对端上可能要重新显式处理，见 cjnote 那轮记录）。
-# 全副本删：http 与 ws 插件各有一处（http_desktop.cj / plugin_ws.cj），别按文件点名
-grep -rn "cfg\.serverName" "$WORK_FRAMEWORK/src" | while IFS=: read -r f n _; do sed -i "${n}d" "$f"; done
-grep -rn "cfg\.serverName" "$WORK_FRAMEWORK/src" >/dev/null && die "serverName 副本补丁没打干净"
+case "$WINDOWS_STDX" in
+    *1.0.5.1*)
+        WS_PLUGIN="$WORK_FRAMEWORK/src/plugins/ws/plugin_ws.cj"
+        sed -i '/^import stdx.crypto.kit.\*/d; /kitMarker/d' "$WS_PLUGIN"
+        # 校验只看代码行：文件头的注释原文里也引用了 stdx.crypto.kit 字样（stdx 的报错文案），不算数
+        grep -n "stdx.crypto.kit" "$WS_PLUGIN" | grep -vE "^[0-9]+:[[:space:]]*//" | grep -q . && die "ws 插件副本补丁没打干净（仍有 stdx.crypto.kit 代码引用）"
+        # 全副本删：http 与 ws 插件各有一处（http_desktop.cj / plugin_ws.cj），别按文件点名
+        grep -rln "cfg\.serverName" "$WORK_FRAMEWORK/src" | while read -r f; do sed -i '/cfg\.serverName[[:space:]]*=/d' "$f"; done
+        grep -rn "cfg\.serverName" "$WORK_FRAMEWORK/src" >/dev/null && die "serverName 副本补丁没打干净"
+        echo "[winbuild] stdx 1.0.5.1：框架副本已打兼容补丁（crypto.kit / serverName）"
+        ;;
+    *)
+        echo "[winbuild] stdx 1.2.0+：框架源码原样编译，不打补丁"
+        ;;
+esac
 
 # ---------- ③ cjpm.toml 副本：静态链接三件套 + 静态桥（交叉 target 段） ----------
 # link-option 的系统库清单与 pack-win-single.sh 同款；-lws2_32 是 cjh winbuild 补的（winsock，

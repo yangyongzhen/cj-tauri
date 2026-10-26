@@ -346,11 +346,19 @@ func cmdSync(args: Array<String>): Int64 {
     match (fwOverride) {
         case Some(f) => fwRoot = f
         case None =>
-            match (resolveFrameworkRoot()) {
-                case Some(f) => fwRoot = f
+            // 业务包 cjpm.toml 里若已声明 cjTauri 路径（create 写入、用户可能手改），launcher
+            // 必须用**同一份**——否则两个依赖指向两个框架副本，cjpm 报模块冲突（issue #6-①）
+            match (readBizFrameworkPath()) {
+                case Some(p) =>
+                    fwRoot = p
+                    eprintln("[cj-tauri] 框架路径取自业务包声明：${p}")
                 case None =>
-                    eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
-                    return 1
+                    match (resolveFrameworkRoot()) {
+                        case Some(f) => fwRoot = f
+                        case None =>
+                            eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
+                            return 1
+                    }
             }
     }
     var code = 0
@@ -360,11 +368,115 @@ func cmdSync(args: Array<String>): Int64 {
         writeText("targets/desktop/src/main.cj", m.renderDesktopMain(cliVersion()))
         println("[cj-tauri] 已生成 targets/desktop/cjpm.toml 与 targets/desktop/src/main.cj（launcher 调 ${m.pkg}.build()）")
         println("[cj-tauri] 下一步：cd targets/desktop && cjpm build（需 CANGJIE_STDX 指向 stdx dynamic/stdx）")
+        // issue #6-③：直接跑产物找不到 libcjtbridge.so 时，这是唯一能指路的提示
+        println("[cj-tauri] 运行产物需 LD_LIBRARY_PATH 含 ${toTomlPath(fwRoot)}/native（libcjtbridge.so 所在），或改用 cj-tauri run / dev")
     }
     if (target == "" || target == "ohos") {
         code = syncOhos(m, fwRoot)
     }
     return code
+}
+
+/** 读业务包 cjpm.toml 里业务自己声明的 cjTauri 框架路径（issue #6-①）。
+ * create 把框架路径写进业务包；sync 生成 launcher 必须用**同一份**，否则两个依赖指向
+ * 两个框架副本，cjpm 报模块冲突（实测：launcher 用 resolveFrameworkRoot() 的结果、
+ * 业务包被改成仓库相对路径后，两者不再一致）。
+ * 相对路径以当前目录（业务包根）绝对化——launcher 的相对基准是 targets/desktop，不能直接抄。
+ * 读不到（无声明 / 解析失败）回 None：回落 resolveFrameworkRoot()，行为与旧版一致。
+ * 解析只用已验证的最小 API（readText + 字节迭代 + String.fromUtf8）——本仓没验证过
+ * String.substring / split / startsWith，不猜。 */
+func readBizFrameworkPath(): Option<String> {
+    var raw = ""
+    try {
+        raw = readText("cjpm.toml")
+    } catch (e: Exception) {
+        return None
+    }
+    var line = ArrayList<Byte>()
+    for (b in raw) {
+        if (b == 10) {                       // '\n'：行结束，处理这一行
+            let hit = pathFromCjTauriLine(line)
+            if (let Some(p) <- hit) {
+                return Some(absolutizeBizPath(p))
+            }
+            line.clear()
+        } else if (b != 13) {                // 跳过 '\r'
+            line.add(b)
+        }
+    }
+    // 文件无结尾换行时的最后一行
+    let last = pathFromCjTauriLine(line)
+    if (let Some(p) <- last) {
+        return Some(absolutizeBizPath(p))
+    }
+    return None
+}
+
+/** 行里含 "cjTauri" 时，取首个引号对之间的内容（模板生成的行即 `  cjTauri = { path = "..." }`，
+    第一个引号就是路径值的开头）；不含或内容为空回 None */
+func pathFromCjTauriLine(line: ArrayList<Byte>): Option<String> {
+    let key: Array<Byte> = "cjTauri".toArray()
+    if (bytesFind(line, key, 0) < 0) {
+        return None
+    }
+    var first = -1
+    for (i in 0..line.size) {
+        if (line.get(i).getOrThrow() == 34) {    // '"'
+            if (first < 0) {
+                first = i
+            } else {
+                if (i <= first + 1) {
+                    return None                  // 空引号对：当没解析到
+                }
+                var out = ArrayList<Byte>()
+                for (k in first + 1..i) {
+                    out.add(line.get(k).getOrThrow())
+                }
+                let s = String.fromUtf8(out.toArray())
+                if (s.size > 0) {
+                    return Some(s)
+                }
+                return None
+            }
+        }
+    }
+    return None
+}
+
+/** 朴素子串搜索（字节级）；找不到回 -1 */
+func bytesFind(data: ArrayList<Byte>, pat: Array<Byte>, from: Int64): Int64 {
+    if (pat.size == 0 || data.size < pat.size) {
+        return -1
+    }
+    var i = from
+    while (i <= data.size - pat.size) {
+        var ok = true
+        for (k in 0..pat.size) {
+            if (data.get(i + k).getOrThrow() != pat[k]) {
+                ok = false
+                break
+            }
+        }
+        if (ok) {
+            return i
+        }
+        i += 1
+    }
+    return -1
+}
+
+/** 业务包 toml 里的相对路径以业务包根（= sync 的 cwd）为基准绝对化；
+    launcher 在 targets/desktop 下，相对基准不同，不能直接抄 */
+func absolutizeBizPath(p: String): String {
+    var first: UInt8 = 0
+    for (b in p) {
+        first = b
+        break
+    }
+    if (first == 47) {                       // '/' 开头已是绝对路径
+        return p
+    }
+    return currentDir() + "/" + p
 }
 
 // ---------- ohos 骨架（批次 3-PR3，RFC §7.3） ----------

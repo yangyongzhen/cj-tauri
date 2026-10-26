@@ -366,13 +366,24 @@ public class Manifest {
             "import cjTauri.*\n" +
             "import cjTauri.platform.*\n" +
             "import " + this.pkg + ".*\n" +
+            "import std.fs.*\n" +
+            "\n" +
+            "// assets/ 与 capabilities/ 按启动时工作目录相对读取；从 targets/<端>/ 直接启动会找不到\n" +
+            "//（issue #6-②，实测「资产未找到」秒退）——向上探两级回到项目根；都找不到就原样返回，\n" +
+            "// 让框架按自己的口径报错。\n" +
+            "func findDir(rel: String): String {\n" +
+            "    if (exists(rel)) { return rel }\n" +
+            "    if (exists(\"../\" + rel)) { return \"../\" + rel }\n" +
+            "    if (exists(\"../../\" + rel)) { return \"../../\" + rel }\n" +
+            "    return rel\n" +
+            "}\n" +
             "\n" +
             "main(): Int64 {\n" +
             "    let spec = build()\n" +
             "        .page(PageSource.Asset(\"" + this.page + "\"))\n" +
             "        .window(WindowConfig(\"${w.title}\", ${w.width}, ${w.height}))\n" +
-            "        .assets(DirectoryAssetResolver(\"" + this.assetsRoot + "\"))\n" +
-            "        .capabilities(\"" + this.capabilitiesDir + "\")\n" +
+            "        .assets(DirectoryAssetResolver(findDir(\"" + this.assetsRoot + "\")))\n" +
+            "        .capabilities(findDir(\"" + this.capabilitiesDir + "\"))\n" +
             "    launch(spec)\n" +
             "    return 0\n" +
             "}\n"

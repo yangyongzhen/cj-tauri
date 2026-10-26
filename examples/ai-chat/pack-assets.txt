@@ -4,3 +4,4 @@
 # 来源：examples/cjnote/vendor/cjh/bin/windows-x64/（随包 cjh 的依赖，两份同源）。
 vendor/cjh/bin/windows-x64/libcrypto-3-x64.dll
 vendor/cjh/bin/windows-x64/libssl-3-x64.dll
+vendor/cjh/cjh-v1.5.3-windows-x64-selfcontained.zip

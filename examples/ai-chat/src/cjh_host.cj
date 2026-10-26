@@ -364,6 +364,18 @@ func cjhBundleRel(): String {
     return "vendor/cjh/cjh-v1.5.3-linux-x64.tar.gz"
 }
 
+/** 安装包文件名（basename）：单文件包把它嵌进 exe，releaseEmbeddedBundle 释放到安装目录后
+    就以这个名字落盘；释放目录候选按它拼路径 */
+@When[os == "Windows"]
+func cjhBundleName(): String {
+    return "cjh-v1.5.3-windows-x64-selfcontained.zip"
+}
+
+@When[os != "Windows"]
+func cjhBundleName(): String {
+    return "cjh-v1.5.3-linux-x64.tar.gz"
+}
+
 /* 摘要跟着包换：与 vendor/cjh/SHA256SUMS 里对应那一行逐字一致（① 换包 ② 这里同步，
    漏一处就是「校验失败，不部署」）。Linux 那份是官方 v1.5.3 的 dist/cjh-linux-x64
    重打成的单成员 tar.gz（最高只要 GLIBC_2.34，本机 2.35 能跑；上一版那个官方包要
@@ -422,13 +434,24 @@ func cjhInstallDirHint(): String {
     return "HOME 环境变量为空"
 }
 
-/** vendor bundle 的路径：环境变量 CJ_AICHAT_CJH_BUNDLE 可覆写（打包产物里 vendor 不在
-    工作目录旁时，部署者把 bundle 放别处再指过来），缺省按工作目录相对路径找 */
+/** vendor bundle 的路径，优先级从高到低：
+    ① 环境变量 CJ_AICHAT_CJH_BUNDLE（打包产物里 vendor 不在工作目录旁时，部署者把 bundle
+       放别处再指过来）
+    ② 单文件包启动期释放到安装目录的那份（releaseEmbeddedBundle 落盘，文件名与 vendor 同名）
+    ③ vendor 相对路径（仓库内开发构建的工作目录） */
 func cjhBundlePath(): String {
     match (getVariable("CJ_AICHAT_CJH_BUNDLE")) {
         case Some(p) => return p
-        case None => return cjhBundleRel()
+        case None => ()
     }
+    let dir = cjhInstallDir()
+    if (dir.size > 0) {
+        let released = dir + cjhPathSep() + cjhBundleName()
+        if (fileReadable(released)) {
+            return released
+        }
+    }
+    return cjhBundleRel()
 }
 
 /**
@@ -500,20 +523,20 @@ func preloadTlsLibsFromDir(dir: String): Int64 {
 }
 
 /**
- * 把**嵌在 exe 里**的随包 OpenSSL 释放到 cjhInstallDir 并预加载（单文件包专用，照 cjnote 的
- * releaseEmbeddedCjh 模式）。Windows 分支；无内嵌资源时 extractEmbeddedAssets 回 0，零副作用。
+ * 把**嵌在 exe 里**的随包资源（OpenSSL DLL、cjh 安装包 zip）释放到 cjhInstallDir 并预加载
+ * TLS 库（单文件包专用，照 cjnote 的 releaseEmbeddedCjh 模式）。Windows 分支；无内嵌资源时
+ * extractEmbeddedAssets 回 0，零副作用。
  *
- * 为什么需要（2026-10-26 真机实测）：单文件产物没有随行的 vendor/，用户也没部署过 cjh 时
- * cjhInstallDir 是空的，preloadTlsLibsFromDir 无处可载，配置模型后的 https 直连照样炸
- * `Can not load openssl library...`（cjnote 不踩是因为它的包内嵌了整套 cjh + 4 个 DLL）。
- * 现在单文件包把这两个 DLL 也嵌进 exe（pack-assets.txt），启动期释放到安装目录——那里
- * 本来就是一键部署的目标目录，后续部署 cjh 与释放的库落在一起，互不干扰。
+ * 为什么需要（2026-10-26 真机实测）：单文件产物没有随行的 vendor/——https 直连缺 OpenSSL
+ * 库、一键部署缺 cjh 安装包（报「找不到 vendor/cjh/….zip」）。现在 pack-assets.txt 把这三样
+ * 都嵌进 exe，启动期全部释放到安装目录：DLL 供本进程 TLS 预加载，zip 供一键部署就地取材
+ * （cjhBundlePath 的释放目录候选），后续部署 cjh 也落在同一目录，互不干扰。
  *
  * 幂等：目标已在且大小与资源一致时桥跳过写盘；预加载对已在进程内的库直接回 true。
  * 返回预加载到的库数（0 = 无内嵌资源 / 非 Windows）。
  */
 @When[os == "Windows"]
-func releaseEmbeddedTlsLibs(): Int64 {
+func releaseEmbeddedBundle(): Int64 {
     let dir = cjhInstallDir()
     if (dir.isEmpty()) {
         return 0
@@ -535,7 +558,7 @@ func releaseEmbeddedTlsLibs(): Int64 {
 
 /** 非 Windows：单文件形态不存在（Linux 走系统 WebKitGTK 与系统 openssl），恒无操作 */
 @When[os != "Windows"]
-func releaseEmbeddedTlsLibs(): Int64 {
+func releaseEmbeddedBundle(): Int64 {
     return 0
 }
 

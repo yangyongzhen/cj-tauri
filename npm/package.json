@@ -1,7 +1,7 @@
 {
   "name": "cj-tauri",
   "version": "2.1.0",
-  "description": "仓颉语言的 Tauri：用仓颉写桌面应用后端 / 系统 WebView 写前端的混合开发框架脚手架 CLI（IPC 双向桥 + 能力安全模型，Windows / Linux / 鸿蒙 PC）",
+  "description": "Tauri for the Cangjie language: a scaffold CLI for hybrid desktop apps — Cangjie backend (statically compiled) plus a system WebView frontend (HTML/CSS/JS), with a bidirectional IPC bridge and a capability-based security model. Windows, Linux and HarmonyOS PC.",
   "keywords": [
     "cangjie",
     "cangjie-lang",
@@ -43,9 +43,9 @@
     "type": "git",
     "url": "git+https://github.com/yangyongzhen/cj-tauri.git"
   },
-  "homepage": "https://atomgit.com/qq8864/cj-tauri#readme",
+  "homepage": "https://github.com/yangyongzhen/cj-tauri#readme",
   "bugs": {
-    "url": "https://atomgit.com/qq8864/cj-tauri/issues"
+    "url": "https://github.com/yangyongzhen/cj-tauri/issues"
   },
   "publishConfig": {
     "access": "public"

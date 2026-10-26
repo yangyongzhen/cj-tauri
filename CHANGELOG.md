@@ -11,6 +11,19 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/winbuild.sh`：在 Linux 上交叉打包 Windows 单文件 exe（cjc `--target x86_64-w64-mingw32` +
+  mingw-w64 交叉工具链 + stdx windows static 包），产物流程与 `pack-win-single.sh` 同判据（内嵌
+  WebView2Loader、`.rsrc` 随包资源、GUI 子系统、静态链接禁区自检）；兼容补丁按 stdx 版本条件化
+  （1.0.5.1 打 crypto.kit / serverName 兼容补丁，1.2.0+ 源码原样编）。
+
+### Fixed
+- `ai-chat` 单文件包在全新 Windows 机器上 https 直连与一键部署不可用：随包资源（libssl-3-x64.dll /
+  libcrypto-3-x64.dll / cjh 安装包 zip）现嵌进 exe，启动期释放到安装目录并按绝对路径预加载；
+  `cjhBundlePath` 释放目录候选优先于 vendor 相对路径（环境变量覆写仍最高）。
+- `ai-chat`「测试连通」把中转站网页首页的 HTTP 200 误报为「服务商可用」：200 响应现在按形状分诊
+  （Content-Type / 响应开头是 HTML 如实报「返回的是网页而不是 API」），成功分支不再断言「模型可用」。
+
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 

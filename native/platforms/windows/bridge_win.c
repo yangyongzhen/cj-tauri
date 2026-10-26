@@ -1549,6 +1549,13 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_DESTROY:
+        /* 先置 should_quit + 触发 onDestroy（每个宿主恰好一次）+ 作废进行中的对话框。
+           必须排在下面的 view_close 清理**之前**：view_close 是同步 COM 调用，某个内嵌视图
+           的网页无响应（Edge 渲染进程挂起）时它会卡在宿主线程上——窗口已经没了（视觉上
+           「关闭了」），但 should_quit 没置位，仓颉侧 waitForExit 的轮询就永远等下去，
+           表象是「界面关了进程还在」（2026-10-26 偶发实测）。提前置位后，清理慢就慢，
+           仓颉 main 返回时进程退出会终止全部线程，不再永久残留。 */
+        cj_core_window_destroyed(h);
         if (p) {
             /* 托盘图标先摘：不摘的话进程退出后系统托盘里会留一个点不动的幽灵图标 */
             tray_remove(p);
@@ -1569,8 +1576,6 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             p->hwnd = NULL; /* 窗口没了：别再往它 PostMessage */
         }
-        /* 置 should_quit + 触发 onDestroy（每个宿主恰好一次）+ 作废进行中的对话框 */
-        cj_core_window_destroyed(h);
         PostQuitMessage(0);
         return 0;
     default:

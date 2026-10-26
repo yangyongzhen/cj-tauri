@@ -1,0 +1,5 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": ["greet", "system:version", "system:ping", "system:echo", "system:devtools"]
+}

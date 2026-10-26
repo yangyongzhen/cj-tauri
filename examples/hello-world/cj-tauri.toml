@@ -1,0 +1,25 @@
+# 应用清单——单一真相：sync 从这里派生 targets/ 骨架，check 校验它。
+[app]
+  name = "hello-world"
+  version = "0.1.0"
+  # 桌面是安装 ID，鸿蒙直接是 bundleName
+  id = "com.example.hello_world"
+  package = "helloWorld"
+
+[[windows]]
+  label = "main"
+  title = "hello-world"
+  width = 800
+  height = 560
+
+[assets]
+  page = "ui/index.html"
+
+[capabilities]
+  dir = "assets/capabilities"
+
+[links]
+  # 各目标端追加的链接选项（FFI 直连系统库时才需要；最小 demo 全空）
+  desktop-linux = ""
+  desktop-windows = ""
+  ohos = ""

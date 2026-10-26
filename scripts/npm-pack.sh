@@ -137,7 +137,10 @@ if [ ! -f "$DIST/$OUT" ]; then
 fi
 echo "[npm-pack] tarball: dist-npm/$OUT（$(du -h "$DIST/$OUT" | cut -f1)）"
 echo "[npm-pack] 包内条目（前 25 条）："
-tar -tzf "$DIST/$OUT" | sed 's|^package/|  |' | head -25
+# 不用 `sed | head`：head 关闭管道后 sed 的 flush 得 EPIPE（退出码 4 / SIGPIPE 141），
+# 把已成功的打包步骤判死（GitHub Actions v2.1.1 首跑实测，tgz 明明已经生成）。
+# awk 把清单读完再打印，没有截断。
+tar -tzf "$DIST/$OUT" | awk 'NR <= 25 { sub(/^package\//, "  "); print }'
 
 if [ "$KEEP" -eq 0 ]; then
     rm -rf "$STAGE"

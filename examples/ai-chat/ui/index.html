@@ -2900,14 +2900,21 @@ function cfgErr(msg) {
 }
 
 /* 失败原因分诊：把「一句 exception」翻成能立刻动作的话。
- * 为什么要分：出网失败有好几类形状（白名单 scope / TLS 握手 / 鉴权 / 端点路径），而曾经一律提示
+ * 为什么要分：出网失败有好几类形状（白名单 scope / 本机缺 OpenSSL / TLS 握手 / 鉴权 / 端点路径），而曾经一律提示
  * 「去查白名单」——用户拿着一句 TLS 握手失败去翻能力清单，被引到了错误方向（2026-10-20 实况）。
  * 判据取报文里的稳定子串：scope 是高层业务错误 `outside the authorized scope`；
- * TLS 是 stdx 的 `TlsException` / `handshake`（两者形状完全不同，见 AGENTS §4 的 TLS 坑）。 */
+ * 「本机缺 OpenSSL」是 stdx 的 `Can not load openssl library`（发生在**出网之前**，提示指向放 DLL，
+ * 见 cjnote / ai-chat 的 preloadTlsLibsFromDir）；
+ * 其余 TLS 是 `TlsException` / `handshake`（已出网、对端拒绝，提示指向端点/证书/SNI）。 */
 function failureHint(raw) {
   var s = String(raw || '');
   if (s.indexOf('outside the authorized scope') >= 0) {
     return '请求被出网白名单（scope）拦住：上面的原生确认框点「确定」即可加白，或把 Base URL 换成名单内的服务商';
+  }
+  if (s.indexOf('Can not load openssl library') >= 0) {
+    return '本机没加载到 OpenSSL 运行库——TLS 在请求出网之前就失败，与对端无关：把 ' +
+      'libssl-3-x64.dll / libcrypto-3-x64.dll 放到应用 exe 同目录再启动' +
+      '（一键部署过 cjh 的话重启应用即可，部署目录里本来就有这两份）';
   }
   if (s.indexOf('TlsException') >= 0 || s.indexOf('handshake') >= 0) {
     return '对端在 TLS 握手阶段就拒了连接，与本机出网白名单无关（请求已经出网、到达对端）：先核对 Base URL 的域名与端口' +

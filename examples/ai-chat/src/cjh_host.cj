@@ -499,6 +499,46 @@ func preloadTlsLibsFromDir(dir: String): Int64 {
     return 0
 }
 
+/**
+ * 把**嵌在 exe 里**的随包 OpenSSL 释放到 cjhInstallDir 并预加载（单文件包专用，照 cjnote 的
+ * releaseEmbeddedCjh 模式）。Windows 分支；无内嵌资源时 extractEmbeddedAssets 回 0，零副作用。
+ *
+ * 为什么需要（2026-10-26 真机实测）：单文件产物没有随行的 vendor/，用户也没部署过 cjh 时
+ * cjhInstallDir 是空的，preloadTlsLibsFromDir 无处可载，配置模型后的 https 直连照样炸
+ * `Can not load openssl library...`（cjnote 不踩是因为它的包内嵌了整套 cjh + 4 个 DLL）。
+ * 现在单文件包把这两个 DLL 也嵌进 exe（pack-assets.txt），启动期释放到安装目录——那里
+ * 本来就是一键部署的目标目录，后续部署 cjh 与释放的库落在一起，互不干扰。
+ *
+ * 幂等：目标已在且大小与资源一致时桥跳过写盘；预加载对已在进程内的库直接回 true。
+ * 返回预加载到的库数（0 = 无内嵌资源 / 非 Windows）。
+ */
+@When[os == "Windows"]
+func releaseEmbeddedTlsLibs(): Int64 {
+    let dir = cjhInstallDir()
+    if (dir.isEmpty()) {
+        return 0
+    }
+    if (!exists(dir)) {
+        try {
+            Directory.create(dir, recursive: true)
+        } catch (e: Exception) {
+            eprintln("[cj-ai-chat] 建安装目录失败（${dir}）：${e}")
+            return 0
+        }
+    }
+    let n = extractEmbeddedAssets(dir)
+    if (n > 0) {
+        eprintln("[cj-ai-chat] 随包资源已释放 ${n} 个到 ${dir}")
+    }
+    return preloadTlsLibsFromDir(dir)
+}
+
+/** 非 Windows：单文件形态不存在（Linux 走系统 WebKitGTK 与系统 openssl），恒无操作 */
+@When[os != "Windows"]
+func releaseEmbeddedTlsLibs(): Int64 {
+    return 0
+}
+
 /** 对 bundle 做 SHA256 校验：读全量文件算摘要，与入库常量比对。失败给一行 stderr（带两个
     值方便对账），返回 false——验不过就绝不解包执行，这是部署命令的底线 */
 func cjhBundleVerified(bundle: String): Bool {

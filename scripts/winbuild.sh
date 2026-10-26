@@ -92,6 +92,9 @@ if [ -f "$PACK_ASSETS_LIST" ]; then
         esac
         ASSET_SRC="$EXAMPLE/$line"
         [ -f "$ASSET_SRC" ] || die "pack-assets.txt 里这一行指向的资产不存在: $ASSET_SRC"
+        # 绝对化：windres 在 work/bridge 里跑，RC 里的相对路径从那儿解析不到（原 MSYS 脚本
+        # 用 cygpath -m 转盘符绝对路径，同理）；Linux 交叉版 windres 认 POSIX 绝对路径
+        ASSET_SRC="$(cd "$(dirname "$ASSET_SRC")" && pwd)/$(basename "$ASSET_SRC")"
         printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$ASSET_SRC" >> "$RC_FILE"
         printf '    { %d, "%s" },\n' "$ASSET_NEXT_ID" "$(basename "$ASSET_SRC")" >> "$MAP_HDR"
         ASSET_COUNT=$((ASSET_COUNT + 1))
@@ -225,6 +228,12 @@ case "$WINDOWS_STDX" in
 esac
 
 # ---------- ③ cjpm.toml 副本：静态链接三件套 + 静态桥（交叉 target 段） ----------
+# 资源对象必须当链接输入直接给 ld.lld，不能塞进 libcjtbridge.a：静态库按需提取，资源对象
+# 没有任何符号引用，放归档里链接器根本不取——那样打出的 exe 连 .rsrc 节都没有（AGENTS §4）
+ASSET_LINK_ARG=""
+if [ -n "$ASSET_OBJ" ]; then
+    ASSET_LINK_ARG=" $WORK/bridge/pack_assets.o"
+fi
 # link-option 的系统库清单与 pack-win-single.sh 同款；-lws2_32 是 cjh winbuild 补的（winsock，
 # stdx 的网络栈要）。crypt32：stdx.net.tls 读 Windows 证书库，碰 https 的示例必须链。
 cat > "$WORK/app/cjpm.toml" <<TOML

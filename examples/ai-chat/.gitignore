@@ -1,0 +1,4 @@
+# 构建产物用的，这里的 DLL 是随包分发的运行时依赖（本进程 https 直连按裸名
+# LoadLibrary 它们，SDK 与 stdx 都不带），与 cjnote 的 vendor/cjh 同性质——
+# 不开口子会被仓库根的 `*.dll` 挡住，单文件包就缺了释放源。
+!vendor/cjh/bin/**

@@ -1,6 +1,6 @@
 {
   "name": "cj-tauri",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Tauri for the Cangjie language: a scaffold CLI for hybrid desktop apps — Cangjie backend (statically compiled) plus a system WebView frontend (HTML/CSS/JS), with a bidirectional IPC bridge and a capability-based security model. Windows, Linux and HarmonyOS PC.",
   "keywords": [
     "cangjie",

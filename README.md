@@ -12,6 +12,10 @@ HarmonyOS PC (2in1).
 Bidirectional IPC bridge · capability whitelist (commands / events / paths / egress — four gates) ·
 14 official plugins · twenty-odd runnable examples · every example ships an unattended self-check
 
+<p>
+  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg"></a>
+</p>
+
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20HarmonyOS%20PC-blue)](#examples)
 [![Cangjie](https://img.shields.io/badge/SDK-1.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)

@@ -11,6 +11,10 @@ Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。
 IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门）· 14 个官方插件 ·
 二十多个可运行示例 · 每个示例都带无人值守自检
 
+<p>
+  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg"></a>
+</p>
+
 [![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux%20%7C%20%E9%B8%BF%E8%92%99%20PC-blue)](#示例一览)
 [![Cangjie](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)](./LICENSE)

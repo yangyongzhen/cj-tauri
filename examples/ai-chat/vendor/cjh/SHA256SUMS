@@ -1,8 +1,7 @@
 # cjh 预编译产物（随仓分发，一键部署按这份对账）
-# Linux 那份是官方 v1.5.3 的 dist/cjh-linux-x64（17 132 624 字节）重打成的单成员 tar.gz：
-# 归档内二进制与官方独立下载件逐字节一致，最高只要 GLIBC_2.34（本机 2.35 能跑）
-# Windows 那份是官方 v1.5.3 的自包含 zip（7 914 700 字节，原样分发）
-# 倒数第二行的 sha256 与 src/cjh_host.cj 的 CJH_BUNDLE_SHA256 逐字一致——漏同步一处就是「校验失败，不部署」
-bdda51cdce93d8ccb81d92626b86341855722fc67337a02343b11015ff86033e  cjh-v1.5.3-linux-x64
-604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e  cjh-v1.5.3-linux-x64.tar.gz
-c861a762e408347031c41073073a4587bade54f3d3878d0d9fc1b752659287a2  cjh-v1.5.3-windows-x64-selfcontained.zip
+# Linux 那份是官方 v1.6.1 的 dist/cjh-v1.6.1-linux-x64.tar.gz（原样分发；成员名 cjh-linux-x64）
+# Windows 那份是官方 v1.6.1 的自包含 zip（原样分发，DLL 随 zip 同源提取到 bin/windows-x64/）
+# tar.gz 那行的 sha256 与 src/cjh_host.cj 的 cjhBundleSha256() Linux 分支逐字一致——漏同步一处就是「校验失败，不部署」
+4148c406b6151bdf74fdeb98a550f61f0fff81d3c909356cbd5f4dfeb6e8b74f  cjh-linux-x64
+be24e4892985b05e0bbd2e5e16583d25c7a59c01e2dd1c6c26f4b4589c2444d2  cjh-v1.6.1-linux-x64.tar.gz
+d1432a19bd17e4b6e8ccc21a69f3dcfba6c9f3ae97aef714ae0268bf44ff0a84  cjh-v1.6.1-windows-x64-selfcontained.zip

@@ -6,21 +6,22 @@
 
 **A hybrid desktop-app framework in the Cangjie language — statically compiled Cangjie backend + system WebView front end.**
 Keep writing the front end as the Web; the back end is a statically compiled Cangjie binary —
-no bundled Chromium, 4.7–10.3 MB artifacts, verified on real hardware across Windows, Linux and
+no bundled Chromium, 4.7–32.8 MB artifacts, verified on real hardware across Windows, Linux and
 HarmonyOS PC (2in1).
 
-Bidirectional IPC bridge · capability whitelist (commands / events / paths / egress — four gates) ·
-14 official plugins · twenty-odd runnable examples · every example ships an unattended self-check
+Write the page in Web, the logic in Cangjie: one IPC bridge joins the two, with four whitelist
+gates (commands / events / paths / egress) holding the security line — plus 14 official plugins
+and twenty-odd runnable examples, each with an unattended self-check.
 
 <p>
   <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg"></a>
+  <a href="https://yangyongzhen.github.io/cj-tauri/"><img alt="Website" src="https://img.shields.io/badge/website-24_on-device_screenshots-blue"></a>
+  <img alt="QQ group" src="https://img.shields.io/badge/QQ_group-92381027-eb1923">
 </p>
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20HarmonyOS%20PC-blue)](#examples)
 [![Cangjie](https://img.shields.io/badge/SDK-1.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-
-📖 Website <https://yangyongzhen.github.io/cj-tauri/> (bilingual · 24 on-device screenshots)&nbsp;·&nbsp; 💬 QQ group **92381027**
 
 [Get started](#getting-started) · [Why cj-tauri](#why-cj-tauri) · [Security](#security-model-claims-you-can-check) ·
 [Examples](#examples) · [Architecture](#architecture) · [Docs](#documentation)
@@ -166,11 +167,22 @@ universal language.
 
 | Example | In one line |
 |---|---|
-| [modbus-poll](examples/modbus-poll) | **Modbus TCP/RTU debugging tool**: multi-panel monitors, FC 01-04/05/06/15/16, message trace, CSV logging, byte-order option, built-in slave simulator |
+| [modbus-poll](examples/modbus-poll) | **Modbus TCP/RTU debugging tool**: multi-panel monitors (as many groups as you want on one screen), FC 01-04/05/06/15/16, message trace, CSV logging, byte-order option, built-in slave simulator — fills in Modbus Poll's long-standing pain points |
+| [mqtt-client](examples/mqtt-client) | **MQTT debug console**: connect / subscribe / publish / message timeline (dedup by `seq`, filterable pause), protocol implemented purely in Cangjie by the `mqtt` plugin; ships a mock broker peer, Linux E2E 27 assertions matched on both sides |
+| [redis-client](examples/redis-client) | **Redis debug console**: key-space browsing (SCAN cursor pagination + MATCH + TYPE filter, per-row type & TTL), typed get/set, pub/sub stream, INFO · DBSIZE · SLOWLOG — RESP2 over dual sockets in the `redis` plugin; mock redis peer, Linux E2E 47 assertions |
+| [markdown-notes](examples/markdown-notes) | **Markdown notes**: file tree / editor / live preview (marked + Highlight.js, three highlight themes); three view states (`Ctrl+1/2/3`) and file ops via native menus; **path scope in action** — the manifest pins `fs` to the workspace, out-of-scope and `..` escapes rejected by the shared layer; Linux E2E 25 assertions |
+| [cjnote](examples/cjnote) | **AI-native Markdown notes**: three panes (library / CodeMirror editor / AI assistant); native menus (File / View / Help) + `setTitlebarSubtitle` (falls back to the in-page bar); view states & theme **bidirectionally synced with menu checks**; `Ctrl+O` opens out-of-library files in memory only — the first `Ctrl+S` creates a new note, **never silently rewriting the file on disk**; **AI goes only through cjh** — the settings page writes address / key / model and pushes whitelist fields to the running instance live (a "test connection" button verifies without touching config); prebuilt cjh makes AI work out of the box; zero `fetch` in the page, all traffic on cjh's ws; 90 self-checks |
+| [http-client](examples/http-client) | **HTTP API client** (Postman-like): request builder / response viewer (raw · JSON tree · headers) / collections & history — **all network from the Cangjie side** (zero `fetch`, TLS via the system trust store, verification never disabled); allow-list and body cap enforced on the host, out-of-scope reads rejected by path scope; mock peer, Linux E2E 55 assertions (incl. truncation checked on three sides) |
+| [sqlite-browser](examples/sqlite-browser) | **SQLite database browser**: schema / paginated grid (sorting, type coloring, truncation markers) / SQL console (read-only & writable buttons); **Cangjie FFI straight to the system `libsqlite3`** (a repo first, no C bridge); command allow-list + path scope, read-only via a kernel-level connection, `ATTACH` rejected by an authorizer; Linux E2E 49 assertions (incl. an out-of-process read-only re-check of page writes) |
 | [serial-assistant](examples/serial-assistant) | **Serial terminal**: parameter panel, color-coded TX/RX log, scheduled send, probe self-check |
+| [cj-link](examples/cj-link) | **Serial/network two-in-one assistant**: serial (serial plugin) + three network modes (TCP client / TCP server with multi-client broadcast / UDP) sharing one log, HEX/ASCII dual display, send queue, checksums (CRC16 etc.), scheduled send, panel persistence; built-in peer simulator, Linux self-check 33 assertions |
+| [ai-chat](examples/ai-chat) | **AI chat client**: chat (direct to providers, streaming Markdown) / Agent (local [cjh](https://atomgit.com/qq8864/cjh): sessions/skills/MCP/files panels + approvals + model passthrough) one-click switch, with a guide that can actually be completed when cjh is missing; streaming via the `ws` plugin, the four panels via the `http` plugin; multi-conversation + multi-provider (custom Base URL / API Key / model), streaming Markdown rendering (escaped before markup), tray + global hotkeys + minimize-to-tray + file logging, **zero new commands**; **nine model web versions embedded in one window** (GIFs above); cjh prebuilt ships with the repo, plus a Linux portable package (page self-check **56/56**) |
+| [clipboard-history](examples/clipboard-history) | **Clipboard history manager**: first consumer of the **tray** + **global hotkey** capability bits, **verified on both Windows and Linux** — tray menu and `Ctrl+Alt+V` recall via framework events, **"minimize to tray" is a framework primitive** (falls back to a plain minimize when no tray exists); clicking a history item writes it back, verified by reading the clipboard externally; Linux E2E 15/15, Windows also has a minimize → hide → hotkey-recall chain |
+| [serial-waveform](examples/serial-waveform) | **Real-time serial waveform scope**: `serial` plugin + double-buffered canvas, line protocol `<seq>,<value>`; at a 400 Hz sample stream the page computes rate / threshold crossings / drops itself, evidence in its README |
 | [movie](examples/movie) | Movie browsing (list/search/detail/play) — all data fetched by the Cangjie side, zero `fetch` in the front-end |
-| [music](examples/music) | Music player: charts/playlists/favorites/sharing + synced lyrics + 4 themes |
-| [typing-poem](examples/typing-poem) | Chinese-poem typing practice for kids: 108 poems with per-character pinyin, three.js 3D cards |
+| [music](examples/music) | Music player: charts/playlists/favorites/sharing + synced lyrics + 4 themes, covers fetched by the host with the right Referer |
+| [typing-poem](examples/typing-poem) | Chinese-poem typing practice for kids: 108 poems with per-character pinyin, three.js 3D cards, streaks raise the pitch and the world reacts |
+| [leetcode-gui](examples/leetcode-gui) | **Desktop algorithm practice**: questions grouped by category / question + Cangjie editor / judge terminal — "Run" hands the code to **cjc itself** and checks each case, results with expected values and timing, fully offline |
 
 **Framework capability demos**:
 
@@ -181,6 +193,16 @@ universal language.
 | [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | Official plugins: file I/O / native dialogs / open-URL & subprocess / serial, each with permission contrasts |
 | [menu](examples/menu) | Native menu bar (real click evidence on Windows + Linux) |
 | [ipc-bench](examples/ipc-bench) | IPC benchmark: round-trip latency / throughput / payload scaling / event cost |
+| [ipc-coalesce](examples/ipc-coalesce) | Event coalescing probe: under high-frequency pushes `emitLatest` merges into single-digit callbacks (last value always lands) while `emit` keeps every one — shown side by side, default behavior unchanged |
+| [multi-window](examples/multi-window) | Multi-window: one HTML, two windows, roles decided by each window's own label; both windows open a native dialog at the same time to prove host callbacks route by handle |
+
+**Built-in plugins** (ship with the framework, no example directory of their own; design in the [plugin tutorial](docs/插件体系教程.md), Chinese):
+
+- Persistent key-value `store` plugin (RFC-003 phase 2): arbitrary JSON, atomic writes (tmp + rename), named permission sets `store:readonly` / `store:default`; `examples/music` migrated to it
+- `clipboard` / `notification` plugins (phase 3): system clipboard read/write / system notifications, verified on Linux (external clipboard read-back, notifications received on the session bus); Windows stubs report capability bits honestly
+- `log` plugin + file logging (phase 5): `app.setLogFile(...)` lands Cangjie-side and C-bridge diagnostics in one file with automatic rotation; already-distributed exes can enable it via the `CJ_TAURI_LOG` env var; page `log:write` uses the same outlet
+- `http` plugin (SEC-006 egress gate): the page-controlled network point — `http:get` / `http:post` / `http:delete` / `http:postStream` (SSE streamed back as `http:chunk` events), host allow-list in `scopes.http` (**nothing declared = deny all**), no auto-redirect, 8 MiB cap; `examples/ai-chat` is the first consumer
+- `ws` plugin (long-connection egress): `ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` events, host allow-list in `scopes.ws` (**deny-all by default**, same shape as `http`, sharing the core `urlHostOf`); handshake uses stdx's `WebSocket.upgradeFromClient`, no hand-written protocol
 
 **Ecosystem projects** (separate repos built on cj-tauri, not part of `examples/`):
 
@@ -267,6 +289,8 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 
 ## Documentation
 
+**Getting started**:
+
 | Doc | Contents |
 |---|---|
 | [使用文档](docs/使用文档.md) | Setup → create → develop → troubleshoot (the canonical guide, Chinese) |
@@ -274,8 +298,24 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [hello-world 入门教程](docs/hello-world-入门教程.md) | npm-CLI starter guide: from `create` to a window on real hardware (two pitfalls included) |
 | [插件体系教程](docs/插件体系教程.md) | Plugin system: what it is → plug in an official plugin → write your own |
 | [IPC 通信机制](docs/IPC-通信机制.md) | Protocol frames → full sequence → measured performance vs WebSocket / raw TCP |
+
+**Design & reference**:
+
+| Doc | Contents |
+|---|---|
+| [安全模型](docs/安全模型.md) | Threat model, layered defences (default-deny / permission sets / path scopes / egress gate), comparison with Tauri 2 (Chinese) |
+| [设计决策记录](docs/设计决策记录.md) | Why it looks like this: 12 ADRs — same-process bridge, capability tiers, scope semantics, costs and re-evaluation triggers (Chinese) |
+| [与 Tauri 的差异清单](docs/与Tauri的差异.md) | Coming from Tauri 2: concept mapping, behavior differences, platform capability differences, migration checklist (Chinese) |
+| [平台能力矩阵](docs/平台能力矩阵.md) | Commands / plugins / host capabilities × Windows / Linux / HarmonyOS: usable, unverified, or unsupported (Chinese) |
+| [需求追踪矩阵](docs/需求追踪.md) | Where each capability stands: five states + verifiable evidence (Chinese) |
+| [源码结构](docs/源码结构.md) | Read before changing the framework: `src/` layers and file ownership, dependency direction, when to split and when not to (Chinese) |
+
+**Walkthroughs & records**:
+
+| Doc | Contents |
+|---|---|
 | [Modbus tool deep-dive](docs/仓颉版Modbus调试工具-介绍与实战.md) | Scaffolding walkthrough + how the Modbus tool is built + comparison with Modbus Poll |
-| [Source layout](docs/源码结构.md) | Read before changing the framework: `src/` layers and file ownership, dependency direction, when to split and when not to (Chinese) |
+| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | Feasibility study / the full development pitfall log (Chinese) |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | Release notes / dev conventions / contributing / licenses |
 
 ## AI-assisted development (AtomCode skills)

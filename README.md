@@ -4,7 +4,7 @@
 
 **English** · [**简体中文**](./README.zh-CN.md)
 
-**A hybrid desktop-app framework in Huawei's Cangjie language — statically compiled Cangjie backend + system WebView front end.**
+**A hybrid desktop-app framework in the Cangjie language — statically compiled Cangjie backend + system WebView front end.**
 Keep writing the front end as the Web; the back end is a statically compiled Cangjie binary —
 no bundled Chromium, 4.7–10.3 MB artifacts, verified on real hardware across Windows, Linux and
 HarmonyOS PC (2in1).
@@ -22,31 +22,38 @@ Bidirectional IPC bridge · capability whitelist (commands / events / paths / eg
 
 📖 Website <https://yangyongzhen.github.io/cj-tauri/> (bilingual · 24 on-device screenshots)&nbsp;·&nbsp; 💬 QQ group **92381027**
 
-[Get started](#30-seconds-to-a-first-app) · [Why cj-tauri](#why-cj-tauri) · [Examples](#examples) ·
-[Architecture](#architecture) · [Docs](#documentation)
+[Get started](#getting-started) · [Why cj-tauri](#why-cj-tauri) · [Security](#security-model-claims-you-can-check) ·
+[Examples](#examples) · [Architecture](#architecture) · [Docs](#documentation)
 
 </div>
 
-## 30 seconds to a first app
+## Getting started
 
-**A. Just want to see it run? Download and double-click — no SDK, no runtime, no install.**
+Three paths, pick by need: **just want to see it run** → Option 1; **write your own app** → Option 2;
+**no npm / want to hack the framework** → Option 3.
 
-| Artifact | Size | What it is |
-|---|---|---|
-| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) | 10.3 MB | AI chat client: multi-provider streaming Markdown chat + a local-Agent mode, one click to switch |
-| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) | 5.63 MB | Serial + TCP/UDP combined debug assistant |
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) | 5.69 MB | Modbus TCP/RTU debugging tool |
+### Option 1: download a ready-made tool (no SDK, no install)
 
-All ten single-file artifacts were measured on real machines (4.69–32.8 MB; PE import tables carry
-only system DLLs, `Subsystem=GUI` so double-click opens no console; see
-[the distribution measurements](docs/分发形态实测.md)) →
-[full download table](#option-2-download-single-file-tools-no-install-no-sdk)
+Statically-linked single-file Windows tools ship with the repo — ten artifacts, all measured:
 
-**B. Want your own app? Three commands.**
+| Tool | What it is |
+|---|---|
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) (10.3 MB) | AI chat client: multi-provider streaming Markdown chat + a local-Agent mode, one click to switch; **nine model web versions embedded in the same window** (DeepSeek / Kimi / Qwen / Zhipu / Ernie / Doubao / Yuanbao / MiniMax / ChatGPT — tab strip, logins remembered) |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) (5.48 MB) | Serial + TCP/UDP combined debug assistant ([docs](examples/cj-link/README.md), Chinese) |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) (5.59 MB) | Modbus TCP/RTU debugging tool ([docs](examples/modbus-poll/README.md), Chinese) |
+| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe) (4.69 MB) | Real-time serial waveform scope ([docs](examples/serial-waveform/README.md), Chinese) |
+| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe) (4.78 MB) | Markdown notes: tree / editor / live preview ([docs](examples/markdown-notes/README.md), Chinese) |
+| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe) (9.79 MB) | Desktop LeetCode-style practice: the judge is `cjc` itself ([docs](examples/leetcode-gui/README.md), Chinese) |
+| [music.exe](examples/music/dist-single/music.exe) (9.50 MB) | Music player: charts / playlists / favorites + synced lyrics + 4 themes |
+| [movie.exe](examples/movie/dist-single/movie.exe) (9.42 MB) | Movie browsing (third-party public APIs, [for study/research only](examples/movie/README.md#用途与免责声明)) |
+| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe) (5.50 MB) | Chinese-poem typing practice for kids: three.js 3D cards |
+| [cjnote.exe](examples/cjnote/dist-single/cjnote.exe) (32.8 MB) | AI-native Markdown notes: three panes + native menu bar + **embedded cjh AI backend** (works right after install); big because the whole backend ships inside the exe |
 
-Prerequisites: the [Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx (Windows additionally
-needs mingw gcc and the WebView2 Runtime, bundled with Win11; Linux needs `libwebkit2gtk-4.1-dev`).
-Not sure what is missing? Run `doctor` first:
+Size and dependencies are **measured**, not claimed: ten artifacts at 4.69–32.8 MB, all single-file,
+no bundled third-party runtimes, double-click to run. How they were verified:
+[`docs/分发形态实测.md`](docs/分发形态实测.md), re-check with `bash scripts/dist-report.sh`.
+
+### Option 2: npm, write your own app (recommended)
 
 ```bash
 npx cj-tauri doctor              # names what is missing and how to fix it — first thing on a new machine
@@ -54,39 +61,54 @@ npx cj-tauri create myapp        # no install needed
 cd myapp && npx cj-tauri dev     # takes over the Vite dev server (Vue/React templates), HMR in-window
 ```
 
-**C. Prefer no npm at all?** Build from source (Windows): `git clone … && native\build_win.bat && cli\cj-tauri.bat create myapp`
-— details in [Option 3: build from source](#option-3-build-from-source). For a HarmonyOS PC project use
-`create --template ohos`; the same business code is derived into a hap project by `cj-tauri sync ohos`.
+Prerequisites: the [Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx (Windows additionally
+needs mingw gcc and the WebView2 Runtime, bundled with Win11; Linux needs `libwebkit2gtk-4.1-dev`).
+If the SDK is missing, the CLI prints setup instructions and a `CANGJIE_HOME` example instead of
+`command not found`. The same directory also has `cj-tauri build/run/info/doctor`.
+
+HarmonyOS PC (2in1) shares the same business code as the desktop: `create --template ohos` still
+generates a **unified project** (`cj-tauri.toml` manifest + business static package + `assets/`),
+the hap skeleton is derived by `sync` into `targets/ohos/`, and the build entry is the
+`build-hap.sh` inside it (**not in the project root**):
+
+```bash
+npx cj-tauri create myohosapp --template ohos --bundle com.example.myohosapp --label "My App"
+cd myohosapp
+npx cj-tauri sync ohos             # derive targets/ohos (desktop: sync desktop)
+export CANGJIE_STDX_OHOS=<HarmonyOS stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
+cd targets/ohos && npx cj-tauri run
+# equivalent: bash build-hap.sh --install (build hap → install to device → launch)
+```
+
+### Option 3: build from source
+
+```bash
+git clone https://atomgit.com/qq8864/cj-tauri.git && cd cj-tauri
+native/build_win.bat               # Windows: build the C bridge (native/build_linux.sh on Linux)
+
+cli\cj-tauri.bat info              # self-check: framework/project/stdx/SDK/cjpm/bridge all resolved?
+cli\cj-tauri.bat create myapp && cd myapp
+..\cli\cj-tauri.bat dev            # use cli/cj-tauri.sh on Linux/macOS/Git Bash
+```
+
+> The repo's `cjpm.toml` references stdx via `${CANGJIE_STDX}` (machine-independent): set it to
+> `<stdx>/<triple>/dynamic/stdx` before building (e.g. `$HOME/.cangjie/stdx/*/dynamic/stdx` on
+> Linux). Projects generated by `cj-tauri create` don't need it — the scaffold writes the
+> detected path into the generated `cjpm.toml`.
+
+To run a repo example (hello): `native\build_win.bat` → `cd examples\hello && cjpm build` → `run_win.bat` from the repo root.
 
 ![cj-tauri hello example](docs/images/cj_tauri.png)
 
 *The hello example: dark card UI, invoke on button click, live events pushed from the Cangjie backend.*
 
-## Screenshots
-
-An **AI chat client** built with cj-tauri (`examples/ai-chat`; chat mode talks to providers directly,
-Agent mode talks to a local cjh backend):
-
-![ai-chat mode switch](docs/images/ai-chat-mode-switch.gif)
-
-*Chat (direct to provider) → Agent (local cjh) with one click: the sidebar rebrands, four panels appear, the badge shows cjh's real model.*
-
-![ai-chat missing-cjh guide](docs/images/ai-chat-guide.gif)
-
-*When cjh is missing, switching to Agent shows a guide card: the download artifact for this platform, and picking the executable once starts it and remembers the path.*
-
-A **Modbus debugging tool** built with cj-tauri (`examples/modbus-poll`, inspired by Modbus Poll,
-without its long-standing pain points):
-
-![Modbus Poll (cj-tauri)](examples/modbus-poll/images/modbus-poll-main.png)
-
-*Multiple monitor panels plus a message-trace dock streaming Tx/Rx frames in hex.
-See [its README](examples/modbus-poll/README.md) for details.*
-
-More screenshots in the [examples](#examples) section.
-
 ## Why cj-tauri
 
+- **Three hosts verified on real hardware, HarmonyOS PC closed-loop**: Windows (WebView2),
+  Linux (WebKitGTK) and HarmonyOS PC (ArkWeb, 2in1 desktop window) — IPC, capability model and
+  command dispatch are fully shared; platform differences live only in conditional compilation and
+  the C bridge. The HarmonyOS host runs on the Cangjie side (no C bridge), and the `music` /
+  `movie` examples plus template-generated projects all build into installable haps
 - **Statically compiled backend** — no VM, no GC-jitter concerns; the protocol layer is a few
   hundred auditable lines of Cangjie.
 - **No bundled Chromium** — uses the system WebView (WebKitGTK on Linux, WebView2 on Windows);
@@ -121,41 +143,6 @@ long-form design lives in `docs/安全模型.md`, Chinese).
 | A slow command freezing the UI thread | commands dispatch asynchronously and run on a worker | `testDispatchReturnsBeforeSlowCommandFinishes` |
 | Exceptions swallowed silently | rejections and exceptions both return to the page and leave a stderr line | `testHubReportsCommandException` / `testHubReportsUnexpectedException` |
 
-## Getting started
-
-### Option 1: npm (recommended)
-
-```bash
-npx cj-tauri create myapp          # no install needed
-cd myapp
-npx cj-tauri dev                   # takes over the Vite dev server (Vue/React templates), HMR in-window
-```
-
-Prerequisites: see [30 seconds to a first app](#30-seconds-to-a-first-app). If the SDK is missing,
-the CLI prints setup instructions and a `CANGJIE_HOME` example instead of `command not found`.
-
-### Option 2: download a ready-made tool (no SDK, no install)
-
-Statically-linked single-file Windows tools ship with the repo:
-
-| Tool | What it is |
-|---|---|
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) (5.6 MB) | Modbus TCP/RTU debugging tool — [docs](examples/modbus-poll/README.md) (Chinese) |
-| [movie.exe](examples/movie/dist-single/movie.exe) (9.5 MB) | Movie-browsing demo (third-party public APIs, [for study/research only](examples/movie/README.md#用途与免责声明)) |
-
-### Option 3: build from source
-
-```bash
-git clone https://github.com/yangyongzhen/cj-tauri.git && cd cj-tauri
-native/build_win.bat               # Windows: build the C bridge (native/build_linux.sh on Linux)
-
-cli\cj-tauri.bat info              # self-check: framework/project/stdx/SDK/cjpm/bridge all resolved?
-cli\cj-tauri.bat create myapp && cd myapp
-..\cli\cj-tauri.bat dev            # use cli/cj-tauri.sh on Linux/macOS/Git Bash
-```
-
-To run a repo example (hello): `native\build_win.bat` → `cd examples\hello && cjpm build` → `run_win.bat` from the repo root.
-
 ## Examples
 
 28 runnable example projects live in `examples/` (Windows / Linux), plus 4 HarmonyOS PC projects
@@ -164,11 +151,22 @@ under `examples/ohos*` sharing the same page code, and three scaffolding templat
 full details and self-check instructions. Most docs are in Chinese; the code and logs are the
 universal language.
 
+**Showcase** — an **AI chat client** built with cj-tauri (`examples/ai-chat`; single-file package
+≈10 MB, see [Option 1](#option-1-download-a-ready-made-tool-no-sdk-no-install)):
+
+![ai-chat mode switch](docs/images/ai-chat-mode-switch.gif)
+
+*Chat (direct to provider) → Agent (local cjh) with one click: the sidebar rebrands, four panels appear, the badge shows cjh's real model.*
+
+![ai-chat missing-cjh guide](docs/images/ai-chat-guide.gif)
+
+*When cjh is missing, switching to Agent shows a guide card: the download artifact for this platform, and picking the executable once starts it and remembers the path.*
+
 **End-user tools & apps**:
 
 | Example | In one line |
 |---|---|
-| [modbus-poll](examples/modbus-poll) | **Modbus TCP/RTU debugging tool**: multi-panel monitors (as many groups as you want on one screen), FC 01-04/05/06/15/16, message trace, CSV logging, byte-order option, built-in slave simulator for closed-loop self-checks |
+| [modbus-poll](examples/modbus-poll) | **Modbus TCP/RTU debugging tool**: multi-panel monitors, FC 01-04/05/06/15/16, message trace, CSV logging, byte-order option, built-in slave simulator |
 | [serial-assistant](examples/serial-assistant) | **Serial terminal**: parameter panel, color-coded TX/RX log, scheduled send, probe self-check |
 | [movie](examples/movie) | Movie browsing (list/search/detail/play) — all data fetched by the Cangjie side, zero `fetch` in the front-end |
 | [music](examples/music) | Music player: charts/playlists/favorites/sharing + synced lyrics + 4 themes |
@@ -188,11 +186,29 @@ universal language.
 
 | Project | In one line |
 |---|---|
-| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI-native Markdown notes**: three panes (note library / editor / AI assistant) + three view states (`Ctrl+1/2/3`); **native menu bar plus a subtitle** — File / View / Help, with title · saved-state · word count pushed into the system menu row (falls back to the in-page bar when the capability is missing); an Outline tab that jumps to 1–3 level headings; AI context from the whole note or from `note:search` hits, with rewrite / continue / translate going through a **diff confirm** strip; `Ctrl+O` opens an external `.md` as an in-memory draft (saved into the library only on the first `Ctrl+S`, never rewriting the original), `Ctrl+P` quick-opens library notes; every network call is made by the Cangjie side (zero `fetch` in the page) with a host whitelist behind it; page self-check **31/31 on Linux hardware** |
+| [cjnote](https://atomgit.com/qq8864/cjnote) | **AI-native Markdown notes**: three panes (note library / editor / AI assistant) + three view states (`Ctrl+1/2/3`); **native menu bar plus a subtitle** — File / View / Help, with title · saved-state · word count pushed into the system menu row; an Outline tab that jumps to 1–3 level headings; AI context from the whole note or from `note:search` hits, with rewrite / continue / translate going through a **diff confirm** strip; `Ctrl+O` opens an external `.md` as an in-memory draft (never rewriting the original), `Ctrl+P` quick-opens library notes; every network call is made by the Cangjie side with a host whitelist behind it; page self-check **31/31 on Linux hardware** |
 
-| movie app | music player, playing |
+**Screenshot wall** (all on-device; full sets in each example's README):
+
+| [markdown-notes](examples/markdown-notes): tree / editor / live preview | [sqlite-browser](examples/sqlite-browser): paginated grid + SQL console |
 |---|---|
-| ![movie app](docs/images/example-movie.png) | ![music playing](docs/images/example-music-playing.png) |
+| ![Markdown notes](docs/images/example-markdown-notes.png) | ![SQLite browser](docs/images/example-sqlite-browser.png) |
+| [leetcode-gui](examples/leetcode-gui): questions / editor / judge terminal | [cj-link](examples/cj-link): serial + network, two-in-one |
+| ![Cangjie LeetCode](docs/images/example-leetcode-gui.png) | ![Serial/network assistant](docs/images/example-cj-link.png) |
+| [serial-assistant](examples/serial-assistant): parameter panel + color-coded TX/RX | [http-client](examples/http-client): request builder / response viewer |
+| ![Serial assistant](docs/images/example-serial-assistant.png) | ![HTTP client](docs/images/example-http-client.png) |
+| [serial-waveform](examples/serial-waveform): 400 Hz serial waveform | [typing-poem](examples/typing-poem): poem typing practice (three.js 3D) |
+| ![Serial waveform](docs/images/example-serial-waveform.png) | ![Poem typing](docs/images/example-typing-poem-typing.png) |
+| [movie](examples/movie): movie browsing | [music](examples/music): music player (synced lyrics) |
+| ![Movie app](docs/images/example-movie.png) | ![Music playing](docs/images/example-music-playing.png) |
+| [ai-chat](examples/ai-chat): chat mode (direct, streaming Markdown) | [ai-chat](examples/ai-chat): Agent mode (cjh connected + four panels) |
+| ![AI chat: chat mode](docs/images/example-ai-chat-chat.png) | ![AI chat: Agent mode](docs/images/example-ai-chat-agent.png) |
+| [modbus-poll](examples/modbus-poll): multi-panel monitors + streaming Tx/Rx message trace | [cjnote](https://atomgit.com/qq8864/cjnote) (ecosystem): split editing + AI assistant, native menu row |
+| ![Modbus Poll (cj-tauri)](examples/modbus-poll/images/modbus-poll-main.png) | ![cjnote: split + AI](docs/images/example-cjnote.png) |
+| [cjnote](https://atomgit.com/qq8864/cjnote) (ecosystem): native View menu synced with view state | [ohos-music](examples/ohos/ohos-music): HarmonyOS PC music player (synced lyrics) |
+| ![cjnote: native view menu](docs/images/example-cjnote-menu.png) | ![Cangjie Music (HarmonyOS PC)](docs/images/example-ohos-music.jpg) |
+| [ohos-movie](examples/ohos/ohos-movie): HarmonyOS PC movie app (covers fetched via the host with Referer/UA) | [ohos unified project](examples/ohos): `create --template ohos` output, `sync ohos` derives a buildable hap |
+| ![Cangjie Movie (HarmonyOS PC)](docs/images/example-ohos-movie.jpg) | ![ohos template output](docs/images/example-ohos-template.jpg) |
 
 ## Architecture
 
@@ -255,6 +271,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 |---|---|
 | [使用文档](docs/使用文档.md) | Setup → create → develop → troubleshoot (the canonical guide, Chinese) |
 | [前端入门教程](docs/前端入门教程.md) | Front-end from zero: layout → bridge API → events → capabilities → full walkthrough |
+| [hello-world 入门教程](docs/hello-world-入门教程.md) | npm-CLI starter guide: from `create` to a window on real hardware (two pitfalls included) |
 | [插件体系教程](docs/插件体系教程.md) | Plugin system: what it is → plug in an official plugin → write your own |
 | [IPC 通信机制](docs/IPC-通信机制.md) | Protocol frames → full sequence → measured performance vs WebSocket / raw TCP |
 | [Modbus tool deep-dive](docs/仓颉版Modbus调试工具-介绍与实战.md) | Scaffolding walkthrough + how the Modbus tool is built + comparison with Modbus Poll |
@@ -303,8 +320,8 @@ asserted screenshots), `cj-tauri-troubleshoot` (field-tested pitfall quick refer
 The same code is hosted twice; `origin` carries both push URLs, so **one `git push` updates both**:
 
 ```bash
+git clone https://atomgit.com/qq8864/cj-tauri.git          # AtomGit (direct connection recommended in CN)
 git clone https://github.com/yangyongzhen/cj-tauri.git     # GitHub
-git clone https://atomgit.com/qq8864/cj-tauri.git          # AtomGit
 git ls-remote origin main && git ls-remote github main     # verify both SHAs match
 ```
 

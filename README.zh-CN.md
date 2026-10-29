@@ -4,7 +4,7 @@
 
 **简体中文** · [**English**](./README.md)
 
-**用华为仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端。**
+**用仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端。**
 前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–10.3 MB，
 Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。
 
@@ -57,13 +57,10 @@ IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门
 | [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
 | [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
 | [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
-| [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（32.8MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（随包 release 到 `%LOCALAPPDATA%`、静默拉起、退出收尾）；体积大是因为 cjh 与 4 个运行时 DLL 一起嵌进了 exe，[中文说明](examples/cjnote/README.md) |
+| [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（32.8MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（安装即用，退出自动收尾）；体积大是因为 cjh 后端整体嵌进了 exe，[中文说明](examples/cjnote/README.md) |
 
-体积、依赖与冷启动都是**实测**的：十份产物 4.69–32.8 MB（`cjnote` 那份含内嵌 AI 后端，其余 4.69–10.3 MB），
-PE 导入表里只有 Windows 系统 DLL
-（没有任何第三方运行时，非系统 DLL 一列全是 0），双击不弹控制台
-（`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，
-一条命令复核：`bash scripts/dist-report.sh`。
+体积与依赖都是**实测**的：十份产物 4.69–32.8 MB，全部单文件免安装、双击即用，不捆绑任何第三方运行时。
+复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，一条命令复核：`bash scripts/dist-report.sh`。
 
 ### 方式二：npm 写你自己的应用（推荐）
 
@@ -194,9 +191,9 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [http-client](examples/http-client) | **HTTP API 客户端**（Postman 那一类）：左拼请求 / 中看响应（原文 · JSON 树 · 响应头）/ 右管集合与历史，**网络请求全由仓颉侧直发**（页面零 `fetch`，TLS 走系统证书库不关校验）；白名单与响应体上限在仓颉侧兜底，越界读由路径 scope 拒；示例自带 mock 对端，Linux 实机 E2E 55 条断言两侧对账（含截断三侧对账） |
 | [sqlite-browser](examples/sqlite-browser) | **SQLite 数据库浏览器**：库对象 / 数据分页网格（排序、类型上色、超长单元格截断标记）/ SQL 调试台（只读与可写两个按钮）；**仓颉 FFI 直连系统 `libsqlite3`**（仓库首例，不经 C 桥），命令放行与路径 scope 两层、只读走内核级连接、`ATTACH` 由 authorizer 按语句拒；示例自带夹具对端，Linux 实机 E2E 49 条断言（含**进程外**只读复查页面写入的那一行） |
 | [serial-assistant](examples/serial-assistant) | **串口调试助手**：参数面板、TX/RX 分色收发日志、定时发送、探针自检 |
-| [cj-link](examples/cj-link) | **串口/网络二合一调试助手**：串口（serial 插件）+ 网络三模式（TCP 客户端 / TCP 服务器多客户端广播 / UDP，`std.net`）共用收发日志，HEX/ASCII 双显、发送队列、校验计算（CRC16-Modbus/CCITT 等，`link:crcCalc`）、定时发送（周期可调）、面板配置持久化（store 插件）；对端由 pty echo + TCP/UDP echo 扮演，Linux 实机 run.sh 33 条断言两侧对账 |
-| [ai-chat](examples/ai-chat) | **AI 对话客户端**：聊天（直连服务商，流式 Markdown）/ Agent（接本机 [cjh](https://atomgit.com/qq8864/cjh)：会话/技能/MCP/文件四面板 + 审批 + 模型透传）一键切换，缺 cjh 时给**能走完的引导**（按平台给下载产物、选一次可执行文件当场拉起并记住）；聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；**主窗内嵌九家模型的网页版**（见上方动图）；cjh 预编译包**随仓 vendored**（`examples/ai-chat/vendor/cjh/`），`scripts/pack-linux.sh` 出 Linux 便携包（页面自检 **56/56 全过**） |
-| [clipboard-history](examples/clipboard-history) | **剪贴板历史管理器**：**托盘** + **全局快捷键**两个能力位的首个消费者，**Windows（`Shell_NotifyIconW` / `RegisterHotKey`）与 Linux（libayatana-appindicator3 可选编译 / X11 grab）都已跑通**——托盘菜单（显示面板 / 清空 / 退出）与 `Ctrl+Alt+V` 唤回全走框架事件（`tray:click` / `hotkey:press`），**「最小化到托盘」走宿主基元**（`WindowConfig.minimizeToTray`，平台上没装托盘就如实降级为普通最小化并打 stderr）；历史捕获是前端 500ms 轮询 `clipboard:read` 去重（零新命令），点击条目 `clipboard:write` 回写并以 `xclip -o`（Linux）/ 系统剪贴板读回（Windows）对账；Linux 实机 E2E 15/15，Windows 侧另有实机链「最小化 → 窗口隐藏 → 快捷键唤回」 |
+| [cj-link](examples/cj-link) | **串口/网络二合一调试助手**：串口（serial 插件）+ 网络三模式（TCP 客户端 / TCP 服务器多客户端广播 / UDP）共用收发日志，HEX/ASCII 双显、发送队列、校验计算（CRC16 等）、定时发送（周期可调）、面板配置持久化；自带对端模拟，Linux 实机自检 33 条断言 |
+| [ai-chat](examples/ai-chat) | **AI 对话客户端**：聊天（直连服务商，流式 Markdown）/ Agent（接本机 [cjh](https://atomgit.com/qq8864/cjh)：会话/技能/MCP/文件四面板 + 审批 + 模型透传）一键切换，缺 cjh 时给**能走完的引导**（按平台给下载产物、选一次可执行文件当场拉起并记住）；聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；**主窗内嵌九家模型的网页版**（见上方动图）；cjh 预编译包随仓库自带，另提供 Linux 便携包（页面自检 **56/56 全过**） |
+| [clipboard-history](examples/clipboard-history) | **剪贴板历史管理器**：**托盘** + **全局快捷键**两个能力位的首个消费者，**Windows 与 Linux 都已实机跑通**——托盘菜单（显示面板 / 清空 / 退出）与 `Ctrl+Alt+V` 唤回全走框架事件，**「最小化到托盘」是框架基元**（没装托盘就如实降级为普通最小化）；点击历史条目即回写剪贴板，并经外部读回对账；Linux 实机自检 15/15，Windows 侧另有「最小化 → 窗口隐藏 → 快捷键唤回」实机链 |
 | [serial-waveform](examples/serial-waveform) | **串口实时波形示波器**：`serial` 插件 + canvas 双缓冲自绘，行协议 `<序号>,<值>`；400 Hz 样本流下页面自算速率/上穿/丢帧，实机取证见该目录 README |
 | [movie](examples/movie) | **观影应用**：榜单/搜索/详情/播放，数据全由仓颉侧 HTTP 取回，前端零 fetch |
 | [music](examples/music) | **音乐播放器**：榜单/歌单/收藏/分享 + 同步歌词 + 4 套主题色，封面由宿主带 Referer 取回并缩略 |
@@ -212,14 +209,14 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | 官方插件四件套：文件读写（含**路径 scope 对照**）/ 原生对话框 / 打开链接与子进程 / 串口，各带权限对照 |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
-| [ipc-coalesce](examples/ipc-coalesce) | 事件合并探针：`emitLatest`（同帧槽位 + rAF 批刷，尾值必达）与 `emit` 的对照——`emitLatest × 50` 合并成个位数次回调、`emit × 50` 老老实实 50 次，默认行为一行没改 |
+| [ipc-coalesce](examples/ipc-coalesce) | 事件合并探针：高频推送时 `emitLatest` 自动合并成个位数次回调（尾值必达），`emit` 保留每一次——对照实验直接展示，默认行为不变 |
 | [multi-window](examples/multi-window) | 多窗口：同一份 HTML 起两窗，角色由自己的 label 决定；两窗**同时**开原生对话框各预置 `probe-<label>.txt`，验证宿主回调按句柄路由不串台 |
 
 **框架内置插件**（随框架分发，无需单独示例目录；设计见[插件体系教程](docs/插件体系教程.md)）：
 
 - 持久化键值 `store` 插件（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它
 - `clipboard` / `notification` 插件（RFC-003 第 3 期）：系统剪贴板读写 / 系统通知，Linux 实机取证（外部回读剪贴板、会话总线上实收通知），Windows 侧同名桩且能力位如实上报
-- `log` 插件 + 日志落盘（RFC-003 第 5 期）：`app.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(app)` 把仓颉侧与 C 桥的诊断落进同一份文件（**fd 级接管**，超预算轮转 `.1`…`.keep`）；`CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可为**已分发的 exe** 就地开日志，`system:host` 的 `logFile` 回读生效路径，页面 `log:write` / `log:path` 同走一个出口
+- `log` 插件 + 日志落盘（RFC-003 第 5 期）：`app.setLogFile(...)` 把仓颉侧与 C 桥的诊断落进同一份文件，超预算自动轮转；已分发的 exe 也能用 `CJ_TAURI_LOG` 环境变量就地开日志，页面 `log:write` 同走一个出口
 - `http` 插件（SEC-006 白名单收口）：页面可控的出网口——`http:get` / `http:post` / `http:delete` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat` 是首个消费者
 - `ws` 插件（长连接出网口）：`ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` 事件，主机白名单写在能力清单 `scopes.ws`（**没写 = 全拒**，与 `http` 插件同构、共用核心层 `urlHostOf`）；握手用 stdx 自带 `WebSocket.upgradeFromClient`，不手写协议
 

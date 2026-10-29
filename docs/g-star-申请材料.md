@@ -48,7 +48,7 @@ clipboard / notification 等 14 个）。内置 CLI 脚手架（`npx cj-tauri`�
 
 1. **完善项目基础信息** ✅：仓库介绍、标签（atomcode/bug/good-first-issue/平台适配/插件开发）、Logo。
 2. **添加 AtomGit 标识** ⚠️ 本轮已补：README.md 与 README.zh-CN.md 顶栏已加 AtomGit 徽章
-   （`[![AtomGitStars](https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg)](https://atomgit.com/qq8864/cj-tauri)`），
+   （`[![AtomGitStars](https://atomgit.com/qq8864/cj-tauri/star/badge.svg)](https://atomgit.com/qq8864/cj-tauri)`），
    并保留「国内 AtomGit 托管」文案与 clone 地址。
 3. **保持同步更新** ✅：`git push origin main` 一次推送双仓（AtomGit + GitHub），无 1 个月时差风险。
 4. **官网跳转链接** ✅：官网顶栏「主仓库」指向 AtomGit。

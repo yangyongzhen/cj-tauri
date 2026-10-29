@@ -12,7 +12,7 @@ Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。
 兜住安全，外加 14 个官方插件、二十多个能直接跑的示例——每个都带无人值守自检。
 
 <p>
-  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg" height="24"></a>
+  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/badge.svg" height="24"></a>
   <a href="https://yangyongzhen.github.io/cj-tauri/"><img alt="Website" src="https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E5%AE%98%E7%BD%91-24%20%E5%B1%8F%E5%AE%9E%E6%9C%BA%E6%88%AA%E5%9B%BE-blue" height="24"></a>
   <img alt="QQ 群" src="https://img.shields.io/badge/QQ%E7%BE%A4-92381027-eb1923" height="24">
 </p>

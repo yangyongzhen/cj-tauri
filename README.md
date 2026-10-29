@@ -38,18 +38,18 @@ Statically-linked single-file Windows tools ship with the repo — ten artifacts
 
 | Tool | What it is |
 |---|---|
-| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) (10.3 MB) | AI chat client: multi-provider streaming Markdown chat + a local-Agent mode, one click to switch; **nine model web versions embedded in the same window** (DeepSeek / Kimi / Qwen / Zhipu / Ernie / Doubao / Yuanbao / MiniMax / ChatGPT — tab strip, logins remembered) |
-| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) (5.48 MB) | Serial + TCP/UDP combined debug assistant ([docs](examples/cj-link/README.md), Chinese) |
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) (5.59 MB) | Modbus TCP/RTU debugging tool ([docs](examples/modbus-poll/README.md), Chinese) |
-| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe) (4.69 MB) | Real-time serial waveform scope ([docs](examples/serial-waveform/README.md), Chinese) |
-| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe) (4.78 MB) | Markdown notes: tree / editor / live preview ([docs](examples/markdown-notes/README.md), Chinese) |
-| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe) (9.79 MB) | Desktop LeetCode-style practice: the judge is `cjc` itself ([docs](examples/leetcode-gui/README.md), Chinese) |
-| [music.exe](examples/music/dist-single/music.exe) (9.50 MB) | Music player: charts / playlists / favorites + synced lyrics + 4 themes |
-| [movie.exe](examples/movie/dist-single/movie.exe) (9.42 MB) | Movie browsing (third-party public APIs, [for study/research only](examples/movie/README.md#用途与免责声明)) |
-| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe) (5.50 MB) | Chinese-poem typing practice for kids: three.js 3D cards |
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) (25.3 MB) | AI chat client: multi-provider streaming Markdown chat + a local-Agent mode, one click to switch; **nine model web versions embedded in the same window** (DeepSeek / Kimi / Qwen / Zhipu / Ernie / Doubao / Yuanbao / MiniMax / ChatGPT — tab strip, logins remembered) |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) (5.6 MB) | Serial + TCP/UDP combined debug assistant ([docs](examples/cj-link/README.md), Chinese) |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) (5.7 MB) | Modbus TCP/RTU debugging tool ([docs](examples/modbus-poll/README.md), Chinese) |
+| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe) (4.7 MB) | Real-time serial waveform scope ([docs](examples/serial-waveform/README.md), Chinese) |
+| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe) (5.0 MB) | Markdown notes: tree / editor / live preview ([docs](examples/markdown-notes/README.md), Chinese) |
+| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe) (9.9 MB) | Desktop LeetCode-style practice: the judge is `cjc` itself ([docs](examples/leetcode-gui/README.md), Chinese) |
+| [music.exe](examples/music/dist-single/music.exe) (9.7 MB) | Music player: charts / playlists / favorites + synced lyrics + 4 themes |
+| [movie.exe](examples/movie/dist-single/movie.exe) (9.6 MB) | Movie browsing (third-party public APIs, [for study/research only](examples/movie/README.md#用途与免责声明)) |
+| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe) (5.7 MB) | Chinese-poem typing practice for kids: three.js 3D cards |
 | [cjnote.exe](examples/cjnote/dist-single/cjnote.exe) (32.8 MB) | AI-native Markdown notes: three panes + native menu bar + **embedded cjh AI backend** (works right after install); big because the whole backend ships inside the exe |
 
-Size and dependencies are **measured**, not claimed: ten artifacts at 4.69–32.8 MB, all single-file,
+Size and dependencies are **measured**, not claimed: ten artifacts at 4.7–32.8 MB, all single-file,
 no bundled third-party runtimes, double-click to run. How they were verified:
 [`docs/分发形态实测.md`](docs/分发形态实测.md), re-check with `bash scripts/dist-report.sh`.
 
@@ -127,7 +127,7 @@ To run a repo example (hello): `native\build_win.bat` → `cd examples\hello && 
 ## Security model: claims you can check
 
 Security claims are worth little as prose, so every row below maps to a real test case under
-`src/tests/` — rerun them with `bash scripts/test.sh` (currently **348 tests, all green**; the
+`src/tests/` — rerun them with `bash scripts/test.sh` (currently **349 tests, all green**; the
 long-form design lives in `docs/安全模型.md`, Chinese).
 
 | Threat | Defence | Assertion (test case) |
@@ -152,7 +152,7 @@ full details and self-check instructions. Most docs are in Chinese; the code and
 universal language.
 
 **Showcase** — an **AI chat client** built with cj-tauri (`examples/ai-chat`; single-file package
-≈10 MB, see [Option 1](#option-1-download-a-ready-made-tool-no-sdk-no-install)):
+≈25 MB, see [Option 1](#option-1-download-a-ready-made-tool-no-sdk-no-install)):
 
 ![ai-chat mode switch](docs/images/ai-chat-mode-switch.gif)
 
@@ -309,7 +309,7 @@ asserted screenshots), `cj-tauri-troubleshoot` (field-tested pitfall quick refer
   implemented on both Windows and Linux and reported honestly by `system:host`; "minimize to tray"
   is a host primitive (`minimizeToTray`) that degrades to a plain minimize with one stderr line when
   no tray is available
-- ✅ Engineering: 348 unit tests + SDK-free static gates (what CI runs) + unattended example self-checks
+- ✅ Engineering: 349 unit tests + SDK-free static gates (what CI runs) + unattended example self-checks
 - ✅ HarmonyOS PC (ArkWeb, 2in1): page-side `system:version` round trip, multi-window label routing,
   `music` / `movie` examples closed-loop on device; `cj-tauri create --template ohos` generates a
   project that builds into an installable hap

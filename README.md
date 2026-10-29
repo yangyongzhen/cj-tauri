@@ -14,9 +14,9 @@ gates (commands / events / paths / egress) holding the security line — plus 14
 and twenty-odd runnable examples, each with an unattended self-check.
 
 <p>
-  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg"></a>
-  <a href="https://yangyongzhen.github.io/cj-tauri/"><img alt="Website" src="https://img.shields.io/badge/website-24_on-device_screenshots-blue"></a>
-  <img alt="QQ group" src="https://img.shields.io/badge/QQ_group-92381027-eb1923">
+  <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg" height="24"></a>
+  <a href="https://yangyongzhen.github.io/cj-tauri/"><img alt="Website" src="https://img.shields.io/badge/website-24_on-device_screenshots-blue" height="24"></a>
+  <img alt="QQ group" src="https://img.shields.io/badge/QQ_group-92381027-eb1923" height="24">
 </p>
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20HarmonyOS%20PC-blue)](#examples)

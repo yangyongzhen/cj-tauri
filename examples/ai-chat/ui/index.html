@@ -778,9 +778,29 @@ function renderMd(src) {
  * ============================================================ */
 var CJH = { api: window.__CJH_API__ || '', ws: window.__CJH_WS__ || '', wsUp: false, up: false };
 
+/* cjh 响应解析兜底：cjh 报错时返回的是纯文本（如 "Internal Server Error"），
+ * 直接 JSON.parse 会得到 "Unexpected token 'I'..." 这种无意义报错，
+ * 真正的错误信息（状态码 + 原文）反而看不见（用户实测）。非 JSON 时抛出带状态的 Error。 */
+function cjhParse(r, path) {
+  var st = (r && r.status) ? Number(r.status) : 0;
+  var body = (r && typeof r.body === 'string') ? r.body : '';
+  var tag = 'HTTP ' + (st || '?') + ' · ' + path;
+  var v = null;
+  if (body) {
+    try { v = JSON.parse(body); } catch (e) {
+      throw new Error(tag + ' 响应不是 JSON：' + body.slice(0, 160));
+    }
+  }
+  if (st >= 400) {
+    var msg = (v && v.error) ? (v.error.message || String(v.error)) : ((v && v.message) ? String(v.message) : body.slice(0, 160));
+    throw new Error(tag + (msg ? '：' + msg : ''));
+  }
+  return v || {};
+}
+
 function cjhGet(path) {
   return window.__CJ_TAURI__.invoke('http:get', { url: CJH.api + path }).then(function (r) {
-    return JSON.parse(r.body);
+    return cjhParse(r, path);
   });
 }
 
@@ -1198,7 +1218,7 @@ function cjhSend(method, path, body) {
     args.headers = { 'Content-Type': 'application/json' };
   }
   return window.__CJ_TAURI__.invoke(method, args).then(function (r) {
-    return (r && r.body) ? JSON.parse(r.body) : {};
+    return cjhParse(r, path);
   });
 }
 function wsBase(p) { var s = String(p || '').replace(/\/+$/, ''); return s.split('/').pop() || s; }
@@ -1435,7 +1455,7 @@ function loadFiles(path) {
     updateWsBadge();
   }).catch(function (e) {
     el.innerHTML = '<div class="hint">文件区不可用：' + escHtml(String(e && e.message)) +
-      '（cjh /api/fs/list 只在配置了工作区时可用）</div>';
+      '<br>（文件面板的根是 cjh 的工作区：先确认 cjh 在运行、左上工作区徽章有值；若显示 HTTP 500，具体原因在 cjh 的日志里）</div>';
   });
 }
 

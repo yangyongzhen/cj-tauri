@@ -8,18 +8,18 @@
 前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–32.8 MB，
 Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。
 
-IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门）· 14 个官方插件 ·
-二十多个可运行示例 · 每个示例都带无人值守自检
+页面用 Web 写，逻辑用仓颉写：一条 IPC 桥把两边连起来，命令 / 事件 / 路径 / 出网四道白名单闸门
+兜住安全，外加 14 个官方插件、二十多个能直接跑的示例——每个都带无人值守自检。
 
 <p>
   <a href="https://atomgit.com/qq8864/cj-tauri"><img alt="AtomGit Stars" src="https://atomgit.com/qq8864/cj-tauri/star/new_badge.svg"></a>
+  <a href="https://yangyongzhen.github.io/cj-tauri/"><img alt="Website" src="https://img.shields.io/badge/%E5%9C%A8%E7%BA%BF%E5%AE%98%E7%BD%91-24%20%E5%B1%8F%E5%AE%9E%E6%9C%BA%E6%88%AA%E5%9B%BE-blue"></a>
+  <img alt="QQ 群" src="https://img.shields.io/badge/QQ%E7%BE%A4-92381027-eb1923">
 </p>
 
 [![Platform](https://img.shields.io/badge/%E5%B9%B3%E5%8F%B0-Windows%20%7C%20Linux%20%7C%20%E9%B8%BF%E8%92%99%20PC-blue)](#示例一览)
 [![Cangjie](https://img.shields.io/badge/%E4%BB%93%E9%A2%89-SDK%201.2.0%2B-ff69b4)](https://cangjie-lang.cn)
 [![License](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)](./LICENSE)
-
-📖 在线官网 <https://yangyongzhen.github.io/cj-tauri/>（中英双语 · 24 屏实机截图）&nbsp;·&nbsp; 💬 QQ 群 **92381027**
 
 [快速开始](#快速开始) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [安全模型](#安全模型可被外部审视的证据) ·
 [示例一览](#示例一览) · [架构](#架构) · [文档索引](#文档索引) · [与 Tauri 的差异](docs/与Tauri的差异.md)
@@ -304,6 +304,8 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 
 ## 文档索引
 
+**上手**：
+
 | 文档 | 内容 |
 |---|---|
 | [使用文档](docs/使用文档.md) | 环境准备 → 创建应用 → 开发 → 排障（权威上手文档） |
@@ -311,16 +313,26 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [hello-world 入门教程](docs/hello-world-入门教程.md) | npm 版 CLI 从 create 到实机跑通的完整记录（含两个实测坑） |
 | [插件体系教程](docs/插件体系教程.md) | 插件是干嘛的 → 一行接入官方插件 → 自己写一个 |
 | [IPC 通信机制](docs/IPC-通信机制.md) | 协议报文 → 完整时序 → 实测性能（与 WebSocket/裸 TCP 对照） |
-| [movie 实战](docs/cj-tauri-介绍与movie实战.md) / [打字游戏实战](docs/仓颉版Tauri-打字游戏实战.md) / [音乐播放器实战](docs/仓颉版Tauri-音乐播放器实战.md) | 三个业务示例的逐块拆解 |
-| [Modbus 工具实战](docs/仓颉版Modbus调试工具-介绍与实战.md) | 脚手架用法 + Modbus 工具实现 + 与 Modbus Poll 对比 |
-| [串口/网络调试助手开发记](docs/仓颉版串口调试助手-开发记.md) | 一个窗口两条链路（串口 / TCP·UDP）：探针自检与对端取证、平台层串口读超时的定位、免 SDK 单文件包 |
-| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 可行性论证 / 开发全程踩坑 |
-| [设计决策记录](docs/设计决策记录.md) | 为什么长这样：同进程桥、能力分级、scope 语义等 12 条决策的理由、代价与复评触发条件 |
+
+**设计与参考**：
+
+| 文档 | 内容 |
+|---|---|
 | [安全模型](docs/安全模型.md) | 威胁模型、分层防线（默认拒绝 / 权限集 / 路径 scope / 出网收口）、与 Tauri 2 的对比 |
+| [设计决策记录](docs/设计决策记录.md) | 为什么长这样：同进程桥、能力分级、scope 语义等 12 条决策的理由、代价与复评触发条件 |
 | [与 Tauri 的差异清单](docs/与Tauri的差异.md) | 从 Tauri 2 过来的人看：概念映射、行为差异、平台能力差异、迁移清单 |
 | [平台能力矩阵](docs/平台能力矩阵.md) | 命令 / 插件 / 宿主能力 × Windows / Linux / 鸿蒙：哪些能用、哪些未验证、哪些不支持 |
 | [需求追踪矩阵](docs/需求追踪.md) | 每个能力做到哪了：五级状态 + 可复核证据 |
 | [源码结构](docs/源码结构.md) | 想改框架先看：`src/` 分层与文件归属、依赖方向与禁止项、何时该拆/不该拆 |
+
+**实战与记录**：
+
+| 文档 | 内容 |
+|---|---|
+| [movie 实战](docs/cj-tauri-介绍与movie实战.md) / [打字游戏实战](docs/仓颉版Tauri-打字游戏实战.md) / [音乐播放器实战](docs/仓颉版Tauri-音乐播放器实战.md) | 三个业务示例的逐块拆解 |
+| [Modbus 工具实战](docs/仓颉版Modbus调试工具-介绍与实战.md) | 脚手架用法 + Modbus 工具实现 + 与 Modbus Poll 对比 |
+| [串口/网络调试助手开发记](docs/仓颉版串口调试助手-开发记.md) | 一个窗口两条链路（串口 / TCP·UDP）：探针自检与对端取证、平台层串口读超时的定位、免 SDK 单文件包 |
+| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 可行性论证 / 开发全程踩坑 |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | 变更记录 / 开发规范 / 贡献流程 / 依赖与许可 |
 
 延伸阅读（CSDN）：[用仓颉写桌面应用：仓颉语言的 Tauri 框架实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)。

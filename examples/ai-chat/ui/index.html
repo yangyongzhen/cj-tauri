@@ -1402,7 +1402,10 @@ function closePreview() { $('pv').className = ''; pvRaw = ''; }
 function loadFiles(path) {
   var el = $('panelFiles');
   el.innerHTML = '<div class="hint">加载中…</div>';
-  var q = path ? ('?path=' + encodeURIComponent(path)) : '';
+  // Windows 路径先反斜杠转正斜杠再编码：框架 http:get（stdx Client）会把 %5C 解码回裸反斜杠
+  // 放进请求行，cjh 的 stdx Server 解析层直接拒 400 "Invalid request target"（curl 同形状
+  // 是 200，经 stdx client 是 400，本机实证 2026-10-29）。正斜杠 Windows 的 fs API 也认。
+  var q = path ? ('?path=' + encodeURIComponent(path.replace(/\\/g, '/'))) : '';
   return cjhGet('/api/fs/list' + q).then(function (r) {
     el.innerHTML = '';
     // 面包屑：优先用 cjh 回的真实路径（r.path），挂在列表最上方，每段可点跳层

@@ -52,7 +52,7 @@
       "allow": ["127.0.0.1", "localhost"]
     },
     "fs": {
-      "allow": ["$HOME/**"],
+      "allow": ["$HOME/**", "C:/**", "D:/**", "E:/**", "F:/**"],
       "deny": ["**/.ssh/**", "**/.aws/**", "**/.git-credentials", "**/id_rsa*", "**/*.pem"]
     }
   }

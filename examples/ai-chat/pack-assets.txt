@@ -1,7 +1,7 @@
 # 单文件产物随包的 OpenSSL 运行库：本进程的 https 直连（聊天 / 测连通）按裸名
 # LoadLibrary 这两个 DLL，SDK 与 stdx 都不带。打包器把它们作为 PE 资源嵌进 exe，
 # 运行期释放到 cjhInstallDir 再按绝对路径预加载（见 cjh_host.cj 的 releaseEmbeddedTlsLibs）。
-# 来源：examples/cjnote/vendor/cjh/bin/windows-x64/（随包 cjh 的依赖，两份同源）。
+# 来源：cjh-v1.6.1 自包含 zip 内的同名 DLL（随包 cjh 的依赖，与 zip 同源）。
 vendor/cjh/bin/windows-x64/libcrypto-3-x64.dll
 vendor/cjh/bin/windows-x64/libssl-3-x64.dll
-vendor/cjh/cjh-v1.5.3-windows-x64-selfcontained.zip
+vendor/cjh/cjh-v1.6.1-windows-x64-selfcontained.zip

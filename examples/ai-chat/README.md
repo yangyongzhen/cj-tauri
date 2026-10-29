@@ -242,8 +242,8 @@ bash scripts/pack-win-single.sh examples/ai-chat     # 产物：examples/ai-chat
 
 ## 已知限制
 
-- **Windows 已实机跑通**（2026-10-23，WebView2）：一键部署从全新状态走完「SHA256 校验 → bsdtar 解包 →
-拉起 cjh → `/api/health` 200」，凭证是 `CJH-DEPLOY PASS deploy ok=true reused=false deployed=…cjh-v1.5.3-windows-x64.exe api=yes`
+- **Windows 已实机跑通**（2026-10-23，WebView2；当时随包 cjh v1.5.3，现 vendor 已升级 v1.6.1，部署链形状不变）：一键部署从全新状态走完「SHA256 校验 → bsdtar 解包 →
+拉起 cjh → `/api/health` 200」，凭证是 `CJH-DEPLOY PASS deploy ok=true reused=false deployed=…cjh-v1.6.1-windows-x64.exe api=yes`（部署名以 `SHA256SUMS`/`cjhDeployedBinName` 为准）
 加 `CJH-DEPLOY PASS status state=running api=yes`；端口上已有 cjh 时同一探针报 `reused=true`（不解包、不起第二份）。
 **本机 GUI 子系统下应用自己的 stderr 收不到**（重定向也是 0 字节），所以这条链的取证只看页内探针回投的日志行；
 - 引导卡上「选择 cjh 可执行文件…」那一步走的是**原生文件框**（阻塞模态）：无人值守的实机脚本点不了它，

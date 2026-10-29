@@ -356,49 +356,49 @@ func terminateCjhProc(p: SubProcess): Unit {
 /** 随包安装包的相对路径（按平台各一份） */
 @When[os == "Windows"]
 func cjhBundleRel(): String {
-    return "vendor/cjh/cjh-v1.5.3-windows-x64-selfcontained.zip"
+    return "vendor/cjh/cjh-v1.6.1-windows-x64-selfcontained.zip"
 }
 
 @When[os != "Windows"]
 func cjhBundleRel(): String {
-    return "vendor/cjh/cjh-v1.5.3-linux-x64.tar.gz"
+    return "vendor/cjh/cjh-v1.6.1-linux-x64.tar.gz"
 }
 
 /** 安装包文件名（basename）：单文件包把它嵌进 exe，releaseEmbeddedBundle 释放到安装目录后
     就以这个名字落盘；释放目录候选按它拼路径 */
 @When[os == "Windows"]
 func cjhBundleName(): String {
-    return "cjh-v1.5.3-windows-x64-selfcontained.zip"
+    return "cjh-v1.6.1-windows-x64-selfcontained.zip"
 }
 
 @When[os != "Windows"]
 func cjhBundleName(): String {
-    return "cjh-v1.5.3-linux-x64.tar.gz"
+    return "cjh-v1.6.1-linux-x64.tar.gz"
 }
 
 /* 摘要跟着包换：与 vendor/cjh/SHA256SUMS 里对应那一行逐字一致（① 换包 ② 这里同步，
-   漏一处就是「校验失败，不部署」）。Linux 那份是官方 v1.5.3 的 dist/cjh-linux-x64
+   漏一处就是「校验失败，不部署」）。Linux 那份是官方 v1.6.1 的 dist 产物（成员名 cjh-linux-x64）
    重打成的单成员 tar.gz（最高只要 GLIBC_2.34，本机 2.35 能跑；上一版那个官方包要
    GLIBC_2.38、本机跑不起来才不得不本地重建） */
 @When[os == "Windows"]
 func cjhBundleSha256(): String {
-    return "c861a762e408347031c41073073a4587bade54f3d3878d0d9fc1b752659287a2"
+    return "d1432a19bd17e4b6e8ccc21a69f3dcfba6c9f3ae97aef714ae0268bf44ff0a84"
 }
 
 @When[os != "Windows"]
 func cjhBundleSha256(): String {
-    return "604d30a68f5763fbf23bf8d54a3010bae5278d9e4b5c65fad299a2e3b099476e"
+    return "be24e4892985b05e0bbd2e5e16583d25c7a59c01e2dd1c6c26f4b4589c2444d2"
 }
 
 /** 解包出来的二进制名（Linux `tar tzf` / Windows `tar -tf` 都能证：包里就是这两个名字） */
 @When[os == "Windows"]
 func cjhDeployedBinName(): String {
-    return "cjh-v1.5.3-windows-x64.exe"
+    return "cjh-v1.6.1-windows-x64.exe"
 }
 
 @When[os != "Windows"]
 func cjhDeployedBinName(): String {
-    return "cjh-v1.5.3-linux-x64"
+    return "cjh-linux-x64"
 }
 
 @When[os == "Windows"]

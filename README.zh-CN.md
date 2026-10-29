@@ -21,158 +21,16 @@ IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门
 
 📖 在线官网 <https://yangyongzhen.github.io/cj-tauri/>（中英双语 · 24 屏实机截图）&nbsp;·&nbsp; 💬 QQ 群 **92381027**
 
-[立即上手](#30-秒上手) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [示例一览](#示例一览) ·
-[架构](#架构) · [文档索引](#文档索引) · [与 Tauri 的差异](docs/与Tauri的差异.md)
+[快速开始](#快速开始) · [为什么是 cj-tauri](#为什么是-cj-tauri) · [安全模型](#安全模型可被外部审视的证据) ·
+[示例一览](#示例一览) · [架构](#架构) · [文档索引](#文档索引) · [与 Tauri 的差异](docs/与Tauri的差异.md)
 
 </div>
 
-## 30 秒上手
-
-**A. 想先看效果？下载就能用 —— 不装 SDK、不装运行时、双击即启动**
-
-| 产物 | 体积 | 是什么 |
-|---|---|---|
-| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe) | 10.3 MB | AI 对话客户端：多服务商流式 Markdown 聊天 + 接本机 Agent 的模式，一键切换 |
-| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe) | 5.63 MB | 串口 + TCP/UDP 二合一调试助手 |
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe) | 5.69 MB | Modbus TCP/RTU 调试工具 |
-
-十份单文件产物全部实机实测（4.69–32.8 MB；PE 导入表只有系统 DLL，`Subsystem=GUI` 双击不弹控制台；
-冷启动与依赖口径见[分发形态实测](docs/分发形态实测.md)）→ [完整下载表](#方式二直接下载单文件工具免安装免-sdk)
-
-**B. 想要自己的应用？三行命令**
-
-前置：[仓颉 SDK](docs/使用文档.md#2-环境准备) 1.0.5+ 与 stdx（Windows 另需 mingw gcc 与 WebView2 Runtime，
-Win11 自带；Linux 需 `libwebkit2gtk-4.1-dev`）。不确定缺什么就先跑一次 `doctor`：
-
-```bash
-npx cj-tauri doctor              # 逐行告诉你「缺了什么、怎么补」，新机器第一件事
-npx cj-tauri create myapp        # 免安装，直接跑
-cd myapp && npx cj-tauri dev     # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
-```
-
-**C. 不碰 npm？** 源码构建（Windows）：`git clone … && native\build_win.bat && cli\cj-tauri.bat create myapp`
-—— 细节见[方式三：源码构建](#方式三源码构建)；鸿蒙 PC 工程用 `create --template ohos`，
-同一份业务代码由 `cj-tauri sync ohos` 派生成 hap 工程。
-
-![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
-
-*hello 示例：深色卡片 UI，输入名字点 greet 触发 invoke，底部实时显示仓颉后端推送的 tick 事件。*
-
-## 运行效果
-
-用 cj-tauri 实现的 **AI 对话客户端**（`examples/ai-chat`，聊天直连服务商 / Agent 接本机 cjh 两种模式）：
-
-![ai-chat 模式切换](docs/images/ai-chat-mode-switch.gif)
-
-*聊天（直连服务商）→ Agent（接本机 cjh）一键切换：侧栏改口、四面板就位、徽章显示 cjh 侧真实模型。*
-
-![ai-chat 缺 cjh 引导](docs/images/ai-chat-guide.gif)
-
-*缺 cjh 时切 Agent 出引导卡：一键部署（用仓库自带安装包，本地 SHA256 校验后解包启动，不走网络）；
-失败回落第 2/3 步的手动安装——按平台给产物名与下载地址，选一次可执行文件当场拉起并记住路径。*
-
-顺手把**九家模型的网页版**也做进了同一个窗口（不是一个站点一个壳，而是主窗内嵌的浏览器视图 + 顶栏标签条）：
-点「打开」就在当前窗口里跑起它自己的网页版——DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 /
-腾讯元宝 / MiniMax / ChatGPT，登录一次就记住（登录态落在同一个 WebView2 用户目录里），额度走各自的账号：
-
-![ai-chat 网页版标签页切换](docs/images/ai-chat-web-models.gif)
-
-*同一扇窗口里依次打开 DeepSeek → Kimi → 智谱清言 → MiniMax：标签一枚枚长出来，切换是原地切，不弹第二个窗。*
-
-| 内嵌网页版：DeepSeek | Kimi | MiniMax |
-| :--: | :--: | :--: |
-| ![DeepSeek 网页版](docs/images/example-ai-chat-web-deepseek.png) | ![Kimi 网页版](docs/images/example-ai-chat-web-kimi.png) | ![MiniMax 网页版](docs/images/example-ai-chat-web-minimax.png) |
-
-*内嵌的是**真实 WebView2 视图**而不是 iframe：站点按自己的规则跑 JS、自己发请求，窗口缩放时视图跟着重排；
-最多同时保留 4 枚视图（LRU 淘汰），标签可多于视图数，点回去重建视图、登录态仍在。*
-
-单文件包**约 10 MB**（10.3 MB，免安装、双击即用，PE 导入表实测只依赖系统 DLL）：
-[下载 ai-chat.exe](https://atomgit.com/qq8864/cj-tauri/blob/main/examples/ai-chat/dist-single/ai-chat.exe)，
-也可在[单文件下载表](#方式二直接下载单文件工具免安装免-sdk)里取。
-
-> 截图取自 Windows 实机。Linux 侧已实现同一套 `WebViewHost` 视图接口（GtkOverlay + GtkFixed）**但尚未实机取证**；
-> 鸿蒙侧的视图能力位为 0，`webtab:*` 命令会如实返回业务错误、不会假装成功。
-
-用 cj-tauri 实现的 **Modbus 调试工具**（`examples/modbus-poll`，对标 Modbus Poll 并补齐其痛点）：
-
-![Modbus Poll (cj-tauri) 主界面](examples/modbus-poll/images/modbus-poll-main.png)
-
-*多面板并行监控 + 底部报文监视逐帧滚动 Tx/Rx 十六进制。详见[它的 README](examples/modbus-poll/README.md)。*
-
-用 cj-tauri 实现的 **鸿蒙 PC 应用**（`examples/ohos/ohos-music` 与 `ohos-movie` —— 仓颉后端 + ArkWeb 前端，
-跑在 HarmonyOS PC 的 2in1 桌面形态里，页面代码与桌面版同一份）：
-
-![仓颉爱音乐（鸿蒙 PC 实机）](docs/images/example-ohos-music.jpg)
-
-*`ohos-music` 实机：窗口尺寸交给系统（cj-tauri 不 resize、不挪位），标题栏是鸿蒙 PC 的原生窗口装饰。*
-
-![仓颉观影（鸿蒙 PC 实机）](docs/images/example-ohos-movie.jpg)
-
-*`ohos-movie` 实机：封面经宿主侧 `movie:image` 带 Referer / UA 取回——页面直连图床会被防盗链挡成「200 + 0 字节」。*
-
-![cj-tauri create --template ohos 生成物（鸿蒙 PC 实机）](docs/images/example-ohos-template.jpg)
-
-*`cj-tauri create --template ohos` 生成的统一工程（单业务代码 + 清单），`sync ohos` 派生的 `build-hap.sh` 编出可签安装的 hap，greet / `system:version` / 后端事件推送三条链路开箱可点。*
-
-更多示例截图见下文[示例一览](#示例一览)。
-
-## 为什么是 cj-tauri
-
-- **静态编译的后端**：仓颉无 VM、无 GC 抖动顾虑，协议层两百行可审计；
-- **零 Chromium 捆绑**：直接用系统 WebView（Linux WebKitGTK / Windows WebView2），单示例产物 4~10MB；
-- **能力安全模型**：`capabilities/` 白名单默认最小权限，未声明命令一律拒绝，与宿主实现解耦；
-- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` / `mqtt` / `redis` / `log` / `http` / `ws` / `sqlite` 十四个官方插件，
-  一行接入，权限（命令级白名单 + 命名权限集 + 路径 scope）仍由清单决定；
-- **全链路可验证**：桥 stderr 即时取证 + 页面自检断言回传，每个示例都能无人值守自检；
-- **配套脚手架**：`cj-tauri create/dev/build/run/info/doctor`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完；
-  `doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
-
-## 安全模型：可被外部审视的证据
-
-安全设计不靠文字自证——下面的每条断言都对应 `src/tests/` 里的真实用例
-（`bash scripts/test.sh` 可复跑，当前 **348 条全绿**；详细设计见 `docs/安全模型.md`）：
-
-| 威胁 | 防线 | 断言（测试用例） |
-|---|---|---|
-| 页面调未授权命令 | 能力清单默认最小权限，未声明即拒 | `testHubRejectsCommandNotAllowed` / `testRegistryEmptyDeniesEverything` |
-| 页面调未注册命令 | 命令必须实现+注册+放行三处齐全 | `testHubRejectsUnregisteredCommand` |
-| 页面发未声明事件 | 事件同样进白名单 | `testEmitRequiresDeclaredEvent` / `testFrontendEmitDeniedEventIsRejected` |
-| 只注册权限集、清单没引用 | 集声明 ≠ 放行 | `testRegisteredPermissionSetNotReferencedStaysDenied` |
-| 声明了没人提供的权限集 | 只提示不生效，不静默放行 | `testPermissionSetWithoutProviderIsInert` |
-| 路径穿越 / 越界读写 | 路径 scope：先 deny 后 allow，`..` 词法折叠 + 规范化 | `scope_test.cj`（`*` 不跨目录分隔符、`**` 跨、deny 命中即拒） |
-| 运行期加白被滥用 | 注册中心拒通配，只收具体值 | `testRuntimeAllowExtendsManifestScope` |
-| 页面可控 URL 出网（SSRF） | http/ws 主机白名单，没写 = 全拒 | `plugin_http_test.cj` 9 条（userinfo 伪造 / 非 http 协议 / IPv6 字面量 等） |
-| 慢命令冻住 UI 线程 | 命令异步分发，worker 执行 | `testDispatchReturnsBeforeSlowCommandFinishes` |
-| 异常静默吞掉 | 拒绝/异常都回投前端 + stderr 留痕 | `testHubReportsCommandException` / `testHubReportsUnexpectedException` |
-
 ## 快速开始
 
-### 方式一：npm（跨平台，推荐）
+三条路按需选：**不装任何东西先看效果**选方式一；**写自己的应用**选方式二；**不碰 npm / 要改框架**选方式三。
 
-```bash
-npx cj-tauri create myapp          # 免安装，直接跑
-cd myapp
-npx cj-tauri dev                   # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
-```
-
-鸿蒙 PC（2in1）与桌面共用同一份业务代码：`create --template ohos` 生成的仍是**统一工程**
-（`cj-tauri.toml` 清单 + 业务 static 包 + `assets/`），hap 骨架由 `sync` 派生到 `targets/ohos/`，
-构建入口是那里面自带的 `build-hap.sh`（**工程根没有它**）：
-
-```bash
-npx cj-tauri create myohosapp --template ohos --bundle com.example.myohosapp --label "我的应用"
-cd myohosapp
-npx cj-tauri sync ohos             # 按清单派生 targets/ohos（桌面端同理：sync desktop）
-export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
-cd targets/ohos && npx cj-tauri run
-# 等价：bash build-hap.sh --install（编 hap → 装到设备 → 拉起，需先在 DevEco 配好自动签名）
-```
-
-前置条件见[30 秒上手](#30-秒上手)。找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，
-而不是一句 `command not found`。同目录还有 `cj-tauri build/run/info/doctor`：
-`doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
-
-### 方式二：直接下载单文件工具（免安装、免 SDK）
+### 方式一：直接下载单文件工具（免安装、免 SDK）
 
 仓库随版本分发静态链接的单文件 Windows 工具（点击下载，十份产物全部实测过导入表）：
 
@@ -207,6 +65,31 @@ PE 导入表里只有 Windows 系统 DLL
 （`Subsystem 00000002 (Windows GUI)`）。口径与复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，
 一条命令复核：`bash scripts/dist-report.sh`。
 
+### 方式二：npm 写你自己的应用（推荐）
+
+```bash
+npx cj-tauri doctor               # 逐行告诉你「缺了什么、怎么补」，新机器第一件事
+npx cj-tauri create myapp         # 免安装，直接跑
+cd myapp && npx cj-tauri dev      # 接管 Vite dev server（Vue/React 模板），HMR 在窗口内生效
+```
+
+前置：[仓颉 SDK](docs/使用文档.md#2-环境准备) 1.0.5+ 与 stdx（Windows 另需 mingw gcc 与 WebView2 Runtime，
+Win11 自带；Linux 需 `libwebkit2gtk-4.1-dev`）。找不到 SDK 时 CLI 会给出安装说明与 `CANGJIE_HOME` 示例，
+而不是一句 `command not found`。同目录还有 `cj-tauri build/run/info/doctor`。
+
+鸿蒙 PC（2in1）与桌面共用同一份业务代码：`create --template ohos` 生成的仍是**统一工程**
+（`cj-tauri.toml` 清单 + 业务 static 包 + `assets/`），hap 骨架由 `sync` 派生到 `targets/ohos/`，
+构建入口是那里面自带的 `build-hap.sh`（**工程根没有它**）：
+
+```bash
+npx cj-tauri create myohosapp --template ohos --bundle com.example.myohosapp --label "我的应用"
+cd myohosapp
+npx cj-tauri sync ohos             # 按清单派生 targets/ohos（桌面端同理：sync desktop）
+export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
+cd targets/ohos && npx cj-tauri run
+# 等价：bash build-hap.sh --install（编 hap → 装到设备 → 拉起，需先在 DevEco 配好自动签名）
+```
+
 ### 方式三：源码构建
 
 ```bash
@@ -226,6 +109,42 @@ cli\cj-tauri.bat create myapp && cd myapp
 
 运行仓内示例（以 hello 为例）：`native\build_win.bat` → `cd examples\hello && cjpm build` → 根目录 `run_win.bat`。
 
+![cj-tauri hello 示例运行效果](docs/images/cj_tauri.png)
+
+*hello 示例：深色卡片 UI，输入名字点 greet 触发 invoke，底部实时显示仓颉后端推送的 tick 事件。*
+
+## 为什么是 cj-tauri
+
+- **三端实机跑通，鸿蒙 PC 真机闭环**：Windows（WebView2）、Linux（WebKitGTK）、鸿蒙 PC（ArkWeb，2in1
+  桌面窗）——IPC / 能力模型 / 命令分发完全共用，平台差异只落在条件编译与 C 桥两处；鸿蒙侧的宿主
+  写在仓颉侧、不走 C 桥，`music` / `movie` 两个示例与模板生成的工程都能编出可签安装的 hap
+- **静态编译的后端**：仓颉无 VM、无 GC 抖动顾虑，协议层两百行可审计；
+- **零 Chromium 捆绑**：直接用系统 WebView（Linux WebKitGTK / Windows WebView2），单示例产物 4~10MB；
+- **能力安全模型**：`capabilities/` 白名单默认最小权限，未声明命令一律拒绝，与宿主实现解耦；
+- **插件体系**：`fs` / `dialog` / `shell` / `serial` / `store` / `clipboard` / `notification` / `menu` / `mqtt` / `redis` / `log` / `http` / `ws` / `sqlite` 十四个官方插件，
+  一行接入，权限（命令级白名单 + 命名权限集 + 路径 scope）仍由清单决定；
+- **全链路可验证**：桥 stderr 即时取证 + 页面自检断言回传，每个示例都能无人值守自检；
+- **配套脚手架**：`cj-tauri create/dev/build/run/info/doctor`，能力清单、GUI 子系统、跨平台链接的坑框架替你踩完；
+  `doctor` 逐行给「缺了什么、怎么补」，新机器第一件事跑它。
+
+## 安全模型：可被外部审视的证据
+
+安全设计不靠文字自证——下面的每条断言都对应 `src/tests/` 里的真实用例
+（`bash scripts/test.sh` 可复跑，当前 **348 条全绿**；详细设计见 `docs/安全模型.md`）：
+
+| 威胁 | 防线 | 断言（测试用例） |
+|---|---|---|
+| 页面调未授权命令 | 能力清单默认最小权限，未声明即拒 | `testHubRejectsCommandNotAllowed` / `testRegistryEmptyDeniesEverything` |
+| 页面调未注册命令 | 命令必须实现+注册+放行三处齐全 | `testHubRejectsUnregisteredCommand` |
+| 页面发未声明事件 | 事件同样进白名单 | `testEmitRequiresDeclaredEvent` / `testFrontendEmitDeniedEventIsRejected` |
+| 只注册权限集、清单没引用 | 集声明 ≠ 放行 | `testRegisteredPermissionSetNotReferencedStaysDenied` |
+| 声明了没人提供的权限集 | 只提示不生效，不静默放行 | `testPermissionSetWithoutProviderIsInert` |
+| 路径穿越 / 越界读写 | 路径 scope：先 deny 后 allow，`..` 词法折叠 + 规范化 | `scope_test.cj`（`*` 不跨目录分隔符、`**` 跨、deny 命中即拒） |
+| 运行期加白被滥用 | 注册中心拒通配，只收具体值 | `testRuntimeAllowExtendsManifestScope` |
+| 页面可控 URL 出网（SSRF） | http/ws 主机白名单，没写 = 全拒 | `plugin_http_test.cj` 9 条（userinfo 伪造 / 非 http 协议 / IPv6 字面量 等） |
+| 慢命令冻住 UI 线程 | 命令异步分发，worker 执行 | `testDispatchReturnsBeforeSlowCommandFinishes` |
+| 异常静默吞掉 | 拒绝/异常都回投前端 + stderr 留痕 | `testHubReportsCommandException` / `testHubReportsUnexpectedException` |
+
 ## 示例一览
 
 `examples/` 下二十八个可直接运行的桌面示例（另有 4 个鸿蒙 PC 工程在 `examples/ohos*` 下），
@@ -233,6 +152,35 @@ cli\cj-tauri.bat create myapp && cd myapp
 （app / app-vue / app-react，均为 `cj-tauri.toml` 清单 + 业务 static 包 + `assets/` 的新形态，
 骨架由 `cj-tauri sync` 派生；鸿蒙工程用 `create --template ohos` 生成同款统一工程）。
 各示例的完整说明与自检方式见各自目录的 README。
+
+**动图实机效果**——用 cj-tauri 实现的 **AI 对话客户端**（`examples/ai-chat`，聊天直连服务商 / Agent 接本机 cjh 两种模式；单文件包约 10 MB，见[方式一](#方式一直接下载单文件工具免安装免-sdk)）：
+
+![ai-chat 模式切换](docs/images/ai-chat-mode-switch.gif)
+
+*聊天（直连服务商）→ Agent（接本机 cjh）一键切换：侧栏改口、四面板就位、徽章显示 cjh 侧真实模型。*
+
+![ai-chat 缺 cjh 引导](docs/images/ai-chat-guide.gif)
+
+*缺 cjh 时切 Agent 出引导卡：一键部署（用仓库自带安装包，本地 SHA256 校验后解包启动，不走网络）；
+失败回落手动安装——按平台给产物名与下载地址，选一次可执行文件当场拉起并记住路径。*
+
+顺手把**九家模型的网页版**也做进了同一个窗口（不是一个站点一个壳，而是主窗内嵌的浏览器视图 + 顶栏标签条）：
+点「打开」就在当前窗口里跑起它自己的网页版——DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 /
+腾讯元宝 / MiniMax / ChatGPT，登录一次就记住（登录态落在同一个 WebView2 用户目录里），额度走各自的账号：
+
+![ai-chat 网页版标签页切换](docs/images/ai-chat-web-models.gif)
+
+*同一扇窗口里依次打开 DeepSeek → Kimi → 智谱清言 → MiniMax：标签一枚枚长出来，切换是原地切，不弹第二个窗。*
+
+| 内嵌网页版：DeepSeek | Kimi | MiniMax |
+| :--: | :--: | :--: |
+| ![DeepSeek 网页版](docs/images/example-ai-chat-web-deepseek.png) | ![Kimi 网页版](docs/images/example-ai-chat-web-kimi.png) | ![MiniMax 网页版](docs/images/example-ai-chat-web-minimax.png) |
+
+*内嵌的是**真实 WebView2 视图**而不是 iframe：站点按自己的规则跑 JS、自己发请求，窗口缩放时视图跟着重排；
+最多同时保留 4 枚视图（LRU 淘汰），标签可多于视图数，点回去重建视图、登录态仍在。*
+
+> 截图取自 Windows 实机。Linux 侧已实现同一套 `WebViewHost` 视图接口（GtkOverlay + GtkFixed）**但尚未实机取证**；
+> 鸿蒙侧的视图能力位为 0，`webtab:*` 命令会如实返回业务错误、不会假装成功。
 
 **业务向工具与应用**：
 
@@ -247,7 +195,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [sqlite-browser](examples/sqlite-browser) | **SQLite 数据库浏览器**：库对象 / 数据分页网格（排序、类型上色、超长单元格截断标记）/ SQL 调试台（只读与可写两个按钮）；**仓颉 FFI 直连系统 `libsqlite3`**（仓库首例，不经 C 桥），命令放行与路径 scope 两层、只读走内核级连接、`ATTACH` 由 authorizer 按语句拒；示例自带夹具对端，Linux 实机 E2E 49 条断言（含**进程外**只读复查页面写入的那一行） |
 | [serial-assistant](examples/serial-assistant) | **串口调试助手**：参数面板、TX/RX 分色收发日志、定时发送、探针自检 |
 | [cj-link](examples/cj-link) | **串口/网络二合一调试助手**：串口（serial 插件）+ 网络三模式（TCP 客户端 / TCP 服务器多客户端广播 / UDP，`std.net`）共用收发日志，HEX/ASCII 双显、发送队列、校验计算（CRC16-Modbus/CCITT 等，`link:crcCalc`）、定时发送（周期可调）、面板配置持久化（store 插件）；对端由 pty echo + TCP/UDP echo 扮演，Linux 实机 run.sh 33 条断言两侧对账 |
-| [ai-chat](examples/ai-chat) | **AI 对话客户端（cjh 桌面端）**：聊天（直连服务商，流式 Markdown）/ Agent（接本机 [cjh](https://atomgit.com/qq8864/cjh)：会话/技能/MCP/文件四面板 + 审批 + 模型透传）一键切换；缺 cjh 时给**能走完的引导**（按平台给下载产物、选一次可执行文件当场拉起并记住）；cjh 预编译包随仓 vendored，`scripts/pack-linux.sh` 出便携包 |
+| [ai-chat](examples/ai-chat) | **AI 对话客户端**：聊天（直连服务商，流式 Markdown）/ Agent（接本机 [cjh](https://atomgit.com/qq8864/cjh)：会话/技能/MCP/文件四面板 + 审批 + 模型透传）一键切换，缺 cjh 时给**能走完的引导**（按平台给下载产物、选一次可执行文件当场拉起并记住）；聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；**主窗内嵌九家模型的网页版**（见上方动图）；cjh 预编译包**随仓 vendored**（`examples/ai-chat/vendor/cjh/`），`scripts/pack-linux.sh` 出 Linux 便携包（页面自检 **56/56 全过**） |
 | [clipboard-history](examples/clipboard-history) | **剪贴板历史管理器**：**托盘** + **全局快捷键**两个能力位的首个消费者，**Windows（`Shell_NotifyIconW` / `RegisterHotKey`）与 Linux（libayatana-appindicator3 可选编译 / X11 grab）都已跑通**——托盘菜单（显示面板 / 清空 / 退出）与 `Ctrl+Alt+V` 唤回全走框架事件（`tray:click` / `hotkey:press`），**「最小化到托盘」走宿主基元**（`WindowConfig.minimizeToTray`，平台上没装托盘就如实降级为普通最小化并打 stderr）；历史捕获是前端 500ms 轮询 `clipboard:read` 去重（零新命令），点击条目 `clipboard:write` 回写并以 `xclip -o`（Linux）/ 系统剪贴板读回（Windows）对账；Linux 实机 E2E 15/15，Windows 侧另有实机链「最小化 → 窗口隐藏 → 快捷键唤回」 |
 | [serial-waveform](examples/serial-waveform) | **串口实时波形示波器**：`serial` 插件 + canvas 双缓冲自绘，行协议 `<序号>,<值>`；400 Hz 样本流下页面自算速率/上穿/丢帧，实机取证见该目录 README |
 | [movie](examples/movie) | **观影应用**：榜单/搜索/详情/播放，数据全由仓颉侧 HTTP 取回，前端零 fetch |
@@ -262,16 +210,18 @@ cli\cj-tauri.bat create myapp && cd myapp
 | [hello](examples/hello) | 最小闭环：`invoke` 命令 + 事件推送 + 越权拒绝 |
 | [todo_check](examples/todo_check) / [vue_todo](examples/vue_todo) | 待办清单（零 Node 版与 Vue 3 + Vite 工程版，同一套命令） |
 | [plugin-fs](examples/plugin-fs) / [plugin-dialog](examples/plugin-dialog) / [plugin-shell](examples/plugin-shell) / [plugin-serial](examples/plugin-serial) | 官方插件四件套：文件读写（含**路径 scope 对照**）/ 原生对话框 / 打开链接与子进程 / 串口，各带权限对照 |
-| 框架内置 `store` 插件 | 持久化键值（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它 |
-| 框架内置 `clipboard` / `notification` 插件 | 系统剪贴板读写 / 系统通知（RFC-003 第 3 期）：Linux 实机取证（外部回读剪贴板、会话总线上实收通知），Windows 侧同名桩且能力位如实上报 |
-| 框架内置 `log` 插件 + 日志落盘（RFC-003 第 5 期） | `app.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(app)` 把仓颉侧与 C 桥的诊断落进同一份文件（**fd 级接管**，超预算轮转 `.1`…`.keep`）；`CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可为**已分发的 exe** 就地开日志，`system:host` 的 `logFile` 回读生效路径，页面 `log:write` / `log:path` 同走一个出口 |
-| 框架内置 `http` 插件（SEC-006 白名单收口） | 页面可控的出网口：`http:get` / `http:post` / `http:delete` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat`（AI 对话客户端）是首个消费者 |
-| 框架内置 `ws` 插件（长连接出网口） | `ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` 事件，主机白名单写在能力清单 `scopes.ws`（**没写 = 全拒**，与 `http` 插件同构、共用核心层 `urlHostOf`）；握手用 stdx 自带 `WebSocket.upgradeFromClient`，不手写协议 |
-| [示例 examples/ai-chat](examples/ai-chat) | **cjh 的桌面客户端**：聊天流式走 `ws` 插件、会话/技能/MCP/文件四面板走 `http` 插件；另有 AI 对话客户端本体的多会话 + 多服务商（自定义 Base URL / API Key / 模型）、流式 Markdown 渲染（模型输出先转义再放行标记）、托盘 + 全局快捷键 + 最小化到托盘 + 日志落盘，**零新命令**；UI 侧含会话搜索 / 行内改名 / 侧栏收起 / 输入框自适应 / 文件预览与面包屑 / 工作区切换、停止生成与工具调用 chip、设置页（内联于主区 + 常驻底栏，打开即定位当前服务商）、**「聊天（直连）/ Agent（cjh）」模式开关**（默认聊天：模型选择真的生效；Agent 才连 cjh，徽章显示 cjh 侧真实模型）；cjh 预编译包**随仓 vendored**（`examples/ai-chat/vendor/cjh/`，更新时手动替换包、不做首次联网下载），`scripts/pack-linux.sh` 出 Linux 目录式便携包（包内自带 cjh，65 条自检全过）（页面自检 **56/56 全过**） |
 | [menu](examples/menu) | 原生菜单栏（Windows + Linux 实机点选证据） |
 | [ipc-bench](examples/ipc-bench) | IPC 性能探针：往返延迟 / 吞吐 / payload 放大 / 事件成本 |
 | [ipc-coalesce](examples/ipc-coalesce) | 事件合并探针：`emitLatest`（同帧槽位 + rAF 批刷，尾值必达）与 `emit` 的对照——`emitLatest × 50` 合并成个位数次回调、`emit × 50` 老老实实 50 次，默认行为一行没改 |
 | [multi-window](examples/multi-window) | 多窗口：同一份 HTML 起两窗，角色由自己的 label 决定；两窗**同时**开原生对话框各预置 `probe-<label>.txt`，验证宿主回调按句柄路由不串台 |
+
+**框架内置插件**（随框架分发，无需单独示例目录；设计见[插件体系教程](docs/插件体系教程.md)）：
+
+- 持久化键值 `store` 插件（RFC-003 第 2 期）：任意 JSON、原子写（tmp + rename）、命名集 `store:readonly`/`store:default`；`examples/music` 已迁移到它
+- `clipboard` / `notification` 插件（RFC-003 第 3 期）：系统剪贴板读写 / 系统通知，Linux 实机取证（外部回读剪贴板、会话总线上实收通知），Windows 侧同名桩且能力位如实上报
+- `log` 插件 + 日志落盘（RFC-003 第 5 期）：`app.setLogFile(path[, maxKB, keep])` / `setLogToDefaultFile(app)` 把仓颉侧与 C 桥的诊断落进同一份文件（**fd 级接管**，超预算轮转 `.1`…`.keep`）；`CJ_TAURI_LOG` / `CJ_TAURI_LOG_MAX_KB` / `CJ_TAURI_LOG_KEEP` 可为**已分发的 exe** 就地开日志，`system:host` 的 `logFile` 回读生效路径，页面 `log:write` / `log:path` 同走一个出口
+- `http` 插件（SEC-006 白名单收口）：页面可控的出网口——`http:get` / `http:post` / `http:delete` / `http:postStream`（SSE 流式经 `http:chunk` 事件按块回投），主机白名单写在能力清单 `scopes.http`（**没写 = 全拒**）、禁自动重定向、8 MiB 上限；`examples/ai-chat` 是首个消费者
+- `ws` 插件（长连接出网口）：`ws:connect` / `ws:send` / `ws:close` + `ws:frame` / `ws:state` 事件，主机白名单写在能力清单 `scopes.ws`（**没写 = 全拒**，与 `http` 插件同构、共用核心层 `urlHostOf`）；握手用 stdx 自带 `WebSocket.upgradeFromClient`，不手写协议
 
 **生态项目**（独立仓库，基于 cj-tauri 构建、不在 `examples/` 里）：
 
@@ -279,7 +229,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 |---|---|
 | [cjnote](https://atomgit.com/qq8864/cjnote) | **AI 原生 Markdown 笔记**：三栏（笔记库 / 编辑区 / AI 助手）+ 三态视图（编辑/分屏/预览，`Ctrl+1/2/3`）；**原生菜单栏 + 副标题**——文件 / 视图 / 帮助 三个顶层菜单，标题·保存状态·字数推进系统菜单行右侧（能力位不给就退回页面顶栏）；侧栏「大纲」页签抽 1~3 级标题点击跳行；AI 上下文只给**指针**——默认只带当前笔记的**绝对路径**（正文由 AI 自己按需读取，保证读到的永远是盘上最新内容），勾「问笔记库」才要求这一轮做全库检索，选区改写 / 续写 / 翻译走 **diff 确认**；`Ctrl+O` 打开库外 `.md` 只进内存作草稿（首次 `Ctrl+S` 才落库，绝不静默改写原文件）、`Ctrl+P` 页内快速打开；**AI 全走 cjh**（随包预编译产物 + 整页设置可改地址/密钥/模型并即时生效，自带「测试连通」），页面零 `fetch`；Linux 实机页面自检 **90 PASS / 2 FAIL**（仅有的 2 条 FAIL 为真实服务商聊天往返，随厂商可用性波动）；**AI 面板可折叠**（面板头「»」/ `Ctrl+4` / 视图菜单「显示 AI 助手」，隐藏后工具条出「✦ AI 助手」把手唤回，状态落盘） |
 
-部分示例截图（全部为实机截图，完整集见各示例 README）：
+**实机截图墙**（全部为实机截图，完整集见各示例 README）：
 
 | [markdown-notes](examples/markdown-notes)：文件树 / 编辑 / 实时预览 | [sqlite-browser](examples/sqlite-browser)：分页网格 + SQL 调试台 |
 |---|---|
@@ -294,10 +244,12 @@ cli\cj-tauri.bat create myapp && cd myapp
 | ![观影应用](docs/images/example-movie.png) | ![音乐播放器](docs/images/example-music-playing.png) |
 | [ai-chat](examples/ai-chat)：聊天模式（直连，流式 Markdown） | [ai-chat](examples/ai-chat)：Agent 模式（cjh 已连接 + 四面板） |
 | ![AI 对话客户端：聊天模式](docs/images/example-ai-chat-chat.png) | ![AI 对话客户端：Agent 模式](docs/images/example-ai-chat-agent.png) |
-| [cjnote](https://atomgit.com/qq8864/cjnote)（生态项目）：分屏编辑 + AI 助手，顶栏并入原生菜单行 | [cjnote](https://atomgit.com/qq8864/cjnote)：原生「视图」菜单（三态与主题勾选同步） |
-| ![cjnote：分屏编辑 + AI 助手](docs/images/example-cjnote.png) | ![cjnote：原生视图菜单](docs/images/example-cjnote-menu.png) |
-| [ohos-music](examples/ohos/ohos-music)：鸿蒙 PC 音乐播放器（同步歌词） | [ohos-movie](examples/ohos/ohos-movie)：鸿蒙 PC 观影应用 |
-| ![仓颉爱音乐（鸿蒙 PC）](docs/images/example-ohos-music.jpg) | ![仓颉观影（鸿蒙 PC）](docs/images/example-ohos-movie.jpg) |
+| [modbus-poll](examples/modbus-poll)：多面板监控 + 报文监视逐帧滚动 Tx/Rx 十六进制 | [cjnote](https://atomgit.com/qq8864/cjnote)（生态项目）：分屏编辑 + AI 助手，顶栏并入原生菜单行 |
+| ![Modbus Poll (cj-tauri) 主界面](examples/modbus-poll/images/modbus-poll-main.png) | ![cjnote：分屏编辑 + AI 助手](docs/images/example-cjnote.png) |
+| [cjnote](https://atomgit.com/qq8864/cjnote)（生态项目）：原生「视图」菜单（三态与主题勾选同步） | [ohos-music](examples/ohos/ohos-music)：鸿蒙 PC 音乐播放器（同步歌词） |
+| ![cjnote：原生视图菜单](docs/images/example-cjnote-menu.png) | ![仓颉爱音乐（鸿蒙 PC）](docs/images/example-ohos-music.jpg) |
+| [ohos-movie](examples/ohos/ohos-movie)：鸿蒙 PC 观影应用（封面经宿主侧带 Referer / UA 取回，绕开防盗链） | [ohos 统一工程](examples/ohos)：`create --template ohos` 生成物，`sync ohos` 派生的 `build-hap.sh` 编出可签安装的 hap |
+| ![仓颉观影（鸿蒙 PC）](docs/images/example-ohos-movie.jpg) | ![cj-tauri create --template ohos 生成物（鸿蒙 PC 实机）](docs/images/example-ohos-template.jpg) |
 
 ## 架构
 
@@ -359,6 +311,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 |---|---|
 | [使用文档](docs/使用文档.md) | 环境准备 → 创建应用 → 开发 → 排障（权威上手文档） |
 | [前端入门教程](docs/前端入门教程.md) | 零基础把前端跑起来：目录约定 → 桥 API → 事件 → 能力清单 → 完整实战 |
+| [hello-world 入门教程](docs/hello-world-入门教程.md) | npm 版 CLI 从 create 到实机跑通的完整记录（含两个实测坑） |
 | [插件体系教程](docs/插件体系教程.md) | 插件是干嘛的 → 一行接入官方插件 → 自己写一个 |
 | [IPC 通信机制](docs/IPC-通信机制.md) | 协议报文 → 完整时序 → 实测性能（与 WebSocket/裸 TCP 对照） |
 | [movie 实战](docs/cj-tauri-介绍与movie实战.md) / [打字游戏实战](docs/仓颉版Tauri-打字游戏实战.md) / [音乐播放器实战](docs/仓颉版Tauri-音乐播放器实战.md) | 三个业务示例的逐块拆解 |

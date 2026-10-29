@@ -5,7 +5,7 @@
 **简体中文** · [**English**](./README.md)
 
 **用仓颉语言实现的桌面应用混合开发框架 —— 仓颉静态编译后端 + 系统 WebView 前端。**
-前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–10.3 MB，
+前端照写 Web，后端是仓颉静态编译的二进制 —— 不打包 Chromium，产物 4.7–32.8 MB，
 Windows / Linux / 鸿蒙 PC（2in1）三端实机跑通。
 
 IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门）· 14 个官方插件 ·
@@ -38,28 +38,28 @@ IPC 双向桥 · 能力白名单（命令 / 事件 / 路径 / 出网四道闸门
 
 | 工具 | 说明 |
 |---|---|
-| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe)（5.48MB） | 串口/网络二合一调试助手：串口 + TCP 客户端/服务器 + UDP 共用收发日志，HEX/ASCII 双显、发送队列、CRC 计算、定时发送，[中文说明](examples/cj-link/README.md) |
-| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe)（5.59MB） | Modbus TCP/RTU 调试工具：多面板并行监控、FC 01-04/05/06/15/16、报文监视、CSV 记录，[中文说明](examples/modbus-poll/README.md) |
-| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe)（4.69MB） | 串口实时波形示波器：400 Hz 样本流下页面自算速率/上穿/丢帧，[中文说明](examples/serial-waveform/README.md) |
+| [cj-link.exe](examples/cj-link/dist-single/cj-link.exe)（5.6MB） | 串口/网络二合一调试助手：串口 + TCP 客户端/服务器 + UDP 共用收发日志，HEX/ASCII 双显、发送队列、CRC 计算、定时发送，[中文说明](examples/cj-link/README.md) |
+| [modbus-poll.exe](examples/modbus-poll/dist-single/modbus-poll.exe)（5.7MB） | Modbus TCP/RTU 调试工具：多面板并行监控、FC 01-04/05/06/15/16、报文监视、CSV 记录，[中文说明](examples/modbus-poll/README.md) |
+| [serial-waveform.exe](examples/serial-waveform/dist-single/serial-waveform.exe)（4.7MB） | 串口实时波形示波器：400 Hz 样本流下页面自算速率/上穿/丢帧，[中文说明](examples/serial-waveform/README.md) |
 
 **效率与学习类**：
 
 | 工具 | 说明 |
 |---|---|
-| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe)（4.78MB） | Markdown 笔记：文件树 / 编辑 / 实时预览三态切换，marked + Highlight.js 内联，[中文说明](examples/markdown-notes/README.md) |
-| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe)（9.79MB） | 仓颉力扣：题库 + 编辑器 + 判题终端，判题器就是 `cjc`，[中文说明](examples/leetcode-gui/README.md) |
+| [markdown-notes.exe](examples/markdown-notes/dist-single/markdown-notes.exe)（5.0MB） | Markdown 笔记：文件树 / 编辑 / 实时预览三态切换，marked + Highlight.js 内联，[中文说明](examples/markdown-notes/README.md) |
+| [leetcode-gui.exe](examples/leetcode-gui/dist-single/leetcode-gui.exe)（9.9MB） | 仓颉力扣：题库 + 编辑器 + 判题终端，判题器就是 `cjc`，[中文说明](examples/leetcode-gui/README.md) |
 
 **示例应用类**：
 
 | 应用 | 说明 |
 |---|---|
-| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe)（10.3MB） | AI 对话客户端：多会话 / 多服务商流式 Markdown 聊天，Agent 模式接本机 cjh；**主窗内嵌九家模型的网页版**（DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 / 腾讯元宝 / MiniMax / ChatGPT，顶栏标签条切换、登录态记住），[中文说明](examples/ai-chat/README.md) |
-| [music.exe](examples/music/dist-single/music.exe)（9.50MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
-| [movie.exe](examples/movie/dist-single/movie.exe)（9.42MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
-| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.50MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
+| [ai-chat.exe](examples/ai-chat/dist-single/ai-chat.exe)（25.3MB） | AI 对话客户端：多会话 / 多服务商流式 Markdown 聊天，Agent 模式接本机 cjh；**主窗内嵌九家模型的网页版**（DeepSeek / Kimi / 通义千问 / 智谱清言 / 文心一言 / 豆包 / 腾讯元宝 / MiniMax / ChatGPT，顶栏标签条切换、登录态记住），[中文说明](examples/ai-chat/README.md) |
+| [music.exe](examples/music/dist-single/music.exe)（9.7MB） | 音乐播放器：榜单/歌单/收藏 + 同步歌词 + 4 套主题色，[中文说明](examples/music/README.md) |
+| [movie.exe](examples/movie/dist-single/movie.exe)（9.6MB） | 观影应用（数据取自第三方公开接口，[仅供学习研究](examples/movie/README.md#用途与免责声明)） |
+| [typing-poem.exe](examples/typing-poem/dist-single/typing-poem.exe)（5.7MB） | 古诗词打字练习（小学生向）：three.js 3D 卡面，[中文说明](examples/typing-poem/README.md) |
 | [cjnote.exe](examples/cjnote/dist-single/cjnote.exe)（32.8MB） | AI 原生 Markdown 笔记：三栏布局 + 原生菜单栏 + **内嵌 cjh AI 后端**（安装即用，退出自动收尾）；体积大是因为 cjh 后端整体嵌进了 exe，[中文说明](examples/cjnote/README.md) |
 
-体积与依赖都是**实测**的：十份产物 4.69–32.8 MB，全部单文件免安装、双击即用，不捆绑任何第三方运行时。
+体积与依赖都是**实测**的：十份产物 4.7–32.8 MB，全部单文件免安装、双击即用，不捆绑任何第三方运行时。
 复核方式见 [`docs/分发形态实测.md`](docs/分发形态实测.md)，一条命令复核：`bash scripts/dist-report.sh`。
 
 ### 方式二：npm 写你自己的应用（推荐）
@@ -127,7 +127,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 ## 安全模型：可被外部审视的证据
 
 安全设计不靠文字自证——下面的每条断言都对应 `src/tests/` 里的真实用例
-（`bash scripts/test.sh` 可复跑，当前 **348 条全绿**；详细设计见 `docs/安全模型.md`）：
+（`bash scripts/test.sh` 可复跑，当前 **349 条全绿**；详细设计见 `docs/安全模型.md`）：
 
 | 威胁 | 防线 | 断言（测试用例） |
 |---|---|---|
@@ -150,7 +150,7 @@ cli\cj-tauri.bat create myapp && cd myapp
 骨架由 `cj-tauri sync` 派生；鸿蒙工程用 `create --template ohos` 生成同款统一工程）。
 各示例的完整说明与自检方式见各自目录的 README。
 
-**动图实机效果**——用 cj-tauri 实现的 **AI 对话客户端**（`examples/ai-chat`，聊天直连服务商 / Agent 接本机 cjh 两种模式；单文件包约 10 MB，见[方式一](#方式一直接下载单文件工具免安装免-sdk)）：
+**运行效果（动图）**——用 cj-tauri 实现的 **AI 对话客户端**（`examples/ai-chat`，聊天直连服务商 / Agent 接本机 cjh 两种模式；单文件包约 25 MB，见[方式一](#方式一直接下载单文件工具免安装免-sdk)）：
 
 ![ai-chat 模式切换](docs/images/ai-chat-mode-switch.gif)
 
@@ -349,7 +349,7 @@ atomcode plugin install cj-tauri-skills@cj-tauri-skills
 - ✅ 宿主能力位：菜单 / **托盘** / **全局快捷键** / 文件拖入 / 通知——Windows（WebView2）与
   Linux（WebKitGTK）双实现、`system:host` 如实上报；「最小化到托盘」是宿主基元（`minimizeToTray`，
   没装托盘就如实降级为普通最小化）
-- ✅ 工程化：348 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
+- ✅ 工程化：349 个单元测试 + 免 SDK 静态门禁（CI 跑的就是它）+ 示例无人值守自检
 - ✅ 鸿蒙 PC（ArkWeb，2in1 桌面窗）：页面 `system:version` 往返、多窗口 label 路由、`music` / `movie` 两个示例
   真机闭环，`cj-tauri create --template ohos` 直接生成可直接编 hap 的工程
 - 🔜 鸿蒙宿主其余能力位（菜单已真机取证；托盘 / 快捷键 / 拖放 / 通知仍如实报 0，对话框不占能力位走应用侧 overlay）、macOS WebView、更多官方插件

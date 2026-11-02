@@ -397,7 +397,7 @@ func readBizFrameworkPath(): Option<String> {
         if (b == 10) {                       // '\n'：行结束，处理这一行
             let hit = pathFromCjTauriLine(line)
             if (let Some(p) <- hit) {
-                return Some(absolutizeBizPath(p))
+                return bizFrameworkPathOf(p)
             }
             line.clear()
         } else if (b != 13) {                // 跳过 '\r'
@@ -407,9 +407,67 @@ func readBizFrameworkPath(): Option<String> {
     // 文件无结尾换行时的最后一行
     let last = pathFromCjTauriLine(line)
     if (let Some(p) <- last) {
-        return Some(absolutizeBizPath(p))
+        return bizFrameworkPathOf(p)
     }
     return None
+}
+
+/**
+ * 业务包声明的框架路径 → 可用框架根（issue #7）。
+ * lingqu 0.13.1+ 起 `cjpm.toml` 依赖写 `path = "${CJ_TAURI_ROOT}"`——cjpm 对
+ * dependencies.path 与 link-option 都会展开环境变量，但 sync 这里先前拿到的是
+ * **字面量**（`${CJ_TAURI_ROOT}` 拼进 cwd 变成不存在的目录），导致 sync 必挂而
+ * 构建正常。修法：
+ *   ① `${VAR}` 形式 → 用 std.env.getVariable 展开（未定义的变量保留原样）；
+ *   ② 绝对化后路径不存在 → 回退 resolveFrameworkRoot()（CJ_TAURI_ROOT / 仓内定位），
+ *      与「读不到声明回 None」的旧行为一致——字面量不是声明，别拿它继续走。
+ */
+func bizFrameworkPathOf(p: String): Option<String> {
+    let expanded = expandVarPlaceholders(p)
+    let abs = absolutizeBizPath(expanded)
+    if (exists(Path(abs))) {
+        return Some(abs)
+    }
+    return resolveFrameworkRoot()
+}
+
+/** 把字符串里的 `${VAR}` 逐个展开为环境变量值；未定义的变量保留原样（可诊断） */
+func expandVarPlaceholders(p: String): String {
+    var out = ""
+    var i = 0
+    let bytes = p.toArray()
+    let n = bytes.size
+    while (i < n) {
+        // '${'（0x24 0x7B）开头 → 读到 '}'（0x7D）
+        if (bytes[i] == 36 && i + 1 < n && bytes[i + 1] == 123) {
+            var j = i + 2
+            var name = ArrayList<Byte>()
+            var closed = false
+            while (j < n) {
+                if (bytes[j] == 125) {       // '}'
+                    closed = true
+                    break
+                }
+                name.add(bytes[j])
+                j += 1
+            }
+            if (closed && name.size > 0) {
+                let varName = String.fromUtf8(name.toArray())
+                // 未定义时保留的原文形如 ${VAR}——"$" 与 "{" 分开拼，避免字面量
+                // "${" 被当成插值起始符（没有配对 "}" 就报 unterminated）
+                let orig = "$" + "{" + varName + "}"
+                out += valueOfVar(varName, orig)
+                i = j + 1
+            } else {
+                out += String.fromUtf8([bytes[i]])
+                i += 1
+            }
+        } else {
+            out += String.fromUtf8([bytes[i]])
+            i += 1
+        }
+    }
+    return out
 }
 
 /** 行里含 "cjTauri" 时，取首个引号对之间的内容（模板生成的行即 `  cjTauri = { path = "..." }`，
@@ -477,6 +535,14 @@ func absolutizeBizPath(p: String): String {
         return p
     }
     return currentDir() + "/" + p
+}
+
+/** 环境变量取值，未定义回原样（保留 ${VAR} 原文，好诊断）——case 块里只放 return */
+func valueOfVar(name: String, orig: String): String {
+    match (getVariable(name)) {
+        case Some(v) => return v
+        case None => return orig
+    }
 }
 
 // ---------- ohos 骨架（批次 3-PR3，RFC §7.3） ----------

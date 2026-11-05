@@ -1,7 +1,6 @@
 package cookieExport
 
 import std.collection.*
-import std.env.*
 import std.fs.*
 import std.unittest.*
 import std.unittest.testmacro.*
@@ -145,6 +144,85 @@ class CookieStoreTest {
         let home = homeDir()
         @Expect(home.size > 0, true)
         @Expect(exists(home), true)
+    }
+
+    /**
+     * 平台表自洽性：加平台时最容易漏的两件事在这里钉住。
+     *
+     * 一是 id / configKey 重复——`findPlatform` 按 id 线性找，重复会命中错的那家，
+     * 导出时把 A 平台的 cookie 写进 B 平台的键。
+     * 二是加了平台却忘了同步 `KNOWN_CONFIG_KEYS`——后果是合并写把该平台凭证当成未知键丢掉，
+     * 界面上完全看不出来，只有下次发文 401 才会暴露。加平台必改两处，这条测试让「漏一处」变红。
+     */
+    @TestCase
+    func platformTableIntegrity(): Unit {
+        let list = allPlatforms()
+        @Expect(list.size > 0, true)
+        for (i in 0..list.size) {
+            // ArrayList.get 返回 Option，这里要的是元素本身，用下标访问
+            let p = list[i]
+            @Expect(p.id.size > 0, true)
+            @Expect(p.name.size > 0, true)
+            @Expect(p.filter.size > 0, true)
+            @Expect(p.loginUrl.startsWith("https://"), true)
+            // 必需字段不能空：空清单等于「什么都能导出」，卡片永远绿，工具就失去意义了
+            @Expect(p.required.size > 0, true)
+
+            var known = false
+            for (k in KNOWN_CONFIG_KEYS) {
+                if (k == p.configKey) {
+                    known = true
+                }
+            }
+            @Expect(known, true)
+
+            for (j in 0..list.size) {
+                if (j > i) {
+                    let q = list[j]
+                    @Expect(p.id != q.id, true)
+                    @Expect(p.configKey != q.configKey, true)
+                }
+            }
+        }
+    }
+
+    /**
+     * 待支持四家的字段与调研结论一致（cspub `docs/多平台发文调研.md`）：
+     * 哪天有人改了这里的字段，先在这里红，而不是等到发文端接上去才发现名字对不上。
+     */
+    @TestCase
+    func pendingPlatformsLookup(): Unit {
+        let tencent = requirePlatform("tencent")
+        @Expect(tencent.configKey, "tencentCookie")
+        @Expect(tencent.filter, "tencent.com")
+        // 腾讯云 addArticle 纯 Cookie 鉴权：这两个齐了才算有登录态
+        @Expect(missingFields(tencent, cookiesOf(["skey", "qcommunity_session"])).size, 0)
+        @Expect(missingFields(tencent, cookiesOf(["skey"])).size, 1)
+
+        let toutiao = requirePlatform("toutiao")
+        @Expect(toutiao.configKey, "toutiaoCookie")
+        // 只给 sessionid 要报缺：少了 csrftoken，发文请求必被判跨站
+        @Expect(missingFields(toutiao, cookiesOf(["sessionid"])).size, 1)
+
+        let xhs = requirePlatform("xiaohongshu")
+        @Expect(xhs.filter, "xiaohongshu.com")
+        // a1 是设备指纹，缺了签名算不出来，必须算必需字段
+        @Expect(missingFields(xhs, cookiesOf(["web_session"])).size, 1)
+
+        let yuque = requirePlatform("yuque")
+        @Expect(yuque.required.size, 2)
+
+        // 未知 id 仍然要报错，不能静默落到某一家
+        @Expect(findPlatform("no-such-platform").isNone(), true)
+    }
+
+    /** 造一组 cookie 条目（只关心名字，值给非空即可） */
+    func cookiesOf(names: Array<String>): ArrayList<CookieEntry> {
+        let out = ArrayList<CookieEntry>()
+        for (n in names) {
+            out.add(CookieEntry(n, "v", ".example.com", true, 0, true))
+        }
+        return out
     }
 
     /** 测试专用目录：不碰用户真实的 ~/.cspub */

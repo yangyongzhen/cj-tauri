@@ -1,0 +1,15 @@
+{
+  "identifier": "app",
+  "windows": ["main"],
+  "commands": [
+    "cookie:platforms",
+    "cookie:probe",
+    "cookie:export",
+    "login:show",
+    "login:bounds",
+    "login:hide",
+    "login:close",
+    "quit"
+  ],
+  "events": []
+}

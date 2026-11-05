@@ -1077,6 +1077,367 @@ int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud) {
     return 1;
 }
 
+/* =========================================================================
+ *  Cookie 读取（「一键导出各平台登录态」类工具）
+ *
+ *  为什么必须走原生：httpOnly。知乎 z_c0、掘金 sessionid 这类会话令牌都带 httpOnly，
+ *  注入 JS 读 document.cookie 拿不到——导出「字段看着齐全、发文却 401」的文件比导不出来更难查。
+ *  WebView2 的 ICoreWebView2CookieManager::GetCookies 给的是全量快照（含 httpOnly 属性）。
+ *
+ *  形态与 Linux 侧同形：worker 线程 → 投 UI 线程 → 异步读 → 回填 JSON → 唤醒（带 5s 超时）。
+ *  GetCookies 按 uri 匹配 cookie 域，所以 filter 拼成 https://<filter>/；空 filter 用当前页 URL。
+ * ========================================================================= */
+
+typedef struct cookie_call {
+    cj_host *h;
+    char *filter;
+    char *json;
+    int ready;
+    int abandoned;   /* 等待方已超时放弃：结构由异步回调自己回收 */
+    CRITICAL_SECTION cs;
+    CONDITION_VARIABLE cv;
+} cookie_call;
+
+/* 极简动态字符串：Windows 侧没有 glib，为几段 JSON 引一个库不值当 */
+typedef struct cookie_sbuf {
+    char *p;
+    size_t len;
+    size_t cap;
+} cookie_sbuf;
+
+static int cookie_sb_add(cookie_sbuf *b, const char *s, size_t n) {
+    if (b->len + n + 1 > b->cap) {
+        size_t cap = b->cap ? b->cap : 1024;
+        char *np;
+        while (cap < b->len + n + 1) cap *= 2;
+        np = (char *)realloc(b->p, cap);
+        if (!np) return 0;
+        b->p = np;
+        b->cap = cap;
+    }
+    memcpy(b->p + b->len, s, n);
+    b->len += n;
+    b->p[b->len] = '\0';
+    return 1;
+}
+
+static int cookie_sb_puts(cookie_sbuf *b, const char *s) {
+    return cookie_sb_add(b, s ? s : "", s ? strlen(s) : 0);
+}
+
+/* JSON 转义写入（>=0x20 的字节原样输出，UTF-8 多字节序列不会被破坏）*/
+static int cookie_sb_json(cookie_sbuf *b, const char *s) {
+    const unsigned char *p = (const unsigned char *)(s ? s : "");
+    if (!cookie_sb_add(b, "\"", 1)) return 0;
+    for (; *p; p++) {
+        char esc[8];
+        switch (*p) {
+        case '"':  if (!cookie_sb_add(b, "\\\"", 2)) return 0; break;
+        case '\\': if (!cookie_sb_add(b, "\\\\", 2)) return 0; break;
+        case '\n': if (!cookie_sb_add(b, "\\n", 2)) return 0; break;
+        case '\r': if (!cookie_sb_add(b, "\\r", 2)) return 0; break;
+        case '\t': if (!cookie_sb_add(b, "\\t", 2)) return 0; break;
+        default:
+            if (*p < 0x20) {
+                int n = snprintf(esc, sizeof(esc), "\\u%04x", (unsigned)*p);
+                if (n > 0 && !cookie_sb_add(b, esc, (size_t)n)) return 0;
+            } else if (!cookie_sb_add(b, (const char *)p, 1)) {
+                return 0;
+            }
+        }
+    }
+    return cookie_sb_add(b, "\"", 1);
+}
+
+static char *cookie_dup(const char *s) {
+    size_t n;
+    char *p;
+    if (!s) s = "";
+    n = strlen(s);
+    p = (char *)malloc(n + 1);
+    if (!p) return NULL;
+    memcpy(p, s, n + 1);
+    return p;
+}
+
+static void cookie_call_free(cookie_call *c) {
+    if (!c) return;
+    free(c->filter);
+    free(c->json);
+    DeleteCriticalSection(&c->cs);
+    free(c);
+}
+
+/* 结果回填：等待方还在就交出去；已超时放弃就由这里回收结构 */
+static void cookie_call_set_result(cookie_call *c, char *json) {
+    int abandon;
+    EnterCriticalSection(&c->cs);
+    abandon = c->abandoned;
+    if (!abandon) {
+        c->json = json;
+        c->ready = 1;
+        WakeConditionVariable(&c->cv);
+    }
+    LeaveCriticalSection(&c->cs);
+    if (abandon) {
+        free(json);
+        cookie_call_free(c);
+    }
+}
+
+static void cookie_call_set_error(cookie_call *c, const char *msg) {
+    cookie_sbuf b;
+    memset(&b, 0, sizeof(b));
+    if (!cookie_sb_puts(&b, "{\"ok\":false,\"error\":") || !cookie_sb_json(&b, msg) ||
+        !cookie_sb_puts(&b, "}")) {
+        free(b.p);
+        cookie_call_set_result(c, cookie_dup("{\"ok\":false,\"error\":\"out of memory\"}"));
+        return;
+    }
+    cookie_call_set_result(c, b.p);
+}
+
+/* --- 完成 handler（一次性对象：Invoke 之后释放）--- */
+
+typedef struct cookies_hr {
+    ICoreWebView2GetCookiesCompletedHandler iface;
+    cookie_call *call;
+} cookies_hr;
+
+static HRESULT STDMETHODCALLTYPE cookies_QueryInterface(
+        ICoreWebView2GetCookiesCompletedHandler *This, REFIID riid, void **ppvObject) {
+    (void)riid;
+    if (ppvObject) *ppvObject = This;
+    return S_OK;
+}
+
+static ULONG STDMETHODCALLTYPE cookies_AddRef(ICoreWebView2GetCookiesCompletedHandler *This) {
+    (void)This;
+    return 1;
+}
+
+static ULONG STDMETHODCALLTYPE cookies_Release(ICoreWebView2GetCookiesCompletedHandler *This) {
+    (void)This;
+    return 1;
+}
+
+static HRESULT STDMETHODCALLTYPE cookies_Invoke(
+        ICoreWebView2GetCookiesCompletedHandler *This, HRESULT errorCode,
+        ICoreWebView2CookieList *result) {
+    cookies_hr *self = (cookies_hr *)This;
+    cookie_call *c = self ? self->call : NULL;
+    cookie_sbuf b;
+    UINT count = 0;
+    UINT i;
+    int first = 1;
+    int ok = 1;
+
+    if (!c) return S_OK;
+    free(self); /* 一次性 handler：Invoke 之后不会再被调用 */
+
+    if (FAILED(errorCode) || !result) {
+        char msg[96];
+        snprintf(msg, sizeof(msg), "cookie read failed: hr=0x%08lx", (unsigned long)errorCode);
+        cookie_call_set_error(c, msg);
+        if (result) result->lpVtbl->Release(result);
+        return S_OK;
+    }
+
+    if (FAILED(result->lpVtbl->get_Count(result, &count))) count = 0;
+
+    memset(&b, 0, sizeof(b));
+    {
+        char num[32];
+        snprintf(num, sizeof(num), "{\"ok\":true,\"count\":%u,\"cookies\":[", (unsigned)count);
+        ok = cookie_sb_puts(&b, num);
+    }
+
+    for (i = 0; ok && i < count; i++) {
+        ICoreWebView2Cookie *ck = NULL;
+        LPWSTR wn = NULL, wv = NULL, wd = NULL, wp = NULL;
+        char *n, *v, *d, *pa;
+        BOOL http_only = FALSE, secure = FALSE, is_session = FALSE;
+        DOUBLE expires = 0.0;
+        char num[80];
+
+        if (FAILED(result->lpVtbl->GetValueAtIndex(result, i, &ck)) || !ck) continue;
+
+        ck->lpVtbl->get_Name(ck, &wn);
+        ck->lpVtbl->get_Value(ck, &wv);
+        ck->lpVtbl->get_Domain(ck, &wd);
+        ck->lpVtbl->get_Path(ck, &wp);
+        ck->lpVtbl->get_IsHttpOnly(ck, &http_only);
+        ck->lpVtbl->get_IsSecure(ck, &secure);
+        ck->lpVtbl->get_IsSession(ck, &is_session);
+        ck->lpVtbl->get_Expires(ck, &expires);
+
+        n = wide_to_utf8(wn);
+        v = wide_to_utf8(wv);
+        d = wide_to_utf8(wd);
+        pa = wide_to_utf8(wp);
+
+        if (!first) ok = cookie_sb_add(&b, ",", 1);
+        first = 0;
+        ok = ok && cookie_sb_puts(&b, "{\"name\":") && cookie_sb_json(&b, n)
+                && cookie_sb_puts(&b, ",\"value\":") && cookie_sb_json(&b, v)
+                && cookie_sb_puts(&b, ",\"domain\":") && cookie_sb_json(&b, d)
+                && cookie_sb_puts(&b, ",\"path\":") && cookie_sb_json(&b, pa)
+                && cookie_sb_puts(&b, secure ? ",\"secure\":true" : ",\"secure\":false")
+                && cookie_sb_puts(&b, http_only ? ",\"httpOnly\":true" : ",\"httpOnly\":false");
+        if (ok) {
+            if (is_session || expires <= 0.0) {
+                snprintf(num, sizeof(num), ",\"expires\":0,\"session\":true");
+            } else {
+                snprintf(num, sizeof(num), ",\"expires\":%lld", (long long)expires);
+            }
+            ok = cookie_sb_puts(&b, num);
+        }
+        ok = ok && cookie_sb_add(&b, "}", 1);
+
+        if (wn) CoTaskMemFree(wn);
+        if (wv) CoTaskMemFree(wv);
+        if (wd) CoTaskMemFree(wd);
+        if (wp) CoTaskMemFree(wp);
+        free(n);
+        free(v);
+        free(d);
+        free(pa);
+        ck->lpVtbl->Release(ck);
+    }
+
+    ok = ok && cookie_sb_puts(&b, "]}");
+    result->lpVtbl->Release(result);
+
+    if (!ok) {
+        free(b.p);
+        cookie_call_set_error(c, "out of memory building cookie json");
+        return S_OK;
+    }
+    cookie_call_set_result(c, b.p);
+    return S_OK;
+}
+
+static const ICoreWebView2GetCookiesCompletedHandlerVtbl cookies_handler_vtbl = {
+    cookies_QueryInterface,
+    cookies_AddRef,
+    cookies_Release,
+    cookies_Invoke
+};
+
+/* UI 线程：发起 GetCookies */
+static void cookie_ui_start(void *ud) {
+    cookie_call *c = (cookie_call *)ud;
+    plat_host *p = (c && c->h) ? (plat_host *)c->h->plat : NULL;
+    ICoreWebView2_2 *wv2 = NULL;
+    ICoreWebView2CookieManager *cm = NULL;
+    wchar_t *uri = NULL;
+    cookies_hr *hr;
+
+    if (!c) return;
+    if (!p || !p->webview) {
+        cookie_call_set_error(c, "webview not ready");
+        return;
+    }
+    if (FAILED(p->webview->lpVtbl->QueryInterface(
+                p->webview, &IID_ICoreWebView2_2, (void **)&wv2)) || !wv2) {
+        cookie_call_set_error(c, "ICoreWebView2_2 unavailable (cookie store needs WebView2 88+)");
+        return;
+    }
+    if (FAILED(wv2->lpVtbl->get_CookieManager(wv2, &cm)) || !cm) {
+        wv2->lpVtbl->Release(wv2);
+        cookie_call_set_error(c, "cookie manager unavailable");
+        return;
+    }
+
+    if (c->filter && *c->filter) {
+        cookie_sbuf b;
+        memset(&b, 0, sizeof(b));
+        if (cookie_sb_puts(&b, "https://") && cookie_sb_puts(&b, c->filter) &&
+            cookie_sb_puts(&b, "/")) {
+            uri = utf8_to_wide(b.p);
+        }
+        free(b.p);
+    } else {
+        LPWSTR src = NULL;
+        if (SUCCEEDED(p->webview->lpVtbl->get_Source(p->webview, &src)) && src) {
+            size_t n = wcslen(src) + 1;
+            uri = (wchar_t *)malloc(n * sizeof(wchar_t));
+            if (uri) wmemcpy(uri, src, n);
+        }
+        if (src) CoTaskMemFree(src);
+    }
+
+    hr = (cookies_hr *)calloc(1, sizeof(*hr));
+    if (!hr || !uri) {
+        free(hr);
+        free(uri);
+        cm->lpVtbl->Release(cm);
+        wv2->lpVtbl->Release(wv2);
+        cookie_call_set_error(c, "out of memory building cookie request");
+        return;
+    }
+    hr->iface.lpVtbl = &cookies_handler_vtbl;
+    hr->call = c;
+    if (FAILED(cm->lpVtbl->GetCookies(cm, uri, &hr->iface))) {
+        free(hr);
+        free(uri);
+        cm->lpVtbl->Release(cm);
+        wv2->lpVtbl->Release(wv2);
+        cookie_call_set_error(c, "GetCookies call failed");
+        return;
+    }
+    free(uri);
+    cm->lpVtbl->Release(cm);
+    wv2->lpVtbl->Release(wv2);
+}
+
+char *cj_plat_get_cookies(cj_host *h, const char *filter) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    cookie_call *c;
+    char *json = NULL;
+
+    if (!p || !p->webview) {
+        return cookie_dup("{\"ok\":false,\"error\":\"webview not ready\"}");
+    }
+    if (p->thread_set && GetCurrentThreadId() == p->thread_id) {
+        /* 等待的事件得由 UI 线程处理：站在这里阻塞 = 自己把自己锁死 */
+        return cookie_dup("{\"ok\":false,\"error\":\"get_cookies must be called from a worker thread\"}");
+    }
+
+    c = (cookie_call *)calloc(1, sizeof(*c));
+    if (!c) return cookie_dup("{\"ok\":false,\"error\":\"out of memory\"}");
+    c->h = h;
+    c->filter = cookie_dup(filter ? filter : "");
+    if (!c->filter) {
+        free(c);
+        return cookie_dup("{\"ok\":false,\"error\":\"out of memory\"}");
+    }
+    InitializeCriticalSection(&c->cs);
+    InitializeConditionVariable(&c->cv);
+
+    if (!cj_plat_post_ui(h, cookie_ui_start, c)) {
+        cookie_call_free(c);
+        return cookie_dup("{\"ok\":false,\"error\":\"ui thread unavailable\"}");
+    }
+
+    EnterCriticalSection(&c->cs);
+    while (!c->ready) {
+        if (!SleepConditionVariableCS(&c->cv, &c->cs, 5000)) break; /* 超时：放弃等待 */
+    }
+    if (c->ready) {
+        json = c->json;
+        c->json = NULL;
+        LeaveCriticalSection(&c->cs);
+        cookie_call_free(c);
+    } else {
+        /* 超时不能释放结构：异步回调可能还在路上，交给它回收 */
+        c->abandoned = 1;
+        LeaveCriticalSection(&c->cs);
+        json = cookie_dup("{\"ok\":false,\"error\":\"timeout waiting for cookie store\"}");
+    }
+    return json;
+}
+
 /* ===== 剪贴板（plugin_clipboard 的平台层）：Win32 clipboard =====
    调用方保证已在宿主 UI 线程上（core 的 UI 线程分流负责）。OpenClipboard 带重试：
    剪贴板是系统单例，别的进程可能正占着（MSDN 建议的做法）。 */

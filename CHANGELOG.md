@@ -9,6 +9,27 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.1.2] - 2026-11-05
+
+### Added
+- **原生 CookieManager 桥**：`WebViewHost.cookiesJson(filter)`（C 层 `cj_bridge_get_cookies`）。
+  Linux 走 WebKitGTK `webkit_cookie_manager_get_all_cookies`，Windows 走 WebView2
+  `ICoreWebView2_2::getCookieManager` → `GetCookies`，回包形如 `{"ok":true,"cookies":[…]}`。
+  内嵌登录视图与主窗口共享同一 WebKit context / WebView2 environment，所以能读到 **httpOnly**
+  会话 cookie（`z_c0`、`sessionid`、`UserToken` 这类 `document.cookie` 读不到的字段）。
+  桥在 C 层对外阻塞、对内异步：平台层把读取投到 UI 线程，调用方限时等待，超时返回 `ok=false` 带原因。
+- `examples/cookie-export`：cspub 凭证助手示例——5 个平台（CSDN / 知乎 / 掘金 / 开源中国 / 百家号）
+  内嵌登录 → 提取 → 按 cspub 字段硬需求逐项校验 → 双格式落盘（`~/.cspub/config.json` 合并写，
+  不覆盖其他平台凭证；外加 `~/.cspub/cookie_<平台>`，600 权限）。含 8 个单元测试，覆盖桥回包解析、
+  域过滤、Cookie 头拼接、必需字段判定与合并写。
+
+### Fixed
+- Linux 桥每次「仓颉 → 前端」回投都刷一条 `GLib-GObject-CRITICAL: g_object_unref: assertion
+  'G_IS_OBJECT (object)' failed`：`on_js_done` 用的是已弃用的 `webkit_web_view_run_javascript`，
+  其 finish 返回值在本机 WebKitGTK 2.52 上不该按 `g_object_unref` 释放（gdb 栈
+  `on_js_done → g_log → g_logv`）。改用 `evaluate_javascript`（返回 `JSCValue`，transfer full）后
+  实测告警归零，桥编译期的 deprecated 警告同时清空。
+
 ## [2.1.1] - 2026-10-26
 
 ### Added

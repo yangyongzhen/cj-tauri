@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookie 导出 · cspub 凭证助手</title>
+<style>
+  /* 这个页面只做一件事：让「登录 → 提取 → 导出」在同一个窗口里走完。
+     视觉上刻意安静：一屏 5 张卡片，一眼能看出哪个平台缺哪个字段。 */
+  :root {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --panel-2: #1d222a;
+    --line: #2a303a;
+    --text: #e6e9ee;
+    --muted: #8b95a5;
+    --ok: #35c07a;
+    --warn: #e0a13a;
+    --err: #e35d5d;
+    --idle: #5b6472;
+    --accent: #4d8df2;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.55;
+    /* 页面不滚动：内嵌登录视图按页面坐标铺位，滚动会让原生视图与 DOM 错位 */
+    overflow: hidden;
+  }
+  .app { display: flex; flex-direction: column; height: 100%; }
+
+  header {
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header .spacer { flex: 1; }
+  header .hint { color: var(--muted); font-size: 12px; }
+
+  main { flex: 1; overflow-y: auto; padding: 20px 24px 28px; }
+
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 196px;
+  }
+  .card-top { display: flex; align-items: center; gap: 9px; }
+  .card-top h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .card-top .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--idle);
+    flex: none;
+  }
+  .card-top .dot.ok { background: var(--ok); }
+  .card-top .dot.warn { background: var(--warn); }
+  .card-top .dot.err { background: var(--err); }
+  .card-top .badge {
+    margin-left: auto; font-size: 11.5px; padding: 2px 8px; border-radius: 20px;
+    border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+  }
+  .card-top .badge.ok { color: var(--ok); border-color: rgba(53,192,122,.35); background: rgba(53,192,122,.08); }
+  .card-top .badge.warn { color: var(--warn); border-color: rgba(224,161,58,.35); background: rgba(224,161,58,.08); }
+  .card-top .badge.err { color: var(--err); border-color: rgba(227,93,93,.35); background: rgba(227,93,93,.08); }
+
+  .note { color: var(--muted); font-size: 12.5px; min-height: 34px; }
+
+  .fields { display: flex; flex-wrap: wrap; gap: 6px; min-height: 26px; }
+  .chip {
+    font-size: 11.5px; padding: 2px 7px; border-radius: 5px;
+    border: 1px solid var(--line); color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .chip.has { color: var(--ok); border-color: rgba(53,192,122,.35); background: rgba(53,192,122,.07); }
+  .chip.miss { color: var(--err); border-color: rgba(227,93,93,.35); background: rgba(227,93,93,.07); }
+  .chip.opt.has { color: var(--accent); border-color: rgba(77,141,242,.3); background: rgba(77,141,242,.07); }
+
+  .account { font-size: 12.5px; color: var(--muted); }
+  .account b { color: var(--text); font-weight: 500; }
+
+  .actions { display: flex; gap: 8px; margin-top: auto; }
+  button {
+    font: inherit; font-size: 12.5px; padding: 6px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+    cursor: pointer; transition: background .12s, border-color .12s, opacity .12s;
+  }
+  button:hover { background: #252b34; border-color: #38404c; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #5f9af5; }
+  button.ghost { background: transparent; }
+
+  /* 内嵌登录：这块 div 只是「告诉原生视图铺哪里」，真正的网页是原生视图盖在上面 */
+  #loginPane {
+    position: absolute; inset: 0; background: var(--bg);
+    display: none; flex-direction: column; padding: 16px 24px 20px;
+  }
+  #loginPane.show { display: flex; }
+  .login-bar { display: flex; align-items: center; gap: 12px; padding-bottom: 12px; }
+  .login-bar h2 { font-size: 15px; margin: 0; font-weight: 600; }
+  .login-bar .tip { color: var(--muted); font-size: 12.5px; }
+  #loginStage {
+    flex: 1; border: 1px dashed var(--line); border-radius: 9px;
+    background: #0b0e12; position: relative;
+  }
+  #loginStage .placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px;
+  }
+  .login-actions { display: flex; gap: 8px; padding-top: 12px; align-items: center; }
+  .login-actions .spacer { flex: 1; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+    background: #232a33; border: 1px solid var(--line); color: var(--text);
+    padding: 9px 15px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s;
+    max-width: 70vw; box-shadow: 0 8px 26px rgba(0,0,0,.45); z-index: 50;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: rgba(227,93,93,.5); }
+  #toast.ok { border-color: rgba(53,192,122,.45); }
+
+  footer {
+    border-top: 1px solid var(--line); padding: 9px 24px;
+    color: var(--muted); font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #1b2028; padding: 1px 5px; border-radius: 4px; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Cookie 导出 · cspub 凭证助手</h1>
+    <span class="sub">登录一次，导出成 cspub 直接能用的凭证</span>
+    <span class="spacer"></span>
+    <span class="hint">会话字段多在 httpOnly 里，所以读的是原生 cookie store，不是 document.cookie</span>
+  </header>
+
+  <main>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <footer>
+    <span>导出位置：<code>~/.cspub/config.json</code>（合并写，不覆盖其它平台）+ <code>~/.cspub/cookie_&lt;平台&gt;</code>（600）</span>
+    <span>导出后发文：<code>cspub publish 文章.md --platform csdn</code></span>
+  </footer>
+
+  <!-- 内嵌登录：这块区域被原生 WebView 盖住，所以按钮都在 stage 之外 -->
+  <div id="loginPane">
+    <div class="login-bar">
+      <h2 id="loginTitle">登录</h2>
+      <span class="tip">在下面完成登录（含扫码/密码），登录成功后点右侧按钮提取</span>
+    </div>
+    <div id="loginStage">
+      <div class="placeholder">登录页加载中…</div>
+    </div>
+    <div class="login-actions">
+      <button class="primary" id="btnAfterLogin">已登录，提取 Cookie</button>
+      <button class="ghost" id="btnCloseLogin">关闭</button>
+      <span class="spacer"></span>
+      <span class="hint" style="color:var(--muted);font-size:12px" id="loginHint"></span>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var invoke = function (cmd, args) {
+    return window.__CJ_TAURI__.invoke(cmd, args || {});
+  };
+
+  var platforms = [];
+  // 每个平台的最近一次探测结果：只用于渲染，不参与导出（导出总是重读一次，避免拿到过期的）
+  var states = {};
+  var loginPlatform = null;
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function toast(msg, kind) {
+    var el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "show" + (kind ? " " + kind : "");
+    clearTimeout(el._t);
+    el._t = setTimeout(function () { el.className = ""; }, 3600);
+  }
+
+  function stateOf(id) {
+    return states[id] || { phase: "idle" };
+  }
+
+  // 卡片状态 → 圆点/徽标文案与配色
+  function badgeOf(phase) {
+    switch (phase) {
+      case "ok":   return { dot: "ok",   text: "字段齐全", cls: "ok" };
+      case "warn": return { dot: "warn", text: "缺必需字段", cls: "warn" };
+      case "err":  return { dot: "err",  text: "读取失败", cls: "err" };
+      case "busy": return { dot: "",     text: "读取中…", cls: "" };
+      default:     return { dot: "",     text: "未提取", cls: "" };
+    }
+  }
+
+  function renderFieldChips(p, st) {
+    var present = (st.extra || []).slice();
+    var names = {};
+    (st.missing || []).forEach(function (m) { names[m] = true; });
+    present.forEach(function (m) { names[m] = true; });
+    var out = [];
+    p.required.forEach(function (r) {
+      var has = st.phase !== "idle" && st.phase !== "err" && !names[r];
+      out.push('<span class="chip ' + (has ? "has" : (st.phase === "idle" ? "" : "miss")) + '">' +
+        (has ? "✓ " : (st.phase === "idle" ? "" : "✗ ")) + esc(r) + "</span>");
+    });
+    (p.extra || []).forEach(function (o) {
+      var has = present.indexOf(o) >= 0;
+      out.push('<span class="chip opt ' + (has ? "has" : "") + '">' + (has ? "✓ " : "· ") + esc(o) + "</span>");
+    });
+    return out.join("");
+  }
+
+  function render() {
+    var grid = document.getElementById("grid");
+    var html = platforms.map(function (p) {
+      var st = stateOf(p.id);
+      var b = badgeOf(st.phase);
+      var account = st.account
+        ? '<div class="account">当前账号：<b>' + esc(st.account) + "</b></div>"
+        : "";
+      var note = st.error ? esc(st.error) : esc(p.note);
+      return '' +
+        '<div class="card" data-id="' + esc(p.id) + '">' +
+          '<div class="card-top">' +
+            '<span class="dot ' + b.dot + '"></span>' +
+            "<h2>" + esc(p.name) + "</h2>" +
+            '<span class="badge ' + b.cls + '">' + b.text + "</span>" +
+          "</div>" +
+          '<div class="note">' + note + "</div>" +
+          '<div class="fields">' + renderFieldChips(p, st) + "</div>" +
+          account +
+          '<div class="actions">' +
+            '<button data-act="login" data-id="' + esc(p.id) + '">登录</button>' +
+            '<button data-act="probe" data-id="' + esc(p.id) + '">提取</button>' +
+            '<button class="primary" data-act="export" data-id="' + esc(p.id) + '">导出</button>' +
+          "</div>" +
+        "</div>";
+    }).join("");
+    grid.innerHTML = html;
+  }
+
+  function loadPlatforms() {
+    return invoke("cookie:platforms").then(function (res) {
+      platforms = res.platforms || [];
+      render();
+      // 启动即摸一遍：用户打开工具最想先知道的是「现在哪个平台还登录着」
+      platforms.forEach(function (p) { probe(p.id, true); });
+    }).catch(function (e) {
+      toast("读取平台清单失败：" + e, "err");
+    });
+  }
+
+  function probe(id, silent) {
+    var st = stateOf(id);
+    states[id] = Object.assign({}, st, { phase: "busy" });
+    render();
+    return invoke("cookie:probe", { platform: id }).then(function (res) {
+      var phase = "warn";
+      var account = res.account || "";
+      var missing = res.missing || [];
+      if (res.error) {
+        // 没有 cookie 是「还没登录」，不是「读取失败」——这两件事给用户的操作完全不同
+        phase = (res.count || 0) > 0 ? "warn" : "idle";
+      } else if (res.ok) {
+        phase = "ok";
+      } else if (missing.length > 0) {
+        phase = "warn";
+      }
+      states[id] = {
+        phase: phase,
+        missing: missing,
+        extra: res.extra || [],
+        account: account,
+        count: res.count || 0,
+        raw: res.raw || "",
+        error: res.error || ""
+      };
+      render();
+      if (!silent && phase === "warn") {
+        toast("已提取，但缺必需字段：" + missing.join("、"), "err");
+      } else if (!silent && phase === "err") {
+        toast(res.error || "读取失败", "err");
+      } else if (!silent && phase === "idle") {
+        toast(res.error || "还没登录：先点「登录」完成登录，再回来提取", "");
+      } else if (!silent && phase === "ok") {
+        toast("已登录且字段齐全（" + states[id].count + " 条 cookie）", "ok");
+      }
+      return states[id];
+    }).catch(function (e) {
+      states[id] = { phase: "err", error: String(e) };
+      render();
+      if (!silent) { toast("提取失败：" + e, "err"); }
+      return states[id];
+    });
+  }
+
+  function exportOne(id) {
+    // 导出前重读一次：用户可能刚在别的窗口登录完，用旧结果写盘是错的
+    return probe(id, true).then(function () {
+      return invoke("cookie:export", { platform: id });
+    }).then(function (res) {
+      if (res.error) {
+        toast(res.error, res.ok ? "ok" : "err");
+        return;
+      }
+      toast("已导出：" + res.configPath + " + " + res.cookiePath, "ok");
+      // 导出后把落盘路径显示在卡片备注上，比一次性 toast 更好查
+      states[id] = Object.assign({}, stateOf(id), { error: "" });
+      render();
+    }).catch(function (e) {
+      toast("导出失败：" + e, "err");
+    });
+  }
+
+  // ── 内嵌登录 ──────────────────────────────────────────────────────────
+  function stageRect() {
+    var el = document.getElementById("loginStage");
+    var r = el.getBoundingClientRect();
+    return {
+      x: Math.round(r.left), y: Math.round(r.top),
+      w: Math.round(r.width), h: Math.round(r.height)
+    };
+  }
+
+  function openLogin(id) {
+    var p = platforms.filter(function (x) { return x.id === id; })[0];
+    if (!p) { return; }
+    loginPlatform = id;
+    document.getElementById("loginTitle").textContent = "登录 " + p.name;
+    document.getElementById("loginHint").textContent = p.loginUrl;
+    document.getElementById("loginPane").classList.add("show");
+    // 等一帧：pane 是 display:none→flex 切换的，立刻量会拿到 0 高度
+    requestAnimationFrame(function () {
+      var r = stageRect();
+      invoke("login:show", { platform: id, x: r.x, y: r.y, w: r.w, h: r.h })
+        .catch(function (e) { toast("打开登录页失败：" + e, "err"); });
+    });
+  }
+
+  function closeLogin() {
+    var id = loginPlatform;
+    loginPlatform = null;
+    document.getElementById("loginPane").classList.remove("show");
+    if (id) {
+      invoke("login:close", { platform: id }).catch(function () {});
+    }
+  }
+
+  function afterLogin() {
+    var id = loginPlatform;
+    if (!id) { return; }
+    closeLogin();
+    // 隐藏视图后再读：原生视图还在屏幕上时，probe 的 UI 线程回调要等它让出事件循环
+    setTimeout(function () { probe(id, false); }, 120);
+  }
+
+  // 窗口尺寸变化时把原生视图重新贴到 stage 上（否则它会停在旧位置）
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (!loginPlatform) { return; }
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      var id = loginPlatform;
+      if (!id) { return; }
+      var r = stageRect();
+      invoke("login:bounds", { platform: id, x: r.x, y: r.y, w: r.w, h: r.h }).catch(function () {});
+    }, 80);
+  });
+
+  // 事件委托：卡片是整体重绘的，逐个绑监听会随重绘丢失
+  document.getElementById("grid").addEventListener("click", function (ev) {
+    var btn = ev.target.closest("button[data-act]");
+    if (!btn) { return; }
+    var id = btn.getAttribute("data-id");
+    var act = btn.getAttribute("data-act");
+    if (act === "login") { openLogin(id); }
+    else if (act === "probe") { probe(id, false); }
+    else if (act === "export") { exportOne(id); }
+  });
+
+  document.getElementById("btnAfterLogin").addEventListener("click", afterLogin);
+  document.getElementById("btnCloseLogin").addEventListener("click", closeLogin);
+
+  loadPlatforms();
+})();
+</script>
+</body>
+</html>

@@ -523,6 +523,31 @@ public class WebKitHost <: WebViewHost {
         return Some(text)
     }
 
+    /**
+     * 读宿主 WebView 的 cookie 仓库（JSON 文本，**含 httpOnly**）。
+     *
+     * filter = 域名后缀（如 `"csdn.net"`；`".csdn.net"` 也命中），空串 = 全部。
+     * 失败也返回 JSON（`{"ok":false,"error":…}`），调用方永远不必判 null。
+     *
+     * **线程口径**：请在命令 worker 线程调用——桥内部投 UI 线程发起异步读并带 5s 超时；
+     * 站在 UI 线程上调用会直接拿到错误 JSON（等待的事件得由 UI 线程处理，阻塞即自死锁）。
+     */
+    public func cookiesJson(filter: String): String {
+        let f = unsafe { LibC.mallocCString(filter) }
+        let cs = unsafe { cj_bridge_get_cookies(this.handle, f) }
+        unsafe {
+            LibC.free(f) // C 侧只拷贝，不接管入参所有权
+        }
+        if (cs.isNull()) {
+            return "{\"ok\":false,\"error\":\"bridge returned null\"}"
+        }
+        let json = cs.toString()
+        unsafe {
+            cj_bridge_cookies_free(cs) // 归还缓冲：malloc 家族分配，必须走桥的 free
+        }
+        return json
+    }
+
     public func notify(title: String, body: String): Bool {
         var rc: Int32 = -1
         unsafe {

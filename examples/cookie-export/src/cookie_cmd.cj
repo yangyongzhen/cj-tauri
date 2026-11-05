@@ -6,7 +6,7 @@ import stdx.encoding.json.*
 
 /**
  * 三组命令：
- *   - `cookie:platforms` 平台清单（前端渲染 5 张卡片）
+ *   - `cookie:platforms` 平台清单（前端按清单逐张渲染卡片，数量由平台表决定）
  *   - `cookie:probe`     读 cookie 并校验字段（不发文，只看「够不够用」）
  *   - `cookie:export`    双格式落盘：`~/.cspub/config.json` + `~/.cspub/cookie_<平台>`
  *
@@ -41,9 +41,21 @@ func strArray(items: ArrayList<String>): JsonArray {
     return arr
 }
 
+/** 平台 id 清单文案（报错用）：加平台时自动跟上，不再手抄一份容易漏 */
+func platformIdList(): String {
+    var out = ""
+    for (p in allPlatforms()) {
+        if (out.size > 0) {
+            out = out + " / "
+        }
+        out = out + p.id
+    }
+    return out
+}
+
 func requirePlatform(id: String): PlatformDef {
     if (id.size == 0) {
-        throw CommandException("需要参数 \"platform\"（csdn / zhihu / juejin / oschina / baijiahao）")
+        throw CommandException("需要参数 \"platform\"（${platformIdList()}）")
     }
     match (findPlatform(id)) {
         case Some(p) => return p
@@ -58,7 +70,9 @@ func requirePlatform(id: String): PlatformDef {
 let KNOWN_CONFIG_KEYS: Array<String> = ["csdnCookie", "zhihuCookie", "juejinCookie", "oschinaCookie",
     "baijiahaoCookie", "baijiahaoAppId", "baijiahaoAppToken", "cnblogsBlogId", "cnblogsUsername",
     "cnblogsToken", "juejinCategoryId", "juejinTagIds", "juejinUuid", "oschinaCatalog",
-    "oschinaPrivacy", "oschinaUserId", "atomgitRepo", "atomgitDir", "atomgitBranch", "atomgitToken"]
+    "oschinaPrivacy", "oschinaUserId", "atomgitRepo", "atomgitDir", "atomgitBranch", "atomgitToken",
+    // 待支持平台的键：先占位，避免合并写把这些平台已导出的凭证当未知键丢掉
+    "tencentCookie", "toutiaoCookie", "xiaohongshuCookie", "yuqueCookie"]
 
 /**
  * 合并写 config.json：**保留文件里其它平台的键**。

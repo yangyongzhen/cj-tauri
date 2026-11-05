@@ -135,6 +135,18 @@ class CookieStoreTest {
         @Expect(readTextFile(p), "oscid=two")
     }
 
+    /**
+     * 主目录必须真的是一个**已存在的目录**：只认 HOME 时，Windows 上（CMD / 双击启动根本没有
+     * 这个变量，Git Bash 给的还是 POSIX 形式）导出会在最后一跳失败成「取不到主目录」——
+     * 而 cookie 明明已经读到、字段也齐，界面上看不出问题出在路径。
+     */
+    @TestCase
+    func homeDirIsRealDirectory(): Unit {
+        let home = homeDir()
+        @Expect(home.size > 0, true)
+        @Expect(exists(home), true)
+    }
+
     /** 测试专用目录：不碰用户真实的 ~/.cspub */
     func testDir(): String {
         "/tmp/cookie-export-ut"

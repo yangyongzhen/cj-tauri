@@ -202,7 +202,7 @@ public class PlatformCommands <: CommandHandler {
         }
         let home = homeDir()
         if (home.size == 0) {
-            return errJson("取不到主目录（HOME），不知道往哪写凭证")
+            return errJson("取不到用户主目录（USERPROFILE / HOME 都是空的），不知道往哪写凭证")
         }
         let dir = home + "/.cspub"
         ensureDirPath(dir)

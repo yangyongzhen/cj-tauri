@@ -431,17 +431,24 @@ func bizFrameworkPathOf(p: String): Option<String> {
     return resolveFrameworkRoot()
 }
 
-/** 把字符串里的 `${VAR}` 逐个展开为环境变量值；未定义的变量保留原样（可诊断） */
+/**
+ * 把字符串里的 `${VAR}` 逐个展开为环境变量值；未定义的变量保留原样（可诊断）。
+ *
+ * 全程按**字节**收集、最后一次 `fromUtf8`：把每个字节单独 `String.fromUtf8([b])` 会在
+ * 多字节 UTF-8 上炸（实测 `path = "/tmp/框架本体"` → `IllegalArgumentException: Invalid
+ * utf8 byte sequence`，中文路径的 workspace 直接跑不了 sync）——汉字是 3 字节，逐字节
+ * 转字符串每段都不是合法序列。展开值同理按其字节拼回。
+ */
 func expandVarPlaceholders(p: String): String {
-    var out = ""
-    var i = 0
     let bytes = p.toArray()
     let n = bytes.size
+    let out = ArrayList<Byte>()
+    var i = 0
     while (i < n) {
         // '${'（0x24 0x7B）开头 → 读到 '}'（0x7D）
         if (bytes[i] == 36 && i + 1 < n && bytes[i + 1] == 123) {
             var j = i + 2
-            var name = ArrayList<Byte>()
+            let name = ArrayList<Byte>()
             var closed = false
             while (j < n) {
                 if (bytes[j] == 125) {       // '}'
@@ -456,18 +463,20 @@ func expandVarPlaceholders(p: String): String {
                 // 未定义时保留的原文形如 ${VAR}——"$" 与 "{" 分开拼，避免字面量
                 // "${" 被当成插值起始符（没有配对 "}" 就报 unterminated）
                 let orig = "$" + "{" + varName + "}"
-                out += valueOfVar(varName, orig)
+                for (b in valueOfVar(varName, orig)) {
+                    out.add(b)
+                }
                 i = j + 1
             } else {
-                out += String.fromUtf8([bytes[i]])
+                out.add(bytes[i])
                 i += 1
             }
         } else {
-            out += String.fromUtf8([bytes[i]])
+            out.add(bytes[i])
             i += 1
         }
     }
-    return out
+    return String.fromUtf8(out.toArray())
 }
 
 /** 行里含 "cjTauri" 时，取首个引号对之间的内容（模板生成的行即 `  cjTauri = { path = "..." }`，

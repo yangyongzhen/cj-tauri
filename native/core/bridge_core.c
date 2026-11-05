@@ -1192,6 +1192,32 @@ void cj_core_dialog_tick(cj_host *h, dlg_req *req) {
 }
 
 /* =========================================================================
+ *  Cookie 读取：core 只做入口校验与日志，投递 / 等待 / 解析全在平台层
+ *
+ *  为什么不在 core 建状态机（对比 dialog）：dialog 是模态单槽，必须由 core 串行化；
+ *  cookie 读取是只读快照，可以并发，平台各自把请求包在栈上结构里即可，core 不持状态。
+ * ========================================================================= */
+
+char *cj_bridge_get_cookies(cj_host *h, const char *filter) {
+    char *json;
+    if (!h || !h->ready) {
+        cj_logf("[cj-bridge] get_cookies ignored: host not ready\n");
+        return cj_strdup("{\"ok\":false,\"error\":\"host not ready\"}");
+    }
+    json = cj_plat_get_cookies(h, filter ? filter : "");
+    if (!json) {
+        return cj_strdup("{\"ok\":false,\"error\":\"platform returned null\"}");
+    }
+    cj_logf("[cj-bridge] get_cookies: filter=%s -> %d bytes\n",
+            (filter && *filter) ? filter : "(all)", (int)strlen(json));
+    return json;
+}
+
+void cj_bridge_cookies_free(char *s) {
+    free(s);
+}
+
+/* =========================================================================
  *  串口（plugin_serial）：路径白名单 + 参数校验 + 导出转发
  *
  *  句柄表与 fd 全在平台层（那边本来就有 pthread / CS），本文件**不持有任何串口状态**——

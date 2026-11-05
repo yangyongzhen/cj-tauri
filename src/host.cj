@@ -403,6 +403,20 @@ public interface WebViewHost {
     func clipboardReadText(): Option<String>
 
     /**
+     * 读宿主 WebView 的 cookie 仓库，返回 JSON 文本（**含 httpOnly**——这正是它存在的理由，
+     * 会话令牌基本都在 httpOnly 里，`document.cookie` 看不见）。
+     *
+     * 成功：`{"ok":true,"count":N,"cookies":[{"name","value","domain","path","secure","httpOnly","expires","session"}]}`
+     * 失败：`{"ok":false,"error":"…"}` —— 失败也返回合法 JSON，调用方不必判 null/异常。
+     *
+     * `filter` 是域名后缀（`"csdn.net"` 命中 `.csdn.net`/`www.csdn.net`），空串 = 全部。
+     *
+     * **线程口径**：在命令 worker 线程调用——内部投 UI 线程发起异步读取并带超时等待；
+     * 站在 UI 线程上调用会直接拿到错误 JSON（等待的事件得由 UI 线程自己处理，阻塞即自死锁）。
+     */
+    func cookiesJson(filter: String): String
+
+    /**
      * 发一条系统通知（发后即忘：提交即返回，显示成败不回传）。
      * 本平台未实现时返回 false（`system:host` 的能力位会同口径如实上报）。
      */

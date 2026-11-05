@@ -297,6 +297,14 @@ void cj_plat_view_set_bounds(cj_host *h, long long view, int x, int y, int w, in
 void cj_plat_view_navigate(cj_host *h, long long view, const char *url);
 void cj_plat_view_destroy(cj_host *h, long long view);
 
+/* ---- Cookie 读取（「一键导出登录态」类工具）----
+   阻塞式：平台把请求投到宿主 UI 线程发起异步读（Linux = webkit_cookie_manager_get_all_cookies，
+   Windows = ICoreWebView2CookieManager::GetCookies），拿到结果后回填并唤醒调用方。
+   返回 malloc 的 JSON（**调用方 free**），失败也返回 JSON。filter = 域名后缀，空串 = 全部。
+   平台必须在 UI 线程退出/窗口先关时也唤醒等待方（否则 worker 线程永远吊在条件变量上）：
+   等待方自带超时，但别指望它——超时只是最后一道防线。 */
+char *cj_plat_get_cookies(cj_host *h, const char *filter);
+
 /* 宿主能力位（CJ_CAP_* 的按位或）：纯静态事实，cj_plat_init 里由平台给出。 */
 int cj_plat_host_capabilities(cj_host *h);
 
@@ -445,6 +453,20 @@ CJ_BRIDGE_API void cj_bridge_set_dialog_callback(cj_host *h, cj_on_dialog_fn cb)
    已有对话框在进行中。调用方已站在 UI 线程时内部走直接弹的快路径（投递 + 等待会自锁）。 */
 CJ_BRIDGE_API int cj_bridge_show_dialog(cj_host *h, int kind, const char *title,
                                         const char *message, const char *filter);
+
+/* ===== Cookie 读取（「一键导出各平台登录态」类工具用）=====
+   从宿主 WebView 的 cookie 仓库整份读出，**含 httpOnly**——这正是它相对
+   document.cookie 的全部意义：各平台的会话令牌（知乎 z_c0 / 掘金 sessionid …）
+   基本都带 httpOnly，注入 JS 读 document.cookie 拿不到它们。
+   filter 是域名后缀（如 "csdn.net"；空串 / NULL = 全部）。
+   返回 malloc 的 JSON，**调用方负责 free**；失败也返回 JSON（{"ok":false,"error":…}）。
+   线程口径：请在命令 worker 线程调用（内部投 UI 线程发起异步读 + 带超时等待）；
+   调用方已站在 UI 线程时直接返回错误 JSON——等待的事件得由 UI 线程处理，阻塞即自死锁。 */
+CJ_BRIDGE_API char *cj_bridge_get_cookies(cj_host *h, const char *filter);
+
+/* 释放 cj_bridge_get_cookies 返回的缓冲（NULL 安全，幂等）。失败结果也是 malloc 的 JSON，
+   同样要走这里。 */
+CJ_BRIDGE_API void cj_bridge_cookies_free(char *s);
 
 /* 菜单栏：wire 是 MenuModel.toWire() 的线路文本（空串 = 移除菜单栏）。
    未 start 时只记下、建窗时生效；start 之后调用＝运行期换菜单（平台投到 UI 线程重建）。 */

@@ -1,0 +1,33 @@
+# cookie-export：把「浏览器里已登录」变成「cspub 能用的凭证」
+#
+# 与 ai-chat 同款依赖方式：框架走仓库内相对路径，原生桥由 ../../native/libcjtbridge.so 链接。
+# 单一职责：本工程只是一个 AppSpec 装配点 + 3 组命令（见 src/）。
+[package]
+  cjc-version = "1.0.5"
+  name = "cookieExport"
+  description = "cookie-export - 各平台登录态 Cookie 提取 + 导出 cspub 凭证（cj-tauri 示例：原生 CookieManager 桥）"
+  version = "0.1.0"
+  target-dir = ""
+  output-type = "executable"
+  compile-option = ""
+  override-compile-option = ""
+  link-option = ""
+  package-configuration = {}
+
+[dependencies]
+  # cj-tauri 框架本体（本仓库内相对路径）
+  cjTauri = { path = "../.." }
+
+[target.x86_64-unknown-linux-gnu]
+  # 原生桥 + WebKitGTK（CookieManager 的 get_all_cookies 就在这份库上）
+  link-option = "-L../../native -lcjtbridge -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0 -ljavascriptcoregtk-4.1 -lgobject-2.0"
+
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]
+
+[target.x86_64-w64-mingw32]
+  # GUI 子系统：双击不弹黑窗；stderr 仍可重定向（AGENTS §4）
+  link-option = "-L../../native -lcjtbridge --subsystem=windows"
+
+[target.x86_64-w64-mingw32.bin-dependencies]
+    path-option = ["${CANGJIE_STDX}"]

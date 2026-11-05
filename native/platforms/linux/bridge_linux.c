@@ -370,13 +370,18 @@ void cj_plat_wake_ui(cj_host *h) {
 /* ===== 平台原语：投递 / 运行时操作 ===== */
 
 /* 回投结果校验：这条 eval 是「仓颉 → 前端」的唯一出口，静默失败会让前端 promise 永久 pending。
-   Windows 侧有 log_hr("ExecuteScript", …) 兜同一件事（两平台对称）。 */
+   Windows 侧有 log_hr("ExecuteScript", …) 兜同一件事（两平台对称）。
+
+   用 evaluate_javascript 而不是弃用的 run_javascript：后者的 finish 返回 WebKitJavascriptResult，
+   在本机 WebKitGTK 2.52 上对它 g_object_unref 会触发 G_IS_OBJECT 断言失败（gdb 栈：
+   on_js_done → g_log → g_logv），每条命令刷一条 GLib-CRITICAL。新 API 返回 JSCValue（transfer full），
+   所有权语义明确，顺带消掉编译期的 deprecated 警告。world_name / source_uri 传 NULL = 用页面主世界。 */
 static void on_js_done(GObject *src, GAsyncResult *res, gpointer ud) {
     GError *err = NULL;
-    WebKitJavascriptResult *r =
-        webkit_web_view_run_javascript_finish(WEBKIT_WEB_VIEW(src), res, &err);
+    JSCValue *r =
+        webkit_web_view_evaluate_javascript_finish(WEBKIT_WEB_VIEW(src), res, &err);
     if (r) {
-        g_object_unref(r); /* 每次回投都会新建一个结果对象，不看也要释放 */
+        g_object_unref(r); /* 每次回投都会新建一个结果值，不看也要释放 */
     }
     if (err) {
         fprintf(stderr, "[cj-bridge] run js failed: %s\n", err->message);
@@ -387,7 +392,8 @@ static void on_js_done(GObject *src, GAsyncResult *res, gpointer ud) {
 void cj_plat_post_js(cj_host *h, const char *script_utf8) {
     plat_host *p = h ? (plat_host *)h->plat : NULL;
     if (!p || !p->view || !script_utf8) return;
-    webkit_web_view_run_javascript(WEBKIT_WEB_VIEW(p->view), script_utf8, NULL, on_js_done, NULL);
+    webkit_web_view_evaluate_javascript(WEBKIT_WEB_VIEW(p->view), script_utf8, -1, NULL, NULL, NULL,
+                                        on_js_done, NULL);
 }
 
 void cj_plat_open_devtools(cj_host *h) {
@@ -1610,6 +1616,242 @@ void cj_plat_view_destroy(cj_host *h, long long view) {
     plat_host *p = h ? (plat_host *)h->plat : NULL;
     if (!p || view <= 0) return;
     view_post(h, CJ_VIEW_OP_DESTROY, view, 0, 0, 0, 0, 0, NULL);
+}
+
+/* =========================================================================
+ *  Cookie 读取（「一键导出各平台登录态」类工具）
+ *
+ *  形态：命令 worker 线程调 cj_plat_get_cookies → 投 GTK 线程 → webkit 异步读 cookie store
+ *        → 回调序列化成 JSON → 唤醒等待方（带 5s 超时）。
+ *
+ *  为什么必须走原生（而不是注入 JS 读 document.cookie）：httpOnly。知乎 z_c0、掘金 sessionid
+ *  这类会话令牌都带 httpOnly，JS 侧看不见——导出一个「字段齐全但发文 401」的文件比导不出来
+ *  更难查。cookie store 才是全量快照。
+ *
+ *  为什么不用 core 的 cj_sync：那套谓词等待没有超时，窗口在等待期间销毁时 worker 会永远吊在
+ *  条件变量上；这里自带 pthread mutex + cond + timedwait，超时后放弃等待（结构交给回调回收）。
+ * ========================================================================= */
+
+typedef struct cookie_call {
+    cj_host *h;
+    char *filter;      /* 域名后缀；空串 = 全部 */
+    char *json;        /* 结果 JSON（GTK 线程 malloc，等待方取走后自己 free）*/
+    int ready;
+    int abandoned;     /* 等待方已超时放弃：结构由异步回调自己回收 */
+    pthread_mutex_t mtx;
+    pthread_cond_t cond;
+} cookie_call;
+
+/* JSON 字符串转义：只处理 JSON 必需的字符，>=0x20 的字节原样输出
+   （cookie 值多是 ASCII；UTF-8 多字节序列逐字节拷贝不会被破坏）*/
+static void cookie_json_escaped(GString *out, const char *s) {
+    const unsigned char *p = (const unsigned char *)(s ? s : "");
+    g_string_append_c(out, '"');
+    for (; *p; p++) {
+        switch (*p) {
+        case '"':  g_string_append(out, "\\\""); break;
+        case '\\': g_string_append(out, "\\\\"); break;
+        case '\n': g_string_append(out, "\\n"); break;
+        case '\r': g_string_append(out, "\\r"); break;
+        case '\t': g_string_append(out, "\\t"); break;
+        default:
+            if (*p < 0x20) {
+                g_string_append_printf(out, "\\u%04x", (unsigned)*p);
+            } else {
+                g_string_append_c(out, (char)*p);
+            }
+        }
+    }
+    g_string_append_c(out, '"');
+}
+
+/* filter 为空 → 全收；否则按域名后缀匹配（".csdn.net" 命中 "csdn.net"）*/
+static int cookie_domain_matches(const char *domain, const char *filter) {
+    size_t dl, fl;
+    if (!filter || !*filter) return 1;
+    if (!domain) return 0;
+    dl = strlen(domain);
+    fl = strlen(filter);
+    if (dl < fl) return 0;
+    if (g_ascii_strncasecmp(domain + dl - fl, filter, fl) != 0) return 0;
+    return dl == fl || domain[dl - fl - 1] == '.';
+}
+
+static void cookie_call_free(cookie_call *c) {
+    if (!c) return;
+    free(c->filter);
+    free(c->json);
+    pthread_mutex_destroy(&c->mtx);
+    pthread_cond_destroy(&c->cond);
+    free(c);
+}
+
+/* 释放 get_all_cookies_finish 给的 GList：元素是 SoupCookie（普通结构体，不是 GObject），
+   逐个 soup_cookie_free 再 g_list_free。不用 g_list_free_full 是为了让释放路径显式可读，
+   也避免 GDestroyNotify 的函数指针强转在严格编译选项下被质疑。*/
+static void cookie_list_free(GList *list) {
+    GList *it;
+    for (it = list; it; it = it->next) {
+        if (it->data) soup_cookie_free((SoupCookie *)it->data);
+    }
+    g_list_free(list);
+}
+
+/* 结果回填：等待方还在就交出去；已超时放弃就由这里回收结构 */
+static void cookie_call_set_result(cookie_call *c, char *json) {
+    int abandon;
+    pthread_mutex_lock(&c->mtx);
+    abandon = c->abandoned;
+    if (!abandon) {
+        c->json = json;
+        c->ready = 1;
+        pthread_cond_signal(&c->cond);
+    }
+    pthread_mutex_unlock(&c->mtx);
+    if (abandon) {
+        free(json);
+        cookie_call_free(c);
+    }
+}
+
+static void cookie_call_set_error(cookie_call *c, const char *msg) {
+    GString *s = g_string_new("{\"ok\":false,\"error\":");
+    cookie_json_escaped(s, msg);
+    g_string_append_c(s, '}');
+    cookie_call_set_result(c, g_string_free(s, FALSE));
+}
+
+/* webkit 异步读完成（GTK 线程）*/
+static void on_all_cookies(GObject *src, GAsyncResult *res, gpointer ud) {
+    cookie_call *c = (cookie_call *)ud;
+    GError *err = NULL;
+    GList *list;
+    GList *it;
+    GString *out;
+    int n = 0;
+    int first = 1;
+
+    list = webkit_cookie_manager_get_all_cookies_finish(WEBKIT_COOKIE_MANAGER(src), res, &err);
+    if (err) {
+        GString *msg = g_string_new("cookie store read failed: ");
+        g_string_append(msg, err->message ? err->message : "unknown");
+        cookie_call_set_error(c, msg->str);
+        g_string_free(msg, TRUE);
+        g_error_free(err);
+        cookie_list_free(list);
+        return;
+    }
+
+    /* 先数一遍匹配项（JSON 里的 count 得写准；cookie 数量级很小，两遍遍历无所谓）*/
+    for (it = list; it; it = it->next) {
+        SoupCookie *ck = (SoupCookie *)it->data;
+        if (ck && cookie_domain_matches(soup_cookie_get_domain(ck), c->filter)) n++;
+    }
+
+    out = g_string_new("");
+    g_string_append_printf(out, "{\"ok\":true,\"count\":%d,\"cookies\":[", n);
+    for (it = list; it; it = it->next) {
+        SoupCookie *ck = (SoupCookie *)it->data;
+        GDateTime *exp;
+        if (!ck || !cookie_domain_matches(soup_cookie_get_domain(ck), c->filter)) continue;
+        if (!first) g_string_append_c(out, ',');
+        first = 0;
+        g_string_append(out, "{\"name\":");
+        cookie_json_escaped(out, soup_cookie_get_name(ck));
+        g_string_append(out, ",\"value\":");
+        cookie_json_escaped(out, soup_cookie_get_value(ck));
+        g_string_append(out, ",\"domain\":");
+        cookie_json_escaped(out, soup_cookie_get_domain(ck));
+        g_string_append(out, ",\"path\":");
+        cookie_json_escaped(out, soup_cookie_get_path(ck));
+        g_string_append_printf(out, ",\"secure\":%s,\"httpOnly\":%s",
+                               soup_cookie_get_secure(ck) ? "true" : "false",
+                               soup_cookie_get_http_only(ck) ? "true" : "false");
+        exp = soup_cookie_get_expires(ck);
+        if (exp) {
+            g_string_append_printf(out, ",\"expires\":%" G_GINT64_FORMAT,
+                                   (gint64)g_date_time_to_unix(exp));
+        } else {
+            g_string_append(out, ",\"expires\":0,\"session\":true");
+        }
+        g_string_append_c(out, '}');
+    }
+    g_string_append(out, "]}");
+
+    cookie_list_free(list);
+    cookie_call_set_result(c, g_string_free(out, FALSE));
+}
+
+/* GTK 线程：发起异步读 */
+static gboolean cookie_idle(gpointer ud) {
+    cookie_call *c = (cookie_call *)ud;
+    plat_host *p = (c && c->h) ? (plat_host *)c->h->plat : NULL;
+    WebKitWebView *wv;
+    WebKitWebContext *ctx;
+
+    if (!p || !p->view) {
+        cookie_call_set_error(c, "webview not ready");
+        return G_SOURCE_REMOVE;
+    }
+    wv = WEBKIT_WEB_VIEW(p->view);
+    ctx = webkit_web_view_get_context(wv);
+    if (!ctx) {
+        cookie_call_set_error(c, "web context unavailable");
+        return G_SOURCE_REMOVE;
+    }
+    webkit_cookie_manager_get_all_cookies(
+        webkit_web_context_get_cookie_manager(ctx), NULL, on_all_cookies, c);
+    return G_SOURCE_REMOVE;
+}
+
+char *cj_plat_get_cookies(cj_host *h, const char *filter) {
+    plat_host *p = h ? (plat_host *)h->plat : NULL;
+    cookie_call *c;
+    struct timespec ts;
+    char *json = NULL;
+
+    if (!p || !p->view) {
+        return strdup("{\"ok\":false,\"error\":\"webview not ready\"}");
+    }
+    if (cj_plat_is_ui_thread(h)) {
+        /* 等待的事件得由 UI 线程处理：站在这里阻塞 = 自己把自己锁死 */
+        return strdup("{\"ok\":false,\"error\":\"get_cookies must be called from a worker thread\"}");
+    }
+
+    c = (cookie_call *)calloc(1, sizeof(*c));
+    if (!c) return strdup("{\"ok\":false,\"error\":\"out of memory\"}");
+    c->h = h;
+    c->filter = strdup(filter ? filter : "");
+    if (!c->filter) {
+        free(c);
+        return strdup("{\"ok\":false,\"error\":\"out of memory\"}");
+    }
+    pthread_mutex_init(&c->mtx, NULL);
+    pthread_cond_init(&c->cond, NULL);
+
+    if (!g_idle_add(cookie_idle, c)) {
+        cookie_call_free(c);
+        return strdup("{\"ok\":false,\"error\":\"ui thread unavailable\"}");
+    }
+
+    pthread_mutex_lock(&c->mtx);
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 5;
+    while (!c->ready) {
+        if (pthread_cond_timedwait(&c->cond, &c->mtx, &ts) == ETIMEDOUT) break;
+    }
+    if (c->ready) {
+        json = c->json;
+        c->json = NULL;
+        pthread_mutex_unlock(&c->mtx);
+        cookie_call_free(c);
+    } else {
+        /* 超时：放弃等待但**不能**释放结构——异步回调可能还在路上，交给它回收 */
+        c->abandoned = 1;
+        pthread_mutex_unlock(&c->mtx);
+        json = strdup("{\"ok\":false,\"error\":\"timeout waiting for cookie store\"}");
+    }
+    return json;
 }
 
 /* 最小化到托盘这里只**记一条策略**（并复位提醒位）：真正的拦截发生在用户按下最小化的那一刻

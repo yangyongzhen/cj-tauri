@@ -167,6 +167,14 @@ class FakeHost <: WebViewHost {
         return true
     }
 
+    /** cookie 桥回包：测试直接塞一段 JSON（默认空仓库）；filter 由调用方自己过滤，这里不模拟 */
+    public var cookieJson: String = "{\"ok\":true,\"count\":0,\"cookies\":[]}"
+
+    public func cookiesJson(filter: String): String {
+        let _ = filter
+        return this.cookieJson
+    }
+
     public func clipboardReadText(): Option<String> {
         return this.clipboardReadValue
     }

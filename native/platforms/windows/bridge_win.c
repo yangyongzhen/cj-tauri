@@ -1085,7 +1085,8 @@ int cj_plat_post_ui(cj_host *h, cj_ui_fn fn, void *ud) {
  *  WebView2 的 ICoreWebView2CookieManager::GetCookies 给的是全量快照（含 httpOnly 属性）。
  *
  *  形态与 Linux 侧同形：worker 线程 → 投 UI 线程 → 异步读 → 回填 JSON → 唤醒（带 5s 超时）。
- *  GetCookies 按 uri 匹配 cookie 域，所以 filter 拼成 https://<filter>/；空 filter 用当前页 URL。
+ *  GetCookies 按 uri 匹配 cookie 域，所以 filter 拼成 https://<filter>/；空 filter 传**空 uri**
+ *  （SDK 契约：uri 为空串/空指针时返回同 profile 下全部 cookie），不按 uri 过滤。
  * ========================================================================= */
 
 typedef struct cookie_call {
@@ -1197,11 +1198,17 @@ static void cookie_call_set_error(cookie_call *c, const char *msg) {
     cookie_call_set_result(c, b.p);
 }
 
-/* --- 完成 handler（一次性对象：Invoke 之后释放）--- */
+/* --- 完成 handler（真引用计数，最后一个 Release 才释放）---
+   ⚠ 不要改回「Invoke 里 free(self)」的一次性写法：WebView2 在 Invoke 返回后仍会
+   AddRef/Release 这个对象，而对象已经 free 掉——实测（2026-11-05）表现是
+   `0xc0000005` 崩在 EmbeddedBrowserWebView.dll 里，随后所有 GetCookies 都不再回调
+   （worker 侧只看到 5s 超时）。uri 也挂在 handler 上，让它和对象同生共死。 */
 
 typedef struct cookies_hr {
     ICoreWebView2GetCookiesCompletedHandler iface;
     cookie_call *call;
+    wchar_t *uri;
+    LONG refs;
 } cookies_hr;
 
 static HRESULT STDMETHODCALLTYPE cookies_QueryInterface(
@@ -1212,13 +1219,21 @@ static HRESULT STDMETHODCALLTYPE cookies_QueryInterface(
 }
 
 static ULONG STDMETHODCALLTYPE cookies_AddRef(ICoreWebView2GetCookiesCompletedHandler *This) {
-    (void)This;
-    return 1;
+    cookies_hr *self = (cookies_hr *)This;
+    LONG n = InterlockedIncrement(&self->refs);
+    fprintf(stderr, "[cj-bridge] cookies: handler addref -> %ld\n", (long)n);
+    return (ULONG)n;
 }
 
 static ULONG STDMETHODCALLTYPE cookies_Release(ICoreWebView2GetCookiesCompletedHandler *This) {
-    (void)This;
-    return 1;
+    cookies_hr *self = (cookies_hr *)This;
+    LONG left = InterlockedDecrement(&self->refs);
+    fprintf(stderr, "[cj-bridge] cookies: handler release -> %ld\n", (long)left);
+    if (left == 0) {
+        free(self->uri);
+        free(self);
+    }
+    return (ULONG)left;
 }
 
 static HRESULT STDMETHODCALLTYPE cookies_Invoke(
@@ -1232,22 +1247,31 @@ static HRESULT STDMETHODCALLTYPE cookies_Invoke(
     int first = 1;
     int ok = 1;
 
-    if (!c) return S_OK;
-    free(self); /* 一次性 handler：Invoke 之后不会再被调用 */
+    if (!c) {
+        This->lpVtbl->Release(This);
+        return S_OK;
+    }
 
     if (FAILED(errorCode) || !result) {
         char msg[96];
         snprintf(msg, sizeof(msg), "cookie read failed: hr=0x%08lx", (unsigned long)errorCode);
+        fprintf(stderr, "[cj-bridge] cookies: complete failed hr=0x%08lx\n",
+                (unsigned long)errorCode);
         cookie_call_set_error(c, msg);
-        if (result) result->lpVtbl->Release(result);
+        /* 不要 Release(result)：回调参数是**借用**给 handler 的，运行时自己管它的引用。
+           释放它会让 WebView2 随后用到已销毁的 cookie list——实测崩在
+           EmbeddedBrowserWebView.dll 里 0xc0000005（2026-11-05，两次同偏移）。 */
+        This->lpVtbl->Release(This);
         return S_OK;
     }
 
     if (FAILED(result->lpVtbl->get_Count(result, &count))) count = 0;
+    fprintf(stderr, "[cj-bridge] cookies: complete count=%u\n", (unsigned)count);
 
     memset(&b, 0, sizeof(b));
     {
-        char num[32];
+        /* 前缀固定 31 字节 + 最多 10 位计数：32 会截断掉 "cookies": [，得到非法 JSON */
+        char num[64];
         snprintf(num, sizeof(num), "{\"ok\":true,\"count\":%u,\"cookies\":[", (unsigned)count);
         ok = cookie_sb_puts(&b, num);
     }
@@ -1306,18 +1330,21 @@ static HRESULT STDMETHODCALLTYPE cookies_Invoke(
     }
 
     ok = ok && cookie_sb_puts(&b, "]}");
-    result->lpVtbl->Release(result);
+    /* 同上：result 是借用的，不在这里 Release */
 
     if (!ok) {
         free(b.p);
         cookie_call_set_error(c, "out of memory building cookie json");
+        This->lpVtbl->Release(This);
         return S_OK;
     }
     cookie_call_set_result(c, b.p);
+    This->lpVtbl->Release(This);
     return S_OK;
 }
 
-static const ICoreWebView2GetCookiesCompletedHandlerVtbl cookies_handler_vtbl = {
+/* 与 g_ctrl_vtbl / g_drop_vtbl 同款：非 const，直接挂到 iface.lpVtbl 上 */
+static ICoreWebView2GetCookiesCompletedHandlerVtbl cookies_handler_vtbl = {
     cookies_QueryInterface,
     cookies_AddRef,
     cookies_Release,
@@ -1338,6 +1365,7 @@ static void cookie_ui_start(void *ud) {
         cookie_call_set_error(c, "webview not ready");
         return;
     }
+    fprintf(stderr, "[cj-bridge] cookies: ui thread running read\n");
     if (FAILED(p->webview->lpVtbl->QueryInterface(
                 p->webview, &IID_ICoreWebView2_2, (void **)&wv2)) || !wv2) {
         cookie_call_set_error(c, "ICoreWebView2_2 unavailable (cookie store needs WebView2 88+)");
@@ -1358,13 +1386,13 @@ static void cookie_ui_start(void *ud) {
         }
         free(b.p);
     } else {
-        LPWSTR src = NULL;
-        if (SUCCEEDED(p->webview->lpVtbl->get_Source(p->webview, &src)) && src) {
-            size_t n = wcslen(src) + 1;
-            uri = (wchar_t *)malloc(n * sizeof(wchar_t));
-            if (uri) wmemcpy(uri, src, n);
-        }
-        if (src) CoTaskMemFree(src);
+        /* 空 filter = 「同 profile 下的全部 cookie」，**uri 必须给空串**：SDK 文档明写
+           「If uri is empty string or null, all cookies under the same profile are returned」。
+           别回落到当前页 URL——本类工具的主页面是 NavigateToString 出来的 about:blank，
+           拿它去匹配一个站点都命不中，已登录也读出 count=0（2026-11-05 实机复现：
+           内嵌视图登录 CSDN 后 probe 仍报「还没有 cookie」）。Linux 侧走 get_all_cookies，
+           本来就不按 uri 过滤，两平台在此口径一致。 */
+        uri = utf8_to_wide("");
     }
 
     hr = (cookies_hr *)calloc(1, sizeof(*hr));
@@ -1376,19 +1404,25 @@ static void cookie_ui_start(void *ud) {
         cookie_call_set_error(c, "out of memory building cookie request");
         return;
     }
+    /* uri 交给 handler 持有：异步读期间它得活着，随 handler 的最后一个 Release 释放 */
     hr->iface.lpVtbl = &cookies_handler_vtbl;
     hr->call = c;
-    if (FAILED(cm->lpVtbl->GetCookies(cm, uri, &hr->iface))) {
-        free(hr);
-        free(uri);
+    hr->uri = uri;
+    hr->refs = 1;
+    {
+        HRESULT ghr = cm->lpVtbl->GetCookies(cm, uri, &hr->iface);
         cm->lpVtbl->Release(cm);
         wv2->lpVtbl->Release(wv2);
-        cookie_call_set_error(c, "GetCookies call failed");
-        return;
+        if (FAILED(ghr)) {
+            fprintf(stderr, "[cj-bridge] cookies: GetCookies failed hr=0x%08lx\n",
+                    (unsigned long)ghr);
+            cookie_call_set_error(c, "GetCookies call failed");
+            hr->iface.lpVtbl->Release(&hr->iface);
+            return;
+        }
+        /* 我们这一份引用留到 Invoke 里交还：先不放。放早了（若运行时其实没 AddRef）
+           就是「回调里还被指着的对象已经销毁」，与 free(self) 那条同一种崩法。 */
     }
-    free(uri);
-    cm->lpVtbl->Release(cm);
-    wv2->lpVtbl->Release(wv2);
 }
 
 char *cj_plat_get_cookies(cj_host *h, const char *filter) {
@@ -1419,6 +1453,8 @@ char *cj_plat_get_cookies(cj_host *h, const char *filter) {
         cookie_call_free(c);
         return cookie_dup("{\"ok\":false,\"error\":\"ui thread unavailable\"}");
     }
+    fprintf(stderr, "[cj-bridge] cookies: posted read filter=\"%s\"\n",
+            (c->filter && *c->filter) ? c->filter : "(all)");
 
     EnterCriticalSection(&c->cs);
     while (!c->ready) {
@@ -1433,6 +1469,7 @@ char *cj_plat_get_cookies(cj_host *h, const char *filter) {
         /* 超时不能释放结构：异步回调可能还在路上，交给它回收 */
         c->abandoned = 1;
         LeaveCriticalSection(&c->cs);
+        fprintf(stderr, "[cj-bridge] cookies: timeout after 5000ms, abandoning\n");
         json = cookie_dup("{\"ok\":false,\"error\":\"timeout waiting for cookie store\"}");
     }
     return json;

@@ -31,8 +31,8 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 4. 跑不起来就如实说明（含「哪些平台未验证」），禁止把未验证说成通过。
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
-   当前 294 个用例。C 桥的公共核心（`native/core/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，228 项断言，不依赖 SDK / 图形栈），入口是
+   当前 349 个用例。C 桥的公共核心（`native/core/bridge_core.c`）另有一份**桩平台自检**
+   （`native/tests/test_bridge_core.c`，255 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
    实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
@@ -104,7 +104,9 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   实现文件放 `src/plugins/<名字>/`（**一个插件一个子包**，`package cjTauri.plugins.<名字>`，如
   `src/plugins/fs/plugin_fs.cj`；FFI 声明也随插件放同目录（如 `src/plugins/sqlite/sqlite_ffi.cj`）——
   但**核心宿主消费**的 FFI 例外，如
-  `src/clipboard_bridge.cj` 属核心包，判定标准是「谁调用谁包内」），可跑样板 `examples/plugin-fs/`，
+  `src/clipboard_bridge.cj` / `src/cookies_bridge.cj` 属核心包，判定标准是「谁调用谁包内」
+  ——cookie 那条的消费方是 `host_webkit.cj` / `host_webview2.cj`（`WebViewHost.getCookies`），
+  不是任何插件），可跑样板 `examples/plugin-fs/`，
   设计见 `docs/RFC-插件体系.md`。子包可见父包全部 `public` 符号，反向（核心 import 插件）禁止；
   单测要直接构造的命令 handler / 辅助函数须 `public`（跨包不再同包可见）。
   **为什么一个插件一个子包**：仓颉的链接粒度是「包 = 静态库」，全挤在一个 `cjTauri.plugins` 包里时，
@@ -498,6 +500,21 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   进程组里（Ctrl-C 能一并带走），收尾时按「先子后父」递归 kill 整棵树
   （`npm → sh -c vite → node(vite) → esbuild`）。
 - Windows 宿主：COM 回调对象的 `AddRef` 必须返回 1 并显式 `AddRef`，否则出现 `hr=0x8007139F` 崩溃。
+- **WebView2 完成回调（`*CompletedHandler::Invoke`）的参数是「借用」，不是送你一个引用**（2026-11-05
+  实测，原生 cookie 读取）：`Invoke(HRESULT, ICoreWebView2CookieList *result)` 里对 `result` 调
+  `Release` 会让运行时随后用到已销毁的 cookie list——表象是**进程直接没**，WER 记
+  `0xc0000005` 且故障模块是 `EmbeddedBrowserWebView.dll`（**不是**我们自己的桥，两次同偏移
+  `+0x61c80` 可复现），而桥日志里恰好停在「这一次回调刚返回」。对照同文件 `env_Invoke`：它需要长期
+  持有 environment 时是**自己 AddRef 加一份**，正好说明参数本身不带引用。
+  第二个坑在同一段：handler 别写成「`Invoke` 里 `free(self)`」的一次性对象——运行时会 AddRef/Release
+  它（桥日志 `handler addref -> 2` 即证据），free 早了同样崩；用真引用计数、最后一个 Release 才释放。
+  **判据**：先加 `addref/release -> N` 与 `complete count=N` 三行日志，崩点是否与「回调返回」同一秒、
+  各 handler 的引用计数是否各自归零，一看就分得清「对象被提前销毁」和「运行时自己崩」。
+  同族风险面：所有 `GetCookies` / `ExecuteScript` / 事件登记这类**把我们的对象交给 WebView2 保管**的调用。
+- **`snprintf` 拼 JSON 前缀要按最坏取值算缓冲**：`char num[32]` 装
+  `{"ok":true,"count":%u,"cookies":[` 至少要 34 字节（固定 31 + 最多 10 位计数 + NUL），gcc 的
+  `-Wformat-truncation` 会警告，**不理会就得到非法 JSON**——前端整条命令失败，而桥侧看起来「读成功了」
+  （实测 2026-11-05，空 cookie store 的回包被截掉 `":[`）。
 - 原生对话框（`dialog` 插件）：两平台的 JS→native 回调**本来就跑在宿主 UI 线程上**（Linux = GTK 线程，
   Windows = 跑 WebView2 消息循环的那个线程），所以「把弹窗投递到 UI 线程 + 阻塞等结果」会自锁——
   现象是日志停在 `[cj-bridge] dialog: kind=…`、对话框永不出现（第一次实机就是如此）。C 桥按调用线程分流：

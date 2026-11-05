@@ -476,6 +476,21 @@ int cj_plat_pid_alive(long long pid) {
     return 0; /* 桩平台没有真进程 */
 }
 
+/* ===== Cookie 读取桩：桩平台没有真 cookie store，只为让 core 的**入口校验与转发**可调可断言 =====
+   「投 UI 线程 → 异步读 → 回填唤醒」那条路由 + 超时兜底由平台实机验证（Linux / Windows 各一份）。 */
+static int g_cookie_calls = 0;
+static char *g_cookie_last_filter = NULL;
+static int g_cookie_null = 0;   /* 扳成 1 时模拟「平台回 NULL」*/
+
+char *cj_plat_get_cookies(cj_host *h, const char *filter) {
+    (void)h;
+    g_cookie_calls++;
+    free(g_cookie_last_filter);
+    g_cookie_last_filter = strdup(filter ? filter : "");
+    if (g_cookie_null) return NULL;
+    return strdup("{\"ok\":true,\"count\":0,\"cookies\":[]}");
+}
+
 /* ===== 内嵌资源桩：桩平台没有 PE 资源表，如实返回 0 或留一句原因，
    让 core 的三条分支（参数校验 / 无资源 / 失败）都能在无 SDK 的机器上被断言。 ===== */
 int cj_plat_extract_assets(const char *dir, char *err, int err_len) {
@@ -1267,7 +1282,40 @@ int main(void) {
         CHECK(cj_bridge_pid_alive(0) == 0, "pid_alive(0) 恒为 0（不落到平台原语）");
     }
 
-    /* ===== 内嵌资源释放：单文件包随包资源（core 负责校验与错误出口） ===== */
+    /* ===== Cookie 读取：core 只做入口校验与转发（投递 / 等待 / 超时在平台层，实机验证） ===== */
+    {
+        char *j;
+        case_begin("get cookies");
+        g_cookie_calls = 0;
+        j = cj_bridge_get_cookies(NULL, "");
+        CHECK(j != NULL && strstr(j, "host not ready") != NULL,
+              "host 为 NULL 时回失败 JSON（不落平台原语）");
+        CHECK(g_cookie_calls == 0, "host 不可用时不触达平台原语");
+        cj_bridge_cookies_free(j);
+
+        h->ready = 1;
+        j = cj_bridge_get_cookies(h, NULL);
+        CHECK(j != NULL && strstr(j, "cookies") != NULL, "NULL filter 原样转成空串并转发");
+        CHECK(g_cookie_calls == 1, "就绪后转交平台原语恰好一次");
+        CHECK(g_cookie_last_filter && g_cookie_last_filter[0] == '\0',
+              "NULL filter 落到平台层是空串（= 全量）");
+        cj_bridge_cookies_free(j);
+
+        j = cj_bridge_get_cookies(h, "zhihu.com");
+        CHECK(g_cookie_last_filter && strcmp(g_cookie_last_filter, "zhihu.com") == 0,
+              "filter 原样转发给平台（不做改写）");
+        CHECK(j != NULL && strstr(j, "\"ok\":true") != NULL, "平台 JSON 原样回给上层");
+        cj_bridge_cookies_free(j);
+
+        g_cookie_null = 1;
+        j = cj_bridge_get_cookies(h, "");
+        CHECK(j != NULL && strstr(j, "platform returned null") != NULL,
+              "平台回 NULL 时 core 自己补失败 JSON（绝不给上层空指针）");
+        cj_bridge_cookies_free(j);
+        g_cookie_null = 0;
+        h->ready = 0;
+    }
+
     {
         case_begin("extract assets");
         CHECK(cj_bridge_extract_assets(NULL) == -1, "extract_assets(NULL) 被拒");

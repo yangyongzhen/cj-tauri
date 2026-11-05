@@ -9,6 +9,45 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [Unreleased]
+
+### Fixed
+- **`cookie:export` 在 Windows 上报「取不到主目录（HOME）」**：`homeDir()` 只读 `HOME`，而 Windows
+  默认不设它（CMD / 双击启动的进程里根本没有），Git Bash 给的那个还是 POSIX 形式（`/c/Users/x`），
+  原生路径 API 读不出。改为按平台取候选（Windows：`USERPROFILE` → `HOME`；Linux 反向），
+  命中**真实存在的目录**优先，另有 `HOMEDRIVE` + `HOMEPATH` 兜底。判据：同一台机器、同一份已登录
+  profile，导出从「取不到主目录」变成写出 `C:\Users\<用户>\.cspub\config.json` + `cookie_<平台>`；
+  `cjpm test` 新增 `homeDirIsRealDirectory` 用例（9/9 通过）。
+- **Windows 侧「空 filter 读全部 cookie」恒回 0 条**：`cookie_ui_start` 把空 filter 回落到**当前页 URL**
+  再喂 `GetCookies`，而这类工具的主页面是 `NavigateToString` 出来的 `about:blank`——拿它匹配任何站点都
+  命不中，于是内嵌视图里已经登录（CSDN 实测）`cookie:probe` 仍报「该平台还没有 cookie」。按 SDK 契约
+  （uri 为空串/空指针 → 返回同 profile 下全部 cookie）改为传空 uri，与 Linux 的
+  `webkit_cookie_manager_get_all_cookies` 口径一致。判据：同一份 profile、
+  `[cj-bridge] cookies: complete count=0` → `count=46`，页面 CSDN 卡片由「未提取」变「字段齐全」
+  （`UserToken`/`UserName`/`UserNick` 全绿）。
+- **Windows 侧原生 cookie 读取会把 WebView2 一起带走**（`0xc0000005`，崩在
+  `EmbeddedBrowserWebView.dll`，同一偏移两次复现）：`cookies_Invoke` 里对**借用的**
+  `ICoreWebView2CookieList` 调了 `Release`，运行时随后用到已销毁的对象；同时完成 handler 原先是
+  「Invoke 里 `free(self)`」的一次性写法，而运行时会 AddRef/Release 它。改为真引用计数、结果参数
+  不再释放后，实测同一轮 5 次并发读取全部回调成功、进程存活。
+- Windows 侧空 cookie store 的回包是**非法 JSON**：`snprintf` 缓冲区 32 字节装不下
+  `{"ok":true,"count":N,"cookies":[`（至少 34 字节）被截断，前端解析必败；缓冲放大到 64。
+- `examples/cookie-export` 的 Windows 构建零警告：`std.process` 按平台加 `@When[os == "Linux"]`
+  门禁、`restrictPerm` 的未使用参数显式弃用。
+
+### Added
+- `examples/cookie-export/dist-single/cookie-export.exe`：Windows **单文件包**（静态链接仓颉运行时 / stdx /
+  C 桥，页面与能力清单编进二进制，WebView2Loader 内嵌释放），双击即用、不装 SDK。
+  实测 4.93 MB、PE 子系统 `00000002`（GUI，双击不弹控制台）、导入表只有系统 DLL。
+  为接进打包器，示例补了 `src/packed_assets.cj`（空存根）+ `src/packed_resources.cj`（解码与
+  「内嵌优先」），`main.cj` 的页面与能力清单都改成「内嵌优先、否则读盘」。
+- `scripts/pack-win-single.sh` 支持新形态布局：页面目录接受 `ui/` 或 `assets/ui/`，能力清单接受
+  `capabilities/` 或 `assets/capabilities/`（可混搭，如 cookie-export 是页面在 `assets/ui`、
+  清单在根），构建副本按来源原样摆放，应用侧的读盘兜底路径仍对得上。此前只认工程根的 `ui/`，
+  新形态示例打包会在第一句就 die。
+- `examples/cookie-export/run.bat`：Windows 启动器（补 SDK 运行时 / stdx / 桥与 WebView2 loader 的
+  PATH，未构建时自动 `cjpm build`，并把 stderr 落到 `%TEMP%\cj-cookie-export.log`）。
+
 ## [2.1.2] - 2026-11-05
 
 ### Added

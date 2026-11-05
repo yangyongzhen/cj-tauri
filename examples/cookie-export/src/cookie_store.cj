@@ -4,6 +4,8 @@ import std.collection.*
 import std.convert.*    // Int64.parse：JSON 数字转数值
 import std.env.*
 import std.fs.*
+// 只有 Linux 的 restrictPerm 用它（chmod 600）；不门禁的话 Windows 侧会报 unused import
+@When[os == "Linux"]
 import std.process.*    // executeWithOutput：落盘后 chmod 600
 import stdx.encoding.json.*
 
@@ -236,10 +238,56 @@ public func valueOf(list: ArrayList<CookieEntry>, name: String): String {
 
 // ── 落盘工具 ─────────────────────────────────────────────────────────────
 
-/** 用户主目录（HOME / USERPROFILE）；取不到回空串，调用方据此报错而不是写到相对路径 */
+/**
+ * 主目录环境变量的候选顺序。**平台差异只落在这一处**（AGENTS §2）。
+ *
+ * Windows 默认不设 `HOME`：CMD / 双击启动的进程里它压根不存在，只认 `HOME` 会让
+ * 「cookie 已读到、字段也齐」在最后一跳失败成「取不到主目录」。而 Git Bash 里
+ * 那个 `HOME` 又是 POSIX 形式（`/c/Users/x`），交给原生 Win32 路径 API 会被读成
+ * 「当前盘根目录下的 c/Users/x」（AGENTS §4 同名坑）——所以 Windows 优先 USERPROFILE。
+ */
+@When[os == "Windows"]
+func homeCandidates(): Array<String> {
+    return ["USERPROFILE", "HOME"]
+}
+
+@When[os == "Linux"]
+func homeCandidates(): Array<String> {
+    return ["HOME", "USERPROFILE"]
+}
+
+/**
+ * 用户主目录；取不到回空串，调用方据此报错而不是写到相对路径。
+ *
+ * 命中的第一个**真实存在的目录**优先：存在性判断顺带挡掉形态不对的候选
+ * （POSIX 形式的 HOME 在本机就是不存在的路径）。
+ */
 public func homeDir(): String {
+    var fallback = ""
+    for (name in homeCandidates()) {
+        let v = envOrEmpty(name)
+        if (v.size == 0) {
+            continue
+        }
+        if (fallback.size == 0) {
+            fallback = v
+        }
+        if (exists(v)) {
+            return v
+        }
+    }
+    // 老式 CMD 环境里只有 HOMEDRIVE + HOMEPATH 这一对
+    let drive = envOrEmpty("HOMEDRIVE")
+    let rest = envOrEmpty("HOMEPATH")
+    if (drive.size > 0 && rest.size > 0) {
+        return drive + rest
+    }
+    return fallback
+}
+
+func envOrEmpty(name: String): String {
     try {
-        return getVariable("HOME").getOrThrow()
+        return getVariable(name).getOrThrow()
     } catch (e: Exception) {
         return ""
     }
@@ -292,5 +340,5 @@ public func restrictPerm(p: String): Unit {
 
 @When[os != "Linux"]
 public func restrictPerm(p: String): Unit {
-    ()
+    let _ = p // Windows 侧无 chmod：显式弃用，保持接口签名一致
 }

@@ -434,6 +434,10 @@ func bizFrameworkPathOf(p: String): Option<String> {
 /**
  * 把字符串里的 `${VAR}` 逐个展开为环境变量值；未定义的变量保留原样（可诊断）。
  *
+ * **只认 `${VAR}`，不认 `$VAR`——这是有意与 cjpm 对齐**：实测 cjpm 对
+ * `path = "$CJ_TAURI_ROOT"` 直接报 `the path '$CJ_TAURI_ROOT' … does not exist`，
+ * 若 sync 单独支持无花括号形式，反而会造成「sync 过了、`cjpm build` 挂」的分裂。
+ *
  * 全程按**字节**收集、最后一次 `fromUtf8`：把每个字节单独 `String.fromUtf8([b])` 会在
  * 多字节 UTF-8 上炸（实测 `path = "/tmp/框架本体"` → `IllegalArgumentException: Invalid
  * utf8 byte sequence`，中文路径的 workspace 直接跑不了 sync）——汉字是 3 字节，逐字节
@@ -533,17 +537,35 @@ func bytesFind(data: ArrayList<Byte>, pat: Array<Byte>, from: Int64): Int64 {
 }
 
 /** 业务包 toml 里的相对路径以业务包根（= sync 的 cwd）为基准绝对化；
-    launcher 在 targets/desktop 下，相对基准不同，不能直接抄 */
+    launcher 在 targets/desktop 下，相对基准不同，不能直接抄。
+
+    绝对路径的三种写法都要认——只判 `/` 开头会把 Windows 盘符当相对路径拼成
+    `<cwd>/D:/…`，于是 `create` 产物声明的框架（`toTomlPath` 写出的正是 `D:/…`）
+    永远被判不存在、只能靠 `resolveFrameworkRoot()` 回退；回退捡到另一份框架副本
+    就是 issue #6 那个「两份副本 → cjpm 模块冲突」：
+      ① `/` 开头（POSIX）；
+      ② `X:/` 或 `X:\`（Windows 盘符，大小写都算）；
+      ③ `//` 或两个反斜杠开头（UNC 共享路径）。 */
 func absolutizeBizPath(p: String): String {
-    var first: UInt8 = 0
-    for (b in p) {
-        first = b
-        break
+    let b = p.toArray()
+    let n = b.size
+    if (n > 0 && b[0] == 47) {               // '/'
+        return p
     }
-    if (first == 47) {                       // '/' 开头已是绝对路径
+    // 'X:' + 分隔符 —— 盘符绝对路径
+    if (n >= 3 && isAsciiLetter(b[0]) && b[1] == 58 && (b[2] == 47 || b[2] == 92)) {
+        return p
+    }
+    // 两个相同分隔符开头 —— UNC（Linux 上 '//x' 也是绝对路径，判成绝对同样正确）
+    if (n >= 2 && (b[0] == 47 || b[0] == 92) && b[0] == b[1]) {
         return p
     }
     return currentDir() + "/" + p
+}
+
+/** ASCII 字母——盘符只可能是 A-Z / a-z，别用字符字面量（本仓只用字节常量） */
+func isAsciiLetter(c: UInt8): Bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
 }
 
 /** 环境变量取值，未定义回原样（保留 ${VAR} 原文，好诊断）——case 块里只放 return */

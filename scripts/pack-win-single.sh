@@ -169,10 +169,25 @@ BRIDGE_LIB="$WORK/bridge/libcjtbridge.a"
 [ -f "$BRIDGE_LIB" ] || die "静态桥编译失败"
 
 # ---------- ② 构建副本：拷示例 + 生成内嵌资源 ----------
-[ -d "$EXAMPLE/ui" ] || die "示例缺 ui/: $EXAMPLE/ui"
-[ -d "$EXAMPLE/capabilities" ] || die "示例缺 capabilities/: $EXAMPLE/capabilities"
+# 布局两套都收：老示例是工程根的 `ui/` + `capabilities/`；新形态（清单 + 业务 static 包）放在
+# `assets/ui` + `assets/capabilities`；也允许混搭（cookie-export 就是页面在 `assets/ui`、
+# 清单留在根）。这里把两种来源都解析成 UI_SRC / CAP_SRC，构建副本按来源原样摆放——
+# 应用侧的读盘兜底路径（如 `assets/ui/index.html`）因此仍然对得上。
+UI_SRC="$EXAMPLE/ui"
+[ -d "$UI_SRC" ] || UI_SRC="$EXAMPLE/assets/ui"
+CAP_SRC="$EXAMPLE/capabilities"
+[ -d "$CAP_SRC" ] || CAP_SRC="$EXAMPLE/assets/capabilities"
+[ -d "$UI_SRC" ] || die "示例缺页面目录：$EXAMPLE/ui 与 $EXAMPLE/assets/ui 都不存在"
+[ -d "$CAP_SRC" ] || die "示例缺能力清单目录：$EXAMPLE/capabilities 与 $EXAMPLE/assets/capabilities 都不存在"
 cp -r "$EXAMPLE/src" "$WORK/app/"
-cp -r "$EXAMPLE/ui" "$WORK/app/"
+if [ "$UI_SRC" = "$EXAMPLE/assets/ui" ]; then
+    mkdir -p "$WORK/app/assets"
+    cp -r "$UI_SRC" "$WORK/app/assets/ui"
+    UI_REL="assets/ui"
+else
+    cp -r "$UI_SRC" "$WORK/app/"
+    UI_REL="ui"
+fi
 
 # 包名从示例的 cjpm.toml 抄（仓颉按包名找模块，生成的 packed_assets.cj 必须与源码同包）
 PKG_NAME="$(awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ {print $2; exit}' "$EXAMPLE/cjpm.toml")"
@@ -188,12 +203,12 @@ has_asset PACKED_UI_B64 || die "$ASSET_STUB 里没有 PACKED_UI_B64 存根"
 b64() { base64 -w0 "$1" 2>/dev/null || base64 "$1" | tr -d '\n'; }
 
 # 页面必填；three.js 只有用它的示例才有
-UI_FILE="$WORK/app/ui/index.html"
+UI_FILE="$WORK/app/$UI_REL/index.html"
 [ -f "$UI_FILE" ] || die "示例缺前端页面: $UI_FILE"
 UI_B64="$(b64 "$UI_FILE")"
 THREE_B64=""
 if has_asset PACKED_THREE_B64; then
-    THREE_FILE="$WORK/app/ui/vendor/three.min.js"
+    THREE_FILE="$WORK/app/$UI_REL/vendor/three.min.js"
     [ -f "$THREE_FILE" ] || die "存根声明了 PACKED_THREE_B64，但缺 $THREE_FILE"
     THREE_B64="$(b64 "$THREE_FILE")"
 fi
@@ -205,7 +220,7 @@ fi
 # 两边改一边就会错位。
 VENDOR_B64=""
 if has_asset PACKED_VENDOR_B64; then
-    VENDOR_LIST_FILE="$WORK/app/ui/vendor/pack-files.txt"
+    VENDOR_LIST_FILE="$WORK/app/$UI_REL/vendor/pack-files.txt"
     if [ -f "$VENDOR_LIST_FILE" ]; then
         VENDOR_FILES=()
         VENDOR_N=0
@@ -233,7 +248,7 @@ fi
 # （base64 字符表里没有逗号，所以逗号是安全的分隔符；应用侧按逗号切开逐个挂载）
 CAPS_B64=""
 CAPS_N=0
-for f in "$EXAMPLE"/capabilities/*.json; do
+for f in "$CAP_SRC"/*.json; do
     [ -f "$f" ] || continue
     piece="$(b64 "$f")"
     if [ -z "$CAPS_B64" ]; then CAPS_B64="$piece"; else CAPS_B64="$CAPS_B64,$piece"; fi

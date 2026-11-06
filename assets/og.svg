@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7288ff"/>
+      <stop offset="0.55" stop-color="#4aa8ff"/>
+      <stop offset="1" stop-color="#2bd4c4"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.14" cy="0.02" r="0.85">
+      <stop offset="0" stop-color="#7288ff" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#7288ff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowB" cx="0.96" cy="0.1" r="0.7">
+      <stop offset="0" stop-color="#2bd4c4" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#2bd4c4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#06070b"/>
+  <rect width="1200" height="630" fill="url(#glowA)"/>
+  <rect width="1200" height="630" fill="url(#glowB)"/>
+  <rect x="0" y="0" width="1200" height="4" fill="url(#brand)"/>
+
+  <!-- 标识 -->
+  <rect x="80" y="74" width="84" height="84" rx="21" fill="url(#brand)"/>
+  <path d="M112 100 L94 116 L112 132" fill="none" stroke="#081018" stroke-opacity="0.92" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M132 100 L150 116 L132 132" fill="none" stroke="#081018" stroke-opacity="0.92" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="118" y="104" width="7" height="24" rx="3.5" fill="#081018" fill-opacity="0.55"/>
+
+  <text x="190" y="132" font-family="DejaVu Sans, Verdana, sans-serif" font-size="60" font-weight="bold" fill="#e9edf8" letter-spacing="-1">cj-tauri</text>
+
+  <!-- 版本徽标 -->
+  <rect x="1010" y="86" width="112" height="46" rx="23" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.18"/>
+  <circle cx="1036" cy="109" r="5" fill="#46d18b"/>
+  <text x="1050" y="117" font-family="DejaVu Sans, Verdana, sans-serif" font-size="20" fill="#b3bdd2">v0.8.0</text>
+
+  <!-- 主标题 -->
+  <text x="80" y="290" font-family="DejaVu Sans, Verdana, sans-serif" font-size="58" font-weight="bold" fill="#e9edf8" letter-spacing="-1.5">Desktop apps in Cangjie,</text>
+  <text x="80" y="366" font-family="DejaVu Sans, Verdana, sans-serif" font-size="58" font-weight="bold" fill="url(#brand)" letter-spacing="-1.5">frontends in HTML / CSS / JS</text>
+
+  <text x="80" y="424" font-family="DejaVu Sans, Verdana, sans-serif" font-size="25" fill="#98a2b8">Statically compiled native backend + system WebView. No Chromium bundled.</text>
+
+  <!-- 数据条 -->
+  <rect x="80" y="474" width="330" height="66" rx="16" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="104" y="517" font-family="DejaVu Sans, Verdana, sans-serif" font-size="28" font-weight="bold" fill="#2bd4c4">5.5–9.5 MB</text>
+  <text x="104" y="540" font-family="DejaVu Sans, Verdana, sans-serif" font-size="17" fill="#8792a8">single-file artifacts</text>
+
+  <rect x="434" y="474" width="330" height="66" rx="16" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="458" y="517" font-family="DejaVu Sans, Verdana, sans-serif" font-size="28" font-weight="bold" fill="#2bd4c4">0</text>
+  <text x="490" y="517" font-family="DejaVu Sans, Verdana, sans-serif" font-size="18" fill="#b3bdd2">third-party DLLs</text>
+  <text x="458" y="540" font-family="DejaVu Sans, Verdana, sans-serif" font-size="17" fill="#8792a8">read from the PE import table</text>
+
+  <rect x="788" y="474" width="332" height="66" rx="16" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="812" y="517" font-family="DejaVu Sans, Verdana, sans-serif" font-size="28" font-weight="bold" fill="#2bd4c4">54 ms</text>
+  <text x="920" y="517" font-family="DejaVu Sans, Verdana, sans-serif" font-size="18" fill="#b3bdd2">cold start</text>
+  <text x="812" y="540" font-family="DejaVu Sans, Verdana, sans-serif" font-size="17" fill="#8792a8">Linux median, window up</text>
+
+  <text x="80" y="592" font-family="DejaVu Sans, Verdana, sans-serif" font-size="19" fill="#8792a8">atomgit.com/qq8864/cj-tauri · MIT · Windows (WebView2) + Linux (WebKitGTK) verified</text>
+</svg>

@@ -381,6 +381,18 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `undefined reference to cj_bridge_set_menu…`（实测 2026-10-05：漏 5 个符号、88 个错误，不是代码错）。
   重建：Linux `bash native/build_linux.sh`、Windows `native\build_win.bat`；
   数导出 `nm -D --defined-only native/libcjtbridge.so | grep -c cj_bridge_`（0.7.0 为 22 个）。
+- **交叉打 Windows 单文件包时 stdx 必须与 cjc 同代：混配能编、能链接、产物也在，只是真机启动即崩**
+  （2026-11-06 实测，`scripts/winbuild.sh` 打 cookie-export）：脚本默认值曾指 windows stdx **1.0.5.1**，
+  而本机 cjc 是 **1.2.0**——`cjpm build` 照过、exe 打得出来、导入表也干净，双击后进程却秒退；
+  叠加 GUI 子系统（`--subsystem=windows`）双击时 stderr 句柄无效，桥的 `[cj-bridge]` 一行都留不下，
+  用户侧表象就是「双击没反应」，手上**零凭证**。**同一坑已踩两次**（`f79408b` 修过 ai-chat 的产物，
+  而脚本默认值没跟着改，于是打 cookie-export 时复发）——修产物不修默认值等于没修。
+  落法：默认值取与 cjc 配套的那版（本机 1.2.0 ↔ 1.2.0.1，与 `cjh` 仓打的 Windows 包同一版；
+  缺包按 AtomGit `Cangjie/cangjie_stdx` 的 releases 取同名 zip），并在脚本里**比主次版本号**、
+  不一致当场拒——链接器不会替你报这个错。
+  判据：构建首行是 `[winbuild] cjc 1.2.0 + windows stdx 1.2.0.1`；重打后 Windows 双击
+  `cookie-export.exe` 正常出窗（2026-11-06 实机）。查「没反应」时的顺序：先确认版本配套与
+  `[winbuild]` 那一行，再打 `CJ_WINBUILD_CONSOLE=1` 的 console 版看现场，别先怀疑 WebView2 或杀软。
 - WebView2 版本规则：**SDK 不得高于本机 Runtime**（本机 Runtime 122.0.2365.106 → 用 SDK 1.0.2365.46）；
   `native/build_win.bat` 会同步同代的 `WebView2Loader.dll`（x64）到 `native/webview2/`。
 - **Windows 宿主：页面的视口尺寸必须每帧自检，不能只等 `resize` 事件**——WebView2 建 WebView 时视口

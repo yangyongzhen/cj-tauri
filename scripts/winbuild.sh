@@ -16,7 +16,10 @@
 #     （build/native/include/WebView2.h + build/native/x64/WebView2Loader.dll），
 #     并把那份 Loader.dll 复制到 native/webview2/（gitignore 挡住，不入库）
 #   · stdx 的 windows **static** 包 $WINDOWS_STDX（缺 dynamic 的 12 个 libstdx.*.dll 依赖，
-#     cjh v1.3.5 同款回归）；本机现成 1.0.5.1——与 cjc 1.2.0 是跨版本混配，编不过再换包
+#     cjh v1.3.5 同款回归）。**版本必须与 cjc 配套**（本条下面第 ⑤ 段有运行时守卫）：cjc 1.2.0 配
+#     stdx 1.0.5.1 是跨版本混配——`cjpm build` 照过、产物也能生成，只是真机启动即崩，而 GUI 子系统
+#     双击时 stderr 无效、一行凭证都没有，表象就是「双击没反应」（2026-11-06 实测，cookie-export）。
+#     缺配套包就按 AtomGit Cangjie/cangjie_stdx 的 releases 下同名 zip 解到 ~/.cangjie/stdx/ 下
 #
 # 与 pack-win-single.sh 的三点已知差异（都来自交叉环境，产物不受影响）：
 #   · 工具全是 Linux 原生交叉版（路径一律 POSIX，没有 to_win/cygpath 那层）
@@ -54,8 +57,18 @@ EXE="$OUT_ROOT/$NAME$EXE_SUFFIX.exe"
 CANGJIE_HOME="${CANGJIE_HOME:-/opt/cangjie/cangjie}"
 [ -x "$CANGJIE_HOME/bin/cjc" ] || die "缺 cjc: $CANGJIE_HOME/bin/cjc（设 CANGJIE_HOME 指向 SDK 根）"
 
-WINDOWS_STDX="${CJ_TAURI_WINDOWS_STDX:-$HOME/.cangjie/stdx/cangjie-stdx-windows-x64-1.0.5.1/windows_x86_64_cjnative/static/stdx}"
-[ -d "$WINDOWS_STDX" ] || die "缺 windows stdx static 包: $WINDOWS_STDX"
+WINDOWS_STDX="${CJ_TAURI_WINDOWS_STDX:-$HOME/.cangjie/stdx/cangjie-stdx-windows-x64-1.2.0.1/windows_x86_64_cjnative/static/stdx}"
+[ -d "$WINDOWS_STDX" ] || die "缺 windows stdx static 包: $WINDOWS_STDX（版本要与 $CANGJIE_HOME 的 cjc 配套）"
+
+# stdx 与 cjc 必须配套：混配时编译链接全过、产物也在，只是真机启动即崩（GUI 子系统下连日志都没有，
+# 表象是「双击没反应」）。取两边的主次版本号比一次，不一致就当场拒，别让它跑到真机上才暴露。
+CJC_VER="$("$CANGJIE_HOME/bin/cjc" -v 2>/dev/null | awk -F': *' 'NR==1 {print $2; exit}' | awk '{print $1}')"
+STDX_VER="$(printf '%s' "$WINDOWS_STDX" | sed -n 's#.*cangjie-stdx-[A-Za-z0-9_]*-x64-\([0-9][0-9.]*\)/.*#\1#p')"
+mm() { printf '%s' "$1" | awk -F. '{print $1 "." $2}'; }
+if [ -n "$CJC_VER" ] && [ -n "$STDX_VER" ] && [ "$(mm "$CJC_VER")" != "$(mm "$STDX_VER")" ]; then
+    die "windows stdx $STDX_VER 与 cjc $CJC_VER 主次版本不配套（混配的产物真机启动即崩）：换配套的 stdx 包，或设 CJ_TAURI_WINDOWS_STDX 显式指"
+fi
+echo "[winbuild] cjc $CJC_VER + windows stdx ${STDX_VER:-未知版本}"
 
 WEBVIEW2_SDK_ROOT="${WEBVIEW2_SDK_ROOT:-$HOME/.cache/webview2-sdk/1.0.2365.46}"
 WEBVIEW2_INCLUDE="$WEBVIEW2_SDK_ROOT/build/native/include"

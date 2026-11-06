@@ -12,6 +12,14 @@
 ## [Unreleased]
 
 ### Fixed
+- **Linux 交叉打的 Windows 单文件包启动即死（`scripts/winbuild.sh` 用了错版本的 stdx）**：脚本默认把
+  `$WINDOWS_STDX` 指到 **1.0.5.1**，而本机 cjc 是 **1.2.0**——跨版本混配下来 `cjpm build` 照过、产物也
+  生成得出来，只是真机启动即崩，而 GUI 子系统双击时 stderr 句柄无效、桥一行日志都没有，用户侧表象就是
+  「双击没反应」（`cookie-export.exe` 实测）。默认值改为与 cjc 配套的 **1.2.0.1**，并加一条**版本配套守卫**：
+  跑构建时先比 cjc 与 stdx 的主次版本号，不一致当场 `die` 并提示换包，不让混配产物再跑到真机上暴露。
+  判据：构建日志首行 `[winbuild] cjc 1.2.0 + windows stdx 1.2.0.1`，混配时直接拒绝构建。
+  两份产物已按新口径重打（`cookie-export.exe` / `cookie-export-console.exe`，各 4 915 200 字节，
+  子系统 00000002 / 00000003，导入表只剩 Windows 系统 DLL）。
 - **`cookie:export` 在 Windows 上报「取不到主目录（HOME）」**：`homeDir()` 只读 `HOME`，而 Windows
   默认不设它（CMD / 双击启动的进程里根本没有），Git Bash 给的那个还是 POSIX 形式（`/c/Users/x`），
   原生路径 API 读不出。改为按平台取候选（Windows：`USERPROFILE` → `HOME`；Linux 反向），

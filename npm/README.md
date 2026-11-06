@@ -6,12 +6,12 @@ Tauri's trio to Cangjie: a Cangjie backend (statically compiled) plus a system W
 (`invoke` / `resolve` / `event`), and a capability-based security model (capability allowlists).
 
 - Repository and full documentation: <https://github.com/yangyongzhen/cj-tauri>
-- Current version: **2.1.2** (new in this release: a native CookieManager bridge —
-  `WebViewHost.cookiesJson()` reads the whole cookie store including **httpOnly** session cookies
-  (`get_all_cookies` on WebKitGTK, `GetCookies` on WebView2), so a login performed in an embedded view
-  can be exported; plus the new `examples/cookie-export` app (CSDN / Zhihu / Juejin / OSChina / Baijiahao
-  → validated cspub credentials) and a fix for the GLib `g_object_unref` critical that every bridge
-  round-trip used to print on Linux)
+- Current version: **2.1.3** (new in this release: `scripts/winbuild.sh` now pairs the Windows stdx
+  package with the installed `cjc` — a mismatched pair compiles and links fine but aborts at startup,
+  and under a GUI subsystem it leaves **no log at all** — plus the `cookie-export` round of Windows
+  fixes: `USERPROFILE` fallback for the home directory, an empty cookie filter that reads the whole
+  store instead of matching `about:blank`, a borrowed `ICoreWebView2CookieList` that was being
+  released, and a cookie reply buffer too small to stay valid JSON)
 - Current status: **Windows (WebView2), Linux (WebKitGTK) and HarmonyOS PC (ArkWeb) all run on real
   hardware**; on the HarmonyOS side the menu capability bit and `fs` / `mqtt` / `redis` / `sqlite` /
   `store` / `http` have been verified on a device
@@ -165,6 +165,21 @@ main window keeps system default 2090x1394 px at density 190% on screen 3120x208
 Known limitation: the first `dev` / `build` builds the C bridge into the **framework directory's `native/`**
 (that's where the app's `cjpm.toml` link options point), so the package install directory must be writable;
 if you installed under a read-only path, run from inside the repository instead.
+
+## Changes in 2.1.3
+
+- **Windows single-file builds use the cjc-matched stdx**: `scripts/winbuild.sh` defaulted to the
+  `1.0.5.1` Windows stdx while `cjc` was `1.2.0`. That pair builds, links and ships, but the app
+  aborts at startup — and with `--subsystem=windows` stderr is not connected, so double-clicking a
+  broken exe produced **no log whatsoever**. The default now points at the matched package
+  (log line `[winbuild] cjc 1.2.0 + windows stdx 1.2.0.1`) and a guard refuses to build when the
+  major/minor versions differ.
+- `examples/cookie-export` Windows fixes: `homeDir()` falls back to `USERPROFILE` (and only wins when
+  the directory really exists), an empty cookie filter reads the whole store instead of matching the
+  `about:blank` URL, the borrowed `ICoreWebView2CookieList` is no longer released (it crashed the
+  WebView2 process with `0xc0000005`), and the cookie reply buffer is large enough to stay valid JSON.
+
+For the full list see `[2.1.3] - 2026-11-06` in the repository's `CHANGELOG.md`.
 
 ## Changes in 2.1.2
 

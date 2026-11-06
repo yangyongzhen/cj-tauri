@@ -11,6 +11,11 @@
 
 ## [Unreleased]
 
+（尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
+发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
+
+## [2.1.3] - 2026-11-06
+
 ### Fixed
 - **Linux 交叉打的 Windows 单文件包启动即死（`scripts/winbuild.sh` 用了错版本的 stdx）**：脚本默认把
   `$WINDOWS_STDX` 指到 **1.0.5.1**，而本机 cjc 是 **1.2.0**——跨版本混配下来 `cjpm build` 照过、产物也

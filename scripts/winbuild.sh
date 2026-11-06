@@ -35,7 +35,21 @@ NAME="$(basename "$EXAMPLE")"
 # 绝对路径：桥编译那段会 cd 进 work/bridge 再用 -I 引这些目录，相对路径从新 cwd 解析就指错
 # （实测：-I"$WORK/bridge" 相对化后 gcc 报 EventToken.h / webview2_loader_embed.h 找不到）
 OUT_ROOT="$ROOT/$EXAMPLE/dist-single"
-EXE="$OUT_ROOT/$NAME.exe"
+# CJ_WINBUILD_CONSOLE=1 → 打 console 子系统的**诊断版**（产物名带 -console 后缀）：
+# GUI 子系统双击时 stderr 句柄无效，桥的每一行 [cj-bridge] 日志都会丢，「点了没反应」无从下手；
+# console 版双击会弹一扇黑窗、日志与仓颉运行时异常全部可见，用于定位「启动即死」。
+# 注意它只是诊断产物，交付版仍是 --subsystem=windows（不弹黑窗）。
+SUBSYS_ARG="--subsystem=windows"
+SUBSYS_EXPECT="00000002"
+SUBSYS_LABEL="Windows GUI（双击不弹控制台）"
+EXE_SUFFIX=""
+if [ "${CJ_WINBUILD_CONSOLE:-0}" = "1" ]; then
+    SUBSYS_ARG="--subsystem=console"
+    SUBSYS_EXPECT="00000003"
+    SUBSYS_LABEL="console（诊断版：双击弹黑窗，日志可见）"
+    EXE_SUFFIX="-console"
+fi
+EXE="$OUT_ROOT/$NAME$EXE_SUFFIX.exe"
 
 CANGJIE_HOME="${CANGJIE_HOME:-/opt/cangjie/cangjie}"
 [ -x "$CANGJIE_HOME/bin/cjc" ] || die "缺 cjc: $CANGJIE_HOME/bin/cjc（设 CANGJIE_HOME 指向 SDK 根）"
@@ -263,7 +277,7 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   cjTauri = { path = "$WORK_FRAMEWORK" }
 
 [target.x86_64-w64-mingw32]
-  link-option = "$BRIDGE_LIB$ASSET_LINK_ARG -L/usr/x86_64-w64-mingw32/lib -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 -lws2_32 --subsystem=windows"
+  link-option = "$BRIDGE_LIB$ASSET_LINK_ARG -L/usr/x86_64-w64-mingw32/lib -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 -lws2_32 $SUBSYS_ARG"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
     path-option = ["$WINDOWS_STDX"]
@@ -302,11 +316,11 @@ if [ -n "$BAD" ]; then
 fi
 
 SUBSYS=$(x86_64-w64-mingw32-objdump -p "$EXE" | grep -i "^Subsystem" | awk '{print $2}')
-if [ "$SUBSYS" != "00000002" ]; then
-    die "产物子系统是 $SUBSYS（应为 00000002 / Windows GUI）：link-option 少了 --subsystem=windows，双击会弹 DOS 窗口"
+if [ "$SUBSYS" != "$SUBSYS_EXPECT" ]; then
+    die "产物子系统是 $SUBSYS（应为 $SUBSYS_EXPECT）：link-option 里的 $SUBSYS_ARG 没生效"
 fi
 
 echo "[winbuild] 单文件: $EXE（$(du -h "$EXE" | cut -f1)）"
-echo "[winbuild] 子系统: $SUBSYS (Windows GUI，双击不弹控制台)"
+echo "[winbuild] 子系统: $SUBSYS ($SUBSYS_LABEL)"
 echo "[winbuild] 导入的 DLL（应全是 Windows 系统库）:"
 x86_64-w64-mingw32-objdump -p "$EXE" | awk '/DLL Name:/ {print "  " $3}'

@@ -30,6 +30,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | `ld.lld: undefined symbol: cjTauri:cj_bridge_*` | 子包（单测）调不了框架的 `foreign func`；在框架包内包一层可跨包函数 |
 | `undefined reference to cjTauri.plugins.<插件>:…` | **先 `cjpm clean`**：增量缓存里的旧链接列表没带上新 import 的插件库，clean 后同一条构建即链上、`cjpm.toml` 一行不用改；别一上来就抄别的示例补 `-l` |
 | 运行期 `undefined symbol: stdx.net.tls:TlsException.ti`（或其它 `stdx.*:*.ti`），看着像链接错误 | **示例产物陈旧 + stdx 版本错配**：产物是旧 stdx 编的、运行时加载了新 stdx（实测 `TlsException` 在 1.0.5.1 有导出、1.2.0.1 已移除）。判据 `nm -D --defined-only <stdx>/dynamic/stdx/libstdx.net.tls.so \| grep -c TlsException` 两版各数一次。落法：换过 stdx 版本后示例必须 `cjpm clean` 重编——E2E 里「产物在就不重编」的省时闸门会把版本错配伪装成符号问题 |
+| Windows 单文件包双击「没反应」、窗口不出现，而构建一切正常 | **windows stdx 与 cjc 主次版本不配套**（混配能编能链、真机启动即崩），叠上 GUI 子系统双击时 stderr 无效 ⇒ 零日志、无从下手。判据：构建首行 `[winbuild] cjc 1.2.0 + windows stdx 1.2.0.1` 两边主次版本必须相同（`scripts/winbuild.sh` 已加守卫）；先打 `CJ_WINBUILD_CONSOLE=1` 的 console 版看现场，别先怀疑 WebView2 / 杀软 |
 | 只删了 `incremental-cache.json` 后，下次 build 抛 `DataModelException: This data is not DataModelSeq` 且**退出码仍是 0**、产物没刷新 | cjpm 的增量缓存**不止一个文件**，只删一个留下损坏的依赖缓存（栈在 `loadDepIncrementalCache`）。要清就 `cjpm clean`（安全：`libcjtbridge.so` 在 `native/` 根不在 `target/`）；判据看产物 mtime，别看退出码 |
 | `stdx.net.http` 报 TLS must be configured | `ClientBuilder().tlsConfig(TlsClientConfig())` 必须显式配 |
 | `readToEnd(resp.body)` 编译不过 | 它要求 `Seekable`；自己按块读（`ByteBuffer.write` + `body.read(chunk)`） |

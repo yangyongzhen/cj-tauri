@@ -189,6 +189,9 @@ public class ScoreSaveCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        // 签名由 CommandHandler 钉死：这个 handler 用不到命令名与窗口信息，就地显式弃用（零警告要求）
+        let _ = cmd
+        let _ = ipc
         let id = argString(args, "id", "")
         if (id.size == 0) {
             throw Exception("score:save 需要 id（哪一课）")
@@ -340,6 +343,8 @@ public class TypingConfigCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
         let preset = startLessonId()
         let obj = JsonObject()
         obj.put("selfCheck", JsonBool(selfCheckEnabled()))
@@ -359,6 +364,8 @@ public class ReportCommand <: CommandHandler {
     public init() {}
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = ipc
         let line = argString(args, "line", "")
         eprintln("[frontend] " + line)
         return JsonBool(true)
@@ -374,6 +381,8 @@ public class QuitCommand <: CommandHandler {
     }
 
     public func handle(cmd: String, args: JsonObject, ipc: IpcContext): JsonValue {
+        let _ = cmd
+        let _ = args
         eprintln("[english] 页面请求退出（window=${ipc.window}）")
         this.app.quit()
         return JsonBool(true)

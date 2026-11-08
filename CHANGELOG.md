@@ -24,8 +24,11 @@
   **零第三方前端依赖**（不引 three.js，也就不需要 `addInitScript` 注入通道）。
   `run.bat selfcheck`（或 `CJ_TYPING_SELFCHECK=1`）无人值守把一课打完并回投 **38 条断言**，
   `CJ_TYPING_LESSON=<课 id>` 可直奔一课便于截图归档。Linux 实机取证：`cjpm build` 零警告、
-  `DONE passed=38 failed=0`、释义上浮与排队截图核对通过（`docs/images/example-typing-english.png`）；
-  Windows 实机本轮未跑，README 的验收一节已如实标注。
+  `DONE passed=38 failed=0`、释义上浮与排队截图核对通过（`docs/images/example-typing-english.png`）。
+  **随仓库带一份 Windows 单文件包** `dist-single/typing-english.exe`（4 950 016 字节，由
+  `bash scripts/winbuild.sh examples/typing-english` 在 Linux 上交叉编出）：GUI 子系统（双击不弹黑窗）、
+  导入表只有系统 DLL、`WebView2Loader.dll` 整份内嵌 —— 只有构造证据，**Windows 真机运行仍未经本仓验证**，
+  README 的验收一节已如实标注。
 
 ### Fixed
 - **`cj-tauri sync` 展开依赖路径里的 `${VAR}` 占位符，并认得 Windows 盘符绝对路径**（issue #7）：

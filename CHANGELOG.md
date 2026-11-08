@@ -27,6 +27,21 @@
   `DONE passed=38 failed=0`、释义上浮与排队截图核对通过（`docs/images/example-typing-english.png`）；
   Windows 实机本轮未跑，README 的验收一节已如实标注。
 
+### Fixed
+- **`cj-tauri sync` 展开依赖路径里的 `${VAR}` 占位符，并认得 Windows 盘符绝对路径**（issue #7）：
+  业务包依赖写 `path = "${CJ_TAURI_ROOT}"`（lingqu 0.13.1+ 就是这形态）时，cjpm 会展开而 sync 拿到的是
+  **字面量**，拼进 cwd 成了不存在的目录 —— 于是 sync 必挂、构建却正常。现在 `bizFrameworkPathOf` 先用
+  `std.env.getVariable` 展开 `${VAR}`（未定义的保留原文便于诊断），绝对化后**路径不存在则回退
+  `resolveFrameworkRoot()`**（字面量不算声明，别拿它继续走）。同一链路另修两处：
+  ① 展开时逐字节 `String.fromUtf8([b])` 在多字节 UTF-8 上抛 `IllegalArgumentException: Invalid utf8
+  byte sequence` —— **任何含中文的路径声明都会让 sync 崩溃**（改成按字节收集、末尾一次解码，展开值同按字节拼回）；
+  ② `absolutizeBizPath` 只认 `/` 开头，而 `create` 在 Windows 上写出的正是 `D:/…`（`toTomlPath` 只做
+  反斜杠换正斜杠），于是被当相对路径拼成 `<cwd>/D:/…`、声明的框架永远缺席，只能靠回退猜 —— 装的是外置 CLI
+  且机器上有第二份框架副本时会捡错那份，正是 issue #6 那个「两份副本 → cjpm 报告模块冲突」；现在盘符
+  （`X:/`、`X:\`）与 UNC（`//`、两个反斜杠开头）都按绝对路径处理。
+  范围说明：**只认 `${VAR}`，不认 `$VAR`** —— 实测 cjpm 自己对无花括号形式直接报
+  `the path '$CJ_TAURI_ROOT' … does not exist`，sync 单独支持只会造成「sync 过了、build 挂」的分裂。
+
 ## [2.1.3] - 2026-11-06
 
 ### Fixed
@@ -126,27 +141,6 @@
   `cjhBundlePath` 释放目录候选优先于 vendor 相对路径（环境变量覆写仍最高）。
 - `ai-chat`「测试连通」把中转站网页首页的 HTTP 200 误报为「服务商可用」：200 响应现在按形状分诊
   （Content-Type / 响应开头是 HTML 如实报「返回的是网页而不是 API」），成功分支不再断言「模型可用」。
-
-## [Unreleased]
-
-（尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
-发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
-
-### Fixed
-
-- **`cj-tauri sync` 展开依赖路径里的 `${VAR}` 占位符，并认得 Windows 盘符绝对路径**（issue #7）：
-  业务包依赖写 `path = "${CJ_TAURI_ROOT}"`（lingqu 0.13.1+ 就是这形态）时，cjpm 会展开而 sync 拿到的是
-  **字面量**，拼进 cwd 成了不存在的目录 —— 于是 sync 必挂、构建却正常。现在 `bizFrameworkPathOf` 先用
-  `std.env.getVariable` 展开 `${VAR}`（未定义的保留原文便于诊断），绝对化后**路径不存在则回退
-  `resolveFrameworkRoot()`**（字面量不算声明，别拿它继续走）。同一链路另修两处：
-  ① 展开时逐字节 `String.fromUtf8([b])` 在多字节 UTF-8 上抛 `IllegalArgumentException: Invalid utf8
-  byte sequence` —— **任何含中文的路径声明都会让 sync 崩溃**（改成按字节收集、末尾一次解码，展开值同按字节拼回）；
-  ② `absolutizeBizPath` 只认 `/` 开头，而 `create` 在 Windows 上写出的正是 `D:/…`（`toTomlPath` 只做
-  反斜杠换正斜杠），于是被当相对路径拼成 `<cwd>/D:/…`、声明的框架永远缺席，只能靠回退猜 —— 装的是外置 CLI
-  且机器上有第二份框架副本时会捡错那份，正是 issue #6 那个「两份副本 → cjpm 报告模块冲突」；现在盘符
-  （`X:/`、`X:\`）与 UNC（`//`、两个反斜杠开头）都按绝对路径处理。
-  范围说明：**只认 `${VAR}`，不认 `$VAR`** —— 实测 cjpm 自己对无花括号形式直接报
-  `the path '$CJ_TAURI_ROOT' … does not exist`，sync 单独支持只会造成「sync 过了、build 挂」的分裂。
 
 ## [2.1.0] - 2026-10-25
 

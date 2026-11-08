@@ -57,6 +57,16 @@ run.bat selfcheck      :: 无人值守：页面自己把一课打完，回投 38
 日志落在 `%TEMP%\cj-typing-english.log`——**GUI 产物双击时 stderr 是无效句柄**，
 所以脚本一律带 `2> 日志` 启动，取证看那个文件（AGENTS §4 有这条坑的完整形状）。
 
+不想装仓颉 SDK 也可以直接用随仓库分发的单文件包：
+
+```bat
+dist-single\typing-english.exe      :: 双击即开（GUI 子系统，不弹黑窗）
+```
+
+它是在 Linux 上用 `bash scripts/winbuild.sh examples/typing-english` 交叉编出来的
+（4.8 MB：仓颉运行时静态链进来、`WebView2Loader.dll` 内嵌成字节、页面与能力清单以 base64
+编进源码，导入表里只有系统 DLL）。**只有构造证据、还没有 Windows 真机运行证据**，判据见 §6。
+
 ### Linux
 
 ```bash
@@ -153,9 +163,21 @@ Linux（Xvfb 1400×900，真实按键经 `xdotool type` 打进 WebView，非直�
 
 截图归档：`/tmp/cj-tauri-shots/te-0{1..5}-*.png`（宿主临时目录，不入库）。
 
-**未在本轮验证的**：Windows（WebView2）实机——本机是 Linux，页面与命令层跨平台共用，
-但 Windows 上的降采样字体与 `xdotool` 无关；要出 Windows 截图得在 Windows 上跑
-`run.bat` 后人工核对（`CJ_TYPING_LESSON=food` 可固定到一课，便于两次截图对账）。
+Windows 单文件包（`bash scripts/winbuild.sh examples/typing-english`，本机 Linux 交叉编）：
+
+| 证据 | 结果 |
+| --- | --- |
+| `cjpm build --target x86_64-w64-mingw32` | 成功，**零警告**（源码告警已清零；只剩工具链对 `--static-libs` 的弃用提示） |
+| 产物 | `dist-single/typing-english.exe`，4 950 016 字节（strip 前 28 340 736） |
+| PE 判据 | `pei-x86-64`；`Subsystem 00000002`（GUI，双击不弹黑窗） |
+| 导入表 | 只有 `KERNEL32` / `USER32` / `SHELL32` / `ole32` / `oleaut32` 系与 `WS2_32`、`comdlg32`、`msvcrt`、`dbghelp` —— 无 `libcangjie-runtime.dll`、无 `libcjtbridge.dll`、无 `WebView2Loader.dll` |
+| 内嵌 loader | `WebView2Loader.dll`（162 392 字节）整份字节在 exe 里（不是只链了个名字） |
+| 节表 | 无 `.rsrc` 是对的：本示例没有 `pack-assets.txt`，页面与能力清单是 base64 编进源码的 |
+
+**未在本轮验证的**：Windows（WebView2）实机**运行**——本机是 Linux，上面那张表只证明
+「产物构造正确」，不证明「双击能开窗」。页面与命令层跨平台共用，但 Windows 上的降采样字体
+与 `xdotool` 无关；要出 Windows 运行证据得在 Windows 上双击 `dist-single\typing-english.exe`
+（或跑 `run.bat`）后人工核对，`CJ_TYPING_LESSON=food` 可固定到一课，便于两次截图对账。
 另：本机 Linux 收尾时进程以 `SIGABRT`(134) 结束，日志停在
 `gtk_main_quit: assertion 'main_loops != NULL' failed` —— **`examples/hello` 在本机同样 134**，
 是框架在本机 Linux 上的收尾形态，与本示例无关；功能证据以自检与截图为准，不看退出码。

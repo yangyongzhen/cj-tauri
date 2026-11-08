@@ -14,6 +14,19 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Added
+- **新示例 `examples/typing-english`（小学英语打字练习）**：8 课 112 个词，每个词带音标 / 词性 / 中文释义。
+  一个词**打完整**，页面正上方就浮出中文释义卡（`rice /raɪs/ n. 米饭`）；**连续打对多个词时卡片排队、
+  一张接一张展示**——一次只挂一张、正在展示的那张不会被后来的顶掉，队里还有几条就在卡片下标
+  「还有 N 条释义在排队」，队空即撤。停留时长默认 2600ms，可经 `CJ_TYPING_POP_MS` 调（600–12000）。
+  六条命令：`word:list` / `typing:config` / `score:list` / `score:save` / `report` / `typing:quit`；
+  成绩按课存个人最好（`typing-english-scores.local.json`），不排行不上传。页面纯 2D、
+  **零第三方前端依赖**（不引 three.js，也就不需要 `addInitScript` 注入通道）。
+  `run.bat selfcheck`（或 `CJ_TYPING_SELFCHECK=1`）无人值守把一课打完并回投 **38 条断言**，
+  `CJ_TYPING_LESSON=<课 id>` 可直奔一课便于截图归档。Linux 实机取证：`cjpm build` 零警告、
+  `DONE passed=38 failed=0`、释义上浮与排队截图核对通过（`docs/images/example-typing-english.png`）；
+  Windows 实机本轮未跑，README 的验收一节已如实标注。
+
 ## [2.1.3] - 2026-11-06
 
 ### Fixed

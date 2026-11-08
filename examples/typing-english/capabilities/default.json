@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "commands": [
+    "word:list",
+    "score:save",
+    "score:list",
+    "typing:config",
+    "typing:quit",
+    "report",
+    "system:version",
+    "word:nope"
+  ],
+  "events": []
+}

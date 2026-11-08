@@ -182,6 +182,7 @@ universal language.
 | [movie](examples/movie) | Movie browsing (list/search/detail/play) — all data fetched by the Cangjie side, zero `fetch` in the front-end |
 | [music](examples/music) | Music player: charts/playlists/favorites/sharing + synced lyrics + 4 themes, covers fetched by the host with the right Referer |
 | [typing-poem](examples/typing-poem) | Chinese-poem typing practice for kids: 108 poems with per-character pinyin, three.js 3D cards, streaks raise the pitch and the world reacts |
+| [typing-english](examples/typing-english) | **Primary-school English typing drill**: 8 lessons / 112 words, each with phonetic spelling, part of speech and Chinese meaning. Type a word to completion and its glossary card floats above the page (`rice /raɪs/ n. 米饭`); finish several in a row and the cards **queue up, one card at a time** — the card on screen is never pushed off, the footer counts "还有 N 条释义在排队", and the layer clears when the queue drains; best score per lesson, page self-check **38/38** |
 | [leetcode-gui](examples/leetcode-gui) | **Desktop algorithm practice**: questions grouped by category / question + Cangjie editor / judge terminal — "Run" hands the code to **cjc itself** and checks each case, results with expected values and timing, fully offline |
 
 **Framework capability demos**:
@@ -227,6 +228,8 @@ universal language.
 | ![AI chat: chat mode](docs/images/example-ai-chat-chat.png) | ![AI chat: Agent mode](docs/images/example-ai-chat-agent.png) |
 | [modbus-poll](examples/modbus-poll): multi-panel monitors + streaming Tx/Rx message trace | [cjnote](https://atomgit.com/qq8864/cjnote) (ecosystem): split editing + AI assistant, native menu row |
 | ![Modbus Poll (cj-tauri)](examples/modbus-poll/images/modbus-poll-main.png) | ![cjnote: split + AI](docs/images/example-cjnote.png) |
+| [typing-english](examples/typing-english): English word drill, glossary pops up per word | [clipboard-history](examples/clipboard-history): tray menu + global hotkey recall |
+| ![English typing drill](docs/images/example-typing-english.png) | ![Clipboard history](docs/images/example-clipboard-history.png) |
 | [cjnote](https://atomgit.com/qq8864/cjnote) (ecosystem): native View menu synced with view state | [ohos-music](examples/ohos/ohos-music): HarmonyOS PC music player (synced lyrics) |
 | ![cjnote: native view menu](docs/images/example-cjnote-menu.png) | ![Cangjie Music (HarmonyOS PC)](docs/images/example-ohos-music.jpg) |
 | [ohos-movie](examples/ohos/ohos-movie): HarmonyOS PC movie app (covers fetched via the host with Referer/UA) | [ohos unified project](examples/ohos): `create --template ohos` output, `sync ohos` derives a buildable hap |

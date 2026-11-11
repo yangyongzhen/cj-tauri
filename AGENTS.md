@@ -32,7 +32,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 5. 单元测试为**渐进目标**：新增纯函数/解析器优先补 `cjpm test`；框架整体端到端仍以实机为准。
    仓颉侧测试放在 `src/tests/` 子包（`package cjTauri.tests`，可访问父包符号），入口是 `scripts/test.sh`；
    当前 349 个用例。C 桥的公共核心（`native/core/bridge_core.c`）另有一份**桩平台自检**
-   （`native/tests/test_bridge_core.c`，255 项断言，不依赖 SDK / 图形栈），入口是
+   （`native/tests/test_bridge_core.c`，263 项断言，不依赖 SDK / 图形栈），入口是
    `scripts/test-bridge-core.sh`——`test.sh` 与 `check-static.sh` 都会跑它。
    `src/` 根只留框架源码——`cjpm` 不扫描顶层 `tests/` 目录，挪出去会静默变成 0 个用例。
    实机结论用 `scripts/e2e-evidence.sh` 落成 `dist/e2e-evidence/<平台>-<名字>.json`（平台 / runtime
@@ -574,6 +574,20 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `cj_plat_fini → pthread_join` ↔ `CJ_CJThreadMexit → CJ_ProcessorStopWithLastCheck`）。正确做法是
   `pthread_detach` + 宿主线自己置「跑完」标记 + 有界轮询等待；等不到就保留平台状态——`cj_plat_fini`
   返回 0 时 `cj_bridge_destroy` **不回收句柄**（进程随即退出，泄漏一次状态远比死锁安全）。
+- **「退不掉」的病灶多半在「没人叫醒退出意图」，不在「等得不够久」**（2026-11-11 定位，issue #8）：
+  退出链路被拆成「置旗标」与「唤醒事件循环」两半、各在一个文件里，任缺一半就得到同一个表象——
+  窗口留在屏幕上、进程不退、`js -> native` 照旧进、`ExecuteScript` 一条不发（页面 promise 永不
+  settle、按钮全哑；因为收消息是 WebView2 自己的通道，回投却全靠宿主循环）。三条边界一起盯：
+  ① **置旗标的路径必须同时能唤醒循环**：Windows 侧 `cj_plat_quit()` 在窗口已不在（还没建出来 /
+  已销毁 / 环境创建失败）时只置 `should_quit`，而循环是 `while (GetMessageW(...))`——没人能给它
+  `PostMessage` 就永久阻塞，宿主线程永不退出、`thread_done` 恒 0（已改成 `MsgWaitForMultipleObjectsEx`
+  50ms 有界唤醒 + 每轮复核退出意图）；② **循环退出 ≠ 窗口没了**：`WM_QUIT` 可能来自别处（嵌套模态
+  循环 / 别的线程 `PostQuitMessage`），收尾段必须补「仍有 `hwnd` 就 `DestroyWindow`」；③ **销毁失败
+  必须回报并可重试**：`cj_bridge_destroy` 由 `void` 改为返回状态（1 = 已回收 / 0 = 宿主线程未收工、
+  平台状态与句柄一起留着），宿主的 `dispose()` 据此保句柄重试、仍不行打 stderr——此前它无条件把
+  句柄置空，等于把「没释放干净」这件事一起丢掉，之后再没有第二次机会。
+  判据：桩自检把「`fini` 回 0 → `destroy` 回 0 且句柄仍可安全访问 → 同一句柄重试能回收」钉成断言；
+  实机看**进程退出码 + 有没有 `fini: host thread still running` 行**，别只看「窗口看起来关了」。
 - Linux 宿主**销毁 WebKit 窗口必须留在 `gtk_main` 之外**（`quit` 只 `gtk_main_quit()`，窗口交给主循环
   返回后的收尾销毁）：在主循环内 `gtk_widget_destroy` 会让 libwebkit2gtk 的**退出期析构**在自己的
   `g_object_unref` 里 abort（退出码 134，栈 `StartMainTask → exit → __run_exit_handlers → libwebkit2gtk … → abort`，

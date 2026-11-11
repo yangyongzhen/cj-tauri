@@ -25,10 +25,14 @@ foreign func cj_bridge_create(): CPointer<Unit>
 
 /**
  * 释放宿主编：对空指针安全、幂等；调用后该句柄不可再用
+ *
+ * 返回值是**契约的一部分**（issue #8）：1 = 已回收，句柄随即失效；0 = 宿主线程还没收工，
+ * 平台状态与句柄都被留着，调用方应稍后重试。别把 0 当成功——那等于把「窗口还在、
+ * IPC 全哑」这件事静默丢掉，之后再没有第二次机会。
  */
 @When[os == "Linux" && env != "ohos"]
 @C
-foreign func cj_bridge_destroy(h: CPointer<Unit>): Unit
+foreign func cj_bridge_destroy(h: CPointer<Unit>): Int32
 
 @When[os == "Linux" && env != "ohos"]
 @C
@@ -669,10 +673,27 @@ public class WebKitHost <: WebViewHost {
         if (this.handle.isNull()) {
             return
         }
-        unsafe {
-            cj_bridge_destroy(this.handle)
+        // 宿主线程还在收尾（GTK/WebKit 的拆解是整串多线程收尾，C 侧每次最多等 5s）时，
+        // cj_bridge_destroy 回 0 表示**没回收**：句柄必须留着再试一次——直接置空就等于
+        // 把「没释放干净」这件事一起丢掉（issue #8 的那一轮就是这么静默过去的）。
+        var released = false
+        var tries = 0
+        while (tries < 2 && !released) {
+            unsafe {
+                released = cj_bridge_destroy(this.handle) != 0
+            }
+            if (!released) {
+                tries += 1
+                if (tries < 2) {
+                    sleep(Duration.millisecond * 500)
+                }
+            }
         }
-        this.handle = CPointer<Unit>()
+        if (released) {
+            this.handle = CPointer<Unit>()
+        } else {
+            eprintln("[cj-tauri] dispose: 宿主线程未结束，句柄保留（可再调一次 dispose 重试）")
+        }
     }
 }
 

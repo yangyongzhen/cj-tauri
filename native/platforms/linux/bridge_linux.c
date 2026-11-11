@@ -337,16 +337,19 @@ int cj_plat_fini(cj_host *h) {
     /* 收尾顺序同样要命：窗口销毁是 GTK/WebKit 一整串多线程拆解，若它与仓颉运行时的收尾
        并发（run() 返回 → 运行时关停），实测几乎必然以 SIGABRT 收尾（`schd-worker` unhandled
        SIGABRT from runtime frame）。所以给宿主线程一个有界的等待窗口——纯 usleep 轮询标记，
-       不碰 join（join 会与运行时握手互等，见上）；等不到也不阻塞进程退出，照旧留着状态。 */
+       不碰 join（join 会与运行时握手互等，见上）；等不到也不阻塞进程退出，照旧留着状态。
+       预算与 Windows 侧同一口径（5s）：GTK/WebKit 的拆解是整串多线程收尾，2s 实测不够宽。
+       早退时**保留 p 与 thread_done 标记**，调用方（仓颉 dispose）可以再调一次重试——
+       issue #8 里那次「窗口还在、IPC 全哑」就是早退之后句柄被置空、再没有第二次机会。 */
     if (!p->thread_done) {
         int spin = 0;
-        while (!p->thread_done && spin < 2000) { /* 最多约 2s */
+        while (!p->thread_done && spin < 5000) { /* 最多约 5s */
             usleep(1000);
             spin++;
         }
     }
     if (!p->thread_done) {
-        fprintf(stderr, "[cj-bridge] fini: host thread still running, platform state kept\n");
+        fprintf(stderr, "[cj-bridge] fini: host thread still running, platform state kept (retryable)\n");
         return 0;
     }
     h->plat = NULL;

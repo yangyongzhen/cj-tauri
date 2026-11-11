@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.2.0] - 2026-11-11
+
 ### Added
 - **新示例 `examples/typing-english`（小学英语打字练习）**：8 课 112 个词，每个词带音标 / 词性 / 中文释义。
   一个词**打完整**，页面正上方就浮出中文释义卡（`rice /raɪs/ n. 米饭`）；**连续打对多个词时卡片排队、
@@ -31,6 +33,27 @@
   README 的验收一节已如实标注。
 
 ### Fixed
+- **退出后窗口留在屏幕上、进程不退、页面 IPC 全哑**（issue #8）：三条边界一起修，缺一条都还会复现
+  同一个表象（`js -> native` 照旧进、`ExecuteScript` 一条不发、Promise 永不 settle、按钮全哑）。
+  ① **宿主线程的退出意图没人叫醒**（Windows）：`cj_plat_quit()` 在窗口已不在（还没建出来 / 已销毁 /
+  环境创建失败）时只置 `should_quit`，而消息循环是 `while (GetMessageW(...))` —— 没人能给它
+  `PostMessage` 就永久阻塞，宿主线程永不退出、`thread_done` 恒 0，`cj_plat_fini()` 每次都报
+  「host thread still running」。改成 `MsgWaitForMultipleObjectsEx`（50ms 有界唤醒 + 每轮复核退出意图，
+  窗口还在就本线程 `DestroyWindow`），不再依赖别人替我们投消息。
+  ② **消息循环退出 ≠ 窗口没了**：`WM_QUIT` 可能来自别处（嵌套模态循环 / 别的线程 `PostQuitMessage`），
+  那时窗口仍留在屏幕上而循环已不再服务它 —— 页面还能发命令（那是 WebView2 自己的接收通道），
+  回投却全靠这个循环，于是「界面看着正常但点什么都回不来」。收尾段补最后一道：仍有 `hwnd` 就
+  `DestroyWindow`，保证「循环退出时屏幕上不留窗」。
+  ③ **`destroy` 失败对调用方不可见、也永不重试**：`cj_bridge_destroy()` 由 `void` 改为**返回状态**
+  （1 = 已回收 / 0 = 宿主线程未收工，平台状态与句柄一起留着）。两个桌面宿主的 `dispose()` 据此
+  **保留句柄、500ms 后重试一次**，仍不行就如实打一行 stderr —— 此前它无条件把句柄置空，等于把
+  「没释放干净」这件事一起丢掉。两平台 `cj_plat_fini()` 同口径：有界等待统一到 5s（Linux 原 2s，
+  GTK/WebKit 的整串多线程拆解实测不够宽），且**早退时保留线程句柄**（Windows 侧此前先 `CloseHandle`
+  再判 `thread_done`，句柄一丢，下次连「它还活着吗」都问不出来）。
+  判据：桩自检新增两条断言（`fini` 回 0 时 `destroy` 必须回 0、句柄仍可安全访问、同一句柄重试能回收），
+  共 **263 项全过**；`cjpm test` **349/349**；`cjpm build` 零警告；Linux 实机 `typing-english` 自检
+  `DONE passed=38 failed=0`、退出后无「host thread still running」行。**Windows 实机未在本仓验证**，
+  该平台的两条改动只有交叉编译（`x86_64-w64-mingw32-gcc` 零错误）与桩自检背书。
 - **`cj-tauri sync` 展开依赖路径里的 `${VAR}` 占位符，并认得 Windows 盘符绝对路径**（issue #7）：
   业务包依赖写 `path = "${CJ_TAURI_ROOT}"`（lingqu 0.13.1+ 就是这形态）时，cjpm 会展开而 sync 拿到的是
   **字面量**，拼进 cwd 成了不存在的目录 —— 于是 sync 必挂、构建却正常。现在 `bizFrameworkPathOf` 先用

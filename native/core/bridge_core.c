@@ -97,14 +97,16 @@ cj_host *cj_bridge_create(void) {
     return h;
 }
 
-void cj_bridge_destroy(cj_host *h) {
+int cj_bridge_destroy(cj_host *h) {
     int i;
-    if (!h) return;
+    if (!h) return 1;
     /* 平台资源先走：COM 环境引用 / 模块句柄等（幂等）。返回 0＝宿主线程还在收尾，
-       它可能仍在用 h（GTK/WebView2 回调的 user_data 就是它）——这时连句柄一起留着不释放。 */
+       它可能仍在用 h（GTK/WebView2 回调的 user_data 就是它）——这时连句柄一起留着不释放。
+       回报 0 是**如实**：调用方（仓颉 dispose）据此保留句柄并可再试，别当成「已经释放」
+       把字段置空——那正是 issue #8 里「窗口还在屏幕上、页面 IPC 全哑」被静默放过去的地方。 */
     if (!cj_plat_fini(h)) {
-        cj_logf("[cj-bridge] destroy: host thread still running, handle kept\n");
-        return;
+        cj_logf("[cj-bridge] destroy: host thread still running, handle kept (retryable)\n");
+        return 0;
     }
     if (h->js_lock) cj_plat_sync_destroy(h->js_lock);
     if (h->dlg_lock) cj_plat_sync_destroy(h->dlg_lock);
@@ -124,6 +126,7 @@ void cj_bridge_destroy(cj_host *h) {
     free(h->pending_url);
     cj_logf("[cj-bridge] host destroyed: %p\n", (void *)h);
     free(h);
+    return 1;
 }
 
 void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d) {

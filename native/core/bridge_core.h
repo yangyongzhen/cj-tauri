@@ -401,8 +401,11 @@ void cj_core_drop_files(cj_host *h, const char *uri_list);
 CJ_BRIDGE_API cj_host *cj_bridge_create(void);
 
 /* 释放宿主编：先 cj_plat_fini，再回收公共状态。对 NULL 安全。
-   契约：仓颉侧在 waitForExit 返回后调用**至多一次**，调用后句柄不可再用（字段置空）。 */
-CJ_BRIDGE_API void cj_bridge_destroy(cj_host *h);
+   返回值：1 = 已回收（句柄随即失效，调用方必须把字段置空）；
+           0 = 平台宿主线程还没收工，**平台状态与句柄一起留着**，调用方可以稍后再调一次重试。
+   契约（issue #8）：这是可重试的操作，不是「调过就算数」——早退时不能把句柄丢掉，
+   否则「没回收」这件事既看不见也再没有第二次机会（表象是窗口留在屏幕上、页面 IPC 全哑）。 */
+CJ_BRIDGE_API int cj_bridge_destroy(cj_host *h);
 
 /* 注入回调（JS 消息到达 / 窗口销毁）+ 平台一次性初始化 */
 CJ_BRIDGE_API void cj_bridge_init(cj_host *h, cj_on_message_fn m, cj_on_destroy_fn d);

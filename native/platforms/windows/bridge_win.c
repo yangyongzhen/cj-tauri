@@ -2284,12 +2284,41 @@ static DWORD WINAPI host_thread_main(LPVOID param) {
                create_env(NULL, udf_arg, NULL, &p->env.iface));
     }
 
-    while (GetMessageW(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+    /* 消息循环（issue #8）：**不能**只等消息。should_quit 可以来自任何线程（命令 worker 里的
+       app.quit()），而窗口已经不在（还没建出来 / 已被销毁 / 环境创建失败）时没人能给它
+       PostMessage——纯 GetMessageW 会永久阻塞：宿主线程永不退出 → thread_done 恒 0 →
+       cj_plat_fini 每次都报「host thread still running」并把平台状态永久留着。所以改成
+       有界唤醒 + 每轮复核退出意图，两条都不依赖别人替我们投消息。 */
+    for (;;) {
+        DWORD wr = MsgWaitForMultipleObjectsEx(0, NULL, 50, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        if (wr == WAIT_OBJECT_0) {
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+                if (msg.message == WM_QUIT) goto done;
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+        /* 退出意图复核：窗口还活着就本线程自己销毁（DestroyWindow 只能建窗线程调），
+           窗口已经没了就直接收工。 */
+        if (h->should_quit) {
+            if (p->hwnd) {
+                DestroyWindow(p->hwnd); /* WM_DESTROY → PostQuitMessage，下一轮取到 WM_QUIT 退出 */
+            } else {
+                break;
+            }
+        }
     }
 
 done:
+    /* 窗口必收（issue #8）：消息循环退出 ≠ 窗口没了。WM_QUIT 可能来自别处（嵌套模态循环、
+       别的线程 PostQuitMessage），那时窗口仍留在屏幕上而消息循环已经不再服务它——表象正是
+       「界面看着正常，但点什么都回不来、ExecuteScript 一条都不再发」（js -> native 还在走，
+       因为消息接收是 WebView2 自己的通道；回投却全靠本循环，于是前端 promise 永不 settle）。
+       这里补最后一道：本线程直接销毁，保证「循环退出时屏幕上不留窗」。 */
+    if (p->hwnd) {
+        DestroyWindow(p->hwnd); /* WM_DESTROY 里自己会置 p->hwnd = NULL 并 PostQuitMessage */
+        p->hwnd = NULL;
+    }
     if (title_w) free(title_w);
     if (icon_w) free(icon_w);
     if (p->menu) { /* 窗口没了，菜单栏也要回收（HMENU 归本线程建、也归本线程销毁）*/
@@ -2352,15 +2381,21 @@ int cj_plat_fini(cj_host *h) {
     if (!p) return 1;
     /* 宿主线程还活着（事件循环没退出）：不能在这里 free 平台状态——它正被那条线程用着。
        等待必须有界：宿主线程收尾时要进入仓颉运行时（onDestroy），无限等会与运行时的线程
-       退出握手互等（Linux 侧实测过，见 bridge_linux.c 同名函数）；超时就状态与句柄一起留着。 */
+       退出握手互等（Linux 侧实测过，见 bridge_linux.c 同名函数）。
+       等不到时**保留线程句柄与平台状态**并以 0 返回：调用方（仓颉 dispose）可以再调一次，
+       这里绝不提前 CloseHandle——句柄一丢，下次连「它还活着吗」都问不出来（issue #8）。 */
     if (p->thread_started && p->thread) {
-        WaitForSingleObject(p->thread, 5000);
-        CloseHandle(p->thread);
-        p->thread = NULL;
-        p->thread_started = 0;
+        if (WaitForSingleObject(p->thread, 5000) == WAIT_OBJECT_0) {
+            CloseHandle(p->thread);
+            p->thread = NULL;
+            p->thread_started = 0;
+        }
     }
     if (!p->thread_done) {
-        fprintf(stderr, "[cj-bridge] fini: host thread still running, platform state kept\n");
+        /* 它可能正停在 WM_DESTROY 的同步 COM 清理里（view_close / controller Close 都可能慢）。
+           再投一次退出让存活窗口走销毁路径，然后如实报告没回收，等调用方重试。 */
+        if (p->hwnd) PostMessageW(p->hwnd, WM_CJT_QUIT, 0, 0);
+        fprintf(stderr, "[cj-bridge] fini: host thread still running, platform state kept (retryable)\n");
         return 0;
     }
     h->plat = NULL;

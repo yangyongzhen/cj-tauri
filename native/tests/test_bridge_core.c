@@ -105,6 +105,9 @@ static int g_wake_calls;
 static int g_quit_calls;
 static int g_start_calls;
 static int g_fini_calls;
+/* cj_plat_fini 的返回值：1 = 宿主线程已收工（平台状态可回收），0 = 还没收工（要留着等重试）。
+   issue #8：核心必须把这个 0 如实传出去并保留句柄，不能当成功。 */
+static int g_fini_result = 1;
 static int g_run_dialog_calls;
 static int g_post_dialog_calls;
 static int g_load_url_calls;
@@ -181,7 +184,7 @@ void cj_plat_sync_wait(cj_sync *s, int *ready) {
 void cj_plat_sync_signal(cj_sync *s) { if (s) pthread_cond_signal(&s->c); }
 
 void cj_plat_init(cj_host *h) { (void)h; }
-int  cj_plat_fini(cj_host *h) { (void)h; g_fini_calls++; return 1; }
+int  cj_plat_fini(cj_host *h) { (void)h; g_fini_calls++; return g_fini_result; }
 void cj_plat_start(cj_host *h) { (void)h; g_start_calls++; }
 void cj_plat_quit(cj_host *h) { (void)h; g_quit_calls++; }
 void cj_plat_wake_ui(cj_host *h) { (void)h; g_wake_calls++; }
@@ -1053,9 +1056,30 @@ int main(void) {
     /* --- 18. 销毁：先走平台 fini，再回收句柄 --- */
     case_begin("destroy 先走 cj_plat_fini 再回收");
     reset_counters();
-    cj_bridge_destroy(h2);
-    cj_bridge_destroy(h);
+    CHECK(cj_bridge_destroy(h2) == 1, "宿主线程已收工时 destroy 回 1");
+    CHECK(cj_bridge_destroy(h) == 1, "同上（第二个宿主）");
     CHECK(g_fini_calls == 2, "两个宿主各自走一次平台 fini");
+
+    /* --- 18b. 销毁可重试（issue #8）：宿主线程没收工就如实回 0，句柄留着等下一次 ---
+       早退那一轮的真实后果是「窗口留在屏幕上、消息循环不再服务它、页面 promise 永不 settle」，
+       所以核心这条边界必须有断言盯着：回 0 时平台状态不许被提前回收（句柄仍可访问），
+       而且同一个句柄重试一次必须能成功回收——否则应用侧既看不见失败、也没有第二次机会。 */
+    case_begin("destroy 可重试：fini 未收工不假装成功");
+    {
+        cj_host *hr = cj_bridge_create();
+        CHECK(hr != NULL, "为可重试用例新建宿主");
+        if (hr) {
+            reset_counters();
+            g_fini_result = 0;
+            CHECK(cj_bridge_destroy(hr) == 0, "宿主线程未收工时 destroy 回 0（不是成功）");
+            CHECK(g_fini_calls == 1, "那次仍走了平台 fini（只是它回 0）");
+            CHECK(cj_bridge_should_quit(hr) == 0,
+                  "句柄仍可安全访问（平台状态没被提前回收，没有 UAF）");
+            g_fini_result = 1;
+            CHECK(cj_bridge_destroy(hr) == 1, "同一句柄重试即可回收（回 1）");
+            CHECK(g_fini_calls == 2, "重试又走了一次平台 fini");
+        }
+    }
 
     /* --- 19. 串口：白名单是安全边界，导出只做校验 + 转发 --- */
     case_begin("serial 白名单与导出转发");

@@ -37,6 +37,18 @@
   `undefined symbol: stat64i32`）、**镜像版本会滞后于官方**（实测镜像 `20260602` / 官方 `20261104`，
   按目录里实际文件名取，别照文档日期硬套）、镜像只是中转站、不改变解压到无空格路径 + `bin` 进 PATH 的落法。
 
+### Fixed
+- **npm 包首次运行 `npx cj-tauri …` 在未设 `CANGJIE_STDX` 的机器上构建失败**（实测 Windows，
+  PowerShell 首跑 `doctor` 当场报 `root package 'cli' imports package 'stdx.encoding.json' … not added
+  as a dependency`）：启动器把 cli 源码拷到缓存目录 `cjpm build`，但 `cjpm.toml` 里的
+  `path-option = ["${CANGJIE_STDX}"]` 要按**进程环境变量**展开，启动器此前从不设置它——
+  变量为空时 cjpm 把它读成「stdx 没声明成依赖」，看着像 toml 漏配。现在启动器在构建前按顺序探测
+  （用户已设且有效的 `CANGJIE_STDX` → `~/.cangjie/stdx/<包>/dynamic/stdx` → SDK 根兄弟目录
+  `cangjie-stdx-<版本>/<三元组>/dynamic/stdx`，目录里必须有 `stdx.*` 库文件才算数，防止指到包根），
+  探测到就补进 CLI 与其全部子进程的环境（生成工程之后的 `cj-tauri build` / `run` 同样受益）；
+  探测不到则构建前就拦截，给出 stdx 下载入口（AtomGit releases，匿名可下）与 `setx` / `export` 落法，
+  不再甩一段 cjpm 报错让人猜。
+
 ## [2.2.0] - 2026-11-11
 
 ### Added

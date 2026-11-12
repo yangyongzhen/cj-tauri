@@ -18,14 +18,14 @@
 - **鸿蒙侧日志通道：框架自己的诊断现在进 hilog（tag `cj-tauri`）**。`src/log_bridge.cj` 按平台分叉出两个
   出口：桌面写 stderr（`enableLogFile` 仍可把整个进程的 fd 2 接管到日志文件），鸿蒙直接调 hilog 的 NDK
   C 接口（`OH_LOG_Print`，链接 `libhilog_ndk.z`）。框架内 158 处 `eprintln` 诊断统一收口到新的
-  `logDiagnostic`（新增公开 API：桌面 = stderr、鸿蒙 = hilog），`log` 插件的 `writeLogLine` 在鸿蒙侧
+  `logd`（新增公开 API：桌面 = stderr、鸿蒙 = hilog），`log` 插件的 `writeLogLine` 在鸿蒙侧
   回 `true` 并把行送进 hilog——设备取证不必再靠应用侧自己埋 `Hilog.info` 去猜框架为什么不干活。
   超长行按 **UTF-8 字符边界**切片分条打印（`hilogSplit`，hilog 单条有长度上限），不截断。
   配套：`cli/src/manifest.cj` 的 `renderOhosEntryToml` 两个 arch 段 link-option 补 `-lhilog_ndk.z`
   （缺了是模块加载期崩，而崩掉的正是日志通道本身，报错无处可写）。
 
 ### Changed
-- **框架内部的诊断输出改走 `logDiagnostic`**（桌面行为不变，仍是 stderr 一行一条）：
+- **框架内部的诊断输出改走 `logd`**（桌面行为不变，仍是 stderr 一行一条）：
   应用侧若靠 `eprintln` 的输出做过滤，换成看同一个 stderr 即可——语义与格式都没变。
 
 ## [2.2.0] - 2026-11-11

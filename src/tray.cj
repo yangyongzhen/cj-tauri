@@ -51,7 +51,7 @@ public class TrayModel {
         let flat = ArrayList<MenuItem>()
         for (it in this.items) {
             if (TrayModel.isSubmenu(it.kind)) {
-                logDiagnostic("[cj-tauri] tray: submenu item dropped (v1 tray menu is flat): ${it.label}")
+                logd("[cj-tauri] tray: submenu item dropped (v1 tray menu is flat): ${it.label}")
                 continue
             }
             flat.add(it)
@@ -60,7 +60,7 @@ public class TrayModel {
         var icon = this.icon
         var tooltip = this.tooltip
         if (TrayModel.hasStructChar(icon) || TrayModel.hasStructChar(tooltip)) {
-            logDiagnostic("[cj-tauri] tray: icon/tooltip contains tab or newline - dropped to empty")
+            logd("[cj-tauri] tray: icon/tooltip contains tab or newline - dropped to empty")
             icon = ""
             tooltip = ""
         }

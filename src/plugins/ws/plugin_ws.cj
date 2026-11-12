@@ -185,7 +185,7 @@ public class WsCommands <: CommandHandler {
             sockOpt = Some(pair[0])
         } catch (e: Exception) {
             client.close()
-            logDiagnostic("[cj-tauri] ws: connect failed: ${e}")
+            logd("[cj-tauri] ws: connect failed: ${e}")
             throw CommandException("ws: connect failed: ${e.message}")
         }
         // 登记会话并起读线程
@@ -203,7 +203,7 @@ public class WsCommands <: CommandHandler {
         // 编译器判 unreachable pattern——零警告门禁下直接取用
         let sock = sockOpt.getOrThrow()
         spawn { => wsReaderThread(this.sess, sock, client, gen) }
-        logDiagnostic("[cj-tauri] ws: connected ${url} (host=${host})")
+        logd("[cj-tauri] ws: connected ${url} (host=${host})")
         wsEmitState(this.sess, CJ_WS_STATE_CONNECTED, "")
         let obj = JsonObject()
         obj.put("connected", JsonBool(true))
@@ -270,7 +270,7 @@ public class WsCommands <: CommandHandler {
             case None => ()
         }
         if (was) {
-            logDiagnostic("[cj-tauri] ws: closed by command")
+            logd("[cj-tauri] ws: closed by command")
             wsEmitState(this.sess, CJ_WS_STATE_CLOSED, "")
         }
         let obj = JsonObject()
@@ -309,7 +309,7 @@ public class WsCommands <: CommandHandler {
     }
 
     private func rejectOutsideScope(url: String, why: String): Nothing {
-        logDiagnostic("[cj-tauri] scope denied (ws): ${url} -> ${why}")
+        logd("[cj-tauri] scope denied (ws): ${url} -> ${why}")
         throw CommandException("ws: host is outside the authorized scope")
     }
 
@@ -347,7 +347,7 @@ func wsEmitState(sess: WsSession, state: String, err: String): Unit {
     obj.put("tx", JsonInt(sess.txCount))
     sess.lock.unlock()
     obj.put("error", JsonString(err))
-    logDiagnostic("[cj-tauri] ws: state=${state} error=${err}")
+    logd("[cj-tauri] ws: state=${state} error=${err}")
     wsEmit(sess, "ws:state", obj)
 }
 
@@ -421,7 +421,7 @@ func wsReaderThread(sess: WsSession, sock: WebSocket, client: Client, gen: Int64
                 continue
             }
             if (buf.size + payload.size > CJ_WS_MAX_FRAME) {
-                logDiagnostic("[cj-tauri] ws: 分帧重组超限（>${CJ_WS_MAX_FRAME} 字节），断开连接")
+                logd("[cj-tauri] ws: 分帧重组超限（>${CJ_WS_MAX_FRAME} 字节），断开连接")
                 break
             }
             if (ft == WebSocketFrameType.ContinuationWebFrame) {
@@ -455,7 +455,7 @@ func wsReaderThread(sess: WsSession, sock: WebSocket, client: Client, gen: Int64
     }
     sess.lock.unlock()
     if (mine) {
-        logDiagnostic("[cj-tauri] ws: connection closed by peer")
+        logd("[cj-tauri] ws: connection closed by peer")
         wsEmitState(sess, CJ_WS_STATE_CLOSED, "connection closed by peer")
     }
     // 资源兜底：连接已断或已被替换，double-close 的错吞掉即可

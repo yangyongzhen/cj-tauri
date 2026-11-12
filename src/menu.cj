@@ -127,7 +127,7 @@ public class MenuModel {
         for (item in items) {
             if (!MenuModel.wireSafe(item.id) || !MenuModel.wireSafe(item.label) ||
                 !MenuModel.wireSafe(item.accelerator)) {
-                logDiagnostic("[cj-tauri] menu: item dropped from wire (id/label/accelerator contains tab or newline)")
+                logd("[cj-tauri] menu: item dropped from wire (id/label/accelerator contains tab or newline)")
                 continue
             }
             out += MenuModel.tabs(depth) + MenuModel.kindCode(item.kind) + "\t" + item.id + "\t" +

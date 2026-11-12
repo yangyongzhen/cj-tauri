@@ -636,7 +636,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   里从宿主同步进 `@State`（`@State` 不接受 `private`）。判据：hilog 有 `BindWebTagToWebInstance`
   却一条 `page begin` 都没有、截图纯白。
   另：**`eprintln` 在设备上不进 hilog**（框架 stderr 全不可见）。框架自己的诊断自 2026-11-12 起统一经
-  `logDiagnostic`（`src/log_bridge.cj`：桌面写 stderr、鸿蒙写 hilog，tag = `cj-tauri`），
+  `logd`（`src/log_bridge.cj`：桌面写 stderr、鸿蒙写 hilog，tag = `cj-tauri`），
   **框架内新代码别再直接 `eprintln`**；应用侧自己的日志照旧写 `Hilog.info`（两个 tag 不同，便于分流：
   排查「命令为什么没执行」看 `cj-tauri`）。
   hilog 缓冲会滚掉启动瞬间的行，取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用）。
@@ -649,7 +649,7 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   （摘掉桌面 SDK 并**重启 hvigor daemon**）；`aa start` 的 `-a` 要用 `module.json5` 的 `EntryAbility`，
   写成仓颉类名 `MainAbility` 返回 `10104001`。清单见 `docs/鸿蒙ArkWeb接入踩坑.md` §10。
 - **鸿蒙侧的日志出口只有 hilog，而它自己也要一条链接开关**（2026-11-12 落地）：框架诊断统一走
-  `logDiagnostic`（`src/log_bridge.cj`），鸿蒙段直接调 NDK 的 `OH_LOG_Print`，符号在
+  `logd`（`src/log_bridge.cj`），鸿蒙段直接调 NDK 的 `OH_LOG_Print`，符号在
   `libhilog_ndk.z.so`。与 pasteboard / udmf / ohos.net.http 同一条规矩：**开关写在入口模块**
   （`cli/src/manifest.cj` 的 `renderOhosEntryToml` 两个 arch 段），框架自己的 `cjpm.toml` 写了不生效；
   缺了就是模块加载期崩——而这次崩掉的是**日志通道本身**，所以报错无处可写（表象回到「白屏 / 秒退 +

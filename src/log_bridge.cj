@@ -18,7 +18,7 @@ import std.collection.*
  * 「没有日志出口」：设备上的日志出口是 hilog（`OH_LOG_Print`，`libhilog_ndk.z.so`）。
  *
  * 于是这里按平台分叉成两条出口，上层只认一个函数：
- * - 桌面：诊断走 stderr（`logDiagnostic`），要留文件由 `enableLogFile` 接管 fd 2；
+ * - 桌面：诊断走 stderr（`logd`），要留文件由 `enableLogFile` 接管 fd 2；
  * - 鸿蒙：诊断走 hilog（tag = `cj-tauri`），没有文件出口，`enableLogFile` 如实回 false。
  *
  * 判据用 `env` 而不是 `arch`（2026-10-19 校正）：`arch == "aarch64"` 连桌面 aarch64 Linux
@@ -150,18 +150,21 @@ func hilogPrint(level: Int32, text: String): Bool {
 /**
  * 框架统一的诊断出口：桌面写 stderr（可能已被 `enableLogFile` 接管到日志文件），鸿蒙写 hilog。
  *
+ * 名字取 `logd`（log diagnostic）是因为调用点有两百来处，长名字把每行诊断都推过折行线；
+ * 语义不变：一行一条、不加前缀、不加时间戳——前缀由调用方自己带（`[cj-tauri] …`）。
+ *
  * 框架内新代码一律调它，**别再直接 `eprintln`**——鸿蒙上 `eprintln` 的 stderr 一行都不进
  * hilog，设备侧等于没有日志（AGENTS §4 实测：白屏排查时 hilog 里连 AbilityStage.onCreate
  * 都看不见，而 CANGJIE-RUNTIME 的行照常打）。
  */
 @When[env != "ohos"]
-public func logDiagnostic(line: String): Unit {
+public func logd(line: String): Unit {
     eprintln(line)
 }
 
 /** 鸿蒙侧：同上，出口换成 hilog（tag = cj-tauri，等级 INFO） */
 @When[env == "ohos"]
-public func logDiagnostic(line: String): Unit {
+public func logd(line: String): Unit {
     let _ = hilogPrint(HILOG_INFO, line)
 }
 
@@ -185,7 +188,7 @@ func enableLogFile(path: String, maxKB: Int64, keep: Int64): Bool {
 
 /**
  * 鸿蒙侧：没有 C 桥，落盘能力位如实为 0——但日志出口仍在（hilog），
- * 所以这行提示要经 `logDiagnostic` 发出去，否则「为什么没有日志文件」这件事本身也没凭证。
+ * 所以这行提示要经 `logd` 发出去，否则「为什么没有日志文件」这件事本身也没凭证。
  *
  * 返回 false 而不抛异常——调用方（`setLogToDefaultFile`）本就是「尽力而为」语义，
  * 抛异常会把应用启动带走。
@@ -194,7 +197,7 @@ func enableLogFile(path: String, maxKB: Int64, keep: Int64): Bool {
 func enableLogFile(path: String, maxKB: Int64, keep: Int64): Bool {
     let _ = maxKB
     let _ = keep
-    logDiagnostic("[cj-tauri] log file sink unavailable on this platform (no C bridge); " +
+    logd("[cj-tauri] log file sink unavailable on this platform (no C bridge); " +
         "diagnostics go to hilog (tag=${HILOG_TAG}): ${path}")
     return false
 }

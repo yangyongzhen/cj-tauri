@@ -41,7 +41,7 @@ public class BackgroundProcess {
      */
     public func stop(): Unit {
         if (!hiddenPidKill(pid)) {
-            logDiagnostic("[cj-tauri] 终止子进程失败（pid=${pid}）")
+            logd("[cj-tauri] 终止子进程失败（pid=${pid}）")
         }
     }
 }
@@ -58,13 +58,13 @@ public class BackgroundProcess {
  * ```cangjie
  * match (launchHidden(bin, ["web", "--port", "8765"])) {
  *     case Some(p) => backendPid = p.processId()
- *     case None => logDiagnostic("[app] 后端没起来")
+ *     case None => logd("[app] 后端没起来")
  * }
  * ```
  */
 public func launchHidden(exePath: String, args: Array<String>): Option<BackgroundProcess> {
     if (exePath.isEmpty()) {
-        logDiagnostic("[cj-tauri] launchHidden: 程序路径为空")
+        logd("[cj-tauri] launchHidden: 程序路径为空")
         return None
     }
     let wire = match (joinHiddenArgs(args)) {
@@ -93,7 +93,7 @@ public func joinHiddenArgs(args: Array<String>): Option<String> {
     var first = true
     for (a in args) {
         if (let Some(_) <- a.indexOf(sep)) {
-            logDiagnostic("[cj-tauri] launchHidden: 参数里不允许出现 0x1F 分隔符（${a}）")
+            logd("[cj-tauri] launchHidden: 参数里不允许出现 0x1F 分隔符（${a}）")
             return None
         }
         if (!first) {
@@ -139,7 +139,7 @@ func spawnHiddenPid(exePath: String, argsWire: String): Int64 {
 @When[env == "ohos"]
 func spawnHiddenPid(exePath: String, argsWire: String): Int64 {
     let _ = argsWire
-    logDiagnostic("[cj-tauri] 本平台没有 C 桥，无法后台静默启动：${exePath}")
+    logd("[cj-tauri] 本平台没有 C 桥，无法后台静默启动：${exePath}")
     return 0
 }
 

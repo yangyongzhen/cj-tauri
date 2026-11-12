@@ -89,7 +89,7 @@ public class ArkWebRuntime {
      */
     public static func configure(filesDir: String): Unit {
         if (filesDir.size == 0) {
-            logDiagnostic("[cj-tauri] ArkWebRuntime.configure: filesDir is empty, run(html) will be rejected")
+            logd("[cj-tauri] ArkWebRuntime.configure: filesDir is empty, run(html) will be rejected")
             return
         }
         ArkWebRuntime.sandboxDir = filesDir
@@ -98,10 +98,10 @@ public class ArkWebRuntime {
             let r = chdir(cpath)
             LibC.free(cpath)
             if (r != 0) {
-                logDiagnostic("[cj-tauri] chdir(${filesDir}) failed: errno=${r}（相对路径落盘仍以原 cwd 为基准）")
+                logd("[cj-tauri] chdir(${filesDir}) failed: errno=${r}（相对路径落盘仍以原 cwd 为基准）")
             }
         }
-        logDiagnostic("[cj-tauri] ArkWeb sandbox: ${filesDir}")
+        logd("[cj-tauri] ArkWeb sandbox: ${filesDir}")
     }
 
     /** 登记一个宿主（构造时调；同一 label 重复登记＝替换，与进程级唯一窗口的语义一致） */
@@ -254,7 +254,7 @@ public class ArkWebHost <: WebViewHost {
     public init(label: String) {
         this.windowLabel = label
         ArkWebRuntime.register(this)
-        logDiagnostic("[cj-tauri] ArkWeb host created: label=\"${label}\"")
+        logd("[cj-tauri] ArkWeb host created: label=\"${label}\"")
     }
 
     public func label(): String {
@@ -272,7 +272,7 @@ public class ArkWebHost <: WebViewHost {
     public func start(html: String): Unit {
         this.pageHtml = html
         this.pageUrl = this.writeHtmlToSandbox(html)
-        logDiagnostic("[cj-tauri] ArkWeb page: label=\"${this.windowLabel}\" source=inline url=\"${this.pageUrl}\"")
+        logd("[cj-tauri] ArkWeb page: label=\"${this.windowLabel}\" source=inline url=\"${this.pageUrl}\"")
     }
 
     /**
@@ -284,7 +284,7 @@ public class ArkWebHost <: WebViewHost {
     public func startUrl(url: String): Unit {
         this.pageHtml = ""
         this.pageUrl = url
-        logDiagnostic("[cj-tauri] ArkWeb page: label=\"${this.windowLabel}\" source=url url=\"${url}\"")
+        logd("[cj-tauri] ArkWeb page: label=\"${this.windowLabel}\" source=url url=\"${url}\"")
     }
 
     /**
@@ -339,18 +339,18 @@ public class ArkWebHost <: WebViewHost {
         // 鸿蒙应用窗口由 Ability 的 WindowStage 决定，逻辑尺寸概念与桌面不同：
         // 这里如实说明不生效，而不是假装设成功（能力位也不含任何窗口控制位）。
         let _ = config
-        logDiagnostic("[cj-tauri] ArkWeb: window config is managed by WindowStage on this platform (ignored)")
+        logd("[cj-tauri] ArkWeb: window config is managed by WindowStage on this platform (ignored)")
     }
 
     public func setDevTools(enabled: Bool): Unit {
         this.devToolsEnabled = enabled
         // 真正调 setWebDebuggingAccess 的时机在 UI 侧（controller 就绪之后）。
-        logDiagnostic("[cj-tauri] ArkWeb: web debugging requested: ${enabled}")
+        logd("[cj-tauri] ArkWeb: web debugging requested: ${enabled}")
     }
 
     public func openDevTools(): Unit {
         // ArkWeb 的调试走「设备侧 Web 调试」通道，没有桌面那种独立 DevTools 窗口。
-        logDiagnostic("[cj-tauri] ArkWeb: openDevTools is not available on this platform (use web debugging)")
+        logd("[cj-tauri] ArkWeb: openDevTools is not available on this platform (use web debugging)")
     }
 
     /* ---- 菜单：框架存模型，应用侧用 bindMenu 画（见 arkweb_menu.cj 的类注释） ---- */
@@ -369,7 +369,7 @@ public class ArkWebHost <: WebViewHost {
             rows = countMenuItems(parsed)
             this.menuItemCount = rows
         }
-        logDiagnostic("[cj-tauri] ArkWeb: menu applied (${wire.size} bytes, ${rows} item(s), app-side bindMenu)")
+        logd("[cj-tauri] ArkWeb: menu applied (${wire.size} bytes, ${rows} item(s), app-side bindMenu)")
     }
 
     /**
@@ -391,7 +391,7 @@ public class ArkWebHost <: WebViewHost {
                 }
             }
         }
-        logDiagnostic("[cj-tauri] ArkWeb: menu item state id=\"${id}\" enabled=${enabled} checked=${checked} hit=${hit}")
+        logd("[cj-tauri] ArkWeb: menu item state id=\"${id}\" enabled=${enabled} checked=${checked} hit=${hit}")
     }
 
     /**
@@ -439,11 +439,11 @@ public class ArkWebHost <: WebViewHost {
             }
         }
         if (!found) {
-            logDiagnostic("[cj-tauri] ArkWeb: menu click ignored (id=\"${id}\" is not in the current menu)")
+            logd("[cj-tauri] ArkWeb: menu click ignored (id=\"${id}\" is not in the current menu)")
             return
         }
         this.menuClickCount++
-        logDiagnostic("[cj-tauri] ArkWeb: menu clicked id=\"${id}\" enabled=${enabled} checked=${checked}")
+        logd("[cj-tauri] ArkWeb: menu clicked id=\"${id}\" enabled=${enabled} checked=${checked}")
         this.shellHandler("{\"kind\":\"menu\",\"id\":\"${arkWebJsonEscape(id)}\",\"enabled\":${enabled}," +
             "\"checked\":${checked}}")
     }
@@ -455,7 +455,7 @@ public class ArkWebHost <: WebViewHost {
     public func setDragDropPolicy(enabled: Bool, files: Bool): Unit {
         let _ = enabled
         let _ = files
-        logDiagnostic("[cj-tauri] ArkWeb: drag/drop policy unsupported (host capability bit is 0)")
+        logd("[cj-tauri] ArkWeb: drag/drop policy unsupported (host capability bit is 0)")
     }
 
     public func setGlobalHotkeys(wire: String): Unit {
@@ -469,7 +469,7 @@ public class ArkWebHost <: WebViewHost {
     public func setWindowVisible(visible: Bool): Unit {
         this.visible = visible
         // 可见性由 ArkUI 的组件树决定（`visibility` 属性），宿主只记状态供 UI 侧读取。
-        logDiagnostic("[cj-tauri] ArkWeb: window visible -> ${visible}")
+        logd("[cj-tauri] ArkWeb: window visible -> ${visible}")
     }
 
     public func setMinimizeToTray(enabled: Bool): Unit {
@@ -500,7 +500,7 @@ public class ArkWebHost <: WebViewHost {
         let _ = save
         let _ = title
         let _ = filter
-        logDiagnostic("[cj-tauri] ArkWeb: native file dialog unsupported (needs a picker module)")
+        logd("[cj-tauri] ArkWeb: native file dialog unsupported (needs a picker module)")
         return ""
     }
 
@@ -511,7 +511,7 @@ public class ArkWebHost <: WebViewHost {
 
     public func showFolderDialog(title: String): String {
         let _ = title
-        logDiagnostic("[cj-tauri] ArkWeb: native folder dialog unsupported (needs a picker module)")
+        logd("[cj-tauri] ArkWeb: native folder dialog unsupported (needs a picker module)")
         return ""
     }
 
@@ -527,7 +527,7 @@ public class ArkWebHost <: WebViewHost {
      */
     public func showMessageDialog(kind: String, title: String, message: String): Bool {
         if (this.disposed) {
-            logDiagnostic("[cj-tauri] ArkWeb dialog rejected: label=\"${this.windowLabel}\" (host disposed)")
+            logd("[cj-tauri] ArkWeb dialog rejected: label=\"${this.windowLabel}\" (host disposed)")
             return false
         }
         var id: Int64 = 0
@@ -538,7 +538,7 @@ public class ArkWebHost <: WebViewHost {
             this.pendingDialogs.add(ArkWebDialogRequest(id, kind, title, message))
             this.awaitingDialogs.add(id)
         }
-        logDiagnostic(
+        logd(
             "[cj-tauri] ArkWeb dialog queued: label=\"${this.windowLabel}\" id=${id} kind=\"${kind}\" title=\"${title}\""
         )
         var waited: Int64 = 0
@@ -553,7 +553,7 @@ public class ArkWebHost <: WebViewHost {
                 }
             }
             if (answered) {
-                logDiagnostic(
+                logd(
                     "[cj-tauri] ArkWeb dialog answered: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed}"
                 )
                 return confirmed
@@ -566,7 +566,7 @@ public class ArkWebHost <: WebViewHost {
             this.dropPendingDialog(id)
             this.dialogAnswers.remove(id)
         }
-        logDiagnostic(
+        logd(
             "[cj-tauri] ArkWeb dialog timed out: label=\"${this.windowLabel}\" id=${id} after ${CJ_ARKWEB_DIALOG_WAIT_MS}ms (UI side never answered; this is NOT a user cancel)"
         )
         return false
@@ -605,12 +605,12 @@ public class ArkWebHost <: WebViewHost {
             }
         }
         if (accepted) {
-            logDiagnostic(
+            logd(
                 "[cj-tauri] ArkWeb dialog answer: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed}"
             )
             return
         }
-        logDiagnostic(
+        logd(
             "[cj-tauri] ArkWeb dialog answer dropped: label=\"${this.windowLabel}\" id=${id} confirmed=${confirmed} (no longer awaiting)"
         )
     }
@@ -649,7 +649,7 @@ public class ArkWebHost <: WebViewHost {
     public func notify(title: String, body: String): Bool {
         let _ = title
         let _ = body
-        logDiagnostic("[cj-tauri] ArkWeb: notification unsupported (host capability bit is 0)")
+        logd("[cj-tauri] ArkWeb: notification unsupported (host capability bit is 0)")
         return false
     }
 
@@ -680,7 +680,7 @@ public class ArkWebHost <: WebViewHost {
         }
         this.quitFlag = true
         ArkWebRuntime.requestQuit()
-        logDiagnostic("[cj-tauri] ArkWeb: quit requested: label=\"${this.windowLabel}\" (app should terminateSelf)")
+        logd("[cj-tauri] ArkWeb: quit requested: label=\"${this.windowLabel}\" (app should terminateSelf)")
     }
 
     public func setMessageHandler(handler: (String) -> Unit): Unit {
@@ -697,7 +697,7 @@ public class ArkWebHost <: WebViewHost {
         }
         this.disposed = true
         ArkWebRuntime.unregister(this.windowLabel)
-        logDiagnostic(
+        logd(
             "[cj-tauri] ArkWeb host disposed: label=\"${this.windowLabel}\" pageBegin=${this.pageBeginCount} pageEnd=${this.pageEndCount} jsIn=${this.jsInCount} dialogRequested=${this.dialogRequestCount} dialogAnswered=${this.dialogAnswerCount}"
         )
     }
@@ -786,7 +786,7 @@ public class ArkWebHost <: WebViewHost {
         synchronized(ArkWebRuntime.queueLock) {
             this.pageBeginCount += 1
         }
-        logDiagnostic("[cj-tauri] ArkWeb page begin: label=\"${this.windowLabel}\" count=${this.pageBeginCount}")
+        logd("[cj-tauri] ArkWeb page begin: label=\"${this.windowLabel}\" count=${this.pageBeginCount}")
     }
 
     /** 页面加载结束（UI 侧回调）；`system:host` 的取证就看这两个计数是否对得上 */
@@ -794,7 +794,7 @@ public class ArkWebHost <: WebViewHost {
         synchronized(ArkWebRuntime.queueLock) {
             this.pageEndCount += 1
         }
-        logDiagnostic("[cj-tauri] ArkWeb page end: label=\"${this.windowLabel}\" count=${this.pageEndCount}")
+        logd("[cj-tauri] ArkWeb page end: label=\"${this.windowLabel}\" count=${this.pageEndCount}")
     }
 
     /**
@@ -812,7 +812,7 @@ public class ArkWebHost <: WebViewHost {
         // 桥脚本产生，形状固定；解析失败会把 reload 静默丢掉，反而更难查。
         match (raw.indexOf("\"type\":\"reload\"")) {
             case Some(_) =>
-                logDiagnostic("[cj-tauri] ArkWeb: reload requested by page: label=\"${this.windowLabel}\"")
+                logd("[cj-tauri] ArkWeb: reload requested by page: label=\"${this.windowLabel}\"")
                 this.reload()
                 return
             case None => ()
@@ -860,14 +860,14 @@ public class ArkWebHost <: WebViewHost {
      */
     private func writeHtmlToSandbox(html: String): String {
         if (ArkWebRuntime.sandboxDir.size == 0) {
-            logDiagnostic("[cj-tauri] ArkWeb: run(html) rejected: ArkWebRuntime.configure(filesDir) was not called")
+            logd("[cj-tauri] ArkWeb: run(html) rejected: ArkWebRuntime.configure(filesDir) was not called")
             return ""
         }
         let path = "${ArkWebRuntime.sandboxDir}/cj-tauri-${this.windowLabel}.html"
         try {
             File.writeTo(path, this.injectBootstrap(html).toArray())
         } catch (e: Exception) {
-            logDiagnostic("[cj-tauri] ArkWeb: failed to write page to sandbox: ${path}: ${e.message}")
+            logd("[cj-tauri] ArkWeb: failed to write page to sandbox: ${path}: ${e.message}")
             return ""
         }
         return "file://${path}"

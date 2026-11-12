@@ -162,7 +162,7 @@ public class HttpCommands <: CommandHandler {
                 try {
                     tail = String.fromUtf8(pending.toArray())
                 } catch (e: Exception) {
-                    logDiagnostic("[cj-tauri] http:postStream 尾部 ${pending.size} 字节不是合法 UTF-8（流被掐断），已丢弃")
+                    logd("[cj-tauri] http:postStream 尾部 ${pending.size} 字节不是合法 UTF-8（流被掐断），已丢弃")
                 }
             }
             ipc.emit("http:chunk", this.chunkPayload(status, ctype, tail, total, true, truncated))
@@ -280,7 +280,7 @@ public class HttpCommands <: CommandHandler {
     }
 
     private func rejectOutsideScope(url: String, why: String): Nothing {
-        logDiagnostic("[cj-tauri] scope denied (http): ${url} -> ${why}")
+        logd("[cj-tauri] scope denied (http): ${url} -> ${why}")
         throw CommandException("http: host is outside the authorized scope")
     }
 

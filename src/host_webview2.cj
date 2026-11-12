@@ -233,7 +233,7 @@ public class WebView2Host <: WebViewHost {
     // 本窗口的 shell 事件（菜单点击等）回调：TauriApp 装配时经 setShellHandler 覆盖它做分发，
     // 未覆盖时只留一行 stderr——菜单点了没人管，至少能在日志里看见。
     public var shellHandler: (String) -> Unit = { json =>
-        logDiagnostic("[cj-tauri] shell event (no handler): ${json}")
+        logd("[cj-tauri] shell event (no handler): ${json}")
     }
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
@@ -411,7 +411,7 @@ public class WebView2Host <: WebViewHost {
                 }
             case None =>
                 // 外观修饰失败不该拦着开窗，但要在日志里留凭证
-                logDiagnostic("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
+                logd("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
         }
     }
 
@@ -510,7 +510,7 @@ public class WebView2Host <: WebViewHost {
             rc = cj_bridge_clipboard_write_text(this.handle, LibC.mallocCString(text))
         }
         if (rc != 0) {
-            logDiagnostic("[cj-tauri] clipboard write failed: code=${rc}")
+            logd("[cj-tauri] clipboard write failed: code=${rc}")
         }
         return rc == 0
     }
@@ -560,7 +560,7 @@ public class WebView2Host <: WebViewHost {
         }
         if (rc != 0) {
             // Windows 桩阶段返回 -4（未实现）：静态事实，stderr 一行说清，不算异常
-            logDiagnostic("[cj-tauri] notification failed: code=${rc}")
+            logd("[cj-tauri] notification failed: code=${rc}")
         }
         return rc == 0
     }
@@ -693,7 +693,7 @@ public class WebView2Host <: WebViewHost {
         if (released) {
             this.handle = CPointer<Unit>()
         } else {
-            logDiagnostic("[cj-tauri] dispose: 宿主线程未结束，句柄保留（可再调一次 dispose 重试）")
+            logd("[cj-tauri] dispose: 宿主线程未结束，句柄保留（可再调一次 dispose 重试）")
         }
     }
 }
@@ -705,6 +705,6 @@ func hostOnMessage(json: CString): Unit {
     try {
         HostGlobals.onMessage(json.toString())
     } catch (e: Exception) {
-        logDiagnostic("[cj-tauri] host callback error: ${e}")
+        logd("[cj-tauri] host callback error: ${e}")
     }
 }

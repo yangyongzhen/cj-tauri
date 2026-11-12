@@ -62,8 +62,12 @@ npx cj-tauri create myapp        # no install needed
 cd myapp && npx cj-tauri dev     # takes over the Vite dev server (Vue/React templates), HMR in-window
 ```
 
-Prerequisites: the [Cangjie SDK](docs/使用文档.md#2-环境准备) 1.0.5+ and stdx (Windows additionally
-needs mingw gcc and the WebView2 Runtime, bundled with Win11; Linux needs `libwebkit2gtk-4.1-dev`).
+Prerequisites: the Cangjie SDK **1.2.0** and stdx **1.2.0.1** (a matching pair — mixing
+generations compiles fine and then crashes on startup). Windows additionally needs mingw gcc and
+the WebView2 Runtime, bundled with Win11; Linux needs `libwebkit2gtk-4.1-dev`.
+**[Environment setup →](docs/使用文档.md#2-环境准备)** has the download links for both (SDK from the
+official download center, stdx from the AtomGit releases), the install layout, and the command
+that verifies each step — plus a symptom table if something still fails.
 If the SDK is missing, the CLI prints setup instructions and a `CANGJIE_HOME` example instead of
 `command not found`. The same directory also has `cj-tauri build/run/info/doctor`.
 
@@ -318,7 +322,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | Doc | Contents |
 |---|---|
 | [Modbus tool deep-dive](docs/仓颉版Modbus调试工具-介绍与实战.md) | Scaffolding walkthrough + how the Modbus tool is built + comparison with Modbus Poll |
-| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | Feasibility study / the full development pitfall log (Chinese) |
+| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | Current architecture: layering, IPC, capability model, and why it deviates from the MVP plan (Chinese) |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | Release notes / dev conventions / contributing / licenses |
 
 ## AI-assisted development (AtomCode skills)

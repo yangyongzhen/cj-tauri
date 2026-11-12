@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.3.0] - 2026-11-12
+
 ### Added
 - **鸿蒙侧日志通道：框架自己的诊断现在进 hilog（tag `cj-tauri`）**。`src/log_bridge.cj` 按平台分叉出两个
   出口：桌面写 stderr（`enableLogFile` 仍可把整个进程的 fd 2 接管到日志文件），鸿蒙直接调 hilog 的 NDK

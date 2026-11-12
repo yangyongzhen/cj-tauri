@@ -32,7 +32,13 @@
   # 只写在框架自己的 cjpm.toml 里不生效，缺了模块里就留一堆 `U OH_Pasteboard_*`，
   # 表现是应用启动即 SIGSEGV（模块加载期解析不到符号）。
   # 库在同 sysroot 的 `usr/lib/aarch64-linux-ohos`，上面 compile-option 的 `-L` 已指着它。
-  link-option = "-lpasteboard -ludmf"
+  # -lohos.net.http：http 插件的鸿蒙支走系统网络栈（仓颉运行时装不了 OpenSSL，见 AGENTS §4），
+  # 模块符号在 libohos.net.http.so。
+  # -lhilog_ndk.z：框架的诊断出口（`src/log_bridge.cj` 鸿蒙段的 `OH_LOG_Print`，tag = cj-tauri）。
+  # 这条尤其别漏——日志通道自己因为缺符号起不来，就没有任何地方能报出原因。
+  # 注意：`cj-tauri sync` 会用 `cli/src/manifest.cj` 的 `renderOhosEntryToml` **重新生成本文件**，
+  # 这里写的 link-option 会被覆盖，真源在生成器那一份（三处要一起改）。
+  link-option = "-lpasteboard -ludmf -lohos.net.http -lhilog_ndk.z"
 [target.aarch64-linux-ohos.bin-dependencies]
   # 鸿蒙版 stdx：这里写**相对路径**，指向工程根上的 `stdx` 联接（build-hap.sh 用
   # CANGJIE_STDX_OHOS 建，不入库）。两条实测依据：

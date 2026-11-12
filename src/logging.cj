@@ -52,9 +52,9 @@ public func logBudgetFromEnv(name: String, dflt: Int64): Int64 {
                 if (n > 0) {
                     return n
                 }
-                eprintln("[cj-tauri] ${name}=\"${v}\" 不是正整数，按默认值 ${dflt} 处理")
+                logDiagnostic("[cj-tauri] ${name}=\"${v}\" 不是正整数，按默认值 ${dflt} 处理")
             } catch (e: Exception) {
-                eprintln("[cj-tauri] ${name}=\"${v}\" 解析失败，按默认值 ${dflt} 处理")
+                logDiagnostic("[cj-tauri] ${name}=\"${v}\" 解析失败，按默认值 ${dflt} 处理")
             }
         }
     }

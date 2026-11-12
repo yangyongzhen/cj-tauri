@@ -174,7 +174,7 @@ public class IpcHub {
         match (this.capabilities.scopeForPlugin(plugin)) {
             case Some(rule) =>
                 if (!scopeAllows(rule, resolved)) {
-                    eprintln("[cj-tauri] scope denied (${plugin}): ${rawPath} -> ${resolved}")
+                    logDiagnostic("[cj-tauri] scope denied (${plugin}): ${rawPath} -> ${resolved}")
                     throw CommandException("${plugin}: path is outside the authorized scope")
                 }
             case None => ()
@@ -221,7 +221,7 @@ public class IpcHub {
         }
         // 两条解析都不认：只要报文里读得出 id 就回一条 reject——前端那条 promise 否则会永久 pending，
         // 比一条明确的报错难排查得多（前端 invoke 没有超时参数）。
-        eprintln("[cj-tauri] invalid IPC message: ${raw}")
+        logDiagnostic("[cj-tauri] invalid IPC message: ${raw}")
         if (let Some(id) <- IpcMessage.peekId(raw)) {
             // 报文非法时读不出窗口，只能广播一份：id 只会挂在某一个页面的 pending 上，
             // 别的窗口的 _dispatch 找不到它、忽略即可——这样发起方那条 promise 才不会永久 pending。
@@ -300,10 +300,10 @@ public class IpcHub {
             // 应用级拒绝（作者主动抛的业务失败）也要留痕：前端可能压根没接 catch，
             // 只回 reject 的话「这条命令失败了」在页面之外毫无线索——事件监听器路早有同款日志。
             // 与下面的非预期失败分开措辞，便于 `grep command rejected` / `grep command failed` 分流。
-            eprintln("[cj-tauri] command rejected (${req.cmd}): ${e.message}")
+            logDiagnostic("[cj-tauri] command rejected (${req.cmd}): ${e.message}")
             this.reject(req.id, e.message, req.window)
         } catch (e: Exception) {
-            eprintln("[cj-tauri] command failed (${req.cmd}): ${e}")
+            logDiagnostic("[cj-tauri] command failed (${req.cmd}): ${e}")
             this.reject(req.id, "command failed: ${e}", req.window)
         }
     }
@@ -325,7 +325,7 @@ public class IpcHub {
      */
     private func handleEmit(req: EmitRequest): Unit {
         if (!this.capabilities.canEmit(req.event)) {
-            eprintln("[cj-tauri] event not allowed: ${req.event}")
+            logDiagnostic("[cj-tauri] event not allowed: ${req.event}")
             this.reject(req.id, "event not allowed: ${req.event}", req.window)
             return
         }
@@ -341,7 +341,7 @@ public class IpcHub {
                     try {
                         h(req.payload)
                     } catch (e: Exception) {
-                        eprintln("[cj-tauri] event listener failed (${req.event}): ${e}")
+                        logDiagnostic("[cj-tauri] event listener failed (${req.event}): ${e}")
                     }
                 }
             case None => ()
@@ -368,7 +368,7 @@ public class IpcHub {
      */
     public func emitLatest(event: String, payload: JsonValue, window: String): Unit {
         if (!this.capabilities.canEmit(event)) {
-            eprintln("[cj-tauri] event not allowed: ${event}")
+            logDiagnostic("[cj-tauri] event not allowed: ${event}")
             return
         }
         this.jsSink(IpcMessage.eventLatest(event, payload, window), window)
@@ -382,7 +382,7 @@ public class IpcHub {
      */
     public func emitToWindow(event: String, payload: JsonValue, window: String): Unit {
         if (!this.capabilities.canEmit(event)) {
-            eprintln("[cj-tauri] event not allowed: ${event}")
+            logDiagnostic("[cj-tauri] event not allowed: ${event}")
             return
         }
         this.jsSink(IpcMessage.event(event, payload, window), window)

@@ -635,7 +635,10 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   「不建 `Web` → `onPageBegin` 不来 → 地址又只在它里面同步」上**死锁白屏**；在 `aboutToAppear()`
   里从宿主同步进 `@State`（`@State` 不接受 `private`）。判据：hilog 有 `BindWebTagToWebInstance`
   却一条 `page begin` 都没有、截图纯白。
-  另：**`eprintln` 在设备上不进 hilog**（框架 stderr 全不可见），鸿蒙侧诊断要写 hilog；
+  另：**`eprintln` 在设备上不进 hilog**（框架 stderr 全不可见）。框架自己的诊断自 2026-11-12 起统一经
+  `logDiagnostic`（`src/log_bridge.cj`：桌面写 stderr、鸿蒙写 hilog，tag = `cj-tauri`），
+  **框架内新代码别再直接 `eprintln`**；应用侧自己的日志照旧写 `Hilog.info`（两个 tag 不同，便于分流：
+  排查「命令为什么没执行」看 `cj-tauri`）。
   hilog 缓冲会滚掉启动瞬间的行，取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用）。
   过程与可复现命令见 `docs/鸿蒙ArkWeb接入踩坑.md` §8.1。
   ④ **鸿蒙侧「改了没变化」先怀疑产物，别改代码**：hvigor 的 `CompileCangjie` 与框架侧 cjpm
@@ -645,6 +648,19 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   同族的两个哑巴失败：`cjpm.exe` 退出码 `0xC0000139` = 桌面 SDK 与鸿蒙 `build-tools` 的运行时冲突
   （摘掉桌面 SDK 并**重启 hvigor daemon**）；`aa start` 的 `-a` 要用 `module.json5` 的 `EntryAbility`，
   写成仓颉类名 `MainAbility` 返回 `10104001`。清单见 `docs/鸿蒙ArkWeb接入踩坑.md` §10。
+- **鸿蒙侧的日志出口只有 hilog，而它自己也要一条链接开关**（2026-11-12 落地）：框架诊断统一走
+  `logDiagnostic`（`src/log_bridge.cj`），鸿蒙段直接调 NDK 的 `OH_LOG_Print`，符号在
+  `libhilog_ndk.z.so`。与 pasteboard / udmf / ohos.net.http 同一条规矩：**开关写在入口模块**
+  （`cli/src/manifest.cj` 的 `renderOhosEntryToml` 两个 arch 段），框架自己的 `cjpm.toml` 写了不生效；
+  缺了就是模块加载期崩——而这次崩掉的是**日志通道本身**，所以报错无处可写（表象回到「白屏 / 秒退 +
+  hilog 里连 `AbilityStage.onCreate` 都没有」）。三个形状坑：
+  ① 正文必须走 `%{public}s` + **一个实参**：裸 `%s` 会被 hilog 打成 `<private>`，而把正文直接当 fmt
+  传时，正文里一个 `%` 就会让 hilog 去消费不存在的参数——所以 `foreign func` 的变长参数
+  （`fmt: CString, ...`）是硬需求，不是可选写法；
+  ② hilog 单条有长度上限，超长行按 **UTF-8 字符边界**切片分条打印（`hilogSplit`，用例在
+  `src/tests/logging_test.cj`），**不许截断**——取证要能逐条对上原文；
+  ③ 本机 SDK 只有 linux / windows 两个目标，鸿蒙分支**进不了编译**：落地前拿一个去掉 `@When` 的
+  static 探针包把同一段代码编一遍（变长参数 FFI 的语法只有这条路能本地验），否则错的只能等真机发现。
 - **鸿蒙上仓颉运行时装不了 TLS：要访问 https 的宿主命令一律走系统网络栈 `ohos.net.http`**
   （2026-10-22 实测，`examples/ohos/ohos-movie` 首轮封面全灭）。`stdx.net.http` +
   `TlsClientConfig()` 在设备上从第一步就不可用——运行时按名字 dlopen OpenSSL 3，设备上没有：

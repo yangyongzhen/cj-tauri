@@ -298,7 +298,7 @@ func testScopeSymlinkEscapeIsDenied(): Unit {
     try {
         SymbolicLink.create("${base}/target/scope-sym/escape.txt", to: outside)
     } catch (e: Exception) {
-        eprintln("[skip] testScopeSymlinkEscapeIsDenied: 本机无法创建符号链接（${e.message}）")
+        logDiagnostic("[skip] testScopeSymlinkEscapeIsDenied: 本机无法创建符号链接（${e.message}）")
         removeIfExists(outside)
         return
     }
@@ -323,7 +323,7 @@ func testScopeSymlinkInsideIsAllowed(): Unit {
     try {
         SymbolicLink.create("${base}/target/scope-sym2/link.txt", to: "${base}/target/scope-sym2/inner.txt")
     } catch (e: Exception) {
-        eprintln("[skip] testScopeSymlinkInsideIsAllowed: 本机无法创建符号链接（${e.message}）")
+        logDiagnostic("[skip] testScopeSymlinkInsideIsAllowed: 本机无法创建符号链接（${e.message}）")
         return
     }
     let ctx = fsCtxWithScopes([scopeCwdPath() + "/target/**"], [])

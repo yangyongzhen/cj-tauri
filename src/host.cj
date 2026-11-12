@@ -626,10 +626,10 @@ func dialogOnResult(host: CPointer<Unit>, path: CString): Unit {
     try {
         match (HostGlobals.hostRouteOf(host)) {
             case Some(r) => r.onDialog(path.toString())
-            case None => eprintln("[cj-tauri] dialog callback: 未登记的宿主句柄（已丢弃）")
+            case None => logDiagnostic("[cj-tauri] dialog callback: 未登记的宿主句柄（已丢弃）")
         }
     } catch (e: Exception) {
-        eprintln("[cj-tauri] dialog callback error: ${e}")
+        logDiagnostic("[cj-tauri] dialog callback error: ${e}")
     }
 }
 
@@ -644,10 +644,10 @@ func hostOnDestroy(host: CPointer<Unit>): Unit {
     try {
         match (HostGlobals.hostRouteOf(host)) {
             case Some(r) => r.onDestroy()
-            case None => eprintln("[cj-tauri] destroy callback: 未登记的宿主句柄（已忽略）")
+            case None => logDiagnostic("[cj-tauri] destroy callback: 未登记的宿主句柄（已忽略）")
         }
     } catch (e: Exception) {
-        eprintln("[cj-tauri] destroy callback error: ${e}")
+        logDiagnostic("[cj-tauri] destroy callback error: ${e}")
     }
 }
 
@@ -667,7 +667,7 @@ func shellOnEvent(host: CPointer<Unit>, json: CString): Unit {
             case None => () // 未登记（旧宿主已注销 / 非本进程句柄）：静默，别在热路径上刷屏
         }
     } catch (e: Exception) {
-        eprintln("[cj-tauri] shell callback error: ${e}")
+        logDiagnostic("[cj-tauri] shell callback error: ${e}")
     }
 }
 
@@ -733,7 +733,7 @@ func hostHandleEquals(a: CPointer<Unit>, b: CPointer<Unit>): Bool {
     let _ = b
     if (!HOST_ROUTE_WARNED) {
         HOST_ROUTE_WARNED = true
-        eprintln("[cj-tauri] host route by handle unavailable on this platform: injected host keeps its own callbacks")
+        logDiagnostic("[cj-tauri] host route by handle unavailable on this platform: injected host keeps its own callbacks")
     }
     return false
 }

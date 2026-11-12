@@ -29,7 +29,7 @@ public func launch(spec: AppSpec): Unit {
 
 /** 注入上下文的变体：测试给假上下文；鸿蒙侧给 Platform.mobile(filesDir) */
 public func launchWith(spec: AppSpec, context: AppContext): Unit {
-    eprintln("[cj-tauri] launch：${spec.name}（os=${context.target.os} display=${context.target.display}）")
+    logDiagnostic("[cj-tauri] launch：${spec.name}（os=${context.target.os} display=${context.target.display}）")
     let app = assemble(spec)
     app.run(spec.pageSource)
 }

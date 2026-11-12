@@ -80,7 +80,7 @@ extend TauriApp {
             case Some(mode) =>
                 // flush 显式给：CLI 用管道抓 stdout，不能指望进程退出时的缓冲冲刷
                 print(renderPluginManifest(this.plugins, mode), flush: true)
-                eprintln("[cj-tauri] 已导出插件清单（mode=${mode}）：本轮未创建窗口")
+                logDiagnostic("[cj-tauri] 已导出插件清单（mode=${mode}）：本轮未创建窗口")
                 return true
             case None => return false
         }
@@ -99,7 +99,7 @@ extend TauriApp {
             this.host.addInitScript(js)
         }
         if (this.pluginScripts.size > 0) {
-            eprintln("[cj-tauri] 插件 JS 已注册为预执行脚本：${this.pluginScripts.size} 段")
+            logDiagnostic("[cj-tauri] 插件 JS 已注册为预执行脚本：${this.pluginScripts.size} 段")
         }
     }
 
@@ -143,12 +143,12 @@ extend TauriApp {
         }
         this.pluginScripts = pluginInitScripts(this.plugins)
         if (this.plugins.size > 0) {
-            eprintln("[cj-tauri] 已装配 ${this.plugins.size} 个插件：")
-            eprintln(describePlugins(this.plugins))
+            logDiagnostic("[cj-tauri] 已装配 ${this.plugins.size} 个插件：")
+            logDiagnostic(describePlugins(this.plugins))
             let sets = describePermissionSets(this.plugins)
             if (sets.size > 0) {
-                eprintln("[cj-tauri] 命名权限集（在 capabilities 的 permissions 里按集名引用）：")
-                eprintln(sets)
+                logDiagnostic("[cj-tauri] 命名权限集（在 capabilities 的 permissions 里按集名引用）：")
+                logDiagnostic(sets)
             }
             warnUnauthorizedPlugins(this.plugins, this.capabilities)
         }
@@ -184,7 +184,7 @@ extend TauriApp {
         match (this.hostOf(label)) {
             case Some(h) => return h.hostCapabilities()
             case None =>
-                eprintln("[cj-tauri] system:host: 未注册的窗口 label \"${label}\"（能力位按 0 返回）")
+                logDiagnostic("[cj-tauri] system:host: 未注册的窗口 label \"${label}\"（能力位按 0 返回）")
                 return 0
         }
     }
@@ -219,7 +219,7 @@ extend TauriApp {
             // shell 事件分发要在 load 之前装（菜单点击随时可能来，装晚了就漏）
             this.wireShellEvents(w.host, w.label)
             w.host.load(PageSource.Inline(w.html))
-            eprintln("[cj-tauri] 附加窗口已启动：label=\"${w.label}\"")
+            logDiagnostic("[cj-tauri] 附加窗口已启动：label=\"${w.label}\"")
         }
     }
 

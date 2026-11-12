@@ -468,7 +468,10 @@ public class Manifest {
             // 2026-10-25 起 http 插件的鸿蒙支（http_ohos.cj）走系统网络栈 ohos.net.http，
             // 模块符号（ohos.net.http:*_ti）在 libohos.net.http.so——缺了应用启动即
             // 「relocating failed: symbol not found」（真机实测），所以进默认链接。
-            "  link-option = \"" + appendLink("-lpasteboard -ludmf -lohos.net.http", this.linkOhos) + "\"\n" +
+            // 2026-11-12 起框架的诊断出口也进默认链接：src/log_bridge.cj 的鸿蒙段直接调 hilog 的
+            // NDK C 接口 `OH_LOG_Print`（tag = cj-tauri），符号在 libhilog_ndk.z.so。缺了它同样是
+            // 模块加载期解析不到符号——而这条的代价最贵：**日志通道坏了，报错也看不见**。
+            "  link-option = \"" + appendLink("-lpasteboard -ludmf -lohos.net.http -lhilog_ndk.z", this.linkOhos) + "\"\n" +
             "[target.aarch64-linux-ohos.bin-dependencies]\n" +
             "  # 鸿蒙版 stdx：相对路径指向骨架根上的 `stdx` 联接（build-hap.sh 用 CANGJIE_STDX_OHOS\n" +
             "  # 建，不入库）。hvigor 只替换它自己的模板变量，写别的 " + "$" + "{...}" + " 会变空串、整条\n" +
@@ -477,7 +480,7 @@ public class Manifest {
             "  package-option = {}\n" +
             "\n[target.x86_64-linux-ohos]\n" +
             "  compile-option = \"-B \\\"" + dc + "/build-tools/third_party/llvm/bin\\\" -B \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/sysroot/usr/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/clang/15.0.4/lib/x86_64-linux-ohos\\\" -L \\\"" + dn + "/llvm/lib/x86_64-linux-ohos\\\" --sysroot \\\"" + dn + "/sysroot\\\"\"\n" +
-            "  link-option = \"" + appendLink("-lpasteboard -ludmf -lohos.net.http", this.linkOhos) + "\"\n" +
+            "  link-option = \"" + appendLink("-lpasteboard -ludmf -lohos.net.http -lhilog_ndk.z", this.linkOhos) + "\"\n" +
             "[target.x86_64-linux-ohos.bin-dependencies]\n" +
             "  path-option = [\"" + x1 + "\", \"" + x2 + "\", \"" + x3 + "\", \"../stdx\"]\n" +
             "  package-option = {}\n"

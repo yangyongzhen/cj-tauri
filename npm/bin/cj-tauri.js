@@ -108,6 +108,73 @@ function resolveCjpm(home) {
 }
 
 /**
+ * 解析 stdx 动态库目录（${CANGJIE_STDX} 要的值）。
+ * cli/cjpm.toml 的两个 target 段都写 `path-option = ["${CANGJIE_STDX}"]`，cjpm 按进程环境变量
+ * 展开它——PowerShell / cmd 里没设这个变量时展开成空串，报的是
+ * `root package 'cli' imports package 'stdx.encoding.json' ... not added as a dependency`
+ * （看着像 toml 漏配，其实是变量没落地），首次构建当场就死。这里按顺序探测：
+ *   1. 用户已设的 CANGJIE_STDX（存在才用，指错了会拿到假的「已配置」）；
+ *   2. ~/.cangjie/stdx/<包>/dynamic/stdx（CI / 教程的落位）；
+ *   3. SDK 根的兄弟目录 cangjie-stdx-<版本>/<三元组>/dynamic/stdx（解压在 SDK 旁边的习惯）。
+ * 要求目录里有 stdx.* 的库文件，防止指到 stdx 包根（那是「create 成功、build 才炸」的另一种指错）。
+ */
+function resolveStdx(home) {
+  const looksRight = (p) => {
+    try {
+      return fs.readdirSync(p).some((n) => n.startsWith('stdx.'));
+    } catch (e) {
+      return false;
+    }
+  };
+  const candidates = [];
+  if (process.env.CANGJIE_STDX && fs.existsSync(process.env.CANGJIE_STDX)) {
+    candidates.push(process.env.CANGJIE_STDX);
+  }
+  const cjStdxBase = path.join(os.homedir(), '.cangjie', 'stdx');
+  try {
+    for (const pkg of fs.readdirSync(cjStdxBase)) {
+      candidates.push(path.join(cjStdxBase, pkg, 'dynamic', 'stdx'));
+    }
+  } catch (e) {
+    // 目录不存在 = 没按这个布局装过，忽略
+  }
+  const sdkParent = path.dirname(home);
+  try {
+    for (const pkg of fs.readdirSync(sdkParent)) {
+      if (!pkg.startsWith('cangjie-stdx-')) {
+        continue;
+      }
+      const triple = IS_WIN ? 'windows_x86_64_cjnative' : 'linux_x86_64_cjnative';
+      candidates.push(path.join(sdkParent, pkg, triple, 'dynamic', 'stdx'));
+    }
+  } catch (e) {
+    // 同上
+  }
+  return candidates.find(looksRight) || null;
+}
+
+/** CANGJIE_STDX 解析不到时的提示：给下载入口与 setx 落法，别让 cjpm 的报错背锅 */
+function printMissingStdxHint() {
+  const lines = [
+    '错误: 没找到 stdx 扩展标准库（CANGJIE_STDX 未设置，常见安装位置也没探测到）。',
+    'CLI 与生成的工程都 import stdx.encoding.json，cjpm.toml 按 ${CANGJIE_STDX} 引用它，',
+    '这个变量没进进程时 cjpm 报「imports package stdx... not added as a dependency」，极易误判成 toml 漏配。',
+    '请下载 stdx（与 SDK 版本配套，1.2.0 ↔ 1.2.0.1，混配会「编译全过、真机启动即崩」）：',
+    '  https://atomgit.com/Cangjie/cangjie_stdx/releases（匿名可下）',
+    IS_WIN
+      ? '解压后把 CANGJIE_STDX 指到 <解压目录>\\windows_x86_64_cjnative\\dynamic\\stdx（动态库目录，不是包根），'
+      : '解压后把 CANGJIE_STDX 指到 <解压目录>/linux_x86_64_cjnative/dynamic/stdx（动态库目录，不是包根），',
+    IS_WIN
+      ? '并 setx CANGJIE_STDX <路径> 持久化（重开终端生效）；然后重跑本命令。'
+      : '并 export CANGJIE_STDX=<路径> 持久化（写进 ~/.bashrc / ~/.zshrc）；然后重跑本命令。',
+    '详见: https://atomgit.com/qq8864/cj-tauri/blob/main/docs/使用文档.md',
+  ];
+  for (const line of lines) {
+    note(line);
+  }
+}
+
+/**
  * 拼装子进程环境。
  *   PATH           = 运行时库目录 + bin + tools/bin + tools/lib + ~/.cjpm/bin + 原 PATH
  *   LD_LIBRARY_PATH = 运行时库目录 + third_party/llvm/lib（仅非 Windows）
@@ -139,6 +206,19 @@ function buildEnv(home, runtimeDir) {
 
   if (!env.CJ_TAURI_ROOT) {
     env.CJ_TAURI_ROOT = PKG_ROOT;
+  }
+
+  // ${CANGJIE_STDX} 是 cjpm.toml 里的字面引用，cjpm 按进程环境变量展开：
+  // 这里解析到了就补进 env（用户已设且有效时不覆盖），CLI 自己 spawn cjpm 时会继承下去，
+  // 生成工程之后的 cj-tauri build / run 同样受益。
+  const stdx = resolveStdx(home);
+  if (stdx) {
+    if (stdx !== process.env.CANGJIE_STDX) {
+      verbose(`CANGJIE_STDX 未设置或无效，探测到: ${stdx}`);
+    }
+    env.CANGJIE_STDX = stdx;
+  } else if (!process.env.CANGJIE_STDX) {
+    verbose('CANGJIE_STDX 未设置且未探测到（首次构建 CLI 时会失败，含安装提示）');
   }
   return env;
 }
@@ -204,6 +284,13 @@ function copyDir(from, to, skipNames) {
  * 而全局安装的包目录可能是只读的（系统 node_modules 尤其如此）。
  */
 function buildCli(env, cjpm) {
+  // 硬前置：cli/cjpm.toml 的 path-option 是 ${CANGJIE_STDX}，变量为空时 cjpm 把它读成
+  // 「stdx 没声明成依赖」。提前拦下并给安装提示，比甩一段 cjpm 报错给人强。
+  if (!env.CANGJIE_STDX) {
+    note('错误: 构建需要 stdx 扩展标准库，但没有找到可用的 CANGJIE_STDX。');
+    printMissingStdxHint();
+    return null;
+  }
   const buildDir = path.join(cacheRoot(), VERSION, 'build', 'cli');
   note(`首次运行：正在构建 CLI 本体（${cjpm} build）...`);
   fs.rmSync(buildDir, { recursive: true, force: true });

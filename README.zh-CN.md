@@ -332,7 +332,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [movie 实战](docs/cj-tauri-介绍与movie实战.md) / [打字游戏实战](docs/仓颉版Tauri-打字游戏实战.md) / [音乐播放器实战](docs/仓颉版Tauri-音乐播放器实战.md) | 三个业务示例的逐块拆解 |
 | [Modbus 工具实战](docs/仓颉版Modbus调试工具-介绍与实战.md) | 脚手架用法 + Modbus 工具实现 + 与 Modbus Poll 对比 |
 | [串口/网络调试助手开发记](docs/仓颉版串口调试助手-开发记.md) | 一个窗口两条链路（串口 / TCP·UDP）：探针自检与对端取证、平台层串口读超时的定位、免 SDK 单文件包 |
-| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 可行性论证 / 开发全程踩坑 |
+| [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 现行架构（分层 / IPC / 能力模型 / 与原 MVP 方案的偏离）与开发全程踩坑 |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | 变更记录 / 开发规范 / 贡献流程 / 依赖与许可 |
 
 延伸阅读（CSDN）：[用仓颉写桌面应用：仓颉语言的 Tauri 框架实现与使用](https://blog.csdn.net/qq8864/article/details/166944044)。

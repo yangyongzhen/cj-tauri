@@ -63,6 +63,10 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 - `CANGJIE_STDX` 必须指 `<stdx解压目录>/<三元组>/dynamic/stdx`（**动态库目录**，不是包根）——
   指错的表现很隐蔽：`create` 成功、要到生成工程里 `cjpm build` 才报
   `root package ... imports package 'stdx.encoding.json' ... but the dependency info is missing`。
+- **机器上同时有 ohos stdx 包别把它当宿主 stdx**：给鸿蒙交叉编译装的
+  `cangjie-stdx-ohos-aarch64-*` 里没有宿主目标的库，`CANGJIE_STDX` 指到它的表现是
+  `lld: error: unable to find library -lstdx.encoding.json`——cjpm.toml 里路径全对，
+  只有链接器报缺库（2026-11-12 Windows 实测；npm 启动器的自动探测已按平台过滤）。
 - **stdx 同样是匿名直链**：AtomGit 的 `Cangjie/cangjie_stdx` releases
   `https://atomgit.com/Cangjie/cangjie_stdx/releases/download/v<版本>/cangjie-stdx-<平台>-<版本>.zip`
   （与 SDK 走官方站不同源，但两边都不需要登录）。

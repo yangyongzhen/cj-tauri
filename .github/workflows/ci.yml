@@ -2,8 +2,9 @@
 #
 # static 作业不装仓颉 SDK，只跑不需要 SDK 的静态检查，任何环境都能跑。
 # sdk 作业跑真正的 `cjpm build` + `cjpm test`（框架编译 + 全部单元测试），它需要 SDK 安装包：
-#   仓颉 SDK 官方下载页（cangjie-lang.cn/download）要登录华为账号，**没有匿名直链**，
-#   本平台也没有预装 SDK 的官方镜像，所以这里用仓库 secret 自托管 SDK 压缩包：
+#   仓颉 SDK 官方制品匿名可下、不用登录（cangjie-lang.cn/download/<版本>），但直链里的 objectKey
+#   随版本变、写不死，本平台也没有预装 SDK 的官方镜像，所以这里用仓库 secret 提供 SDK 压缩包
+#   （填官方直链即可，升级版本时只改 secret 里的 fileName / objectKey）：
 #     CANGJIE_SDK_URL   仓颉 SDK 压缩包直链（配置了才启用本作业）
 #     CANGJIE_STDX_URL  stdx 压缩包直链（可选，但本仓库 cjpm.toml 依赖它）
 #   未配置时本作业只打印一条 notice 后跳过——不让 CI 因「拿不到 SDK」这种环境原因长期变红；
@@ -42,7 +43,7 @@ jobs:
         run: |
           if [ -z "$SDK_URL" ]; then
             echo "configured=0" >> "$GITHUB_OUTPUT"
-            echo "::notice title=跳过完整门禁::未配置仓库 secret CANGJIE_SDK_URL（仓颉 SDK 无匿名下载直链），已跳过 cjpm build / cjpm test；配置方法见 AGENTS.md §7"
+            echo "::notice title=跳过完整门禁::未配置仓库 secret CANGJIE_SDK_URL（官方直链匿名可下，但 objectKey 随版本变，需填进 secret），已跳过 cjpm build / cjpm test；配置方法见 AGENTS.md §7"
           else
             echo "configured=1" >> "$GITHUB_OUTPUT"
             {

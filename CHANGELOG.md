@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.3.1] - 2026-11-12
+
 ### Fixed
 - **npm 启动器的 stdx 自动探测会误选鸿蒙交叉编译包**（2026-11-12 Windows 实测，2.3.0 首跑
   `npx cj-tauri doctor` 报 `lld: error: unable to find library -lstdx.encoding.json`）：机器上

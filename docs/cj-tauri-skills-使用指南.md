@@ -40,8 +40,10 @@ cj-tauri 的 skills 一共五个，对应开发一件事的五个环节：**环�
 - **缺什么装什么的指引**：仓颉 SDK（官网 cangjie-lang.cn 与环境搭建教程；下载页与制品直链都**匿名可下**、
   不用登录，见 `docs/使用文档.md` §2.1）、stdx（`CANGJIE_STDX` 必须指 `dynamic/stdx` 动态库目录，不是包根——
   指错的表现是 `create` 成功、到生成工程 build 才炸）、Linux 的 gcc + WebKitGTK 一行 apt、
-  Windows 推荐 **llvm-mingw**（免安装、解压即用，从 GitHub Releases 下载后解压到无空格路径、
-  `bin` 进 PATH——不必上庞大的 MSVC / Visual Studio），以及给 AI 助手装仓颉语言知识库技能包
+  Windows 推荐 **llvm-mingw**（免安装、解压即用，下载后解压到无空格路径、`bin` 进 PATH——不必上庞大的
+  MSVC / Visual Studio；GitHub Releases 取不动时 skill 里给了**清华 TUNA 镜像**
+  <https://mirrors.tuna.tsinghua.edu.cn/qt/development_releases/prebuilt/mingw_64/>，
+  挑 `ucrt` + `x86_64` 那份，镜像版本会比官方滞后），以及给 AI 助手装仓颉语言知识库技能包
   **CangjieSkills**（Cangjie-SIG 维护）。末尾附一张仓颉资料速查表：官网 / 环境搭建 / API / 中心仓 /
   主库与三方库组织 / 社区优质项目 / 官方示例。
 

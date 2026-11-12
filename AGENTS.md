@@ -1125,11 +1125,14 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
 ### CI 上的完整门禁（可选，默认跳过）
 
 `.github/workflows/ci.yml` 除 `static` 作业外还有一个 `sdk` 作业，跑 `cjpm build` + `scripts/test.sh`。
-仓颉 SDK 的官方下载页（`cangjie-lang.cn/download`）要登录华为账号、**没有匿名直链**，
-本平台也没有预装 SDK 的官方镜像，所以 SDK 由仓库 secret 自托管
-（GitHub → Settings → Secrets and variables → Actions）：
+仓颉 SDK 的官方制品**匿名可下、不用登录**（`cangjie-lang.cn/download/<版本>` 页面匿名可开，直链形如
+`/v1/files/auth/downLoad?nsId=142267&fileName=…&objectKey=…`——路径里的 `auth` 只是接口名，不校验登录态；
+2026-11-12 无 cookie 实测 1.2.1 的 Linux 包 192MB 全量下完）。但直链里的 `objectKey` 随版本变、仓库里写不死，
+本平台也没有预装 SDK 的官方镜像，所以 SDK 仍由仓库 secret 提供
+（GitHub → Settings → Secrets and variables → Actions）——**直接填官方直链**即可：
 
-1. `CANGJIE_SDK_URL` —— SDK 压缩包直链；**配了才启用该作业**，未配置时作业只打印一条 notice 后跳过（不判失败，
+1. `CANGJIE_SDK_URL` —— SDK 压缩包直链（填官方直链；升级版本时只改这一处的 `fileName` / `objectKey`，
+   两者从下载页 JS bundle 里 grep 得到）；**配了才启用该作业**，未配置时作业只打印一条 notice 后跳过（不判失败，
    免得 CI 因「拿不到 SDK」这种环境原因长期变红）。
 2. `CANGJIE_STDX_URL` —— stdx 压缩包直链（可选；本仓库各 `cjpm.toml` 的 `bin-dependencies` 依赖它）。
 

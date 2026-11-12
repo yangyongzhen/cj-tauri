@@ -47,7 +47,13 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 **仓颉 SDK（含 cjc / cjpm，验证版本 1.2.0）**
 
 - 官网与下载：https://cangjie-lang.cn/ ；环境搭建教程：https://cangjie-lang.cn/安装仓颉工具链.html
-- 注意：官方下载页要登录华为账号、**没有匿名直链**——别浪费时间找直链；
+- **不用登录**：下载页匿名可开（`https://cangjie-lang.cn/download/<版本>`，如 `/download/1.2.1`），
+  制品直链也匿名可下。直链形如
+  `/v1/files/auth/downLoad?nsId=142267&fileName=<包名>&objectKey=<键>`——路径里的 `auth` 只是接口名、
+  **不校验登录态**（2026-11-12 无 cookie 实测：`cangjie-sdk-linux-x64-1.2.1.tar.gz` 192MB 全量下完、
+  `tar tzf` 559 条目）。真正「写不死」的是 `objectKey`——它随版本变，脚本化下载就从下载页 JS bundle
+  （`https://csdnimg.cn/release/devpress-cangjie/public/js/chunk/organization/download/version.*.js`）
+  里 grep 出目标版本那一条；
 - 装完把 `bin`、`tools/bin` 加进 PATH，并把 `runtime/lib/<平台>` 设进 **`LD_LIBRARY_PATH`**
   （Linux 运行时 .so 不查 PATH：只设 PATH 的表现是退出码 127 且无输出）。
 
@@ -57,8 +63,9 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 - `CANGJIE_STDX` 必须指 `<stdx解压目录>/<三元组>/dynamic/stdx`（**动态库目录**，不是包根）——
   指错的表现很隐蔽：`create` 成功、要到生成工程里 `cjpm build` 才报
   `root package ... imports package 'stdx.encoding.json' ... but the dependency info is missing`。
-- **stdx 可以不登录下载**（与 SDK 不同）：AtomGit 的 `Cangjie/cangjie_stdx` releases 有匿名直链
-  `https://atomgit.com/Cangjie/cangjie_stdx/releases/download/v<版本>/cangjie-stdx-<平台>-<版本>.zip`。
+- **stdx 同样是匿名直链**：AtomGit 的 `Cangjie/cangjie_stdx` releases
+  `https://atomgit.com/Cangjie/cangjie_stdx/releases/download/v<版本>/cangjie-stdx-<平台>-<版本>.zip`
+  （与 SDK 走官方站不同源，但两边都不需要登录）。
   zip 里**没有顶层目录**（`windows_x86_64_cjnative/` 直接落在解压点），自行归位到
   `cangjie-stdx-<平台>-<版本>/` 再指 `CANGJIE_STDX`；交叉打 Windows 包还要 windows 版的 **static** 包
   （见 `cj-tauri-verify` 的 winbuild 一节）。

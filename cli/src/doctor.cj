@@ -100,7 +100,7 @@ func cmdDoctor(): Int64 {
         case None =>
             doctorLine(rep, CheckLevel.Fail, "CANGJIE_HOME", "未找到",
                 "设置 CANGJIE_HOME，或把 SDK 的 bin 加进 PATH（doctor 从 cjc 反推）；" +
-                "下载：https://cangjie-lang.cn/download（需登录华为账号），本项目要求 SDK 1.2.0 + stdx 1.2.0.1，两者必须配套")
+                "下载：https://cangjie-lang.cn/download（匿名可下，不用登录），本项目要求 SDK 1.2.0 + stdx 1.2.0.1，两者必须配套")
     }
 
     let (cjcCode, cjcVer) = doctorProbe("cjc", ["-v"])

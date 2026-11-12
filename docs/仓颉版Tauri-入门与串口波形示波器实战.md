@@ -42,7 +42,7 @@ cd myapp
 npx cj-tauri dev              # 构建 + 起窗口；Vue/React 模板还会接管 Vite dev server
 ```
 
-前置条件就三样：**仓颉 SDK**（1.0.5 以上，我用 1.2.0 验证）与配套的 **stdx**；Windows 侧另需 mingw gcc 和 WebView2 Runtime（Win11 自带）；Linux 侧需 `libwebkit2gtk-4.1-dev`、gcc 与 pkg-config。SDK 从仓颉官网下载（下载页需要登录华为账号），装好后把 `CANGJIE_HOME` 指向 SDK 根目录即可，剩下的环境变量拼装 CLI 会替你做。
+前置条件就三样：**仓颉 SDK**（1.0.5 以上，我用 1.2.0 验证）与配套的 **stdx**；Windows 侧另需 mingw gcc 和 WebView2 Runtime（Win11 自带）；Linux 侧需 `libwebkit2gtk-4.1-dev`、gcc 与 pkg-config。SDK 从仓颉官网下载（下载页不用登录，匿名即可下），装好后把 `CANGJIE_HOME` 指向 SDK 根目录即可，剩下的环境变量拼装 CLI 会替你做。
 
 `create` 出来的工程是这几个文件，跟「前端工程」的心智模型差别不大：
 

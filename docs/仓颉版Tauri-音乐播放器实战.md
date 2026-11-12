@@ -71,7 +71,7 @@ git clone https://github.com/yangyongzhen/cj-tauri.git     # GitHub
 
 先说实话：这个「五分钟」是指**装好仓颉 SDK 之后**五分钟。
 
-SDK 去 [cangjie-lang.cn](https://cangjie-lang.cn) 下载（要华为账号，没有匿名直链），再配上 stdx。
+SDK 去 [cangjie-lang.cn](https://cangjie-lang.cn) 下载（不用登录，直接下），再配上 stdx。
 我这边用的是 **仓颉 SDK 1.2.0 + stdx 1.2.0.1**。Windows 上要么把 SDK 的
 `runtime/lib/<平台>`、`bin`、`tools/bin`、`tools/lib` 都塞进 `PATH`（也就是官方 `envsetup.bat` 的那套布局），
 要么只设 `CANGJIE_HOME`、让启动器自己补齐——后者省事得多。这一步没对，症状是**进程退出码 127 且一行输出都没有**，

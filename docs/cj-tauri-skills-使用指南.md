@@ -37,8 +37,8 @@ cj-tauri 的 skills 一共五个，对应开发一件事的五个环节：**环�
 - **一键检测脚本**：Linux/Git Bash 与 Windows 各一份，逐项检查 cjc / cjpm / `CANGJIE_HOME` /
   `CANGJIE_STDX` / gcc（Linux）或 llvm-mingw（Windows）/ WebKitGTK / WebView2——先跑检测再动手，
   缺哪样补哪样，不猜；
-- **缺什么装什么的指引**：仓颉 SDK（官网 cangjie-lang.cn 与环境搭建教程；注意官方下载页要登录华为账号、
-  没有匿名直链，别浪费时间找）、stdx（`CANGJIE_STDX` 必须指 `dynamic/stdx` 动态库目录，不是包根——
+- **缺什么装什么的指引**：仓颉 SDK（官网 cangjie-lang.cn 与环境搭建教程；下载页与制品直链都**匿名可下**、
+  不用登录，见 `docs/使用文档.md` §2.1）、stdx（`CANGJIE_STDX` 必须指 `dynamic/stdx` 动态库目录，不是包根——
   指错的表现是 `create` 成功、到生成工程 build 才炸）、Linux 的 gcc + WebKitGTK 一行 apt、
   Windows 推荐 **llvm-mingw**（免安装、解压即用，从 GitHub Releases 下载后解压到无空格路径、
   `bin` 进 PATH——不必上庞大的 MSVC / Visual Studio），以及给 AI 助手装仓颉语言知识库技能包

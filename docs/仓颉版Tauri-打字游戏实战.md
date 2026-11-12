@@ -55,7 +55,7 @@ WebView 宿主（src/host.cj + 各平台实现）
 
 ## 五分钟起一个自己的应用
 
-先说实话：这个"五分钟"是指**装好仓颉 SDK 之后**五分钟。SDK 要去 [cangjie-lang.cn](https://cangjie-lang.cn) 下载（需要华为账号，没有匿名直链），再配上 stdx。Windows 上要么把 SDK 的 `runtime/lib/<平台>`、`bin`、`tools/bin`、`tools/lib` 都塞进 `PATH`（官方 `envsetup` 的布局），要么只设 `CANGJIE_HOME`、让启动器自己补齐——后者省事得多。
+先说实话：这个"五分钟"是指**装好仓颉 SDK 之后**五分钟。SDK 要去 [cangjie-lang.cn](https://cangjie-lang.cn) 下载（不用登录，直接下），再配上 stdx。Windows 上要么把 SDK 的 `runtime/lib/<平台>`、`bin`、`tools/bin`、`tools/lib` 都塞进 `PATH`（官方 `envsetup` 的布局），要么只设 `CANGJIE_HOME`、让启动器自己补齐——后者省事得多。
 
 环境好了之后，两条路都行：
 

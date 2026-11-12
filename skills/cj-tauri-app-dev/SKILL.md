@@ -105,6 +105,9 @@ http（出网白名单）、ws（WebSocket）、mqtt、redis（协议纯仓颉�
 - 依赖方向单向：`app.cj → host.cj / ipc_hub.cj → capability.cj`，禁止反向与循环（跨层协作用回调注入）；
 - 平台差异只允许出现在 `@When` 条件编译与 C 桥（`native/bridge_*.c`）——上层禁止运行期平台分支；
 - **写仓颉代码只用已验证的 API，不猜签名**：拿不准先 grep `examples/` 与 `src/` 的同形用法；
-- 写代码前先看同形样板：`examples/` 下 28 个可跑示例（hello / plugin-* / http-client / mqtt-client /
-  redis-client / music / serial-assistant / modbus-poll / markdown-notes / ai-chat…），
-  业务向的照 `serial-assistant`、插件向的照 `plugin-fs`；要接鸿蒙再看 `examples/ohos/`（music / movie）。
+- 写代码前先看同形样板：`examples/` 下 32 个可跑应用示例（hello / plugin-* / http-client / mqtt-client /
+  redis-client / music / serial-assistant / modbus-poll / markdown-notes / ai-chat / typing-english /
+  typing-poem / cjnote / leetcode-gui / cookie-export / sqlite-browser / multi-window / ipc-bench…），
+  业务向的照 `serial-assistant`、插件向的照 `plugin-fs`；要接鸿蒙再看 `examples/ohos/` 三个
+  （`ohos-music` / `ohos-movie` / `ohos-capabilities`）。写得最全的「桌面 + 鸿蒙双端」范本是
+  `examples/ohos/ohos-capabilities`（能力位探针 + 菜单 + 对话框 + 剪贴板降级都在里面）。

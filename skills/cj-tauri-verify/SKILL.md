@@ -38,6 +38,19 @@ $CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/l
 
 只设 PATH 不设 `LD_LIBRARY_PATH` → 退出码 127 且无输出（运行时 .so 不查 PATH）。
 
+**手头没有 Windows 机器也能出 Windows 交付物**（交叉编，2026-11-06 起是主力路径之一）：
+
+```bash
+bash scripts/winbuild.sh examples/<示例>     # 缺省 examples/ai-chat
+```
+
+产物落 `examples/<示例>/dist-single/<名>.exe`，与 Windows 本机的 `scripts/pack-win-single.sh` 可直接互换。
+前置三样都齐了才编得动：`gcc-mingw-w64-x86-64`；WebView2 SDK（`$WEBVIEW2_SDK_ROOT`，
+`native/webview2/` 里要那份 Loader.dll）；stdx 的 **windows static** 包（`$WINDOWS_STDX`，
+**版本必须与 cjc 配套**——cjc 1.2.0 配 stdx 1.0.5.1 能编能链、真机启动即崩）。
+**交叉编出来的只有构造证据**（GUI 子系统 / 导入表只有系统 DLL / `.rsrc` 节嵌了 loader），
+「真机跑通」必须在 Windows 上另验并如实标注，别把 build success 与「产物存在」当运行通过。
+
 ### 2. 跑
 
 工作目录 = 项目根（`assets/` 与 `cj-tauri.toml` 按相对路径读；旧形态工程则是 `capabilities/`、`ui/`）。

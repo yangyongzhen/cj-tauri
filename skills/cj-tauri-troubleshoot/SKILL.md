@@ -94,7 +94,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 应用一启动就 SIGSEGV / 白屏秒退，hilog 里连 `AbilityStage.onCreate` 都没有 | 先查 `llvm-nm -D --undefined-only <模块.so> \| grep cj_bridge`——核心包**不带 `@When` 的 `foreign func`** 在无桥平台上留成未解析符号，模块加载期直接崩（编译期不报）。落法：FFI 声明与薄包装同口径 `@When[env != "ohos"]`，并为无桥平台写如实降级（返回 false/空串 + 一行 stderr），别假装成功 |
 | 框架包一引用 ArkUI 就启动即崩 | `@Component` / `Web` / `javaScriptProxy` 属**应用侧**——框架包（独立编译单元）引用 `kit.ArkUI` 后合并进应用动态库，包初始化链跳坏地址。框架只导出 ArkUI-free 的桥接函数 |
 | 页面拉原生数据拿到 `null`（参数进得去、`methodList` 枚举也对） | `javaScriptProxy` 的**返回值传不回页面**，是平台限制不是写法错。取数模型改成「原生推」：页面 `setInterval` 发心跳，原生在回调里 `runJavaScript` 推出去 |
-| `eprintln` 的日志在设备上看不到 | `eprintln` 不进 hilog，框架 stderr 全不可见。框架自 2.3.0 起把自身诊断收到 `logd`（桌面 stderr / 鸿蒙 hilog，tag **`cj-tauri`**），应用自己的日志仍写 `Hilog.info`（tag `CjTauri`）——排「命令为什么没执行」看前者。hilog 缓冲会滚掉启动瞬间的行，取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用）。自己接 hilog 三件套：入口模块 link-option 补 `-lhilog_ndk.z`（否则模块加载期就崩）、正文走 `%{public}s` + 一个实参（裸 `%s` 会打成 `<private>`）、超长行按 UTF-8 边界分条（单条有长度上限） |
+| `eprintln` 的日志在设备上看不到 | `eprintln` 不进 hilog，框架 stderr 全不可见。框架自 2.3.0（**未发布**，见 CHANGELOG `[Unreleased]`；2.2.0 及以前框架诊断只有 stderr）起把自身诊断收到 `logd`（桌面 stderr / 鸿蒙 hilog，tag **`cj-tauri`**），应用自己的日志仍写 `Hilog.info`（tag `CjTauri`）——排「命令为什么没执行」看前者。hilog 缓冲会滚掉启动瞬间的行，取证必须**流式**（先起 `hdc shell hilog > f` 再启动应用）。自己接 hilog 三件套：入口模块 link-option 补 `-lhilog_ndk.z`（否则模块加载期就崩）、正文走 `%{public}s` + 一个实参（裸 `%s` 会打成 `<private>`）、超长行按 UTF-8 边界分条（单条有长度上限） |
 | 「改了没变化」/ 对照实验失真 | hvigor 的 `CompileCangjie` 与框架侧 cjpm **各有一份增量缓存**，只清一边时旧 `.so` 被喂回来。重编前 `rm -rf entry/build` + 清框架 `target/`；判据看产物（`.so` 尺寸 / `llvm-nm` 符号数），不看 `build success` |
 | 声明了权限却装不上包（`code:9568289 install failed`） | 权限位先查 `grantMode`/`availableLevel`（`hdc shell "atm dump -d -p <权限>"`）：`USER_GRANT` 要求 module.json5 带 `reason` + `usedScene`，`SYSTEM_BASIC` 还要签名 profile 带 ACL——**这类权限写进骨架等于让所有生成的工程装不上**，如实降级返回 None 才是诚实落法 |
 | 调了系统原生 C API 却启动即 SIGSEGV | 查 `readelf -d <模块.so> \| grep <库>`：`foreign func` 直连后产物里留着一堆 `U OH_*` 而 `DT_NEEDED` 里没有那个库 = 模块加载期解析不到符号。链接开关要写在**入口模块**的 `cjpm.toml`（`output-type = "dynamic"`，最终链接在那儿）——鸿蒙工程的 entry `cjpm.toml` 是**生成物**，改模板没用，**必须改生成器**（两个 arch 段都要）。设备侧查库用 `hdc shell stat -L <路径>`，`ls /system/lib64` 是 Permission denied 别读成「没有这个库」 |
@@ -104,6 +104,9 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 给 `@Component` 传参报 `missing arguments for parameter list '(Option<CustomView>, …)'` | 两种写法都撞它：普通 `var` 成员 + 外面传值；或 `@Prop` 但调用点挂了链式修饰（宏补不上 `__gen_parent`）。落法：`@Prop` 成员 + **调用点纯调用**，尺寸交给外层容器 |
 | 页面触发的对话框调 `showAlertDialog` / `showDialog` 静默不弹（不抛异常、tid 还是 UI 主线程） | 命令式弹窗 API 在 `javaScriptProxy` 回调的**同步栈**上被静默丢弃，spawn 到工作线程也救不了。落法：组件加 `@State`，回调里只置状态，`build()` 里把 overlay 渲染成根 Stack 最后一个子节点；`@State` 不能与 `private` 同用 |
 | Git Bash 下 `hdc shell … /data/local/tmp/x.jpeg` 报路径变成 `D:/Program Files/Git/data/...` | MSYS 把远端 POSIX 路径转写成本地路径；**远端路径**一律带 `MSYS_NO_PATHCONV=1`；`hdc file recv` 的本地落盘则相反——先 `cd` 到目标目录只传文件名，给绝对路径会被拼上 cwd |
+| 应用启动即 `signal:6`，hilog 停在 `startApp begin`、连骨架的 initScripts 都不打，而业务只是想调 `@ohos.usbManager.serial` 这类 NAPI 模块 | **纯仓颉进程里没有 ArkTS VM**：`ohos.ark_interop` 链进来无害，但执行 `JSRuntime()` 必崩（放 UI 线程、放业务包一样崩，与「Cangjie 轻量线程」无关）。判据是 A/B：链接但不用 → 正常；真去建 runtime → 启动即没。落法：这类模块只能由**真正的 ArkTS 侧**发起（混合工程 / 应用自宿主 ArkTS 模块），框架侧只留接口 + 如实降级（别 import `ark_interop`） |
+| 文件管理器「打开方式」能拉起应用，`FileIo.open(uri)` 却报 `13900012` | 纯仓颉 hap **读不了别人授权的文件**，三条路全堵：uri 的授权位没被用上（hilog `FILE-FS: Failed to open OpenFileByPath error -13`）、SDK 没有 `ohos.file.picker` 绑定、`FileIo.access(path)` 回 `true` 也不代表可读。别实现、别往骨架里加权限位，如实报「暂不支持」等官方能力。两个假线索：不是百分号编码问题、也不是文件不存在（应用视图 `Documents` ≠ 设备真路径 `Docs`） |
+| 鸿蒙 PC 上串口打不开、`/dev/ttyUSB*` 不存在 | **先归因镜像缺驱动，别归因硬件**：`ls /dev`、`ls /sys/bus/usb/devices`、`ls /system/lib64` 一律 Permission denied——目录被拒不等于节点不存在，逐路径 `stat -L` 才可信；唯一能用完的枚举通道是 `hidumper -s UsbService -a 'usb_host -a'`。插拔前后读数变了（xHCI 根集线器 + hub + HID）却一个串口类设备（clazz `0x0a` CDC-ACM / `0xff` 厂商自定义）都没有，hilog 写着 `load libusbhost_acm.z.so failed, errno=2` ⇒ 镜像是真的没驱动库，任何应用都打不开。Windows 侧同理：CH340/CP210x/FTDI 驱动**不自带**，缺驱动的形状也是「端口(COM 和 LPT)里什么都没有」+「其他设备」一个感叹号 |
 
 ### C 桥 / 宿主层（改 `native/*.c` 时）
 
@@ -112,6 +115,9 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | UI 线程回调里崩 `munmap_chunk(): invalid pointer` / double free | 投递归 UI 线程的载荷**必须堆分配**（谁 post 谁分配、UI 线程接管所有权）；把栈上的结构体指针递过去，回调再 `free()` 必崩 |
 | GLib 回调被反复重入（同一动作执行两次、double free） | `g_idle_add` 的回调必须返回 `gboolean`；裸 `void` 函数的「返回值」是寄存器垃圾，非 0 即被当 `G_SOURCE_CONTINUE` 重入——用跳板包一层返回 `G_SOURCE_REMOVE` |
 | 宿主调用「调过了但没生效」 | 一律「检查 API 返回值 + 事后查询复核」打进同一行日志（如 `SetMenu` 静默失败、`GetMenu` 恒 NULL） |
+| 读原生 cookie 之后进程直接没（WER `0xc0000005`，故障模块是 `EmbeddedBrowserWebView.dll`**不是**自家桥） | WebView2 完成回调 `Invoke(HRESULT, ICoreWebView2CookieList *result)` 的参数是**借用**，对它 `Release` 会让运行时随后用到已销毁对象；handler 也别写成「`Invoke` 里 `free(self)`」——运行时自己 AddRef/Release 它。判据：加 `addref/release -> N` 与 `complete count=N` 日志，看崩点是否与「回调返回」同一秒、各 handler 计数是否各自归零。同族风险面：所有把对象交给 WebView2 保管的调用（`GetCookies` / `ExecuteScript` / 事件登记） |
+| `snprintf` 拼出来的 JSON 看着读成功了，前端整条命令却失败 | 缓冲按**最坏取值**算：`char num[32]` 装 `{"ok":true,"count":%u,"cookies":[` 至少要 34 字节（固定 31 + 10 位计数 + NUL），gcc 的 `-Wformat-truncation` 就在说这件事；不理会就得到非法 JSON（空 store 那轮被截掉 `":[`），而桥侧看起来「读成功了」 |
+| 用 `llvm-nm` 查未解析符号，得到「0 个 = 干净」的结论 | 本机 SDK 可能**根本没有** `llvm-nm.exe`（`third_party/llvm/bin/` 只有 `llvm-objdump`）：命令不存在时输出为空、`grep -c` 得 0——恰好等于「干净」的读数，假绿凭空成立。先 `llvm-objdump -h <文件>` 确认工具真读得到文件，再用 `-p`（`DT_NEEDED`）/ `-T`（动态符号）下结论 |
 
 ## 规则
 

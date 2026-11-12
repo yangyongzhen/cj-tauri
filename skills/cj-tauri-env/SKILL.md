@@ -57,6 +57,13 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 - `CANGJIE_STDX` 必须指 `<stdx解压目录>/<三元组>/dynamic/stdx`（**动态库目录**，不是包根）——
   指错的表现很隐蔽：`create` 成功、要到生成工程里 `cjpm build` 才报
   `root package ... imports package 'stdx.encoding.json' ... but the dependency info is missing`。
+- **stdx 可以不登录下载**（与 SDK 不同）：AtomGit 的 `Cangjie/cangjie_stdx` releases 有匿名直链
+  `https://atomgit.com/Cangjie/cangjie_stdx/releases/download/v<版本>/cangjie-stdx-<平台>-<版本>.zip`。
+  zip 里**没有顶层目录**（`windows_x86_64_cjnative/` 直接落在解压点），自行归位到
+  `cangjie-stdx-<平台>-<版本>/` 再指 `CANGJIE_STDX`；交叉打 Windows 包还要 windows 版的 **static** 包
+  （见 `cj-tauri-verify` 的 winbuild 一节）。
+- **stdx 版本必须与 cjc 配套**：cjc 1.2.0 配 stdx 1.0.5.1 是跨版本混配，编译链接全过、真机启动即崩
+  （GUI 子系统双击时 stderr 无效 ⇒ 表象是「双击没反应」，一行凭证都没有）。
 
 **Linux：C 桥构建链 + WebKitGTK**
 

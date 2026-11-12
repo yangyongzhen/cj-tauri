@@ -116,8 +116,12 @@ function resolveCjpm(home) {
  *   1. 用户已设的 CANGJIE_STDX（存在才用，指错了会拿到假的「已配置」）；
  *   2. ~/.cangjie/stdx/<包>/dynamic/stdx（CI / 教程的落位）；
  *   3. SDK 根的兄弟目录 cangjie-stdx-<版本>/<三元组>/dynamic/stdx（解压在 SDK 旁边的习惯）。
- * 要求目录里有 stdx.* 的库文件，防止指到 stdx 包根（那是「create 成功、build 才炸」的另一种指错）。
- */
+ * 要求目录里有 stdx.* 的库文件，防止指到 stdx 包根（那是「create 成功、build 才炸」的另一种指错）；
+ * 自动探测的候选还必须匹配**宿主平台**（包名含 windows/linux、不含 ohos）——
+ * 机器上可能同时躺着给鸿蒙交叉编译用的 cangjie-stdx-ohos-aarch64 包，它里面没有
+ * 宿主目标的库文件，链上去就是 `lld: error: unable to find library -lstdx.encoding.json`
+ * （2026-11-12 Windows 实测）。用户显式设置的 CANGJIE_STDX 仍然优先（那是他自己的选择），
+ * 但若路径里带 ohos 会打一行警告。 */
 function resolveStdx(home) {
   const looksRight = (p) => {
     try {
@@ -126,14 +130,23 @@ function resolveStdx(home) {
       return false;
     }
   };
+  // 宿主平台关键词：自动探测的包名必须含它且不含 ohos（交叉编译包不能当宿主 stdx 用）
+  const platKey = IS_WIN ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
+  const hostUsable = (pkgName) => pkgName.includes(platKey) && !pkgName.includes('ohos');
+
   const candidates = [];
   if (process.env.CANGJIE_STDX && fs.existsSync(process.env.CANGJIE_STDX)) {
+    if (process.env.CANGJIE_STDX.includes('ohos')) {
+      note('告警: CANGJIE_STDX 指向 ohos 包（给鸿蒙交叉编译用），主机构建用不了，请改指宿主平台的 stdx');
+    }
     candidates.push(process.env.CANGJIE_STDX);
   }
   const cjStdxBase = path.join(os.homedir(), '.cangjie', 'stdx');
   try {
     for (const pkg of fs.readdirSync(cjStdxBase)) {
-      candidates.push(path.join(cjStdxBase, pkg, 'dynamic', 'stdx'));
+      if (hostUsable(pkg)) {
+        candidates.push(path.join(cjStdxBase, pkg, 'dynamic', 'stdx'));
+      }
     }
   } catch (e) {
     // 目录不存在 = 没按这个布局装过，忽略
@@ -144,8 +157,10 @@ function resolveStdx(home) {
       if (!pkg.startsWith('cangjie-stdx-')) {
         continue;
       }
-      const triple = IS_WIN ? 'windows_x86_64_cjnative' : 'linux_x86_64_cjnative';
-      candidates.push(path.join(sdkParent, pkg, triple, 'dynamic', 'stdx'));
+      const triple = IS_WIN ? 'windows_x86_64_cjnative' : (process.platform === 'darwin' ? 'darwin_x86_64_cjnative' : 'linux_x86_64_cjnative');
+      if (hostUsable(pkg)) {
+        candidates.push(path.join(sdkParent, pkg, triple, 'dynamic', 'stdx'));
+      }
     }
   } catch (e) {
     // 同上

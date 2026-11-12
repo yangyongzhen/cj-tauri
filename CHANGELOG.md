@@ -14,6 +14,15 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+### Fixed
+- **npm 启动器的 stdx 自动探测会误选鸿蒙交叉编译包**（2026-11-12 Windows 实测，2.3.0 首跑
+  `npx cj-tauri doctor` 报 `lld: error: unable to find library -lstdx.encoding.json`）：机器上
+  `~/.cangjie/stdx/` 同时躺着给鸿蒙用的 `cangjie-stdx-ohos-aarch64-*` 时，探测只校验了
+  「目录里有 `stdx.*` 文件」就把 ohos 包填进了 `CANGJIE_STDX`，链接器在 ohos 包里找不到
+  宿主目标的库。现在自动探测的候选必须匹配宿主平台（包名含 `windows` / `linux` 且不含
+  `ohos`），只有交叉编译包时如实报「未找到」并给下载提示；用户显式设置的 `CANGJIE_STDX`
+  仍优先（自己的选择），但指向 ohos 包时打一行警告。
+
 ## [2.3.0] - 2026-11-12
 
 ### Added

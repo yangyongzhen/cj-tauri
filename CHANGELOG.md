@@ -27,6 +27,15 @@
 ### Changed
 - **框架内部的诊断输出改走 `logd`**（桌面行为不变，仍是 stderr 一行一条）：
   应用侧若靠 `eprintln` 的输出做过滤，换成看同一个 stderr 即可——语义与格式都没变。
+- **Windows 的 `llvm-mingw` 下载入口补了国内镜像**（文档）：GitHub Releases 有时连不上、下载很慢，
+  `docs/使用文档.md` 的依赖清单与 Windows 安装小节、`skills/cj-tauri-env` 的安装步骤、
+  `skills/cj-tauri-troubleshoot` 速查表、`docs/cj-tauri-skills-使用指南.md` 现在一并给出清华 TUNA 的
+  Qt 预编译 mingw 目录
+  （`https://mirrors.tuna.tsinghua.edu.cn/qt/development_releases/prebuilt/mingw_64/`，直链形如
+  `…/llvm-mingw-20260602-ucrt-x86_64.zip`，2026-11-12 实测 HTTP 200 / 187 MB）。同时写明三件事：
+  挑 **ucrt** + `x86_64` 那份（`msvcrt` 版与 SDK 自带 mingw 的 CRT 对不上，静态单文件包会在链接期炸
+  `undefined symbol: stat64i32`）、**镜像版本会滞后于官方**（实测镜像 `20260602` / 官方 `20261104`，
+  按目录里实际文件名取，别照文档日期硬套）、镜像只是中转站、不改变解压到无空格路径 + `bin` 进 PATH 的落法。
 
 ## [2.2.0] - 2026-11-11
 

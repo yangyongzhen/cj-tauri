@@ -85,7 +85,12 @@ Windows 的 C/C++ 工具链长期两分天下：MSVC 深度绑定 Visual Studio�
 GCC MinGW（mingw-w64）轻但偏老。**推荐 llvm-mingw**（Martin Storsjö 维护，clang 驱动 +
 mingw-w64 运行时）：免安装、一套目录就够，且本项目 `native\build_win.bat` 实测兼容。
 
-1. 从 https://github.com/mstorsjo/llvm-mingw/releases 下载 `llvm-mingw-20260324-ucrt-x86_64.zip`；
+1. 下载 `llvm-mingw-<日期>-ucrt-x86_64.zip`（**只要 ucrt 版**），两个入口：
+   - 官方 Releases：https://github.com/mstorsjo/llvm-mingw/releases
+   - **国内镜像（GitHub 慢/连不上用这个，快很多）**：清华 TUNA 的 Qt 预编译 mingw 目录
+     https://mirrors.tuna.tsinghua.edu.cn/qt/development_releases/prebuilt/mingw_64/
+     ——直链如 `…/mingw_64/llvm-mingw-20260602-ucrt-x86_64.zip`（2026-11-12 实测 200 / 187 MB）。
+     **镜像版本会滞后**（镜像 `20260602`、官方已 `20261104`），按目录里实际文件名取，别照本篇日期硬套；
 2. 解压到**无空格路径**（如 `C:\llvm-mingw`）；
 3. 把 `C:\llvm-mingw\bin` 加入 PATH；
 4. 新开终端 `gcc --version` / `clang --version` 有输出即成。

@@ -41,7 +41,7 @@ extend TauriApp {
                 this.menus.add(label, menu)
                 host.setMenu(menu.toWire())
             case None =>
-                eprintln("[cj-tauri] setMenu: 未注册的窗口 label \"${label}\"（菜单未设置）")
+                logDiagnostic("[cj-tauri] setMenu: 未注册的窗口 label \"${label}\"（菜单未设置）")
         }
         return this
     }
@@ -126,13 +126,13 @@ extend TauriApp {
                     case Some(item) =>
                         item.enabled = enabled
                         item.checked = checked
-                    case None => eprintln("[cj-tauri] setMenuItemState: 模型里没有 \"${id}\"（只改平台侧）")
+                    case None => logDiagnostic("[cj-tauri] setMenuItemState: 模型里没有 \"${id}\"（只改平台侧）")
                 }
-            case None => eprintln("[cj-tauri] setMenuItemState: 窗口 \"${label}\" 无应用层菜单模型（只改平台侧）")
+            case None => logDiagnostic("[cj-tauri] setMenuItemState: 窗口 \"${label}\" 无应用层菜单模型（只改平台侧）")
         }
         match (this.hostOf(label)) {
             case Some(host) => host.setMenuItemState(id, enabled, checked)
-            case None => eprintln("[cj-tauri] setMenuItemState: 未注册的窗口 label \"${label}\"（未生效）")
+            case None => logDiagnostic("[cj-tauri] setMenuItemState: 未注册的窗口 label \"${label}\"（未生效）")
         }
     }
 
@@ -182,7 +182,7 @@ extend TauriApp {
             case Some(host) =>
                 host.setDragDropPolicy(policy.enabled, policy.files)
             case None =>
-                eprintln("[cj-tauri] setDragDrop: 未注册的窗口 label \"${label}\"（策略未设置）")
+                logDiagnostic("[cj-tauri] setDragDrop: 未注册的窗口 label \"${label}\"（策略未设置）")
         }
         return this
     }
@@ -204,7 +204,7 @@ extend TauriApp {
             case Some(host) =>
                 host.setGlobalHotkeys(keys.toWire())
             case None =>
-                eprintln("[cj-tauri] setGlobalHotkeys: 未注册的窗口 label \"${label}\"（快捷键未设置）")
+                logDiagnostic("[cj-tauri] setGlobalHotkeys: 未注册的窗口 label \"${label}\"（快捷键未设置）")
         }
         return this
     }
@@ -221,7 +221,7 @@ extend TauriApp {
             case Some(host) =>
                 host.setTray(tray.toWire())
             case None =>
-                eprintln("[cj-tauri] setTray: 默认窗口未注册（托盘未设置）")
+                logDiagnostic("[cj-tauri] setTray: 默认窗口未注册（托盘未设置）")
         }
         return this
     }
@@ -280,7 +280,7 @@ extend TauriApp {
             case Some(host) =>
                 host.setWindowVisible(visible)
             case None =>
-                eprintln("[cj-tauri] setWindowVisible: 未注册的窗口 label \"${label}\"（窗口未改可见性）")
+                logDiagnostic("[cj-tauri] setWindowVisible: 未注册的窗口 label \"${label}\"（窗口未改可见性）")
         }
         return this
     }

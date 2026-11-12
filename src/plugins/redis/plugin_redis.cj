@@ -188,7 +188,7 @@ func redisRecordMessage(sess: RedisSession, obj: JsonObject): Unit {
         }
         sess.dropped += from
         sess.recent = keep
-        eprintln("[cj-tauri] redis: 订阅缓冲超限，丢弃最旧 ${from} 条（累计 dropped=${sess.dropped}）")
+        logDiagnostic("[cj-tauri] redis: 订阅缓冲超限，丢弃最旧 ${from} 条（累计 dropped=${sess.dropped}）")
     }
     sess.lock.unlock()
     match (app) {
@@ -220,7 +220,7 @@ func redisEmitState(sess: RedisSession): Unit {
     obj.put("error", JsonString(sess.lastError))
     // 状态变迁同时落一行 stderr：事件通道页面没接住时（没声明 events / 页面在重载），
     // 「连上过没有、什么时候掉的」仍能端到端对账——与框架其余能力的取证口径一致（AGENTS §1）
-    eprintln("[cj-tauri] redis state: state=${sess.state} host=${sess.host}:${sess.port} db=${sess.db}" +
+    logDiagnostic("[cj-tauri] redis state: state=${sess.state} host=${sess.host}:${sess.port} db=${sess.db}" +
         " sub=${sess.subAlive} channels=${sess.channels.size} calls=${sess.calls} msgs=${sess.msgCount}" +
         " dropped=${sess.dropped}")
     sess.lock.unlock()
@@ -263,7 +263,7 @@ func redisFailSession(sess: RedisSession, reason: String): Unit {
         case None => ()
     }
     if (first) {
-        eprintln("[cj-tauri] redis: ${reason}")
+        logDiagnostic("[cj-tauri] redis: ${reason}")
     }
     redisEmitState(sess)
 }
@@ -360,7 +360,7 @@ func redisReplyJson(v: RespValue): JsonValue {
 func redisExpectOk(v: RespValue, what: String): RespValue {
     match (v) {
         case Failure(m) =>
-            eprintln("[cj-tauri] redis command failed (${what}): ${m}")
+            logDiagnostic("[cj-tauri] redis command failed (${what}): ${m}")
             throw CommandException("redis: ${what} 失败（${m}）")
         case _ => return v
     }
@@ -371,7 +371,7 @@ func redisNumberReply(v: RespValue, what: String): Int64 {
     match (v) {
         case Number(n) => return n
         case Failure(m) =>
-            eprintln("[cj-tauri] redis command failed (${what}): ${m}")
+            logDiagnostic("[cj-tauri] redis command failed (${what}): ${m}")
             throw CommandException("redis: ${what} 失败（${m}）")
         case _ => throw CommandException("redis: ${what} 期望整数回复，实际是 ${respBrief(v)}")
     }
@@ -384,7 +384,7 @@ func redisTextReply(v: RespValue, what: String): String {
         case Bulk(Some(b)) => return respSafeText(b)
         case Bulk(None) => return ""
         case Failure(m) =>
-            eprintln("[cj-tauri] redis command failed (${what}): ${m}")
+            logDiagnostic("[cj-tauri] redis command failed (${what}): ${m}")
             throw CommandException("redis: ${what} 失败（${m}）")
         case _ => throw CommandException("redis: ${what} 期望文本回复，实际是 ${respBrief(v)}")
     }
@@ -416,7 +416,7 @@ func redisLogCall(sess: RedisSession, what: String, reply: RespValue): Unit {
     sess.calls += 1
     let n = sess.calls
     sess.lock.unlock()
-    eprintln("[cj-tauri] redis call: ${what} -> ${redisBriefClipped(reply)} (n=${n})")
+    logDiagnostic("[cj-tauri] redis call: ${what} -> ${redisBriefClipped(reply)} (n=${n})")
 }
 
 /**
@@ -553,7 +553,7 @@ func redisCallMany(sess: RedisSession, frames: ArrayList<Array<UInt8>>, what: St
         sess.calls += frames.size
         let n = sess.calls
         sess.lock.unlock()
-        eprintln("[cj-tauri] redis call: PIPELINE ${what} n=${frames.size} 回执已按序读齐 (n=${n})")
+        logDiagnostic("[cj-tauri] redis call: PIPELINE ${what} n=${frames.size} 回执已按序读齐 (n=${n})")
     } catch (e: Exception) {
         sess.callLock.unlock()
         throw e
@@ -872,7 +872,7 @@ class RedisCommands <: CommandHandler {
             throw e
         }
         redisEmitState(sess)
-        eprintln("[cj-tauri] redis connect: host=${host} port=${port} db=${db} auth=${sess.authUsed} ok")
+        logDiagnostic("[cj-tauri] redis connect: host=${host} port=${port} db=${db} auth=${sess.authUsed} ok")
         let out = JsonObject()
         out.put("ok", JsonBool(true))
         out.put("host", JsonString(host))
@@ -1604,7 +1604,7 @@ class RedisCommands <: CommandHandler {
         let patternsJson = redisStringArray(sess.patterns)
         sess.lock.unlock()
         if (!allAcked) {
-            eprintln("[cj-tauri] redis sub: 订阅回执未在 ${REDIS_SUB_ACK_TIMEOUT_MS}ms 内到齐" +
+            logDiagnostic("[cj-tauri] redis sub: 订阅回执未在 ${REDIS_SUB_ACK_TIMEOUT_MS}ms 内到齐" +
                 "（pending=${pending}），如实上报，不假装订阅成功")
         }
         redisEmitState(sess)
@@ -1704,7 +1704,7 @@ class RedisCommands <: CommandHandler {
                 case Some(s) => redisCloseQuiet(s)
                 case None => ()
             }
-            eprintln("[cj-tauri] redis sub: 订阅已全部退掉，订阅连接与读线程已收")
+            logDiagnostic("[cj-tauri] redis sub: 订阅已全部退掉，订阅连接与读线程已收")
         } else {
             let _ = this.waitSubAcks(sess, REDIS_SUB_ACK_TIMEOUT_MS)
         }
@@ -1731,7 +1731,7 @@ class RedisCommands <: CommandHandler {
         let receivers = redisNumberReply(
             redisCallFrame(sess, respEncodeCommandRaw([redisRaw("PUBLISH"), redisRaw(channel), payload]), "PUBLISH"),
             "PUBLISH")
-        eprintln("[cj-tauri] redis publish: channel=${channel} bytes=${payload.size} receivers=${receivers}")
+        logDiagnostic("[cj-tauri] redis publish: channel=${channel} bytes=${payload.size} receivers=${receivers}")
         let out = JsonObject()
         out.put("channel", JsonString(channel))
         out.put("bytes", JsonInt(Int64(payload.size)))
@@ -1807,7 +1807,7 @@ class RedisCommands <: CommandHandler {
         sess.stopSubRequested = false
         sess.subAlive = true
         sess.lock.unlock()
-        eprintln("[cj-tauri] redis sub: 订阅连接已建立（读线程接管读侧）")
+        logDiagnostic("[cj-tauri] redis sub: 订阅连接已建立（读线程接管读侧）")
         spawn { => redisSubLoop(sess) }
         redisEmitState(sess)
     }
@@ -1882,7 +1882,7 @@ class RedisCommands <: CommandHandler {
                 exited = true
                 done = true
             } else if ((DateTime.now() - started).toMilliseconds() > REDIS_SUB_EXIT_WAIT_MS) {
-                eprintln("[cj-tauri] redis sub: 读线程未在 ${REDIS_SUB_EXIT_WAIT_MS}ms 内退出，收尾继续（不无限等）")
+                logDiagnostic("[cj-tauri] redis sub: 读线程未在 ${REDIS_SUB_EXIT_WAIT_MS}ms 内退出，收尾继续（不无限等）")
                 done = true
             } else {
                 sleep(Duration.millisecond * 20)
@@ -1923,7 +1923,7 @@ class RedisCommands <: CommandHandler {
             case None => ()
         }
         if (!exited) {
-            eprintln("[cj-tauri] redis: 旧会话的订阅线程未按时退出，socket 已关（状态泄漏一次，好过卡死命令）")
+            logDiagnostic("[cj-tauri] redis: 旧会话的订阅线程未按时退出，socket 已关（状态泄漏一次，好过卡死命令）")
         }
     }
 }
@@ -1998,7 +1998,7 @@ func redisSubLoop(sess: RedisSession): Unit {
     sess.subAlive = false
     sess.subPendingAcks = 0
     sess.lock.unlock()
-    eprintln("[cj-tauri] redis sub: 读线程结束（订阅连接已收）")
+    logDiagnostic("[cj-tauri] redis sub: 读线程结束（订阅连接已收）")
     redisEmitState(sess)
 }
 
@@ -2036,7 +2036,7 @@ func redisSubDrain(sess: RedisSession): Unit {
 func redisSubDispatch(sess: RedisSession, v: RespValue): Unit {
     let items = respItemsOrEmpty(v)
     if (items.size == 0) {
-        eprintln("[cj-tauri] redis sub: 收到空的推送数组（未处理）")
+        logDiagnostic("[cj-tauri] redis sub: 收到空的推送数组（未处理）")
         return
     }
     let kind = respValueText(items[0])
@@ -2060,9 +2060,9 @@ func redisSubDispatch(sess: RedisSession, v: RespValue): Unit {
         if (items.size >= 3) {
             count = respValueText(items[2])
         }
-        eprintln("[cj-tauri] redis sub: ${kind} ${who}（该连接当前订阅数=${count}, 待确认=${pending}）")
+        logDiagnostic("[cj-tauri] redis sub: ${kind} ${who}（该连接当前订阅数=${count}, 待确认=${pending}）")
     } else {
-        eprintln("[cj-tauri] redis sub: 收到认不出的推送形状 ${respBrief(v)}（未处理）")
+        logDiagnostic("[cj-tauri] redis sub: 收到认不出的推送形状 ${respBrief(v)}（未处理）")
     }
 }
 
@@ -2089,7 +2089,7 @@ func redisSubMessage(sess: RedisSession, pattern: String, channel: String, raw: 
     obj.put("payloadHex", JsonString(respHexOfBytes(shown)))
     obj.put("bytes", JsonInt(total))
     obj.put("truncated", JsonBool(cut < total))
-    eprintln("[cj-tauri] redis message: channel=${channel} pattern=${redisClip(pattern, 32)}" +
+    logDiagnostic("[cj-tauri] redis message: channel=${channel} pattern=${redisClip(pattern, 32)}" +
         " bytes=${total} truncated=${cut < total}")
     redisRecordMessage(sess, obj)
 }

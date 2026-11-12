@@ -113,7 +113,7 @@ public class StoreBackend {
             let parsed = JsonValue.fromStr(text)
             match (parsed.kind()) {
                 case JsonKind.JsObject => this.root = parsed.asObject()
-                case _ => eprintln("[cj-tauri] store 文件不是 JSON 对象，本轮从空开始：${this.path}")
+                case _ => logDiagnostic("[cj-tauri] store 文件不是 JSON 对象，本轮从空开始：${this.path}")
             }
         } catch (e: Exception) {
             // 第一次跑就是这条路径——没有 store 文件是正常状态，不是错误
@@ -134,11 +134,11 @@ public class StoreBackend {
             } catch (e: Exception) {
                 // rename 失败（跨目录/被占用等）：回落直写目标文件，别让数据丢在 tmp 里
                 File.writeTo(this.path, text.toArray())
-                eprintln("[cj-tauri] store 原子替换失败已回落直写：${e}")
+                logDiagnostic("[cj-tauri] store 原子替换失败已回落直写：${e}")
             }
             return true
         } catch (e: Exception) {
-            eprintln("[cj-tauri] store 写盘失败：${e}（路径 ${this.path}，本轮改动只在内存里）")
+            logDiagnostic("[cj-tauri] store 写盘失败：${e}（路径 ${this.path}，本轮改动只在内存里）")
             return false
         }
     }

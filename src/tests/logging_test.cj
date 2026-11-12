@@ -1,6 +1,7 @@
 package cjTauri.tests
 
 import cjTauri.*
+import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
 
@@ -59,4 +60,69 @@ func testLogPathOrDefaultPrefersEnvOverPlatformDir(): Unit {
     @Expect(d.endsWith("music.log"), true)
     @Expect(d.contains("cj-tauri"), true)
     @Expect(d == defaultLogPath("music"), true)
+}
+
+/*
+ * 鸿蒙 hilog 分片器（2026-11-12）：hilog 对单条日志有长度上限，框架的超长诊断行要切多条送出去。
+ * 分片器与平台无关、无 FFI 依赖，所以在本机能验——鸿蒙分支其余部分编不了（本机 SDK 只有
+ * linux / windows 两个目标），能本地验证的部分别留成「未验证」。
+ */
+
+@Test
+func testHilogSplitKeepsShortLineIntact(): Unit {
+    @Expect(hilogSplit("", 1000).size, 1)
+    @Expect(hilogSplit("", 1000)[0], "")
+    @Expect(hilogSplit("abc", 1000).size, 1)
+    // 恰好等于预算也是单片：不因「相等」多切一条空的出来
+    @Expect(hilogSplit("abcdefgh", 8).size, 1)
+}
+
+@Test
+func testHilogSplitChunksLongAsciiLine(): Unit {
+    let sb = StringBuilder()
+    for (_ in 0..2500) {
+        sb.append("x")
+    }
+    let line = sb.toString()
+    let parts = hilogSplit(line, 1000)
+    @Expect(parts.size, 3)
+    var joined = ""
+    for (p in parts) {
+        @Expect(p.size <= 1000, true)
+        joined = joined + p
+    }
+    @Expect(joined, line) // 不丢内容、不改内容：取证要对得上原文
+}
+
+@Test
+func testHilogSplitNeverCutsInsideUtf8Char(): Unit {
+    // 400 个汉字 = 1200 字节；1000 字节预算硬切就落在第 334 个汉字中间
+    let sb = StringBuilder()
+    for (_ in 0..400) {
+        sb.append("汉")
+    }
+    let line = sb.toString()
+    let parts = hilogSplit(line, 1000)
+    @Expect(parts.size, 2)
+    var joined = ""
+    for (p in parts) {
+        // 分片器内部走 String.fromUtf8（非法 UTF-8 会抛），这里再钉住两条可观测性质
+        @Expect(p.size <= 1000, true)
+        @Expect(p.size % 3, 0) // 汉字 3 字节：每片都落在整字边界上
+        joined = joined + p
+    }
+    @Expect(joined, line)
+}
+
+@Test
+func testHilogSplitSurvivesTinyBudget(): Unit {
+    // 预算比一个汉字还小：按 4 字节下限走，仍须是合法 UTF-8 且能拼回原文
+    let line = "仓颉日志"
+    let parts = hilogSplit(line, 2)
+    var joined = ""
+    for (p in parts) {
+        joined = joined + p
+    }
+    @Expect(joined, line)
+    @Expect(parts.size > 0, true)
 }

@@ -157,11 +157,11 @@ func ohosRequest(method: String, url: String, headers: HashMap<String, String>,
     }
 
     if (let Some(msg) <- feed.failure) {
-        eprintln("[cj-tauri] http transport failed (ohos): ${msg}")
+        logDiagnostic("[cj-tauri] http transport failed (ohos): ${msg}")
         throw CommandException("http: request failed on HarmonyOS: ${msg}")
     }
     if (!feed.done) {
-        eprintln("[cj-tauri] http transport timeout (ohos): ${waited}ms ${url}")
+        logDiagnostic("[cj-tauri] http transport timeout (ohos): ${waited}ms ${url}")
         throw CommandException("http: no response within ${waited}ms on HarmonyOS")
     }
     return (feed.status, feed.contentType, feed.bytes)

@@ -231,7 +231,7 @@ public class WebKitHost <: WebViewHost {
     // 本窗口的 shell 事件（菜单点击等）回调：TauriApp 装配时经 setShellHandler 覆盖它做分发，
     // 未覆盖时只留一行 stderr——菜单点了没人管，至少能在日志里看见。
     public var shellHandler: (String) -> Unit = { json =>
-        eprintln("[cj-tauri] shell event (no handler): ${json}")
+        logDiagnostic("[cj-tauri] shell event (no handler): ${json}")
     }
     // 窗口配置（标题 / 尺寸），start() 前由 TauriApp 注入
     private var config: WindowConfig = WindowConfig()
@@ -359,7 +359,7 @@ public class WebKitHost <: WebViewHost {
             let rc = cj_bridge_set_titlebar_subtitle(this.handle, LibC.mallocCString(text))
             if (rc != 0) {
                 // 能力位说支持、这次却没写进去：留一行凭证（宿主未就绪 / 文本超 1024 字节）
-                eprintln("[cj-tauri] titlebar subtitle rejected: rc=${rc}")
+                logDiagnostic("[cj-tauri] titlebar subtitle rejected: rc=${rc}")
             }
         }
     }
@@ -409,7 +409,7 @@ public class WebKitHost <: WebViewHost {
                 }
             case None =>
                 // 外观修饰失败不该拦着开窗，但要在日志里留凭证
-                eprintln("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
+                logDiagnostic("[cj-tauri] setOwnerWindow(${ownerLabel}): 该窗口尚未登记，跳过")
         }
     }
 
@@ -510,7 +510,7 @@ public class WebKitHost <: WebViewHost {
             rc = cj_bridge_clipboard_write_text(this.handle, LibC.mallocCString(text))
         }
         if (rc != 0) {
-            eprintln("[cj-tauri] clipboard write failed: code=${rc}")
+            logDiagnostic("[cj-tauri] clipboard write failed: code=${rc}")
         }
         return rc == 0
     }
@@ -560,7 +560,7 @@ public class WebKitHost <: WebViewHost {
         }
         if (rc != 0) {
             // -4 = 本平台未实现：这是静态事实，stderr 一行说清，不算异常
-            eprintln("[cj-tauri] notification failed: code=${rc}")
+            logDiagnostic("[cj-tauri] notification failed: code=${rc}")
         }
         return rc == 0
     }
@@ -692,7 +692,7 @@ public class WebKitHost <: WebViewHost {
         if (released) {
             this.handle = CPointer<Unit>()
         } else {
-            eprintln("[cj-tauri] dispose: 宿主线程未结束，句柄保留（可再调一次 dispose 重试）")
+            logDiagnostic("[cj-tauri] dispose: 宿主线程未结束，句柄保留（可再调一次 dispose 重试）")
         }
     }
 }
@@ -704,6 +704,6 @@ func hostOnMessage(json: CString): Unit {
     try {
         HostGlobals.onMessage(json.toString())
     } catch (e: Exception) {
-        eprintln("[cj-tauri] host callback error: ${e}")
+        logDiagnostic("[cj-tauri] host callback error: ${e}")
     }
 }

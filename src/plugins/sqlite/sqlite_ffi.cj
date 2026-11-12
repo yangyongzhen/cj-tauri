@@ -127,14 +127,14 @@ func sqliteAuthorizer(app: CPointer<Unit>, code: Int32, arg1: CString, arg2: CSt
     let _ = dbName
     let _ = triggerName
     if (code == SQLITE_ATTACH || code == SQLITE_DETACH) {
-        eprintln("[cj-tauri] sqlite denied: attach/detach is not allowed (code=${code})")
+        logDiagnostic("[cj-tauri] sqlite denied: attach/detach is not allowed (code=${code})")
         return SQLITE_DENY
     }
     if (code == SQLITE_FUNCTION) {
         // arg1 是被调用的函数名：只拒能加载原生代码的那个，其余内置函数照常放行
         let fnName = sqliteCString(arg1)
         if (fnName == "load_extension") {
-            eprintln("[cj-tauri] sqlite denied: load_extension() is not allowed")
+            logDiagnostic("[cj-tauri] sqlite denied: load_extension() is not allowed")
             return SQLITE_DENY
         }
     }
@@ -164,7 +164,7 @@ func sqliteCloseQuietly(db: CPointer<Unit>): Unit {
     }
     let rc = unsafe { sqlite3_close(db) }
     if (rc != SQLITE_OK) {
-        eprintln("[cj-tauri] sqlite close returned ${rc}")
+        logDiagnostic("[cj-tauri] sqlite close returned ${rc}")
     }
 }
 

@@ -16,12 +16,12 @@ package cjTauri
  */
 public func extractEmbeddedAssets(dir: String): Int64 {
     if (dir.isEmpty()) {
-        eprintln("[cj-tauri] extractEmbeddedAssets: 目录为空")
+        logDiagnostic("[cj-tauri] extractEmbeddedAssets: 目录为空")
         return -1
     }
     let n = extractAssetsBridge(dir)
     if (n < 0) {
-        eprintln("[cj-tauri] 释放内嵌资源失败：${dir}")
+        logDiagnostic("[cj-tauri] 释放内嵌资源失败：${dir}")
     }
     return n
 }
@@ -47,7 +47,7 @@ func extractAssetsBridge(dir: String): Int64 {
 @When[env == "ohos"]
 func extractAssetsBridge(dir: String): Int64 {
     let _ = dir
-    eprintln("[cj-tauri] 本平台没有 C 桥，无内嵌资源可释放")
+    logDiagnostic("[cj-tauri] 本平台没有 C 桥，无内嵌资源可释放")
     return 0
 }
 
@@ -68,12 +68,12 @@ func extractAssetsBridge(dir: String): Int64 {
  */
 public func preloadEmbeddedLibrary(path: String): Bool {
     if (path.isEmpty()) {
-        eprintln("[cj-tauri] preloadEmbeddedLibrary: 路径为空")
+        logDiagnostic("[cj-tauri] preloadEmbeddedLibrary: 路径为空")
         return false
     }
     let ok = preloadLibraryBridge(path)
     if (!ok) {
-        eprintln("[cj-tauri] 预加载动态库失败：${path}")
+        logDiagnostic("[cj-tauri] 预加载动态库失败：${path}")
     }
     return ok
 }

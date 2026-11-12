@@ -212,7 +212,7 @@ func testStoreConcurrentWritersKeepFileValid(): Unit {
             while (j < 25) {
                 let r = s.set(tag, JsonInt(n * 100 + j))
                 if (!r) {
-                    logDiagnostic("[store-test] ${tag} 第 ${j} 轮写盘失败")
+                    logd("[store-test] ${tag} 第 ${j} 轮写盘失败")
                 }
                 j++
             }

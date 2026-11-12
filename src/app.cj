@@ -277,7 +277,7 @@ public class TauriApp <: AppHost {
      */
     public func loadCapabilities(dir: String): TauriApp {
         let n = loadCapabilitiesFromDir(dir, this.capabilities)
-        logDiagnostic("[cj-tauri] 已从 ${dir} 加载 ${n} 个 capability 清单")
+        logd("[cj-tauri] 已从 ${dir} 加载 ${n} 个 capability 清单")
         return this
     }
 

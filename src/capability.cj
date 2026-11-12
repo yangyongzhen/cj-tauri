@@ -322,7 +322,7 @@ public class CapabilityRegistry {
      */
     public func addRuntimeScopeAllow(plugin: String, pattern: String): Bool {
         if (!isConcreteScopeValue(pattern)) {
-            logDiagnostic("[cj-tauri] runtime scope allow refused (${plugin}): pattern must be a concrete value, got '${pattern}'")
+            logd("[cj-tauri] runtime scope allow refused (${plugin}): pattern must be a concrete value, got '${pattern}'")
             return false
         }
         synchronized(this.scopeLock) {
@@ -402,8 +402,8 @@ public class CapabilityRegistry {
 public func warnUnknownPermissionSets(reg: CapabilityRegistry): Unit {
     for (name in reg.declaredPermissionSets()) {
         if (!reg.hasPermissionSet(name)) {
-            logDiagnostic("[cj-tauri] 未知的命名权限集 \"${name}\"：没有插件提供它，这一条不生效")
-            logDiagnostic("[cj-tauri]   检查拼写；若它来自插件，确认提供它的插件已 .plugin(...) 装配")
+            logd("[cj-tauri] 未知的命名权限集 \"${name}\"：没有插件提供它，这一条不生效")
+            logd("[cj-tauri]   检查拼写；若它来自插件，确认提供它的插件已 .plugin(...) 装配")
         }
     }
 }

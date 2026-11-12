@@ -290,14 +290,14 @@ public func warnUnauthorizedPlugins(plugins: ArrayList<Plugin>, caps: Capability
     for (p in plugins) {
         for (name in pluginCommandNames(p)) {
             if (!caps.canInvoke(name)) {
-                logDiagnostic("[cj-tauri] 插件 ${p.name()} 的命令 ${name} 尚未授权，前端调用会被拒绝")
-                logDiagnostic("[cj-tauri]   请在 capabilities 目录的 json 里把 \"${name}\" 加进 commands")
+                logd("[cj-tauri] 插件 ${p.name()} 的命令 ${name} 尚未授权，前端调用会被拒绝")
+                logd("[cj-tauri]   请在 capabilities 目录的 json 里把 \"${name}\" 加进 commands")
             }
         }
         for (name in pluginEventNames(p)) {
             if (!caps.canEmit(name)) {
-                logDiagnostic("[cj-tauri] 插件 ${p.name()} 的事件 ${name} 尚未授权，推送会被丢弃")
-                logDiagnostic("[cj-tauri]   请在 capabilities 目录的 json 里把 \"${name}\" 加进 events")
+                logd("[cj-tauri] 插件 ${p.name()} 的事件 ${name} 尚未授权，推送会被丢弃")
+                logd("[cj-tauri]   请在 capabilities 目录的 json 里把 \"${name}\" 加进 events")
             }
         }
     }
@@ -327,7 +327,7 @@ public func warnUnscopedPlugins(plugins: ArrayList<Plugin>, caps: CapabilityRegi
         if (caps.hasScopeForPlugin(p.name())) {
             continue
         }
-        logDiagnostic("[cj-tauri] 插件 ${p.name()} 的路径参数未声明 scope：按旧行为全量放行")
-        logDiagnostic("[cj-tauri]   建议在 capabilities 的 json 里加 \"scopes\": { \"${p.name()}\": { \"allow\": [\"<放行路径>\"] } }")
+        logd("[cj-tauri] 插件 ${p.name()} 的路径参数未声明 scope：按旧行为全量放行")
+        logd("[cj-tauri]   建议在 capabilities 的 json 里加 \"scopes\": { \"${p.name()}\": { \"allow\": [\"<放行路径>\"] } }")
     }
 }

@@ -155,7 +155,7 @@ func mqttRecord(sess: MqttSession, obj: JsonObject): Unit {
         }
         sess.dropped += from
         sess.recent = keep
-        logDiagnostic("[cj-tauri] mqtt: recent 缓冲超限，丢弃最旧 ${from} 条（累计 dropped=${sess.dropped}）")
+        logd("[cj-tauri] mqtt: recent 缓冲超限，丢弃最旧 ${from} 条（累计 dropped=${sess.dropped}）")
     }
     sess.lock.unlock()
     match (app) {
@@ -188,7 +188,7 @@ func mqttEmitState(sess: MqttSession): Unit {
     line = "state=${sess.state} host=${sess.host}:${sess.port} rx=${sess.rxCount} tx=${sess.txCount}" +
         " dropped=${sess.dropped}"
     sess.lock.unlock()
-    logDiagnostic("[cj-tauri] mqtt: ${line}")
+    logd("[cj-tauri] mqtt: ${line}")
     match (app) {
         case Some(a) => a.emit("mqtt:state", obj)
         case None => ()
@@ -225,7 +225,7 @@ func mqttFailSession(sess: MqttSession, reason: String): Unit {
         case None => ()
     }
     if (first) {
-        logDiagnostic("[cj-tauri] mqtt: ${reason}")
+        logd("[cj-tauri] mqtt: ${reason}")
     }
     mqttEmitState(sess)
 }
@@ -855,7 +855,7 @@ class MqttCommands <: CommandHandler {
             sleep(Duration.millisecond * MQTT_WAIT_STEP_MS)
             waited += MQTT_WAIT_STEP_MS
         }
-        logDiagnostic("[cj-tauri] mqtt: 上一条连接的读线程未在 ${MQTT_READER_EXIT_WAIT_MS}ms 内收尾，继续建新连接")
+        logd("[cj-tauri] mqtt: 上一条连接的读线程未在 ${MQTT_READER_EXIT_WAIT_MS}ms 内收尾，继续建新连接")
     }
 
     /** 取会话记下的失败原因（没有就用 fallback）——失败原因只有会话知道，别让页面去猜 */

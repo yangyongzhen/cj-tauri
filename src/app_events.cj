@@ -100,18 +100,18 @@ extend TauriApp {
             try {
                 hook(json, label)
             } catch (e: Exception) {
-                logDiagnostic("[cj-tauri] shell hook 抛出异常（已忽略）：${e}")
+                logd("[cj-tauri] shell hook 抛出异常（已忽略）：${e}")
             }
         }
         match (parseShellEnvelope(json)) {
-            case None => logDiagnostic("[cj-tauri] shell event 信封解析失败（已丢弃）：${json}")
+            case None => logd("[cj-tauri] shell event 信封解析失败（已丢弃）：${json}")
             case Some(obj) =>
                 var kind = ""
                 if (let Some(k) <- shellString(obj, "kind")) {
                     kind = k
                 }
                 match (shellEventNameFor(kind)) {
-                    case None => logDiagnostic("[cj-tauri] shell event: 未知 kind \"${kind}\"（未投递）：${json}")
+                    case None => logd("[cj-tauri] shell event: 未知 kind \"${kind}\"（未投递）：${json}")
                     case Some(event) =>
                         if (kind == "menu") {
                             this.syncMenuStateFromShellObj(label, obj)
@@ -119,7 +119,7 @@ extend TauriApp {
                         try {
                             this.hub.emitToWindow(event, obj, label)
                         } catch (e: Exception) {
-                            logDiagnostic("[cj-tauri] shell event 投递失败（已忽略）：${e}")
+                            logd("[cj-tauri] shell event 投递失败（已忽略）：${e}")
                         }
                 }
         }
@@ -156,7 +156,7 @@ extend TauriApp {
         let js = "window.__CJ_TAURI__._dispatch(${json});"
         let targets = this.windows.targets(window)
         if (targets.size == 0 && window.size > 0) {
-            logDiagnostic("[cj-tauri] 未注册的窗口 label：\"${window}\"（回执 / 事件未投递）")
+            logd("[cj-tauri] 未注册的窗口 label：\"${window}\"（回执 / 事件未投递）")
             return
         }
         for (rec in targets) {

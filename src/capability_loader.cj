@@ -22,7 +22,7 @@ func loadCapabilitiesFromDir(dir: String, reg: CapabilityRegistry): Int64 {
     try {
         entries = Directory.readFrom(dir)
     } catch (e: Exception) {
-        logDiagnostic("[cj-tauri] 读取 capability 目录失败 ${dir}: ${e}")
+        logd("[cj-tauri] 读取 capability 目录失败 ${dir}: ${e}")
         return loaded
     }
     for (info in entries) {
@@ -37,17 +37,17 @@ func loadCapabilitiesFromDir(dir: String, reg: CapabilityRegistry): Int64 {
         try {
             text = String.fromUtf8(File.readFrom(path))
         } catch (e: Exception) {
-            logDiagnostic("[cj-tauri] 读取 capability 失败 ${path}: ${e}")
+            logd("[cj-tauri] 读取 capability 失败 ${path}: ${e}")
             continue
         }
         try {
             if (reg.addFromJson(JsonValue.fromStr(text))) {
                 loaded += 1
             } else {
-                logDiagnostic("[cj-tauri] capability 缺少 identifier，已跳过: ${path}")
+                logd("[cj-tauri] capability 缺少 identifier，已跳过: ${path}")
             }
         } catch (e: Exception) {
-            logDiagnostic("[cj-tauri] capability JSON 解析失败 ${path}: ${e}")
+            logd("[cj-tauri] capability JSON 解析失败 ${path}: ${e}")
         }
     }
     return loaded
@@ -63,14 +63,14 @@ func autoLoadCapabilities(reg: CapabilityRegistry): Unit {
     }
     let dir = "capabilities"
     if (!exists(dir)) {
-        logDiagnostic("[cj-tauri] 未挂载任何 capability，且没有 capabilities/ 目录")
-        logDiagnostic("[cj-tauri] 默认最小权限：未声明的命令与事件一律拒绝（见 docs/使用文档.md）")
+        logd("[cj-tauri] 未挂载任何 capability，且没有 capabilities/ 目录")
+        logd("[cj-tauri] 默认最小权限：未声明的命令与事件一律拒绝（见 docs/使用文档.md）")
         return
     }
     let n = loadCapabilitiesFromDir(dir, reg)
     if (n > 0) {
-        logDiagnostic("[cj-tauri] 已自动加载 capabilities/：${n} 个清单")
+        logd("[cj-tauri] 已自动加载 capabilities/：${n} 个清单")
     } else {
-        logDiagnostic("[cj-tauri] capabilities/ 目录下没有可用的 *.json 清单")
+        logd("[cj-tauri] capabilities/ 目录下没有可用的 *.json 清单")
     }
 }

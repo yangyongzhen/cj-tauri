@@ -15,6 +15,15 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
+- **两个 Ionic 示例的 Windows 单文件包**（`examples/ionic-music/dist-single/ionic-music.exe`
+  11.2MB、`examples/ionic-movie/dist-single/ionic-movie.exe` 11.8MB，Linux 交叉打包，
+  `scripts/winbuild.sh` 实测跑通）：cjc 1.2.0 + windows stdx 1.2.0.1 配套校验通过，
+  Subsystem 00000002（GUI，双击不弹黑窗）。为此给 winbuild.sh 补了**新形态工程适配**：
+  Vite 工程取 `assets/ui/dist/index.html` 为内嵌页面（并排除依赖树）、业务 src 无 `main()` 时
+  自动生成单文件入口（页面走 `PACKED_UI_B64` 内嵌、能力清单走 `PACKED_CAPS_B64` →
+  `AppSpec.capabilityJson`，与显式挂载同一装配入口）；两示例补 `packed_assets.cj` 空存根与
+  `packed_resources.cj` 助手（助手函数改 public——static 包里私有函数未被引用会吃
+  unused 警告，违反零警告门禁）。
 - **新示例 `examples/ionic-movie`（Ionic Vue 前端的移动端形态观影应用）**：竖屏窄窗（400×820），
   后端与 `examples/movie` 共用同一套命令（源码拷贝、仅改包名 `ionic_movie_app`）。首页六榜单
   分类 chips（按 kind 本地缓存，切分类不重抓上游）+ 轮播图（前 5 部大封面自动翻页）+ 海报网格

@@ -14,6 +14,8 @@
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
+## [2.3.2] - 2026-11-13
+
 ### Fixed
 - **`CANGJIE_STDX` 的层级按链接形态选：静态产物（cjpm 常规 build 默认形态）指 `static\stdx`，
   `--dynamic-std` 的动态产物才指 `dynamic/stdx`**（2026-11-13 Windows 实测，用户把变量设成

@@ -24,3 +24,7 @@ Thumbs.db
 
 # 本机收藏 / 最近播放（运行后生成，不进库）
 music-library.local.json
+# 单文件包随包分发的 OpenSSL DLL（LoadLibrary 按名字搜 exe 目录，缺了只有 https 全灭）
+!dist-single/libssl-3-x64.dll
+!dist-single/libcrypto-3-x64.dll
+

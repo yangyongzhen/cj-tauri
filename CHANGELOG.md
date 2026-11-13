@@ -15,6 +15,12 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
+- **随包分发的 OpenSSL 3 x64 运行库入仓**（`vendor/openssl/`，3.4.7）：单文件 exe 实测暴露
+  「https 全灭」——`TlsException: Can not load openssl library or function
+  CRYPTO_get_ex_new_index.`——仓颉运行时的 TLS **按名字加载** `libssl-3-x64.dll` /
+  `libcrypto-3-x64.dll`（不在 PE 导入表里），SDK 与 stdx 都不带。两个 DLL 现作为仓库资源
+  随包分发：`winbuild.sh` 打包后自动拷到 `dist-single/` 与 exe 并排（`LoadLibrary` 搜索顺序里
+  exe 目录最优先），`README.OpenSource` 已登记（Apache-2.0）。
 - **两个 Ionic 示例的 Windows 单文件包**（`examples/ionic-music/dist-single/ionic-music.exe`
   11.2MB、`examples/ionic-movie/dist-single/ionic-movie.exe` 11.8MB，Linux 交叉打包，
   `scripts/winbuild.sh` 实测跑通）：cjc 1.2.0 + windows stdx 1.2.0.1 配套校验通过，
@@ -24,6 +30,11 @@
   `AppSpec.capabilityJson`，与显式挂载同一装配入口）；两示例补 `packed_assets.cj` 空存根与
   `packed_resources.cj` 助手（助手函数改 public——static 包里私有函数未被引用会吃
   unused 警告，违反零警告门禁）。
+- **单文件包「大页面白屏」修复**：WebView2 的 `NavigateToString` 有 ~2MB 上限——
+  console 诊断版实机取证 `NavigateToString -> hr=0x80070057`（E_INVALIDARG，1.82MB 的
+  ionic-movie 页整页拒绝，1.23MB 的 ionic-music 正常）。winbuild 生成的单文件入口加阈值分支：
+  页面 >1.5MB 时写入 `%TEMP%\cj-tauri-page-<pkg>.html` 走 `PageSource.Url(file:///…)` 导航
+  （`cj_bridge_load_url` 通道无尺寸限制；postMessage 从 file:// 照常到宿主）。
 - **新示例 `examples/ionic-movie`（Ionic Vue 前端的移动端形态观影应用）**：竖屏窄窗（400×820），
   后端与 `examples/movie` 共用同一套命令（源码拷贝、仅改包名 `ionic_movie_app`）。首页六榜单
   分类 chips（按 kind 本地缓存，切分类不重抓上游）+ 轮播图（前 5 部大封面自动翻页）+ 海报网格

@@ -78,10 +78,13 @@ STDX_ROOT="$(to_posix "$STDX_ROOT")"
 STDX_STATIC="$STDX_ROOT/static/stdx"
 [ -d "$STDX_STATIC" ] || die "缺 stdx 静态包: $STDX_STATIC（设 CANGJIE_STDX_ROOT 指向解压目录）"
 
-WEBVIEW2_SDK_ROOT="${WEBVIEW2_SDK_ROOT:-D:\\webview2sdk\\sdk-1.0.2365.46}"
+# WebView2 SDK 探测链：环境变量 → ~/.cache（Linux 侧 winbuild.sh 的落位，MSYS 下 $HOME 同形）
+# → D:\webview2sdk（历史缺省，仅作兼容性回退）——缺省值不该写死某台机器的盘符路径
+WEBVIEW2_SDK_ROOT="${WEBVIEW2_SDK_ROOT:-$(ls -d "$HOME"/.cache/webview2-sdk/*/ 2>/dev/null | sort -V | tail -1 || true)}"
+[ -z "$WEBVIEW2_SDK_ROOT" ] && WEBVIEW2_SDK_ROOT="D:\\webview2sdk\\sdk-1.0.2365.46"
 WEBVIEW2_SDK_ROOT="$(to_posix "$WEBVIEW2_SDK_ROOT")"
 WEBVIEW2_INCLUDE="$WEBVIEW2_SDK_ROOT/build/native/include"
-[ -f "$WEBVIEW2_INCLUDE/WebView2.h" ] || die "缺 WebView2 头文件: $WEBVIEW2_INCLUDE/WebView2.h"
+[ -f "$WEBVIEW2_INCLUDE/WebView2.h" ] || die "缺 WebView2 头文件: $WEBVIEW2_INCLUDE/WebView2.h（设 WEBVIEW2_SDK_ROOT，或解 nuget 包到 ~/.cache/webview2-sdk/<版本>/）"
 
 NATIVE="$ROOT/native"
 [ -f "$NATIVE/platforms/windows/bridge_win.c" ] || die "缺 C 桥源码: $NATIVE/platforms/windows/bridge_win.c"

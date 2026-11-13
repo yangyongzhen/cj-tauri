@@ -25,6 +25,18 @@
   探测有效性校验收紧为「必须存在 `libstdx.encoding.json.*`」（原「有 `stdx.*` 文件」判不准，
   真实库都是 `libstdx.*` 命名）、缺失提示与 `cj-tauri-env` skill / `docs/使用文档.md` 的口径一并改。
 
+### Added
+- **鸿蒙工程在 Windows 上有了 PowerShell 原生构建入口 `build-hap.ps1`**：`cj-tauri sync` 的
+  ohos 骨架现在带一份 `build-hap.ps1`（与 `build-hap.sh` 语义一致的 PowerShell 移植：DevEco
+  探测与回退、cjc/opt 同代钉同套 SDK、stdx 联接、`--no-daemon`、assets→rawfile 同步、
+  unsigned 检查、`hdc install -r` + `aa start`），纯 ASCII（PowerShell 5.1 按 ANSI 读脚本）。
+  `cj-tauri build / run` 在 Windows 上**优先走 ps1**（`powershell -NoProfile
+  -ExecutionPolicy Bypass -File`，系统自带，不要求装 Git Bash），ps1 不存在才回落 bash。
+- **`cj-tauri sync` / `create` 的「下一步」提示按宿主 shell 分叉**：PowerShell 里给
+  `export` 命令是误导（报「无法将 export 项识别为 cmdlet」）——Windows 现在给
+  `$env:X = "..."` 写法与 `npx cj-tauri build` 入口，并顺带把 desktop 提示的
+  `CANGJIE_STDX` 层级说法改为按链接形态（常规构建 static\stdx）、桥产物提示改 PATH 说法。
+
 ## [2.3.1] - 2026-11-12
 
 ### Fixed

@@ -356,7 +356,12 @@ func cmdSync(args: Array<String>): Int64 {
                     match (resolveFrameworkRoot()) {
                         case Some(f) => fwRoot = f
                         case None =>
-                            eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
+                            // 提示跟着宿主 shell 走：PowerShell 里给 export 命令是误导（报「无法将 export 项识别为 cmdlet」）
+                            if (hostIsWindows()) {
+                                eprintln("[cj-tauri] 未定位到框架根：请 `$env:CJ_TAURI_ROOT = \"<框架仓库根>\"`（或 setx 持久化），或 --framework <路径>")
+                            } else {
+                                eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
+                            }
                             return 1
                     }
             }
@@ -367,9 +372,14 @@ func cmdSync(args: Array<String>): Int64 {
         writeText("targets/desktop/cjpm.toml", m.renderDesktopToml(fwRoot, cliVersion()))
         writeText("targets/desktop/src/main.cj", m.renderDesktopMain(cliVersion()))
         println("[cj-tauri] 已生成 targets/desktop/cjpm.toml 与 targets/desktop/src/main.cj（launcher 调 ${m.pkg}.build()）")
-        println("[cj-tauri] 下一步：cd targets/desktop && cjpm build（需 CANGJIE_STDX 指向 stdx dynamic/stdx）")
-        // issue #6-③：直接跑产物找不到 libcjtbridge.so 时，这是唯一能指路的提示
-        println("[cj-tauri] 运行产物需 LD_LIBRARY_PATH 含 ${toTomlPath(fwRoot)}/native（libcjtbridge.so 所在），或改用 cj-tauri run / dev")
+        if (hostIsWindows()) {
+            println("[cj-tauri] 下一步：cd targets\\desktop && cjpm build（常规构建需 CANGJIE_STDX 指向 static\\stdx；动态构建才是 dynamic\\stdx）")
+            println("[cj-tauri] 运行产物需 PATH 含 ${toTomlPath(fwRoot)}\\native（libcjtbridge.dll 所在），或改用 cj-tauri run / dev")
+        } else {
+            println("[cj-tauri] 下一步：cd targets/desktop && cjpm build（需 CANGJIE_STDX 指向 stdx dynamic/stdx）")
+            // issue #6-③：直接跑产物找不到 libcjtbridge.so 时，这是唯一能指路的提示
+            println("[cj-tauri] 运行产物需 LD_LIBRARY_PATH 含 ${toTomlPath(fwRoot)}/native（libcjtbridge.so 所在），或改用 cj-tauri run / dev")
+        }
     }
     if (target == "" || target == "ohos") {
         code = syncOhos(m, fwRoot)
@@ -658,8 +668,13 @@ func syncOhos(m: Manifest, fwRoot: String): Int64 {
             }
             let copied = copyAssetsToRawfile(m.assetsRoot, rawfileDir)
             println("[cj-tauri] 已生成 targets/ohos：模板 ${count} 文件 + 清单派生 4 文件 + rawfile ${copied} 资产")
-            println("[cj-tauri] 下一步：export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
-            println("          cd targets/ohos && bash build-hap.sh")
+            if (hostIsWindows()) {
+                println("[cj-tauri] 下一步：`$env:CANGJIE_STDX_OHOS = \"<鸿蒙版 stdx>\\linux_ohos_aarch64_cjnative\\dynamic\\stdx\"`（PowerShell）")
+                println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.ps1；装设备加 -Install 走 run）")
+            } else {
+                println("[cj-tauri] 下一步：export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
+                println("          cd targets/ohos && bash build-hap.sh")
+            }
             return 0
     }
 }

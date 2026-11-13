@@ -111,7 +111,7 @@ fi
 section "没有被跟踪的构建产物"
 before=$fails
 tracked_bad=$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)target/|\.dll$|\.log$|(^|/)cjpm\.lock$' || true)
-dll_allow='^examples/[^/]+/vendor/cjh/bin/.*\.dll$|^vendor/openssl/.*\.dll$'
+dll_allow='^examples/[^/]+/vendor/cjh/bin/.*\.dll$|^vendor/openssl/.*\.dll$|^examples/[^/]+/dist-single/lib(ssl|crypto)-3-x64\.dll$'
 allowed_dll=$(printf '%s\n' "$tracked_bad" | grep -E "$dll_allow" || true)
 hits=$(printf '%s\n' "$tracked_bad" | grep -vE "$dll_allow" || true)
 if [ -n "$hits" ]; then

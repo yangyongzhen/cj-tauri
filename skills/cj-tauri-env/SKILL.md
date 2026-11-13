@@ -60,9 +60,12 @@ cli\cj-tauri.bat info   REM 框架自带一键自检：框架/项目/stdx/SDK/cj
 **stdx（扩展标准库；本仓 cjpm.toml 依赖它，验证版本 1.2.0.1）**
 
 - 中心仓：https://pkg.cangjie-lang.cn/index ；API 查询：https://cangjie-lang.cn/api.html
-- `CANGJIE_STDX` 必须指 `<stdx解压目录>/<三元组>/dynamic/stdx`（**动态库目录**，不是包根）——
-  指错的表现很隐蔽：`create` 成功、要到生成工程里 `cjpm build` 才报
-  `root package ... imports package 'stdx.encoding.json' ... but the dependency info is missing`。
+- `CANGJIE_STDX` 指哪一层**按平台分叉**（都不是包根）：
+  - **Windows：指 `<stdx包>/<三元组>/static/stdx`**（静态库目录）——Windows 编本机可执行文件时
+    cjpm 的 `bin-dependencies` 吃 `.a` 静态库，指 `dynamic\stdx` 或包根都会报
+    `imports package 'stdx.encoding.json' ... not added as a dependency`（2026-11-13 实测）；
+  - Linux：指 `<stdx包>/dynamic/stdx`（动态库目录，运行期还要进 `LD_LIBRARY_PATH`）。
+  指错的共同表现很隐蔽：`create` 成功、要到 `cjpm build` 链接期才炸（或报上面那句）。
 - **机器上同时有 ohos stdx 包别把它当宿主 stdx**：给鸿蒙交叉编译装的
   `cangjie-stdx-ohos-aarch64-*` 里没有宿主目标的库，`CANGJIE_STDX` 指到它的表现是
   `lld: error: unable to find library -lstdx.encoding.json`——cjpm.toml 里路径全对，

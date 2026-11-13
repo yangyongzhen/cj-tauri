@@ -125,7 +125,12 @@ function resolveCjpm(home) {
 function resolveStdx(home) {
   const looksRight = (p) => {
     try {
-      return fs.readdirSync(p).some((n) => n.startsWith('stdx.'));
+      // 必须能找到实际要链的库（libstdx.encoding.json.*）：指到「包根」而不是
+      // <三元组>/dynamic/stdx 时，变量展开成功但cjpm 找不到库，报的是和「变量为空」
+      // 一模一样的 imports package ... not added as a dependency（2026-11-13 实测，
+      // 用户把 CANGJIE_STDX 设成 D:\cangjie-stdx 包根就复现了）——所以按库文件判，
+      // 不能按「有 stdx.* 开头的文件」判（真实库都是 libstdx.* 命名）。
+      return fs.readdirSync(p).some((n) => n.startsWith('libstdx.encoding.json.'));
     } catch (e) {
       return false;
     }
@@ -133,6 +138,10 @@ function resolveStdx(home) {
   // 宿主平台关键词：自动探测的包名必须含它且不含 ohos（交叉编译包不能当宿主 stdx 用）
   const platKey = IS_WIN ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
   const hostUsable = (pkgName) => pkgName.includes(platKey) && !pkgName.includes('ohos');
+  // stdx 里实际被引用的那一层按平台分叉：Windows 上编本机可执行文件吃**静态库**
+  // （cjpm 的 bin-dependencies 要 .a），实测要指 static\stdx（2026-11-13 用户实测，
+  // 指 dynamic 报 imports package ... not added as a dependency）；Linux 指 dynamic/stdx。
+  const stdxLayer = IS_WIN ? 'static' : 'dynamic';
 
   const candidates = [];
   if (process.env.CANGJIE_STDX && fs.existsSync(process.env.CANGJIE_STDX)) {
@@ -145,7 +154,11 @@ function resolveStdx(home) {
   try {
     for (const pkg of fs.readdirSync(cjStdxBase)) {
       if (hostUsable(pkg)) {
-        candidates.push(path.join(cjStdxBase, pkg, 'dynamic', 'stdx'));
+        // 两种落位都收：CI / 教程把包直接解成 <包>/<层>/stdx，Windows 的 zip 则是
+        // <包>/<三元组>/<层>/stdx（zip 无顶层目录）。looksRight 会把不存在的滤掉。
+        const triple = IS_WIN ? 'windows_x86_64_cjnative' : (process.platform === 'darwin' ? 'darwin_x86_64_cjnative' : 'linux_x86_64_cjnative');
+        candidates.push(path.join(cjStdxBase, pkg, stdxLayer, 'stdx'));
+        candidates.push(path.join(cjStdxBase, pkg, triple, stdxLayer, 'stdx'));
       }
     }
   } catch (e) {
@@ -159,7 +172,7 @@ function resolveStdx(home) {
       }
       const triple = IS_WIN ? 'windows_x86_64_cjnative' : (process.platform === 'darwin' ? 'darwin_x86_64_cjnative' : 'linux_x86_64_cjnative');
       if (hostUsable(pkg)) {
-        candidates.push(path.join(sdkParent, pkg, triple, 'dynamic', 'stdx'));
+        candidates.push(path.join(sdkParent, pkg, triple, stdxLayer, 'stdx'));
       }
     }
   } catch (e) {
@@ -177,7 +190,10 @@ function printMissingStdxHint() {
     '请下载 stdx（与 SDK 版本配套，1.2.0 ↔ 1.2.0.1，混配会「编译全过、真机启动即崩」）：',
     '  https://atomgit.com/Cangjie/cangjie_stdx/releases（匿名可下）',
     IS_WIN
-      ? '解压后把 CANGJIE_STDX 指到 <解压目录>\\windows_x86_64_cjnative\\dynamic\\stdx（动态库目录，不是包根），'
+      ? '解压后把 CANGJIE_STDX 指到 <解压目录>\\windows_x86_64_cjnative\\static\\stdx（静态库目录，'
+      : '解压后把 CANGJIE_STDX 指到 <解压目录>/linux_x86_64_cjnative/dynamic/stdx（动态库目录，不是包根），',
+    IS_WIN
+      ? 'Windows 编本机可执行吃的是静态库，不是包根、也不是 dynamic\\stdx）；'
       : '解压后把 CANGJIE_STDX 指到 <解压目录>/linux_x86_64_cjnative/dynamic/stdx（动态库目录，不是包根），',
     IS_WIN
       ? '并 setx CANGJIE_STDX <路径> 持久化（重开终端生效）；然后重跑本命令。'

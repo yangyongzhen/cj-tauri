@@ -15,6 +15,15 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
+- **新示例 `examples/ionic-music`（Ionic Vue 前端的移动端形态音乐播放器）**：验证「框架对前端
+  零约束，Ionic 也能当 cj-tauri 的 UI」——竖屏窄窗（400×820，手机比例），`@ionic/vue` 的
+  页签 / 列表 / 搜索条 / 播放条 / 歌词浮层在系统 WebView 里直接工作。后端与
+  `examples/music-next` **共用同一套命令**（源码拷贝、仅改包名 `ionic_music`）：热门榜 /
+  搜索 / 同步歌词 / 封面防盗链宿主侧取回 / 收藏整表替换。前端三个依赖差异：`@ionic/vue`
+  + `vue-router`（**@ionic/vue 的硬依赖，缺它构建直接失败**）+ `ionicons`（图标导出是小驼峰，
+  如 `musicalNotesOutline`）。实机取证：Xvfb 下窗口 400×820、页面加载、`js -> native` 往返、
+  mock 后台（`CJ_MUSIC_API` 覆盖）下歌单 `200 ok` 渲染成列表；第三方音乐接口 503 时按业务
+  错误如实呈现空态与提示。
 - **新文档「Ionic 与 cj-tauri 的桥接机制对比」**（`docs/Ionic与cj-tauri-桥接层对比.md`）：以
   `@capacitor/keyboard` 鸿蒙适配的真实源码为对照，逐层拆「JS 调原生」的环节 / 语言 / ABI 次数——
   **4 个环节、2 种语言、1 次 ABI 对 7 个环节、3 种语言、2 次 ABI**，桥接核心代码量约 1100 行对

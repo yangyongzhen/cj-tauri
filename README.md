@@ -109,6 +109,16 @@ To run a repo example (hello): `native\build_win.bat` → `cd examples\hello && 
 
 ## Why cj-tauri
 
+**Positioning first**: cj-tauri is a **Cangjie-native** cross-platform desktop framework — the whole
+backend core is implemented in Cangjie (window management, system calls, IPC and command dispatch in
+native Cangjie, statically compiled), with no Rust core and no NAPI bridging layer; **the HarmonyOS
+side was designed for the HarmonyOS ecosystem from day one** (the ArkWeb host is written in Cangjie
+directly). Two consequences: it naturally fits HarmonyOS system API conventions — a strong fit for
+HarmonyOS PC hybrid development — and its positioning differs sharply from comparable Rust-core
+frameworks, where HarmonyOS is an add-on community fork rather than a first-class platform. The
+item-by-item comparison (concept mapping / behavior differences / platform capabilities) lives in
+[与Tauri的差异.md](docs/与Tauri的差异.md) (Chinese).
+
 - **Three hosts verified on real hardware, HarmonyOS PC closed-loop**: Windows (WebView2),
   Linux (WebKitGTK) and HarmonyOS PC (ArkWeb, 2in1 desktop window) — IPC, capability model and
   command dispatch are fully shared; platform differences live only in conditional compilation and

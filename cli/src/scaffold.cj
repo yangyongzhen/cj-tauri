@@ -351,7 +351,11 @@ func cmdCreate(nameArg: String, tpl: String, bundleArg: String, labelArg: String
     }
     if (ohos) {
         println("  鸿蒙端: export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
-        println("          cd targets/ohos && bash build-hap.sh [--install]")
+        if (hostIsWindows()) {
+            println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.ps1）")
+        } else {
+            println("          cd targets/ohos && bash build-hap.sh [--install]")
+        }
         println("")
         println("  提示: 模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs")
         println("        勾「Automatically generate signature」（要登录华为账号）；不签名只能编出")

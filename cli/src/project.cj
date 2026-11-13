@@ -457,9 +457,10 @@ func runProject(c: AppContext): Int64 {
     return code
 }
 
-/** 某个目录下是不是鸿蒙脚手架工程（判据：build-hap.sh + entry/cjpm.toml 同时在） */
+/** 某个目录下是不是鸿蒙脚手架工程（判据：构建入口脚本 + entry/cjpm.toml 同时在） */
 func isOhosProjectAt(dir: String): Bool {
-    return exists(joinPath(dir, "build-hap.sh")) && exists(joinPath(joinPath(dir, "entry"), "cjpm.toml"))
+    let hasEntryToml = exists(joinPath(joinPath(dir, "entry"), "cjpm.toml"))
+    return hasEntryToml && (exists(joinPath(dir, "build-hap.sh")) || exists(joinPath(dir, "build-hap.ps1")))
 }
 
 /**
@@ -482,14 +483,33 @@ func findOhosProjectRoot(): Option<String> {
 }
 
 /**
- * 鸿蒙工程：构建入口就是工程自带的 `build-hap.sh`
+ * 鸿蒙工程：构建入口是工程自带的 `build-hap.sh`（bash）或 `build-hap.ps1`（PowerShell）
  *
  * 跑它而不是自己拼 hvigor 命令：DevEco 探测、cjc/opt 同代、stdx 联接、`--no-daemon`
- * 这些坑全在脚本里（见模板 build-hap.sh 的注释），CLI 只负责传参。
- * `--install` 走 `run`：编完装到设备并 `aa start`。
+ * 这些坑全在脚本里（见模板注释），CLI 只负责传参。两个入口语义一致，都在模板里维护、
+ * 改动请同步。Windows 优先 ps1（powershell 系统自带，bash 要另装 Git Bash）；
+ * ps1 不存在才回落 bash。`--install` 走 `run`：编完装到设备并 `aa start`。
  */
 func buildOhos(root: String, install: Bool): Int64 {
     var argv = ArrayList<String>()
+    if (hostIsWindows() && exists(joinPath(root, "build-hap.ps1"))) {
+        // -ExecutionPolicy Bypass：用户机器默认策略可能是 Restricted，只为跑构建脚本不该要求全局改策略
+        argv.add("-NoProfile")
+        argv.add("-ExecutionPolicy")
+        argv.add("Bypass")
+        argv.add("-File")
+        argv.add("build-hap.ps1")
+        if (install) {
+            argv.add("-Install")
+        }
+        println("[cj-tauri] 鸿蒙工程：powershell build-hap.ps1${if (install) { " -Install" } else { "" }}（${root}）")
+        let code = execute("powershell.exe", argv.toArray(), workingDirectory: Path(root))
+        if (code != 0) {
+            eprintln("[cj-tauri] 构建失败（exit=${code}）")
+            eprintln("          日志: ${joinPath(root, ".buildlog")}/last-build.log")
+        }
+        return code
+    }
     argv.add("build-hap.sh")
     if (install) {
         argv.add("--install")

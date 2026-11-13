@@ -184,6 +184,18 @@ else
     cp -r "$UI_SRC" "$WORK/app/"
     UI_REL="ui"
 fi
+# Vite 工程：依赖树不上产物（桌面链路读 dist/，鸿蒙 rawfile 同样跳过 node_modules）
+rm -rf "$WORK/app/$UI_REL/node_modules"
+
+# 页面文件：Vite 工程在 dist/index.html，内联单页在 index.html——单文件内嵌取构建产物
+if [ -f "$WORK/app/$UI_REL/dist/index.html" ]; then
+    UI_FILE="$WORK/app/$UI_REL/dist/index.html"
+    PAGE_REL="$UI_REL/dist/index.html"
+else
+    UI_FILE="$WORK/app/$UI_REL/index.html"
+    PAGE_REL="$UI_REL/index.html"
+fi
+[ -f "$UI_FILE" ] || die "示例缺前端页面: $UI_FILE"
 
 PKG_NAME="$(awk -F'"' '/^[[:space:]]*name[[:space:]]*=/ {print $2; exit}' "$EXAMPLE/cjpm.toml")"
 [ -n "$PKG_NAME" ] || die "读不到 $EXAMPLE/cjpm.toml 的 package.name"
@@ -194,9 +206,6 @@ has_asset() { grep -q "^public let $1" "$ASSET_STUB"; }
 has_asset PACKED_UI_B64 || die "$ASSET_STUB 里没有 PACKED_UI_B64 存根"
 
 b64() { base64 -w0 "$1"; }
-
-UI_FILE="$WORK/app/$UI_REL/index.html"
-[ -f "$UI_FILE" ] || die "示例缺前端页面: $UI_FILE"
 UI_B64="$(b64 "$UI_FILE")"
 
 VENDOR_B64=""
@@ -242,6 +251,31 @@ echo "[winbuild] 生成内嵌资源：页面 ${#UI_B64} / vendor ${#VENDOR_B64} 
     fi
     printf 'public let PACKED_CAPS_B64: String = "%s"\n' "$CAPS_B64"
 } > "$WORK/app/src/packed_assets.cj"
+
+# ---------- ②a 新形态工程生成单文件入口 main() ----------
+# 老形态示例自带 main()（页面由业务读）；新形态（cj-tauri.toml + 业务 static 包）只有 build()
+# 装配点、页面归 launcher 按清单读盘——单文件包没有磁盘资产，得在这里生成一个 main()：
+# 页面走 PACKED_UI_B64 内嵌（textOrFile 的内嵌分支），能力清单走 PACKED_CAPS_B64 →
+# AppSpec.capabilityJson（launch 的 assemble 会逐条 addCapabilityJson，与显式挂载同一入口）。
+if ! grep -rqlE "^main\(\)" "$WORK/app/src"; then
+    echo "[winbuild] 新形态工程：生成单文件入口 main()（页面 $PAGE_REL）"
+    {
+        printf 'package %s\n\n' "$PKG_NAME"
+        printf '/* 由 scripts/winbuild.sh 生成：单文件包的 main()。**不要手工编辑**。\n'
+        printf '   页面/能力清单全部内嵌（PACKED_*），不再依赖磁盘上的 assets/ 与 capabilities/。 */\n'
+        printf 'import cjTauri.*\n'
+        printf 'import cjTauri.platform.*\n\n'
+        printf 'main(): Int64 {\n'
+        printf '    let html = textOrFile(PACKED_UI_B64, "%s", "前端页面")\n' "$PAGE_REL"
+        printf '    var spec = build().page(PageSource.Inline(html))\n'
+        printf '    for (part in splitBy(PACKED_CAPS_B64, 44u8)) {\n'
+        printf '        spec = spec.capabilityJson(decodeBase64(part))\n'
+        printf '    }\n'
+        printf '    launch(spec)\n'
+        printf '    return 0\n'
+        printf '}\n'
+    } > "$WORK/app/src/packed_main.cj"
+fi
 
 # ---------- ②b 框架副本：按 stdx 版本决定是否打补丁 ----------
 # 补丁针对 1.0.5.1（本机曾有唯一的 windows stdx）：ws 插件 import stdx.crypto.kit（DefaultCryptoKit

@@ -1,0 +1,26 @@
+# 构建产物（工程根 + 各骨架）
+target/
+cjpm.lock
+
+# 每端派生骨架 targets/<端>/ 由 `cj-tauri sync` 从 cj-tauri.toml 生成，
+# 内含本机绝对路径（框架 / stdx 的 path 依赖），换机器即失效，一律不入库。
+# 克隆后先跑一次 `cj-tauri sync`，再用 `cj-tauri check` 比对是否漂移。
+targets/
+
+# 前端（Vite 模板）
+assets/ui/node_modules/
+assets/ui/dist/
+assets/ui/dev-server.log
+
+# 平台动态库 / 对象文件
+*.o
+*.so
+*.dll
+*.dll.a
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 本机收藏 / 最近播放（运行后生成，不进库）
+music-library.local.json

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="640" viewBox="0 0 900 640" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#38bdf8"/>
+    </marker>
+    <marker id="ar2" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#fb7185"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="640" fill="#0b1220"/>
+
+  <text x="450" y="40" text-anchor="middle" fill="#e2e8f0" font-size="21" font-weight="700">ionic-movie：在线片源如何变成能播的 m3u8</text>
+  <text x="450" y="62" text-anchor="middle" fill="#64748b" font-size="12">Ionic Vue 前端（hls.js）· cj-tauri 框架 · 仓颉命令 · 豆瓣上游</text>
+
+  <!-- Layer 1: 前端 -->
+  <rect x="40" y="84" width="720" height="120" rx="12" fill="#0f1b2e" stroke="#1d4ed8" stroke-width="1.4"/>
+  <text x="60" y="110" fill="#60a5fa" font-size="13" font-weight="700">① 前端 —— Ionic Vue + hls.js（约 500KB，随单文件内联）</text>
+  <g font-size="12" fill="#e2e8f0" text-anchor="middle">
+    <rect x="70" y="128" width="128" height="40" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="134" y="153">六榜单 chips</text>
+    <rect x="210" y="128" width="128" height="40" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="274" y="153">轮播 · 大封面</text>
+    <rect x="350" y="128" width="128" height="40" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="414" y="153">海报网格</text>
+    <rect x="490" y="128" width="128" height="40" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="554" y="153">详情页</text>
+    <rect x="630" y="128" width="120" height="40" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="690" y="153">播放源 chips</text>
+  </g>
+  <text x="60" y="192" fill="#94a3b8" font-size="11">榜单按 kind 本地缓存（cacheByKind）：来回切不重抓上游，豆瓣限流友好</text>
+
+  <!-- invoke arrow -->
+  <line x1="400" y1="204" x2="400" y2="238" stroke="#38bdf8" stroke-width="2.2" marker-end="url(#ar)"/>
+  <rect x="418" y="212" width="330" height="22" rx="6" fill="#0f2436"/>
+  <text x="430" y="228" fill="#7dd3fc" font-size="12" font-family="Consolas,monospace">invoke('movie:source', { aid })</text>
+
+  <!-- Layer 2: 框架 -->
+  <rect x="40" y="240" width="720" height="92" rx="12" fill="#111a2e" stroke="#38bdf8" stroke-width="1.4"/>
+  <text x="60" y="266" fill="#38bdf8" font-size="13" font-weight="700">② 框架 cj-tauri —— 能力校验 → 命令分发（worker）→ 结果回投</text>
+  <text x="60" y="288" fill="#94a3b8" font-size="11">movie:detail / image / list / search / source / sourceitem（命令层把榜单 count 夹到 ≤60）</text>
+  <text x="60" y="308" fill="#94a3b8" font-size="11">直连 mp4 走 &lt;video src&gt;；m3u8 走 hls.js（WebKitGTK 的 &lt;video&gt; 不原生支持 HLS）</text>
+
+  <!-- split arrows -->
+  <line x1="230" y1="332" x2="190" y2="368" stroke="#fb7185" stroke-width="2.2" marker-end="url(#ar2)"/>
+  <line x1="560" y1="332" x2="600" y2="368" stroke="#fb7185" stroke-width="2.2" marker-end="url(#ar2)"/>
+
+  <!-- Layer 3A: 播放链 -->
+  <rect x="40" y="370" width="340" height="124" rx="12" fill="#2a1420" stroke="#fb7185" stroke-width="1.4"/>
+  <text x="60" y="396" fill="#fda4af" font-size="13" font-weight="700">③a 在线播放链</text>
+  <text x="60" y="418" fill="#94a3b8" font-size="11">movie:source → 主源 tvurls 先直接播</text>
+  <text x="60" y="436" fill="#94a3b8" font-size="11">movie:sourceitem → 按 note/aid 换源取播放地址</text>
+  <text x="60" y="454" fill="#94a3b8" font-size="11">m3u8 → new Hls(...) 挂载 &lt;video&gt;</text>
+  <text x="60" y="480" fill="#b45f70" font-size="10.5">流加载失败 → 致命 toast，提示换源</text>
+
+  <!-- Layer 3B: 封面取回 -->
+  <rect x="530" y="370" width="230" height="124" rx="12" fill="#2a1420" stroke="#fb7185" stroke-width="1.4"/>
+  <text x="550" y="396" fill="#fda4af" font-size="13" font-weight="700">③b 封面取回</text>
+  <text x="550" y="420" fill="#94a3b8" font-size="11">movie:image 宿主侧取</text>
+  <text x="550" y="438" fill="#94a3b8" font-size="11">转 data: URL（豆瓣防盗链）</text>
+  <text x="550" y="462" fill="#b45f70" font-size="10.5">部分图源「HTTP 200 + 0 字节」</text>
+  <text x="550" y="480" fill="#b45f70" font-size="10.5">→ 如实拒绝，页面占位海报</text>
+
+  <!-- upstream -->
+  <line x1="210" y1="494" x2="210" y2="530" stroke="#fb7185" stroke-width="2.2" marker-end="url(#ar2)"/>
+  <rect x="90" y="532" width="240" height="46" rx="10" fill="#0f1b2e" stroke="#f59e0b" stroke-width="1.4"/>
+  <text x="210" y="553" text-anchor="middle" fill="#fbbf24" font-size="12.5" font-weight="700">豆瓣上游（榜单 / 详情 / 源）</text>
+  <text x="210" y="569" text-anchor="middle" fill="#94a3b8" font-size="10.5">命令层现抓解析 · CJ_MOVIE_API 可覆盖</text>
+
+  <!-- 鸿蒙 ribbon -->
+  <rect x="360" y="532" width="400" height="46" rx="10" fill="#04221f" stroke="#10b981" stroke-width="1.4"/>
+  <text x="380" y="553" fill="#34d399" font-size="12.5" font-weight="700">同一工程上鸿蒙</text>
+  <text x="380" y="569" fill="#6ee7b7" font-size="10.5">新形态：cj-tauri.toml 清单 + build(): AppSpec；sync ohos → DevEco</text>
+
+  <text x="450" y="620" text-anchor="middle" fill="#475569" font-size="10.5">后端与 examples/movie 共用同一套命令（拷贝，仅改包名 ionic_movie_app）</text>
+</svg>

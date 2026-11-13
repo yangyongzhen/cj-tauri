@@ -117,7 +117,10 @@ directly). Two consequences: it naturally fits HarmonyOS system API conventions 
 HarmonyOS PC hybrid development — and its positioning differs sharply from comparable Rust-core
 frameworks, where HarmonyOS is an add-on community fork rather than a first-class platform. The
 item-by-item comparison (concept mapping / behavior differences / platform capabilities) lives in
-[与Tauri的差异.md](docs/与Tauri的差异.md) (Chinese).
+[与Tauri的差异.md](docs/与Tauri的差异.md) (Chinese). The bridge layer itself has a source-level
+breakdown too: against `@capacitor/keyboard`'s HarmonyOS adaptation, a JS→native call takes
+**4 hops / 2 languages / 1 ABI crossing vs 7 hops / 3 languages / 2**, with ≈1,100 lines of bridge
+core vs ≈4,600 — see [Ionic与cj-tauri-桥接层对比.md](docs/Ionic与cj-tauri-桥接层对比.md) (Chinese).
 
 - **Three hosts verified on real hardware, HarmonyOS PC closed-loop**: Windows (WebView2),
   Linux (WebKitGTK) and HarmonyOS PC (ArkWeb, 2in1 desktop window) — IPC, capability model and
@@ -332,6 +335,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | Doc | Contents |
 |---|---|
 | [Modbus tool deep-dive](docs/仓颉版Modbus调试工具-介绍与实战.md) | Scaffolding walkthrough + how the Modbus tool is built + comparison with Modbus Poll |
+| [Ionic vs cj-tauri bridge deep-dive](docs/Ionic与cj-tauri-桥接层对比.md) | Against `@capacitor/keyboard`'s real HarmonyOS source: hops / languages / ABI crossings per JS→native call, complexity quantified, with selection advice (Chinese) |
 | [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | Current architecture: layering, IPC, capability model, and why it deviates from the MVP plan (Chinese) |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | Release notes / dev conventions / contributing / licenses |
 

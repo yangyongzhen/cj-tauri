@@ -117,7 +117,10 @@ cli\cj-tauri.bat create myapp && cd myapp
 **鸿蒙侧从第一天起就面向鸿蒙生态设计**（ArkWeb 宿主直接写在仓颉侧）。这带来两个结果：一是天生贴合
 鸿蒙系统的 API 规范，是鸿蒙 PC 混合开发场景下的高适配选项；二是与同类「Rust 核心框架」相比定位差异
 明显——那边鸿蒙支持是社区分支的附加适配，这边是主平台之一、与 Windows / Linux 同级。逐项对照表
-（概念映射 / 行为差异 / 平台能力）见 [与 Tauri 的差异](docs/与Tauri的差异.md)。
+（概念映射 / 行为差异 / 平台能力）见 [与 Tauri 的差异](docs/与Tauri的差异.md)。桥这一层的优势另有
+实拆验证：以 `@capacitor/keyboard` 鸿蒙适配的真实源码为对照，JS 调原生 **4 个环节、2 种语言、
+1 次 ABI 对 7 个环节、3 种语言、2 次 ABI**，桥接核心代码量约 1100 行对约 4600 行——
+见 [Ionic 与 cj-tauri 的桥接机制对比](docs/Ionic与cj-tauri-桥接层对比.md)。
 
 - **三端实机跑通，鸿蒙 PC 真机闭环**：Windows（WebView2）、Linux（WebKitGTK）、鸿蒙 PC（ArkWeb，2in1
   桌面窗）——IPC / 能力模型 / 命令分发完全共用，平台差异只落在条件编译与 C 桥两处；鸿蒙侧的宿主
@@ -339,6 +342,7 @@ window.__CJ_TAURI__.listen('tick', p => console.log(p));
 | [movie 实战](docs/cj-tauri-介绍与movie实战.md) / [打字游戏实战](docs/仓颉版Tauri-打字游戏实战.md) / [音乐播放器实战](docs/仓颉版Tauri-音乐播放器实战.md) | 三个业务示例的逐块拆解 |
 | [Modbus 工具实战](docs/仓颉版Modbus调试工具-介绍与实战.md) | 脚手架用法 + Modbus 工具实现 + 与 Modbus Poll 对比 |
 | [串口/网络调试助手开发记](docs/仓颉版串口调试助手-开发记.md) | 一个窗口两条链路（串口 / TCP·UDP）：探针自检与对端取证、平台层串口读超时的定位、免 SDK 单文件包 |
+| [Ionic 与 cj-tauri 的桥接机制对比](docs/Ionic与cj-tauri-桥接层对比.md) | 以 `@capacitor/keyboard` 鸿蒙适配真实源码为对照，逐层拆「JS 调原生」的环节 / 语言 / ABI 次数与代码量，附复杂度量化与选型建议 |
 | [技术方案](docs/技术方案.md) / [踩坑与实施记录](docs/踩坑与实施记录.md) | 现行架构（分层 / IPC / 能力模型 / 与原 MVP 方案的偏离）与开发全程踩坑 |
 | [CHANGELOG](CHANGELOG.md) / [AGENTS.md](AGENTS.md) / [CONTRIBUTING](CONTRIBUTING.md) / [README.OpenSource](README.OpenSource) | 变更记录 / 开发规范 / 贡献流程 / 依赖与许可 |
 

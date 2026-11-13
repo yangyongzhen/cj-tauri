@@ -138,9 +138,9 @@ function resolveStdx(home) {
   // 宿主平台关键词：自动探测的包名必须含它且不含 ohos（交叉编译包不能当宿主 stdx 用）
   const platKey = IS_WIN ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
   const hostUsable = (pkgName) => pkgName.includes(platKey) && !pkgName.includes('ohos');
-  // stdx 里实际被引用的那一层按平台分叉：Windows 上编本机可执行文件吃**静态库**
-  // （cjpm 的 bin-dependencies 要 .a），实测要指 static\stdx（2026-11-13 用户实测，
-  // 指 dynamic 报 imports package ... not added as a dependency）；Linux 指 dynamic/stdx。
+  // stdx 里实际被引用的那一层**按链接形态**：静态产物（cjpm 常规 build 的默认形态）吃
+  // static\stdx 的 .a（2026-11-13 用户实测）；--dynamic-std 的动态产物才用 dynamic\stdx。
+  // CLI 本体是常规构建，探测取 static（动态构建的用户请显式设置变量，显式值优先于探测）。
   const stdxLayer = IS_WIN ? 'static' : 'dynamic';
 
   const candidates = [];

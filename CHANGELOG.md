@@ -15,14 +15,15 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Fixed
-- **`CANGJIE_STDX` 的层级按平台分叉：Windows 指 `static\stdx`，Linux 指 `dynamic/stdx`**
-  （2026-11-13 Windows 实测，用户把变量设成包根 `D:\cangjie-stdx` 后复现）：指错层（包根 /
-  另一个 `dynamic` / `static`）时变量展开成功、cjpm 找不到库，报的是和「变量为空」一模一样的
-  `imports package 'stdx.encoding.json' ... not added as a dependency`——根因是 Windows 编本机
-  可执行文件时 cjpm 的 `bin-dependencies` 吃 `.a` 静态库。同步三处：npm 启动器的自动探测按平台
-  拼层（并补齐 `~/.cangjie` 布局的三元组层候选）、探测有效性校验收紧为「必须存在
-  `libstdx.encoding.json.*`」（原「有 `stdx.*` 文件」判不准，真实库都是 `libstdx.*` 命名）、
-  缺失提示与 `cj-tauri-env` skill / `docs/使用文档.md` 的口径一并改。
+- **`CANGJIE_STDX` 的层级按链接形态选：静态产物（cjpm 常规 build 默认形态）指 `static\stdx`，
+  `--dynamic-std` 的动态产物才指 `dynamic/stdx`**（2026-11-13 Windows 实测，用户把变量设成
+  包根 `D:\cangjie-stdx` 后复现）：指错层（包根 / 另一个 `dynamic` / `static`）时变量展开成功、
+  cjpm 找不到库，报的是和「变量为空」一模一样的
+  `imports package 'stdx.encoding.json' ... not added as a dependency`——Windows 常规构建时
+  cjpm 的 `bin-dependencies` 吃 `.a` 静态库。同步三处：npm 启动器的自动探测按 CLI 常规构建
+  取 static 层（动态构建请显式设置变量，显式值优先；并补齐 `~/.cangjie` 布局的三元组层候选）、
+  探测有效性校验收紧为「必须存在 `libstdx.encoding.json.*`」（原「有 `stdx.*` 文件」判不准，
+  真实库都是 `libstdx.*` 命名）、缺失提示与 `cj-tauri-env` skill / `docs/使用文档.md` 的口径一并改。
 
 ## [2.3.1] - 2026-11-12
 

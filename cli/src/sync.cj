@@ -612,7 +612,11 @@ func listCapsFiles(dir: String): ArrayList<String> {
     return out
 }
 
-/** 资产递归拷贝：资产根目录整体拷入 rawfile 目录（字节级、二进制安全——RFC §7.3 的 rawfile 资产注入口） */
+/** 资产递归拷贝：资产根目录整体拷入 rawfile 目录（字节级、二进制安全——RFC §7.3 的 rawfile 资产注入口）
+ *
+ *  **node_modules 必须跳过**：Vite 工程的依赖树上万文件，拷进 hap 是无意义的体积（实测
+ *  一万多文件），而且 `cj-tauri build` 桌面链路读的是 `assets/ui/dist`，依赖目录没有任何消费方。
+ */
 func copyAssetsToRawfile(srcRoot: String, dstRoot: String): Int64 {
     if (!exists(srcRoot)) {
         eprintln("[cj-tauri] 错误：资产根不存在：${srcRoot}")
@@ -623,6 +627,9 @@ func copyAssetsToRawfile(srcRoot: String, dstRoot: String): Int64 {
     for (info in listDir(srcRoot)) {
         let nm = baseName(info.path.toString())
         if (nm.size == 0) {
+            continue
+        }
+        if (info.isDirectory() && nm == "node_modules") {
             continue
         }
         let s = joinPath(srcRoot, nm)

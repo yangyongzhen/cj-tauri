@@ -15,6 +15,16 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
+- **新示例 `examples/ionic-movie`（Ionic Vue 前端的移动端形态观影应用）**：竖屏窄窗（400×820），
+  后端与 `examples/movie` 共用同一套命令（源码拷贝、仅改包名 `ionic_movie_app`）。首页六榜单
+  分类 chips（按 kind 本地缓存，切分类不重抓上游）+ 轮播图（前 5 部大封面自动翻页）+ 海报网格
+  （评分角标）；详情页简介 + **播放源 chips 换源**（`movie:source` 主源直播、`movie:sourceitem`
+  切源）；**m3u8 经 hls.js 在线播放**（直链 mp4 直接 src）；封面全走宿主 `movie:image`
+  （豆瓣防盗链）。实机取证：Xvfb 下 hotmovie 200 ok、首页完整渲染（截图人眼确认）、
+  `cjpm build` 零警告。
+- **修复 `cj-tauri sync` 把 `node_modules` 扫进鸿蒙 rawfile**：Vite 工程的依赖树上万文件
+  （实测 16615 个）被 `copyAssetsToRawfile` 整树拷进 hap——无任何消费方（桌面链路读的是
+  `assets/ui/dist`），纯体积污染。现在资产拷贝跳过 `node_modules` 目录。
 - **新示例 `examples/ionic-music`（Ionic Vue 前端的移动端形态音乐播放器）**：验证「框架对前端
   零约束，Ionic 也能当 cj-tauri 的 UI」——竖屏窄窗（400×820，手机比例），`@ionic/vue` 的
   页签 / 列表 / 搜索条 / 播放条 / 歌词浮层在系统 WebView 里直接工作。后端与

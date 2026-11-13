@@ -1,0 +1,21 @@
+# cj-tauri 应用清单——整个工程的单一真相（RFC-002 §7）。
+# 页面用 [assets] page 指向 Vite 构建产物（assets/ui/dist/index.html，vite-plugin-singlefile 单文件）。
+
+[app]
+  name = "ionic-movie"
+  version = "0.1.0"
+  # 应用标识：桌面是安装 ID，鸿蒙直接是 bundleName（每段须字母开头、只含字母数字下划线）
+  id = "com.example.ionic_movie_app"
+  # 业务包名（cjpm 约束①：toml 模块名必须等于源包名）
+  package = "ionic_movie_app"
+
+[[windows]]
+  label = "main"
+  title = "仓颉观影 Ionic · cj-tauri"
+  # 移动端形态：竖屏窄窗（手机比例），Ionic 的移动端组件在这个宽度下铺满呈现
+  width = 400
+  height = 820
+
+[assets]
+  # 骨架 launcher 加载的页面（相对资产根 assets/）——Vite 构建产物（vite-plugin-singlefile 单文件）
+  page = "ui/dist/index.html"

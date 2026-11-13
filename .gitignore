@@ -11,6 +11,7 @@ dist/
 *.a
 *.so
 *.dll
+!vendor/openssl/*.dll
 *.log
 *.zip
 
@@ -27,6 +28,10 @@ dist/
 **/dist-single/*
 !**/dist-single/*.exe
 !examples/cjnote/dist-single/cjnote
+# 随 exe 分发的 OpenSSL DLL（libssl-3-x64 / libcrypto-3-x64）：仓颉运行时的 TLS 按名字加载
+# 这两个、不在 PE 导入表里，缺了只有 https 全灭（AGENTS §4）。同 vendor/cjh/bin 的例外口径。
+!**/dist-single/libssl-3-x64.dll
+!**/dist-single/libcrypto-3-x64.dll
 
 # Linux 目录式便携包（scripts/pack-linux.sh 产物：main + lib/ + ui/ + capabilities/ + 可选 bin/cjh）
 # 注意这里必须写 /*（写 **/dist-linux/ 会把目录整个排除，后面的 ! 对目录内的文件不生效）——

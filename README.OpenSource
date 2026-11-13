@@ -43,5 +43,14 @@
         "Owner": "The GNOME Project",
         "Upstream URL": "https://www.gtk.org/",
         "Description": "Window and main-loop toolkit called directly by the Linux bridge (gtk_init / gtk_window_new / gtk_main). Dynamically linked from the system and not redistributed here."
+    },
+    {
+        "Name": "OpenSSL",
+        "License": "Apache-2.0",
+        "License File": "-",
+        "Version Number": "3.4.7 (x64)",
+        "Owner": "OpenSSL Project Authors",
+        "Upstream URL": "https://www.openssl.org/",
+        "Description": "Windows x64 runtime DLLs (libssl-3-x64.dll / libcrypto-3-x64.dll, vendored under vendor/openssl/) loaded by name from the Cangjie runtime's TLS stack (stdx.net.tls). Distributed alongside the single-file Windows exes in */dist-single/; without them only https calls fail (see AGENTS.md section 4)."
     }
 ]

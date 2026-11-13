@@ -346,8 +346,7 @@ cat > "$WORK/app/cjpm.toml" <<TOML
 TOML
 
 # ---------- ④ 交叉构建 + strip ----------
-# CANGJIE_STDX 必须指 windows static 包：框架 cjpm.toml 的 bin-dependencies 按进程环境展开
-# 这个变量，交叉构建时指 Linux 包就是给 lld 喂错架构的 import 库
+# CANGJIE_STDX 必须指 windows static 包：框架 cjpm.toml 的 bin-dependencies 按进程环境展开# 这个变量，交叉构建时指 Linux 包就是给 lld 喂错架构的 import 库
 export PATH="$CANGJIE_HOME/bin:$CANGJIE_HOME/tools/bin:$PATH"
 export LD_LIBRARY_PATH="$CANGJIE_HOME/runtime/lib/linux_x86_64_cjnative:$CANGJIE_HOME/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"
 export CANGJIE_STDX="$WINDOWS_STDX"
@@ -386,3 +385,23 @@ echo "[winbuild] 单文件: $EXE（$(du -h "$EXE" | cut -f1)）"
 echo "[winbuild] 子系统: $SUBSYS ($SUBSYS_LABEL)"
 echo "[winbuild] 导入的 DLL（应全是 Windows 系统库）:"
 x86_64-w64-mingw32-objdump -p "$EXE" | awk '/DLL Name:/ {print "  " $3}'
+
+# ---------- ⑥ OpenSSL DLL：仓颉运行时的 TLS 按名字加载这两个（不在 PE 导入表里） ----------
+# 缺了症状极隐蔽：窗口照起、页面照加载、http 接口照 200，只有 https 全灭——
+# TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.（AGENTS §4）
+# 随包分发：DLL 就在仓库 vendor/openssl/（来源与版本见该目录 README.md / README.OpenSource），
+# 打包后拷到 dist-single/ 与 exe 并排（LoadLibrary 搜索顺序里 exe 目录最优先）。
+OPENSSL_NAMES="libssl-3-x64.dll libcrypto-3-x64.dll"
+for n in $OPENSSL_NAMES; do
+    [ -f "$OUT_ROOT/$n" ] && continue
+    found=""
+    while IFS= read -r d; do
+        [ -n "$d" ] && [ -f "$d/$n" ] && { found="$d/$n"; break; }
+    done < <(printf '%s\n' "$ROOT/vendor/openssl" "${OPENSSL_DLL_DIR:-}")
+    if [ -n "$found" ]; then
+        cp "$found" "$OUT_ROOT/$n"
+        echo "[winbuild] OpenSSL: $n <- $found"
+    else
+        echo "[winbuild] 警告: 缺 $n（vendor/openssl/ 没有且未设 OPENSSL_DLL_DIR）——https 调用会全灭" >&2
+    fi
+done

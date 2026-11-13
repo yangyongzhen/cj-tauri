@@ -18,9 +18,11 @@
 - **随包分发的 OpenSSL 3 x64 运行库入仓**（`vendor/openssl/`，3.4.7）：单文件 exe 实测暴露
   「https 全灭」——`TlsException: Can not load openssl library or function
   CRYPTO_get_ex_new_index.`——仓颉运行时的 TLS **按名字加载** `libssl-3-x64.dll` /
-  `libcrypto-3-x64.dll`（不在 PE 导入表里），SDK 与 stdx 都不带。两个 DLL 现作为仓库资源
-  随包分发：`winbuild.sh` 打包后自动拷到 `dist-single/` 与 exe 并排（`LoadLibrary` 搜索顺序里
-  exe 目录最优先），`README.OpenSource` 已登记（Apache-2.0）。
+  `libcrypto-3-x64.dll`（不在 PE 导入表里），SDK 与 stdx 都不带。现作为仓库资源随包分发：
+  `winbuild.sh` 把两个 DLL 并入 **pack-assets 内嵌资源**，生成的单文件入口启动时释放到
+  `%TEMP%` 并**按全路径预载**（crypto 先于 ssl）——Windows 加载器对「按名加载」命中进程内
+  已加载的同名模块，DLL 不必摆 exe 旁边（单文件承诺不破；`README.OpenSource` 已登记，
+  Apache-2.0）。
 - **两个 Ionic 示例的 Windows 单文件包**（`examples/ionic-music/dist-single/ionic-music.exe`
   11.2MB、`examples/ionic-movie/dist-single/ionic-movie.exe` 11.8MB，Linux 交叉打包，
   `scripts/winbuild.sh` 实测跑通）：cjc 1.2.0 + windows stdx 1.2.0.1 配套校验通过，

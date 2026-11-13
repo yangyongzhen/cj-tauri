@@ -128,6 +128,22 @@ if [ -f "$PACK_ASSETS_LIST" ]; then
         ASSET_NEXT_ID=$((ASSET_NEXT_ID + 1))
     done < "$PACK_ASSETS_LIST"
 fi
+
+# OpenSSL DLL（vendor/openssl/）**无条件并入内嵌资源**：仓颉运行时的 TLS 按名字加载它们
+# （不在 PE 导入表），缺了只有 https 全灭（实测 TlsException: CRYPTO_get_ex_new_index）。
+# 释放 + 预载逻辑在生成的 main（见 ②a）：先 extract 到 %TEMP%，再按全路径预载——
+# Windows 加载器对「按名加载」会命中进程内已加载的同名模块，DLL 不必摆 exe 旁边。
+# 原始检测在 ⑥ 段（pack-win-single.sh 的 openssl_dirs 同思路），这里前移到资源编译之前。
+OPENSSL_PRELOAD=""
+for n in libcrypto-3-x64.dll libssl-3-x64.dll; do
+    found="${OPENSSL_DLL_DIR:-$ROOT/vendor/openssl}"
+    [ -f "$found/$n" ] || die "缺 $n：$ROOT/vendor/openssl/ 没有且未设 OPENSSL_DLL_DIR"
+    ASSET_SRC="$(cd "$found" && pwd)/$n"
+    printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$ASSET_SRC" >> "$RC_FILE"
+    printf '    { %d, "%s" },\n' "$ASSET_NEXT_ID" "$n" >> "$MAP_HDR"
+    ASSET_COUNT=$((ASSET_COUNT + 1))
+    ASSET_NEXT_ID=$((ASSET_NEXT_ID + 1))
+done
 printf '};\n' >> "$MAP_HDR"
 
 ASSET_OBJ=""
@@ -269,6 +285,12 @@ if ! grep -rqlE "^main\(\)" "$WORK/app/src"; then
         printf 'import std.fs.*\n\n'
         printf 'main(): Int64 {\n'
         printf '    let html = textOrFile(PACKED_UI_B64, "%s", "前端页面")\n' "$PAGE_REL"
+        printf '    /* 内嵌的 OpenSSL DLL：先释放到 %%TEMP%% 再按全路径预载（crypto 先于 ssl）——\n'
+        printf '       运行时 TLS 按名字加载，命中进程内已加载的同名模块即可，DLL 不必摆 exe 旁边。 */\n'
+        printf '    let relDir = getVariable("TEMP") ?? "."\n'
+        printf '    extractEmbeddedAssets(relDir)\n'
+        printf '    preloadEmbeddedLibrary(relDir + "\\\\libcrypto-3-x64.dll")\n'
+        printf '    preloadEmbeddedLibrary(relDir + "\\\\libssl-3-x64.dll")\n'
         printf '    /* WebView2 的 NavigateToString 有 ~2MB 上限：实测 1.82MB 的页面 hr=0x80070057\n'
         printf '       （E_INVALIDARG，整页白屏），1.23MB 的正常——超阈值就把页面落盘走 file:// 导航\n'
         printf '       （cj_bridge_load_url 通道无尺寸限制；postMessage 从 file:// 照常到宿主）。 */\n'
@@ -385,23 +407,4 @@ echo "[winbuild] 单文件: $EXE（$(du -h "$EXE" | cut -f1)）"
 echo "[winbuild] 子系统: $SUBSYS ($SUBSYS_LABEL)"
 echo "[winbuild] 导入的 DLL（应全是 Windows 系统库）:"
 x86_64-w64-mingw32-objdump -p "$EXE" | awk '/DLL Name:/ {print "  " $3}'
-
-# ---------- ⑥ OpenSSL DLL：仓颉运行时的 TLS 按名字加载这两个（不在 PE 导入表里） ----------
-# 缺了症状极隐蔽：窗口照起、页面照加载、http 接口照 200，只有 https 全灭——
-# TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.（AGENTS §4）
-# 随包分发：DLL 就在仓库 vendor/openssl/（来源与版本见该目录 README.md / README.OpenSource），
-# 打包后拷到 dist-single/ 与 exe 并排（LoadLibrary 搜索顺序里 exe 目录最优先）。
-OPENSSL_NAMES="libssl-3-x64.dll libcrypto-3-x64.dll"
-for n in $OPENSSL_NAMES; do
-    [ -f "$OUT_ROOT/$n" ] && continue
-    found=""
-    while IFS= read -r d; do
-        [ -n "$d" ] && [ -f "$d/$n" ] && { found="$d/$n"; break; }
-    done < <(printf '%s\n' "$ROOT/vendor/openssl" "${OPENSSL_DLL_DIR:-}")
-    if [ -n "$found" ]; then
-        cp "$found" "$OUT_ROOT/$n"
-        echo "[winbuild] OpenSSL: $n <- $found"
-    else
-        echo "[winbuild] 警告: 缺 $n（vendor/openssl/ 没有且未设 OPENSSL_DLL_DIR）——https 调用会全灭" >&2
-    fi
-done
+# OpenSSL DLL 走 pack-assets 内嵌 + 生成的 main 释放预载（见 ① 与 ②a），不落 exe 旁边。

@@ -19,6 +19,6 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     cssCodeSplit: false,
-    assetsInlineLimit: 104857600
+    assetsInlineLimit: 104857600,
   }
 });

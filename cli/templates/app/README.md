@@ -34,6 +34,7 @@ cj-tauri check    # 清单校验 + 骨架漂移 + 插件三方比对
 export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx
 cd targets/ohos && bash build-hap.sh            # 编 hap
 cd targets/ohos && bash build-hap.sh --install  # 编完装到设备并拉起
+# Windows：cd targets\ohos && build-hap.bat --install（cmd / PowerShell 窗口都能跑，无需 Git Bash）
 ```
 
 提示：模板不带签名证书——首次在 DevEco 里 File → Project Structure → Signing Configs

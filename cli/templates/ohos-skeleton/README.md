@@ -10,6 +10,7 @@
 ├─ AppScope/app.json5               应用级配置（bundleName = {{BUNDLE_NAME}}）
 ├─ build-profile.json5              工程级构建配置（签名留空，见下）
 ├─ build-hap.sh                     构建入口（编 hap / 装到设备）
+├─ build-hap.bat                    同上，Windows 入口（cmd / PowerShell 窗口都能跑）
 ├─ entry/
 │  ├─ cjpm.toml                     cjTauri 依赖 + aarch64-linux-ohos 目标段
 │  ├─ build-profile.json5           cangjieOptions.checkDeviceTypes=false（放行 2in1）
@@ -44,7 +45,24 @@ bash build-hap.sh
 bash build-hap.sh --install
 ```
 
-改了鸿蒙侧仓颉代码却没生效时：`bash build-hap.sh --clean`（hvigor 与框架 cjpm 各有一份增量缓存）。
+Windows（cmd 或 PowerShell 窗口都能跑 `build-hap.bat`，无需 Git Bash）：
+
+```bat
+:: 1) 鸿蒙版 stdx
+set CANGJIE_STDX_OHOS=<stdx>\linux_ohos_aarch64_cjnative\dynamic\stdx
+
+:: 2) DevEco 安装根（脚本会自动探测，探测不到就自己给）
+set "DEVECO_WIN=D:\Program Files\Huawei\DevEco Studio"
+
+:: 3) 编 hap
+build-hap.bat
+
+:: 4) 编完装到设备并拉起（需要设备已连上、应用已签名）
+build-hap.bat --install
+```
+
+改了鸿蒙侧仓颉代码却没生效时：`bash build-hap.sh --clean` / `build-hap.bat --clean`
+（hvigor 与框架 cjpm 各有一份增量缓存）。
 
 **DevEco IDE 内点 Build 不经过 build-hap.sh**：assets 自动同步段（工程根 assets/ → rawfile）在
 命令行入口里，IDE 构建不会执行——在 IDE 里改了 `assets/ui` 或 `assets/capabilities` 后，

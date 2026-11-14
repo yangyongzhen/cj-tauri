@@ -163,7 +163,7 @@ long-form design lives in `docs/安全模型.md`, Chinese).
 
 ## Examples
 
-28 runnable example projects live in `examples/` (Windows / Linux), plus 4 HarmonyOS PC projects
+29 runnable example projects live in `examples/` (Windows / Linux), plus 4 HarmonyOS PC projects
 under `examples/ohos*` sharing the same page code, and three scaffolding templates in
 `cli/templates/` (`app`, `app-vue`, `app-react`). Each example's directory has its own README with
 full details and self-check instructions. Most docs are in Chinese; the code and logs are the
@@ -198,6 +198,7 @@ universal language.
 | [serial-waveform](examples/serial-waveform) | **Real-time serial waveform scope**: `serial` plugin + double-buffered canvas, line protocol `<seq>,<value>`; at a 400 Hz sample stream the page computes rate / threshold crossings / drops itself, evidence in its README |
 | [movie](examples/movie) | Movie browsing (list/search/detail/play) — all data fetched by the Cangjie side, zero `fetch` in the front-end |
 | [music](examples/music) | Music player: charts/playlists/favorites/sharing + synced lyrics + 4 themes, covers fetched by the host with the right Referer |
+| [ionic-components](examples/ionic-components) | **Ionic component gallery** (desktop wide window, light theme): a pure-front-end showcase of Ionic 8 components (tabs / list / searchbar / chip / card / avatar / toggle / radio / range / progress / datetime / select / popover / actionSheet / alert / toast / fab / drawer / sliding item / ripple) with static demo data, information architecture modeled on ionic-conference-app; the only back-end command is `system:version` (the About page shows it to prove the bridge round-trip) |
 | [typing-poem](examples/typing-poem) | Chinese-poem typing practice for kids: 108 poems with per-character pinyin, three.js 3D cards, streaks raise the pitch and the world reacts |
 | [typing-english](examples/typing-english) | **Primary-school English typing drill**: 8 lessons / 112 words, each with phonetic spelling, part of speech and Chinese meaning. Type a word to completion and its glossary card floats above the page (`rice /raɪs/ n. 米饭`); finish several in a row and the cards **queue up, one card at a time** — the card on screen is never pushed off, the footer counts "还有 N 条释义在排队", and the layer clears when the queue drains; best score per lesson, page self-check **38/38** |
 | [leetcode-gui](examples/leetcode-gui) | **Desktop algorithm practice**: questions grouped by category / question + Cangjie editor / judge terminal — "Run" hands the code to **cjc itself** and checks each case, results with expected values and timing, fully offline |

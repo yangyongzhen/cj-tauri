@@ -12,7 +12,7 @@ import {
 import { heart, heartOutline, searchOutline, flameOutline, libraryOutline, settingsOutline,
          playOutline, pauseOutline, playSkipForwardOutline, playSkipBackOutline,
          musicalNotesOutline, trashOutline, informationCircleOutline,
-         closeOutline, chevronForwardOutline, arrowBackOutline } from 'ionicons/icons';
+         chevronForwardOutline, arrowBackOutline, personCircleOutline } from 'ionicons/icons';
 
 const $invoke = (...a) => window.__CJ_TAURI__.invoke(...a);
 
@@ -29,6 +29,19 @@ const netError = ref('');
 const appVersion = ref('…');
 const detail = ref(null);        // 歌单详情：{title, cover, note, user, songs}
 const covers = ref({});          // key -> dataURL（封面全走宿主 music:image，防盗链）
+
+/* 工具栏标题与图标随当前页签/歌单详情切换——设置页此前一直顶着「仓颉爱音乐」+ 音符 logo */
+const pageTitle = computed(() => {
+  if (detail.value) return '歌单';
+  switch (tab.value) {
+    case 'search': return '搜索';
+    case 'fav': return '收藏';
+    case 'settings': return '设置';
+    default: return '仓颉爱音乐';
+  }
+});
+const pageIcon = computed(() =>
+  (!detail.value && tab.value === 'settings') ? settingsOutline : musicalNotesOutline);
 
 async function notify(msg) {
   const t = await toastController.create({ message: msg, duration: 1800, position: 'top' });
@@ -146,6 +159,7 @@ async function play(song, list) {
   player.value.play().then(() => { playing.value = true; }).catch(() => { playing.value = false; });
   loadLyric(song.sid);
   loadCover(song, 500);
+  lyricOpen.value = true;   // 点歌直接进「正在播放」页（带控件），而不是只弹底部迷你条
 }
 
 const playContext = ref([]);     // 「正在播的那份列表」：上一首/下一首在它里面找
@@ -290,8 +304,8 @@ onMounted(async () => {
           <ion-button @click="detail = null"><ion-icon slot="icon-only" :icon="arrowBackOutline" /></ion-button>
         </ion-buttons>
         <ion-title class="app-title">
-          <ion-icon :icon="musicalNotesOutline" class="logo" />
-          {{ detail ? '歌单' : '仓颉爱音乐' }}
+          <ion-icon :icon="pageIcon" class="logo" />
+          {{ pageTitle }}
         </ion-title>
         <ion-buttons slot="end">
           <ion-spinner v-if="loading" name="crescent" />
@@ -428,13 +442,13 @@ onMounted(async () => {
       <div v-if="!detail && tab === 'settings'">
         <div class="settings-note">通用</div>
         <ion-list inset>
-          <ion-item detail="false">
+          <ion-item :detail="false">
             <ion-icon slot="start" :icon="personCircleOutline" color="primary" />
             <ion-label>
               <h2>框架版本</h2><p>{{ appVersion }}</p>
             </ion-label>
           </ion-item>
-          <ion-item detail="false">
+          <ion-item :detail="false">
             <ion-icon slot="start" :icon="musicalNotesOutline" color="tertiary" />
             <ion-label>
               <h2>音乐数据</h2>
@@ -444,7 +458,7 @@ onMounted(async () => {
         </ion-list>
         <div class="settings-note">收藏</div>
         <ion-list inset>
-          <ion-item detail="false">
+          <ion-item :detail="false">
             <ion-icon slot="start" :icon="heart" color="danger" />
             <ion-label>
               <h2>已收藏歌曲</h2>
@@ -458,7 +472,7 @@ onMounted(async () => {
         </ion-list>
         <div class="settings-note">关于</div>
         <ion-list inset>
-          <ion-item detail="false">
+          <ion-item :detail="false">
             <ion-icon slot="start" :icon="informationCircleOutline" color="medium" />
             <ion-label class="ion-text-wrap">
               <h2>cj-tauri · Ionic 示例</h2>
@@ -469,23 +483,47 @@ onMounted(async () => {
         </ion-list>
       </div>
 
-      <!-- ================= 歌词浮层 ================= -->
+      <!-- ================= 正在播放页（Teleport 到 body 做真全屏，绕开 ion-content 的 transform 包含块） ================= -->
+      <Teleport to="body">
       <transition name="lyric">
-        <div v-if="lyricOpen" class="lyric-mask">
-          <div class="lyric-head">
+        <div v-if="lyricOpen" class="nowpage">
+          <div class="nowpage-top">
             <ion-button fill="clear" @click="lyricOpen = false">
-              <ion-icon slot="icon-only" :icon="closeOutline" />
+              <ion-icon slot="icon-only" :icon="arrowBackOutline" />
             </ion-button>
-            <span>正在播放</span>
+            <span class="nowpage-tag">正在播放</span>
+            <span class="nowpage-spacer" />
           </div>
-          <div class="lyric-cover" v-if="current">
+
+          <div class="nowpage-cover" v-if="current">
             <img :src="coverOf(current.sid, 500) || coverOf(current.sid, 200) || ''" alt="" />
             <ion-icon v-if="!coverOf(current.sid, 500) && !coverOf(current.sid, 200)"
                       :icon="musicalNotesOutline" />
           </div>
-          <div class="lyric-title">{{ current ? current.song : '' }}</div>
-          <div class="lyric-artist">{{ current ? current.sing : '' }}</div>
-          <div class="lyric-box" ref="lyricBox">
+
+          <div class="nowpage-song" v-if="current">
+            <div class="nowpage-name">{{ current.song }}</div>
+            <div class="nowpage-artist">{{ current.sing }}</div>
+          </div>
+
+          <ion-range class="nowpage-seek" :value="progress" :min="0" :max="1" :step="0.01"
+                     @ionInput="seek($event.detail.value)" />
+          <div class="nowpage-times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
+
+          <div class="nowpage-controls">
+            <ion-button fill="clear" @click="prevSong">
+              <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
+            </ion-button>
+            <ion-button fill="clear" class="nowpage-pp" @click="toggle">
+              <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
+            </ion-button>
+            <ion-button fill="clear" @click="nextSong">
+              <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
+            </ion-button>
+          </div>
+
+          <div class="nowpage-lyric-tag" v-if="lyricLines.length">歌词</div>
+          <div class="nowpage-lyric" ref="lyricBox">
             <template v-if="lyricLines.length">
               <p v-for="(l, i) in lyricLines" :key="i" :class="{ on: i === activeLyric }">{{ l.text }}</p>
             </template>
@@ -493,6 +531,7 @@ onMounted(async () => {
           </div>
         </div>
       </transition>
+      </Teleport>
     </ion-content>
 
     <!-- 底部播放条 -->
@@ -636,25 +675,40 @@ onMounted(async () => {
 .times { display: flex; justify-content: space-between; font-size: 10px;
          color: var(--ion-color-medium); margin-top: -10px; padding: 0 14px; }
 
-/* 歌词浮层 */
-.lyric-mask { position: fixed; inset: 0; z-index: 99;
-              background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%);
-              display: flex; flex-direction: column; align-items: center; padding: 8px 24px 32px; }
-.lyric-head { width: 100%; display: flex; align-items: center; gap: 8px;
-              color: var(--ion-color-medium); font-size: 13px; letter-spacing: 2px; }
-.lyric-cover { width: 200px; height: 200px; border-radius: 16px; overflow: hidden; margin: 12px 0;
-               box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6); display: flex; align-items: center;
-               justify-content: center; background: rgba(128, 128, 160, 0.1);
-               color: var(--ion-color-medium); font-size: 48px; }
-.lyric-cover img { width: 100%; height: 100%; object-fit: cover; }
-.lyric-title { font-size: 20px; font-weight: 700; margin-top: 8px; }
-.lyric-artist { font-size: 13px; color: var(--ion-color-medium); margin-top: 4px; }
-.lyric-box { flex: 1; overflow: auto; width: 100%; text-align: center; padding: 20px 0;
-             mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent);
-             -webkit-mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent); }
-.lyric-box p { color: var(--ion-color-medium); margin: 12px 0; transition: all .25s; font-size: 14px; }
-.lyric-box p.on { color: #fff; font-weight: 700; font-size: 16px; }
-.lyric-box p.off { color: var(--ion-color-medium); }
+/* 正在播放页（全屏：封面 + 进度 + 控件 + 同步歌词） */
+.nowpage { position: fixed; inset: 0; z-index: 99;
+           background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%);
+           display: flex; flex-direction: column; padding: 6px 24px 26px; }
+.nowpage-top { display: flex; align-items: center; gap: 4px; }
+.nowpage-top ion-button { margin: -8px -8px -8px 0; }
+.nowpage-tag { color: var(--ion-color-medium); font-size: 13px; letter-spacing: 3px; }
+.nowpage-spacer { flex: 1; }
+.nowpage-cover { width: 210px; height: 210px; border-radius: 16px; overflow: hidden; align-self: center;
+                 margin: 16px 0 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+                 display: flex; align-items: center; justify-content: center;
+                 background: rgba(128, 128, 160, 0.1); color: var(--ion-color-medium); font-size: 52px; }
+.nowpage-cover img { width: 100%; height: 100%; object-fit: cover; }
+.nowpage-song { text-align: center; margin: 8px 0 0; }
+.nowpage-name { font-size: 20px; font-weight: 700; }
+.nowpage-artist { font-size: 13px; color: var(--ion-color-medium); margin-top: 5px; }
+.nowpage-seek { --bar-height: 4px; margin: 14px 0 0; }
+.nowpage-times { display: flex; justify-content: space-between; font-size: 11px;
+                 color: var(--ion-color-medium); margin-top: -6px; }
+.nowpage-controls { display: flex; align-items: center; justify-content: center; gap: 38px;
+                    margin-top: 12px; }
+.nowpage-controls ion-button { --padding-start: 8px; --padding-end: 8px; }
+.nowpage-controls ion-icon { font-size: 34px; color: #fff; }
+.nowpage-pp ion-icon { font-size: 54px; }
+.nowpage-lyric-tag { text-align: center; color: var(--ion-color-medium); font-size: 12px;
+                     letter-spacing: 3px; margin-top: 16px; }
+.nowpage-lyric { flex: 1; min-height: 0; overflow: auto; width: 100%; text-align: center;
+                 padding: 16px 0 4px; scrollbar-width: none;
+                 mask-image: linear-gradient(transparent, #000 10%, #000 88%, transparent);
+                 -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 88%, transparent); }
+.nowpage-lyric::-webkit-scrollbar { display: none; }
+.nowpage-lyric p { color: var(--ion-color-medium); margin: 12px 0; transition: all .25s; font-size: 14px; }
+.nowpage-lyric p.on { color: #fff; font-weight: 700; font-size: 16px; }
+.nowpage-lyric p.off { color: var(--ion-color-medium); }
 .lyric-enter-active, .lyric-leave-active { transition: opacity .22s, transform .22s; }
 .lyric-enter-from, .lyric-leave-to { opacity: 0; transform: translateY(24px); }
 

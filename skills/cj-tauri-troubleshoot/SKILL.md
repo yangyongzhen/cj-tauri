@@ -69,8 +69,9 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
 | **窗口起来了、文字也在，但零样式零脚本**：靠 `display:none` 隐藏的分区全摊在一屏，桥日志却一行错误都没有 | 页面引用了相对资源（`<link href="css/…">` / `<script src="js/…">`）：`PageSource.Asset` 是 `readText` 取字符串后走 `NavigateToString`，文档**没有真实来源**，相对路径一律取不到。判据：`NavigateToString -> hr=0x00000000` 是成功行，而页面自检行（`[frontend] …`）**永远不出现**。落法：把 css/js **内联成单文件页面**——源码分文件（`index.src.html` + `css/` + `js/`）、构建时生成自包含 `index.html`（本机实测脚本形态：`node tools/build-ui.js`，校验内联后不得残留相对 `src\|href`）；或改走 dev server / `PageSource.Url`。上游 issue #9 |
 | `cj-tauri sync` 之后立刻 `cj-tauri check`，恒报 `targets/*/cjpm.toml` 骨架漂移（重复 sync 也不消失） | 两处取框架根的方式不同：`sync` 用业务包 `cjpm.toml` 的依赖声明渲染写盘，`check` 用 `resolveFrameworkRoot()` 重新渲染再比字符串（`cli/src/sync.cj` 里两处 `renderDesktopToml` 调用）→ 形式不同就必然不等。判据：骨架里路径形如 `E://test//a`（分隔符重复）。**已知误报，别反复 clean / 重 sync 去治**（上游 issue #10）；改完代码照常按「构建 → 实机跑 → 桥 stderr」验，不看这条 |
-| `check` 的三方比对只回 `code=3221225781`，再无别的线索 | 十进制 `3221225781` = `0xC0000135` = `STATUS_DLL_NOT_FOUND`：无头导出子进程加载不到 `libcjtbridge.dll` / stdx 动态库。落法：`PATH`（Windows）或 `LD_LIBRARY_PATH`（Linux）加 `<框架>/native` 与 stdx 的 `dynamic/stdx`，同一命令重跑该行即消失（上游 issue #11 会改成可直接读的提示） |
-| 产物启动后桥只打一行 `WebView2Loader.dll not found` 就 `host destroyed`，窗口一闪而过 | exe 旁（或 PATH）缺 WebView2Loader.dll：`cp <框架>/native/webview2/WebView2Loader.dll <产物目录>`。**`cj-tauri info` 不查这一项**（它会报 C 桥已构建、其余全绿），别只看 info 就以为能跑（AGENTS §4「平台与工具链」） |
+| `check` 的三方比对只回 `code=3221225781`，再无别的线索 | 十进制 `3221225781` = `0xC0000135` = `STATUS_DLL_NOT_FOUND`：无头导出子进程加载不到 `libcjtbridge.dll` / stdx 动态库。落法：`PATH`（Windows）或 `LD_LIBRARY_PATH`（Linux）加 `<框架>/native` 与 stdx 的 `dynamic/stdx`，同一命令重跑该行即消失（上游 issue #11 会改成可直接读的提示）。**补充**：这条错误是直写控制台的，脚本里 `$(check 2>&1)` **捕获到的是空串**——把 `check` 当升级门槛的自动化会得到「失败但没原因，看起来像骨架漂移」。务实做法：`check` 非零只记告警并继续（真要卡就单独跑一次人工看输出），否则日常升级会被一个环境问题永久挡住 |
+| **业务写入的存档在重启/升级后丢失**（预期落盘的 JSON 文件根本没生成） | 两个独立原因会叠加：① 页面由 `PageSource` 以字符串装载，该来源的 `localStorage` **不持久**——把存档放前端就只有内存语义；② 业务侧若按 `LOCALAPPDATA`（Windows）/ `HOME`（Linux）推导数据目录，鸿蒙进程里**这两个环境变量都不存在** → 路径解析为空 → 后端不落盘，前端再退 `localStorage`，整条链失效。判据：`hdc shell ls <应用沙箱>/files` 里只有 `__arkweb`、没有任何业务文件。落法：后端优先写应用沙箱 `/data/storage/el2/base/files`（用 `exists()` 判断即可两端通吃：桌面/Linux 上该路径不存在会自然跳过），并在解析成功/失败处各打一行 `logd`（`public func logd`：桌面写 stderr、鸿蒙写 hilog），现场一条命令即可确认存档根目录 |
+| **内联资源使页面体积增大后，桌面导航失败**：`[cj-bridge] NavigateToString -> hr=0x80070057`，同一份页面在 ArkWeb 上正常 | `NavigateToString` 有**大小上限（约 2 MB）**，把二进制资源 base64 内联进页面就会撞线；两端上限不一致，所以只在桌面复现，极易误判成页面语法错。判据：`hr=0x80070057` = `E_INVALIDARG`，桥日志停在该行、页面自检行不出现。落法：页面只留代码，**资源按需取**——二进制转 base64 文本随包，由业务命令按 key 返回，前端缓存后用 `data:` / `AudioContext.decodeAudioData` 消费；实测 1.8 MB 的页面改后回到 122 KB，两端均正常 |
 
 ### 运行期 / scope 与出网白名单
 
@@ -137,6 +138,7 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | AGC 登录/云接口怎么调 | 端点抄自 flutter_flutter e2793de 的 ohos/signing/：登录页 `cn.devecostudio.huawei.com/console/DevEcoIDE/apply?port=&appid=1009&code=`；回调只绑 127.0.0.1 + Host 白名单 + siteId=="1"（**回调 code 不做硬比对**——华为回调自带它自己的 code，硬比对误杀正常登录）；tempToken→JWT 响应体本身就是 JWT；业务 API 基址 `connect-api.cloud.huawei.com`，**成功判据是 body 的 ret.code==0 不是 HTTP 200**；删证书是 DELETE 带请求体；profile 的 deviceList 传**云端设备 id**（≤32 位），不是 64 位 UDID |
 | 证书/profile 下载 403 | AGC 下载链是 AWS SigV4 签名 URL，通用 HTTP 客户端会重编码 `%2F` → 签名失效。**用系统 curl 原样 GET**（把 URL 当字节）；下载前先过 SSRF 护栏（拒内网）并校验 sha256 |
 | 令牌没落盘、`--auto` 说没有令牌 | 错误被吞了：saveAgcToken 的返回值必须落到 stderr（已修）。令牌落 `~/.cj-tauri/sign/token.enc`（KEK 加密），**约 4 小时过期**，过期重跑 `--login` |
+| **覆盖安装（升级）后应用本地数据被清空**（进度、配置、登录态） | 先确认这次打包**是否重新生成了密钥**。`cj-tauri sign --auto --newKeys` 每次都生成新密钥与新证书，签名方变化后系统按「不同来源」处理同包名安装，本地数据随之清空。日常升级应复用现有材料（`sign --auto`，不带 `--newKeys`），或直接 `build-hap.sh` + `hdc install -r`；仅「新增设备需要把 UDID 纳入 profile」或「证书丢失」才重新生成。判据顺序：先查业务是否真的落盘（见「存档」一条），再怀疑签名——两者都会表现为「数据没了」，但修法完全不同 |
 
 ### 音频播放（`<audio>` / 媒体栈）
 

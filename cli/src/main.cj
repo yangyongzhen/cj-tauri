@@ -19,6 +19,11 @@ func usage(): Unit {
     println("  cj-tauri doctor            环境自检逐行给结论（每条自带「缺了就怎么办」）")
     println("  cj-tauri check             校验 cj-tauri.toml（id/窗口/资产存在）+ targets 骨架漂移")
     println("  cj-tauri sync [desktop|ohos]  按清单派生 targets 骨架（缺省两端都派生）")
+    println("  cj-tauri sign [--path <ohos工程目录>] [--json]")
+    println("                             鸿蒙签名体检（离线）：能不能装、缺什么、下一步")
+    println("  cj-tauri sign --apply      把本机匹配 UDID+包名的现成材料写回 build-profile.json5（离线）")
+    println("  cj-tauri sign --login      浏览器登录 AGC 一次，令牌加密落盘")
+    println("  cj-tauri sign --auto [--newKeys]  全自动签名：设备→材料→证书→profile→写回")
     println("  cj-tauri help              显示本帮助")
     println("")
     println("环境变量:")
@@ -121,6 +126,9 @@ main(args: Array<String>): Int64 {
     }
     if (sub == "sync") {
         return cmdSync(args)
+    }
+    if (sub == "sign") {
+        return cmdSign(args)
     }
     eprintln("未知子命令: ${sub}")
     println("")

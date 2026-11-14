@@ -15,6 +15,15 @@
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
 
 ### Added
+- **新示例 `examples/ionic-components`（Ionic 组件陈列，桌面宽窗形态）**：纯前端静态
+  demo、信息架构参考 ionic-conference-app——底部 4 tab（Schedule / Speakers / Components /
+  About）+ 全局 drawer 菜单，把 Ionic 8 常用组件（tabs / list / searchbar / chip / card /
+  avatar / toggle / radio / range / progress / datetime / select / popover / actionSheet /
+  alert / toast / fab / sliding item / ripple）在一处跑通。唯一用到的后端命令是
+  `system:version`（About 页经 `window.__CJ_TAURI__` 取回显示，证明桥往返）。验证「框架对
+  前端零约束，Ionic 也能当 cj-tauri 的 UI」的**桌面宽窗 + 纯静态组件**形态，与
+  ionic-music 的**移动窄窗 + 真实后端**形成对照。Vite + Ionic 8 + Vue 3 单文件前端，
+  骨架经 `cj-tauri sync desktop` 派生，`cjpm build` 零警告，Xvfb 实机渲染取证通过。
 - **随包分发的 OpenSSL 3 x64 运行库入仓**（`vendor/openssl/`，3.4.7）：单文件 exe 实测暴露
   「https 全灭」——`TlsException: Can not load openssl library or function
   CRYPTO_get_ex_new_index.`——仓颉运行时的 TLS **按名字加载** `libssl-3-x64.dll` /
@@ -56,6 +65,15 @@
   如 `musicalNotesOutline`）。实机取证：Xvfb 下窗口 400×820、页面加载、`js -> native` 往返、
   mock 后台（`CJ_MUSIC_API` 覆盖）下歌单 `200 ok` 渲染成列表；第三方音乐接口 503 时按业务
   错误如实呈现空态与提示。
+- **三篇系列文章「Ionic 前端 + 仓颉后端 + cj-tauri 移动 App」（`docs/article/`）**：
+  上篇《仓颉鸿蒙音乐播放器》（重写：对齐「正在播放」页形态，补正在播放页 / 设置页实机截图，
+  新增 `<Teleport to="body">` 真全屏坑）、中篇《仓颉鸿蒙观影应用》（补详情页实机截图与
+  「暂无可用的播放源」如实状态说明）、下篇《仓颉鸿蒙组件陈列馆》（新：组件矩阵 + 桌面宽窗 +
+  浅色主题 / drawer，后端最小到只剩 `system:version`，四个 tab 实机截图）。三篇互链成系列，
+  图片用 `docs/article/assets/` 本地相对路径（9 张截图 + 3 张架构 SVG：components 4 张与
+  movie 详情页 1 张为本轮 Xvfb 新拍，music 3 张为上一轮修复实机截图复用，music 首页换新，
+  components-arch.svg 为本次新画）；对外发表配图按本仓口径换 GitHub 镜像 raw 链接
+  （AtomGit raw 直链实测取不到文件，见早前发版段配图口径条目）。
 - **新文档「Ionic 与 cj-tauri 的桥接机制对比」**（`docs/Ionic与cj-tauri-桥接层对比.md`）：以
   `@capacitor/keyboard` 鸿蒙适配的真实源码为对照，逐层拆「JS 调原生」的环节 / 语言 / ABI 次数——
   **4 个环节、2 种语言、1 次 ABI 对 7 个环节、3 种语言、2 次 ABI**，桥接核心代码量约 1100 行对
@@ -66,6 +84,18 @@
   （ArkWeb 宿主写在仓颉侧）——与 Rust 核心的同类框架相比，鸿蒙是主平台之一而非社区附加适配，
   是鸿蒙 PC 混合开发的高适配选项；并链接到 `docs/与Tauri的差异.md` 的逐项对照表。措辞按仓库
   纪律中性化（不出现「基于/对标」第三方项目的字眼），中英两份 README 同步。
+
+### Changed
+- **`examples/ionic-music` 播放改为点歌自动进入全屏「正在播放」页**：封面 + 可拖进度条 +
+  上一首/播放/下一首 + 同步歌词（逐行高亮自动滚动），`<Teleport to="body">` 脱离 `ion-content`
+  的 transform 包含块做到真全屏（此前歌词浮层被 `ion-content` 约束、盖不住底部迷你条与 tab 栏，
+  歌词区被挤没）；原「点封面展开歌词」保留为迷你播放条的入口。
+
+### Fixed
+- **`examples/ionic-music` 设置页显示**：补上 `personCircleOutline` 图标导入（此前
+  `<script setup>` 下是未定义绑定、`<ion-icon>` 渲染空白）；工具栏标题与图标改为随页签切换
+  （设置页不再顶着「仓颉爱音乐」+ 音符 logo，改显示「设置」+ 齿轮）；`detail="false"` 改为
+  绑定 `:detail="false"`（字符串 `"false"` 是 truthy，非可跳转条目右侧不该出现的箭头去掉）。
 
 ## [2.3.2] - 2026-11-13
 
@@ -91,6 +121,14 @@
   `export` 命令是误导（报「无法将 export 项识别为 cmdlet」）——Windows 现在给
   `$env:X = "..."` 写法与 `npx cj-tauri build` 入口，并顺带把 desktop 提示的
   `CANGJIE_STDX` 层级说法改为按链接形态（常规构建 static\stdx）、桥产物提示改 PATH 说法。
+
+### Changed
+- **鸿蒙工程 Windows 构建入口由 `build-hap.ps1` 换成 `build-hap.bat`**（用户反馈 ps1 在 Windows 上问题多）：
+  `cj-tauri sync` 的 ohos 骨架不再带 `build-hap.ps1`，改带一份 `build-hap.bat`（与 `build-hap.sh`
+  语义一致的 cmd 移植：DevEco 探测与回退、cjc/opt 同代钉同套 SDK、stdx 联接、`--no-daemon`、
+  assets→rawfile 同步、unsigned 检查、`hdc install -r` + `aa start`），纯 ASCII + CRLF，
+  **cmd 与 PowerShell 窗口都能直接跑**、不再需要 `powershell -ExecutionPolicy Bypass`。
+  `cj-tauri build / run` 在 Windows 上**优先走 bat**（`cmd.exe /c`，系统自带），bat 不存在才回落 bash。
 
 ## [2.3.1] - 2026-11-12
 

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#38bdf8"/>
+    </marker>
+    <marker id="ar2" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#a78bfa"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="600" fill="#0b1220"/>
+
+  <!-- title -->
+  <text x="450" y="40" text-anchor="middle" fill="#e2e8f0" font-size="21" font-weight="700">ionic-components：最简后端 —— 整屏只有 1 条命令</text>
+  <text x="450" y="62" text-anchor="middle" fill="#64748b" font-size="12">前端 Ionic Vue（系统 WebView · 桌面宽窗 1000×720 · 浅色主题）· 框架 cj-tauri · 后端只有内置 system:version</text>
+
+  <!-- Layer 1: 前端 -->
+  <rect x="40" y="84" width="820" height="150" rx="12" fill="#0f1b2e" stroke="#1d4ed8" stroke-width="1.4"/>
+  <text x="60" y="110" fill="#60a5fa" font-size="13" font-weight="700">① 前端 —— 系统 WebView 里的 Ionic Vue（浅色主题，桌面宽窗）</text>
+  <text x="60" y="128" fill="#94a3b8" font-size="11">@ionic/vue · 4 tab + drawer · 信息架构参考 ionic-conference-app · 静态 demo 数据（前端常量，零 fetch）</text>
+  <g font-size="11.5" fill="#e2e8f0" text-anchor="middle">
+    <rect x="60" y="142" width="180" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="150" y="165">Schedule · 分组日程 + chips</text>
+    <rect x="252" y="142" width="180" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="342" y="165">Speakers · 头像列表 + 详情</text>
+    <rect x="444" y="142" width="180" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="534" y="165">Components · 组件矩阵</text>
+    <rect x="636" y="142" width="180" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="726" y="165">About · select / datetime</text>
+    <rect x="60" y="184" width="372" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="246" y="207">toggle · radio · range · progress · badge · avatar</text>
+    <rect x="444" y="184" width="372" height="36" rx="8" fill="#1e293b" stroke="#334155"/>
+    <text x="630" y="207">popover · actionSheet · alert · toast · fab · ripple</text>
+  </g>
+
+  <!-- invoke arrow -->
+  <line x1="450" y1="234" x2="450" y2="268" stroke="#38bdf8" stroke-width="2.2" marker-end="url(#ar)"/>
+  <rect x="468" y="242" width="330" height="22" rx="6" fill="#0f2436"/>
+  <text x="480" y="258" fill="#7dd3fc" font-size="12" font-family="Consolas,monospace">window.__CJ_TAURI__.invoke('system:version')</text>
+
+  <!-- Layer 2: 框架 -->
+  <rect x="40" y="270" width="820" height="96" rx="12" fill="#111a2e" stroke="#38bdf8" stroke-width="1.4"/>
+  <text x="60" y="296" fill="#38bdf8" font-size="13" font-weight="700">② 框架 cj-tauri —— 跨平台共用，平台差异不进这里</text>
+  <g font-size="12" fill="#e2e8f0" text-anchor="middle">
+    <rect x="70" y="310" width="230" height="42" rx="8" fill="#13233a" stroke="#38bdf8"/>
+    <text x="185" y="330">能力校验</text>
+    <text x="185" y="345" fill="#94a3b8" font-size="10">白名单里就 1 条：system:version</text>
+    <rect x="322" y="310" width="230" height="42" rx="8" fill="#13233a" stroke="#38bdf8"/>
+    <text x="437" y="330">命令分发</text>
+    <text x="437" y="345" fill="#94a3b8" font-size="10">worker 线程 · 不卡 UI</text>
+    <rect x="574" y="310" width="230" height="42" rx="8" fill="#13233a" stroke="#38bdf8"/>
+    <text x="689" y="330">结果回投</text>
+    <text x="689" y="345" fill="#94a3b8" font-size="10">jsSink → 页面 promise</text>
+  </g>
+  <line x1="300" y1="331" x2="322" y2="331" stroke="#38bdf8" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="552" y1="331" x2="574" y2="331" stroke="#38bdf8" stroke-width="2" marker-end="url(#ar)"/>
+
+  <!-- Layer 3: 后端 -->
+  <line x1="450" y1="366" x2="450" y2="402" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#ar2)"/>
+  <rect x="240" y="404" width="420" height="86" rx="12" fill="#1a1430" stroke="#a78bfa" stroke-width="1.4"/>
+  <text x="260" y="430" fill="#c4b5fd" font-size="13" font-weight="700">③ 仓颉后端 —— 只剩内置命令</text>
+  <text x="260" y="452" fill="#94a3b8" font-size="11" font-family="Consolas,monospace">system:version（框架内置，AppSpec 不写一条业务命令）</text>
+  <text x="260" y="472" fill="#7c6fb0" font-size="10.5">业务数据全在前端（静态 demo）→ 后端可以空，桥照样通</text>
+
+  <!-- bottom: 两端宿主 -->
+  <rect x="40" y="512" width="400" height="52" rx="10" fill="#0f1b2e" stroke="#f59e0b" stroke-width="1.4"/>
+  <text x="60" y="534" fill="#fbbf24" font-size="12.5" font-weight="700">桌面 · WebKitGTK / WebView2</text>
+  <text x="60" y="551" fill="#94a3b8" font-size="10.5">cj-tauri run · 宽窗 1000×720 · 本文截图（Linux 实机）</text>
+
+  <rect x="460" y="512" width="400" height="52" rx="10" fill="#04221f" stroke="#10b981" stroke-width="1.4"/>
+  <text x="480" y="534" fill="#34d399" font-size="12.5" font-weight="700">同一工程上鸿蒙</text>
+  <text x="480" y="551" fill="#6ee7b7" font-size="10.5">cj-tauri sync ohos → DevEco · 页面进 rawfile · 宿主 host_arkweb（ArkWeb）</text>
+</svg>

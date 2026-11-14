@@ -1,18 +1,28 @@
 # 用 Ionic 写界面、仓颉写后端：一台鸿蒙上的音乐播放器
 
 > 系列上篇 · 示例工程 `examples/ionic-music` · 框架 cj-tauri（仓颉版混合开发框架）
+> 系列中篇：[换成在线播片：Ionic 前端 + 仓颉后端的观影 App](./Ionic-仓颉-鸿蒙观影应用.md) ·
+> 系列下篇：[把组件库翻一遍：Ionic 组件陈列馆](./Ionic-仓颉-鸿蒙组件陈列馆.md)
 
 我做 cj-tauri 的时候，总想回答一个问题：**能不能让一个写前端的人，用他最熟的组件库写界面，而把重活——网络、文件、系统能力——交给仓颉后端，最后还能落到鸿蒙上去跑？**
 
-`examples/ionic-music` 就是我对这个问题的一份答卷：界面是 **Ionic Vue** 写的（`@ionic/vue` 那一套移动端组件，你见过的那些卡片、轮播、底部 tab），后端是**仓颉**写的一组命令，中间用 **cj-tauri** 缝起来。它先在桌面实机跑通（下面这张截图就是桌面一个 400×820 的竖窗，比例照着手机给的），再用 `cj-tauri sync ohos` 一键派生成鸿蒙的 DevEco 工程——**同一份页面、同一套命令**，换到 ArkWeb 宿主里继续跑。
+`examples/ionic-music` 就是我对这个问题的一份答卷：界面是 **Ionic Vue** 写的（`@ionic/vue` 那一套移动端组件，你见过的那些卡片、轮播、底部 tab），后端是**仓颉**写的一组命令，中间用 **cj-tauri** 缝起来。它先在桌面实机跑通（下面截图都是 Linux 实机，400×820 的竖窗，比例照着手机给的），再用 `cj-tauri sync ohos` 一键派生成鸿蒙的 DevEco 工程——**同一份页面、同一套命令**，换到 ArkWeb 宿主里继续跑。
 
 这篇文章按「前端怎么落 → 后端怎么写 → 哪些活只有宿主能干 → 怎么上鸿蒙」的顺序走，全程真人口吻，踩过的坑都写出来。
 
 ## 先看成品
 
-这是 ionic-music 的首页：顶部轮播（歌单封面横滑、3 秒自动翻页、带指示点），中间是「推荐歌单」横滑卡片和「热歌榜」列表，底部四个页签（首页 / 搜索 / 收藏 / 设置）。整屏深色，`@ionic/vue` 的组件在这个窄宽度下是铺满的。
+首页：顶部轮播（歌单封面横滑、3 秒自动翻页、带指示点），中间「推荐歌单」横滑卡片和「热歌榜」列表，底部四个页签（首页 / 搜索 / 收藏 / 设置）。整屏深色，`@ionic/vue` 的组件在这个窄宽度下是铺满的。
 
-![ionic-music 首页](assets/music-home.png)
+![ionic-music 首页：轮播 + 推荐歌单 + 热歌榜](assets/music-home.png)
+
+点任意一首歌，直接进**正在播放**页——返回键、封面、可拖进度、上一首 / 播放 / 下一首、歌词逐行跟随高亮，是一整页，不是浮层：
+
+![ionic-music 正在播放页：封面 + 进度 + 控件 + 同步歌词](assets/music-nowplaying.png)
+
+设置页：框架版本（这一行就是经桥从仓颉侧取回的 `system:version`）、收藏持久化说明与清空、关于本示例：
+
+![ionic-music 设置页](assets/music-settings.png)
 
 ## 一张图看懂数据怎么流
 
@@ -36,7 +46,7 @@ Ionic 组件  ──invoke──▶  cj-tauri（能力校验 → 命令分发 �
 
 工程是标准 Vite + Vue 3，但 UI 库换成了 Ionic。前端产物是 `assets/ui/dist/index.html` **一个文件**（`vite-plugin-singlefile` 把 CSS/JS 全内联进去，约 1.2MB），清单 `[assets] page` 指的就是它。
 
-**依赖上比纯 Vue 模板多三样**，这三样是Ionic能跑起来的前提：
+**依赖上比纯 Vue 模板多三样**，这三样是 Ionic 能跑起来的前提：
 
 ```jsonc
 // package.json —— 相对 app-vue 模板多出来的
@@ -132,14 +142,18 @@ public class MusicHotCommand <: CommandHandler {
 `main.cj` 的注册段和清单是这样的（清单是**整个工程的单一真相**，`cj-tauri sync` 从它派生骨架）：
 
 ```cangjie
-// examples/ionic-music/src/main.cj（节选）
+// examples/ionic-music/src/main.cj（节选，build(): AppSpec 的 wire 里）
 app.register("music:hot",    MusicHotCommand())
 app.register("music:search", MusicSearchCommand())
 app.register("music:menus",  MusicMenusCommand())
 app.register("music:lyric",  MusicLyricCommand())
 app.register("music:image",  MusicImageCommand())
+app.register("music:share",  MusicShareCommand())
 app.register("fav:get",      FavGetCommand(store))
 app.register("fav:set",      FavSetCommand(store))
+app.register("music:config", MusicConfigCommand(store))
+app.register("music:quit",   MusicQuitCommand(app))
+app.register("report",       ReportCommand())
 ```
 
 ```toml
@@ -151,7 +165,7 @@ app.register("fav:set",      FavSetCommand(store))
 
 [[windows]]
   label = "main"
-  title = "仓颉爱音乐 Ionic · cj-tauri"
+  title = "仓颉爱音乐 · cj-tauri"
   width = 400                          # 移动端形态：竖屏窄窗
   height = 820
 
@@ -209,7 +223,7 @@ public class MusicImageCommand <: CommandHandler {
 
 LRC 歌词的语法边角不少——`[by:xxx]` 元信息行、一行多个时间戳 `[00:12.34][00:45.67]`、1/2/3 位小数。如果让页面去解析，前端就得背一套 LRC 解析器。
 
-我的做法是**在仓颉侧归一化**：`music:lyric` 拿回后台的原始 LRC，在仓颉侧用一套纯函数（`src/lrc.cj`）解析成干净的 `lines: [{at, text}…]`，页面只负责「按播放进度找到当前行、高亮、自动滚动居中」。页面收到的是已经解析好的毫秒时间轴，一行都不用来解析。
+我的做法是**在仓颉侧归一化**：`music:lyric` 拿回后台的原始 LRC，在仓颉侧用一套纯函数（`src/lrc.cj`）解析成干净的 `lines: [{at, text}…]`，页面只负责「按播放进度找到当前行、高亮、自动滚动居中」。页面收到的是已经解析好的毫秒时间轴，一行都不用来解析：
 
 ```cangjie
 // commands.cj —— music:lyric：在仓颉侧把 LRC 归一化成时间轴
@@ -220,17 +234,34 @@ LRC 歌词的语法边角不少——`[by:xxx]` 元信息行、一行多个时�
 
 顺带一个小习惯：每条命令在 stderr 留一行 `[music] …`（比如 `lyric sid=… found=true lines=42`）。**这个项目的实机取证以 stderr 为准**——页面跑在 WebView 里，不开 devtools 就看不见它，桥的日志就是那个出口。
 
-## 四、移动端形态：竖屏窄窗 + 信息架构
+## 四、移动端形态：竖屏窄窗 + 「正在播放」页
 
 这个示例故意把窗口开成 **400×820**（手机比例的竖屏），信息架构也照移动端音乐 App 的惯例组织：
 
 ```
 首页（轮播 → 推荐歌单 → 热歌榜）   搜索   收藏（底部 tab 带数量徽标）   设置
         └──────────────── 底部常驻播放条（封面 + 上一首/播放/下一首 + 可拖进度）────────────────┘
-                                └ 点封面/标题 → 全屏歌词页（逐行高亮、自动滚动居中）┘
+                          └ 点任意一首 → 「正在播放」整页（返回 / 封面 / 进度 / 控件 / 同步歌词）┘
 ```
 
-一个值得记的点：**「正在播的那份列表」由播放上下文记忆**。在热歌榜里点一首，就顺着榜切歌；在歌单详情里点一首，就顺着歌单切。这不是Ionic自带的能力，是页面自己用一个小状态记下来的——移动端交互里这种「当前在哪个上下文」的连续性，比功能本身更影响手感。
+### 正在播放页：为什么是「一整页」而不是「一个浮层」
+
+第一版我做成的是**歌词浮层**：点歌只弹一块歌词区，没有控件、没有封面、没有进度——用户点了一首歌，结果只看到一堆文字在滚，这不是「正在播放」，这是「歌词查看器」。重做之后它是一整页：顶栏返回 + 「正在播放」标签，居中封面，可拖进度条（点按跳转 + 时间刻度），上一首 / 播放暂停 / 下一首三个大按钮，底下歌词逐行跟随高亮、自动滚动居中。点歌的那一下就直接进来（`play()` 里最后一行 `lyricOpen.value = true`），不用多戳一次底部播放条。
+
+落地时踩了一个 Vue + Ionic 的经典坑：**`position: fixed` 的页面在 `ion-content` 里做不出真全屏**。原因是 `ion-content` 为了滚动/下拉带了 `transform`，而 CSS 里**任何带 transform 的祖先都会变成 `fixed` 后代的包含块**——我那个 `inset: 0` 的「全屏」页实际只撑满了 `ion-content` 那块区域，底部 tab 栏从下面露出来，怎么看怎么别扭。解法一行：
+
+```vue
+<!-- 把整棵节点搬出 ion-content 子树，fixed 才能相对视口 -->
+<Teleport to="body">
+  <transition name="lyric">
+    <div v-if="lyricOpen" class="nowpage"> …封面/进度/控件/歌词… </div>
+  </transition>
+</Teleport>
+```
+
+`<Teleport to="body">` 是 Vue 3 的传送门：DOM 直接挂到 `<body>` 下，绕开了 `ion-content` 的 transform 包含块，`position: fixed; inset: 0` 才真正等于全屏。组件树（props、事件、状态）不变，只是渲染位置变了——这类「视觉全屏」需求在 Ionic 里基本都要这么干。
+
+另一个值得记的点：**「正在播的那份列表」由播放上下文记忆**（`playContext`）。在热歌榜里点一首，上一首/下一首就顺着榜切；在歌单详情里点一首，就顺着歌单切。这不是 Ionic 自带的能力，是页面自己用一个小状态记下来的——移动端交互里这种「当前在哪个上下文」的连续性，比功能本身更影响手感。
 
 ## 五、同一份工程，怎么上鸿蒙
 
@@ -239,7 +270,7 @@ LRC 歌词的语法边角不少——`[by:xxx]` 元信息行、一行多个时�
 ```bash
 cj-tauri sync ohos     # 从 cj-tauri.toml 派生 targets/ohos 的 DevEco 工程
 # 页面（ui/dist/index.html）进 hap 的 rawfile，清单里的 id 就是 bundleName
-# 命令行构建走 build-hap.sh（Windows/PowerShell 走 build-hap.ps1），或直接在 DevEco IDE 里 Build
+# 命令行构建走 build-hap.sh（Windows 走 build-hap.bat，cmd / PowerShell 窗口都能跑），或直接在 DevEco IDE 里 Build
 ```
 
 这里我把**已经真机闭环的**和**还在路上的**分开说，不夸大：
@@ -249,15 +280,14 @@ cj-tauri sync ohos     # 从 cj-tauri.toml 派生 targets/ohos 的 DevEco 工程
 
 也就是说：这套「Ionic 前端 + 仓颉命令」的工程，桌面 `cj-tauri run` 直接跑（本文截图就是桌面实机），`cj-tauri sync ohos` 派生成鸿蒙工程后跑在 ArkWeb 里；前端页面（rawfile）和仓颉命令都是同一份，平台差异被挡在宿主那一层。
 
-## 小结 + 下篇预告
+## 小结 + 系列预告
 
 这篇做下来的结论：
 
-- **前端用你最熟的**——Ionic Vue 在系统 WebView 里零适配地跑，`vue-router` 硬依赖、ionicons 小驼峰、深色挂 class 三个坑绕过去就行。
+- **前端用你最熟的**——Ionic Vue 在系统 WebView 里零适配地跑，`vue-router` 硬依赖、ionicons 小驼峰、深色挂 class 三个坑绕过去就行；「视觉全屏」记得 `<Teleport to="body">`。
 - **后端是仓颉命令**——三处联动（实现 + register + 能力清单），页面可控的值一律在命令层过边界。
 - **难活下沉宿主**——防盗链封面带 Referer 取回、LRC 在仓颉侧归一化，都是「页面做不到 / 不该做」的活。
 - **桌面鸿蒙一份工程**——`sync ohos` 派生，前端与命令不动。
 
-下篇我把后端换成**在线影视**：六榜单 + 海报网格 + 详情页 + **m3u8 经 hls.js 在线播放**，看看换一类数据、多一个视频引擎，这套「Ionic + 仓颉 + cj-tauri」的结构怎么复用，又会冒出哪些新坑。
-
-
+**中篇**把后端换成在线影视：六榜单 + 海报网格 + 详情页 + **m3u8 经 hls.js 在线播放**，看看换一类数据、多一个视频引擎，这套结构怎么复用，又会冒出哪些新坑（[《换成在线播片：Ionic 前端 + 仓颉后端的观影 App》](./Ionic-仓颉-鸿蒙观影应用.md)）。
+**下篇**换个问法：如果后端几乎为空——整屏只留一条内置命令——这套「Ionic + cj-tauri」还成立吗？[《把组件库翻一遍：Ionic 组件陈列馆》](./Ionic-仓颉-鸿蒙组件陈列馆.md) 用一整个组件矩阵回答。

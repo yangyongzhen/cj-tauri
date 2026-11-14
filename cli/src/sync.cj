@@ -74,8 +74,7 @@ func checkDesktopDrift(m: Manifest, fwRoot: String): Bool {
     var failed = false
     if (!exists(tomlPath)) {
         eprintln("[cj-tauri] 提示：骨架尚未生成（${tomlPath}）——运行 cj-tauri sync desktop")
-    } else if (readText(tomlPath) != expectToml) {
-        eprintln("[cj-tauri] 骨架漂移：${tomlPath} 与生成器输出不一致（运行 cj-tauri sync desktop 重新生成）")
+    } else if (sameGeneratedToml(tomlPath, expectToml, "运行 cj-tauri sync desktop 重新生成")) {
         failed = true
     }
     if (exists(mainPath) && readText(mainPath) != expectMain) {
@@ -85,6 +84,27 @@ func checkDesktopDrift(m: Manifest, fwRoot: String): Bool {
     return failed
 }
 
+/**
+ * 取框架根的**唯一入口**（issue #10）：业务包声明优先，取不到再自动定位。
+ *
+ * 为什么必须只有一个入口：`sync` 用业务包 `cjpm.toml` 里的 cjTauri 声明渲染骨架，
+ * 而 `check` 早先自己调 `resolveFrameworkRoot()` 重新渲染再比字符串——两条来源给出的
+ * 字符串形式不同（例如一个是 `E:/a`、另一个是 `/e/a`），于是**「刚 sync 完就报骨架漂移」**
+ * 稳定复现，用户按提示重跑 sync 也治不好。渲染/比对骨架的地方一律走这里。
+ *
+ * verbose：sync 打「框架路径取自业务包声明」这一行（用户要知道用的是哪份），check 不必。
+ */
+func resolveSkeletonFrameworkRoot(verbose: Bool): Option<String> {
+    match (readBizFrameworkPath()) {
+        case Some(p) =>
+            if (verbose) {
+                eprintln("[cj-tauri] 框架路径取自业务包声明：${p}")
+            }
+            return Some(p)
+        case None => return resolveFrameworkRoot()
+    }
+}
+
 func cmdCheck(): Int64 {
     let mOpt = loadValidatedManifest()
     if (let None <- mOpt) {
@@ -92,7 +112,8 @@ func cmdCheck(): Int64 {
     }
     let m = mOpt.getOrThrow()
     var failed = checkManifestOnDisk(m)
-    match (resolveFrameworkRoot()) {
+    // 与 sync 同一个取根入口：否则「刚 sync 完」也会判漂移（issue #10）
+    match (resolveSkeletonFrameworkRoot(false)) {
         case Some(fw) =>
             let drift = checkDesktopDrift(m, fw)
             failed = drift || failed
@@ -347,23 +368,18 @@ func cmdSync(args: Array<String>): Int64 {
         case Some(f) => fwRoot = f
         case None =>
             // 业务包 cjpm.toml 里若已声明 cjTauri 路径（create 写入、用户可能手改），launcher
-            // 必须用**同一份**——否则两个依赖指向两个框架副本，cjpm 报模块冲突（issue #6-①）
-            match (readBizFrameworkPath()) {
-                case Some(p) =>
-                    fwRoot = p
-                    eprintln("[cj-tauri] 框架路径取自业务包声明：${p}")
+            // 必须用**同一份**——否则两个依赖指向两个框架副本，cjpm 报模块冲突（issue #6-①）。
+            // 入口与 check 共用（issue #10）：两处各写一套时，渲染出的字符串形式不同就永远判漂移。
+            match (resolveSkeletonFrameworkRoot(true)) {
+                case Some(f) => fwRoot = f
                 case None =>
-                    match (resolveFrameworkRoot()) {
-                        case Some(f) => fwRoot = f
-                        case None =>
-                            // 提示跟着宿主 shell 走：PowerShell 里给 export 命令是误导（报「无法将 export 项识别为 cmdlet」）
-                            if (hostIsWindows()) {
-                                eprintln("[cj-tauri] 未定位到框架根：请 `$env:CJ_TAURI_ROOT = \"<框架仓库根>\"`（或 setx 持久化），或 --framework <路径>")
-                            } else {
-                                eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
-                            }
-                            return 1
+                    // 提示跟着宿主 shell 走：PowerShell 里给 export 命令是误导（报「无法将 export 项识别为 cmdlet」）
+                    if (hostIsWindows()) {
+                        eprintln("[cj-tauri] 未定位到框架根：请 `$env:CJ_TAURI_ROOT = \"<框架仓库根>\"`（或 setx 持久化），或 --framework <路径>")
+                    } else {
+                        eprintln("[cj-tauri] 未定位到框架根：请 export CJ_TAURI_ROOT=<框架仓库根>，或 --framework <路径>")
                     }
+                    return 1
             }
     }
     var code = 0
@@ -510,8 +526,22 @@ func pathFromCjTauriLine(line: ArrayList<Byte>): Option<String> {
                     return None                  // 空引号对：当没解析到
                 }
                 var out = ArrayList<Byte>()
-                for (k in first + 1..i) {
-                    out.add(line.get(k).getOrThrow())
+                var k = first + 1
+                while (k < i) {
+                    let c = line.get(k).getOrThrow()
+                    // TOML 基本串的转义要还原：`E:\\test\\a` 必须读成 `E:\test\a`。
+                    // 不还原时 `toTomlPath` 只会把 `\` 换成 `/`，于是渲染出 `E://test//a`
+                    // ——骨架里出现重复分隔符，check 重算时必然判漂移（issue #10）。
+                    if (c == 92 && k + 1 < i) {
+                        let nx = line.get(k + 1).getOrThrow()
+                        if (nx == 92 || nx == 34) {      // 只认 `\\` 与 `\"`，其余 `\x` 原样留着
+                            out.add(nx)
+                            k += 2
+                            continue
+                        }
+                    }
+                    out.add(c)
+                    k += 1
                 }
                 let s = String.fromUtf8(out.toArray())
                 if (s.size > 0) {
@@ -696,7 +726,7 @@ func checkOhosDrift(m: Manifest, fwRoot: String): Bool {
     let capsFiles = listCapsFiles(m.capabilitiesDir)
     var failed = false
     failed = sameGeneratedFile("targets/ohos/AppScope/app.json5", m.renderOhosAppJson(ver), failed)
-    failed = sameGeneratedFile("targets/ohos/entry/cjpm.toml", m.renderOhosEntryToml(fwRoot, ver), failed)
+    failed = sameGeneratedToml("targets/ohos/entry/cjpm.toml", m.renderOhosEntryToml(fwRoot, ver), "重跑 cj-tauri sync ohos") || failed
     failed = sameGeneratedFile("targets/ohos/entry/src/main/cangjie/app_host.cj", m.renderOhosAppHost(ver, capsFiles), failed)
     failed = sameGeneratedFile("targets/ohos/entry/src/main/cangjie/main_ability.cj", m.renderOhosMainAbility(ver), failed)
     // rawfile 资产：page 必须与资产根字节一致；能力文件名单必须与清单目录一致
@@ -732,6 +762,26 @@ func checkOhosDrift(m: Manifest, fwRoot: String): Bool {
 }
 
 /** 生成物比对：缺失 = 漂移，内容不一致 = 漂移 */
+/**
+ * 生成物比对（**TOML 专用**）：两侧都过一遍 `toTomlPath` 再比。
+ *
+ * 只归一化路径分隔符，不放宽内容比对。为什么两侧都要过：旧版 `sync` 会把业务包里的
+ * `E:\\test\\…` 原样渲染成 `E://test//…` 写进用户的 targets/（issue #10）；只归一化期望值
+ * 的话，这些老工程仍被判漂移，用户按提示重跑 sync 也会觉得「明明照做了还是红的」。
+ * `.cj` 生成物不走这个函数——它们的注释里有 `//`，不该参与路径归一化。
+ */
+func sameGeneratedToml(path: String, expect: String, hint: String): Bool {
+    if (!exists(path)) {
+        eprintln("[cj-tauri] 骨架漂移：缺生成文件 ${path}（${hint}）")
+        return true
+    }
+    if (toTomlPath(readText(path)) != toTomlPath(expect)) {
+        eprintln("[cj-tauri] 骨架漂移：${path} 与生成器输出不一致（${hint}）")
+        return true
+    }
+    return false
+}
+
 func sameGeneratedFile(path: String, expect: String, failed: Bool): Bool {
     if (!exists(path)) {
         eprintln("[cj-tauri] 骨架漂移：缺生成文件 ${path}（重跑 cj-tauri sync ohos）")

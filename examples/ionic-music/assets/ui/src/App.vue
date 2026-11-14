@@ -9,7 +9,8 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
   IonApp, IonContent, IonHeader, IonToolbar, IonTitle, IonFooter, IonTabBar, IonTabButton,
   IonIcon, IonSearchbar, IonButton, IonButtons, IonRange, IonSpinner, IonNote, IonBadge,
-  IonRefresher, IonRefresherContent, IonBackButton, toastController, alertController
+  IonRefresher, IonRefresherContent, IonBackButton, IonList, IonItem, IonLabel,
+  toastController, alertController
 } from '@ionic/vue';
 import { heart, heartOutline, searchOutline, flameOutline, libraryOutline, settingsOutline,
          playOutline, pauseOutline, playSkipForwardOutline, playSkipBackOutline,
@@ -544,36 +545,34 @@ onMounted(async () => {
 
     </ion-content>
 
-    <!-- 底部播放条 -->
-    <ion-footer v-if="current" class="ion-no-border player-bar">
-      <ion-toolbar>
-        <div class="now">
-          <div class="mini-cover" @click="openNowPlaying">
-            <img :src="coverOf(current.sid, 200) || coverOf(current.sid, 500) || ''" alt="" />
-            <ion-icon v-if="!coverOf(current.sid, 200) && !coverOf(current.sid, 500)"
-                      :icon="musicalNotesOutline" />
-          </div>
-          <div class="meta" @click="openNowPlaying">
-            <div class="name">{{ current.song }}</div>
-            <div class="artist">{{ current.sing }}</div>
-          </div>
-          <ion-button fill="clear" size="small" @click="prevSong">
-            <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
-          </ion-button>
-          <ion-button fill="clear" class="pp" @click="toggle">
-            <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
-          </ion-button>
-          <ion-button fill="clear" size="small" @click="nextSong">
-            <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
-          </ion-button>
+    <!-- 底部 dock：迷你播放条（在播时）+ tab 栏同住一只 ion-footer——
+         两行的上下顺序由这里的 DOM 决定。此前两者分开渲染，ion-app 内部布局把
+         迷你条排到了 tab 栏下面（实机截图取证），跟组件默认定位博弈不可靠。 -->
+    <ion-footer class="ion-no-border bottom-dock">
+      <div v-if="current" class="now">
+        <div class="mini-cover" @click="openNowPlaying">
+          <img :src="coverOf(current.sid, 200) || coverOf(current.sid, 500) || ''" alt="" />
+          <ion-icon v-if="!coverOf(current.sid, 200) && !coverOf(current.sid, 500)"
+                    :icon="musicalNotesOutline" />
         </div>
-        <ion-range class="seek" :value="progress" :min="0" :max="1" :step="0.01"
-                   @ionInput="seek($event.detail.value)" />
-        <div class="times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
-      </ion-toolbar>
-    </ion-footer>
-
-    <ion-tab-bar class="ion-no-border">
+        <div class="meta" @click="openNowPlaying">
+          <div class="name">{{ current.song }}</div>
+          <div class="artist">{{ current.sing }}</div>
+        </div>
+        <ion-button fill="clear" size="small" @click="prevSong">
+          <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
+        </ion-button>
+        <ion-button fill="clear" class="pp" @click="toggle">
+          <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
+        </ion-button>
+        <ion-button fill="clear" size="small" @click="nextSong">
+          <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
+        </ion-button>
+      </div>
+      <ion-range v-if="current" class="seek" :value="progress" :min="0" :max="1" :step="0.01"
+                 @ionInput="seek($event.detail.value)" />
+      <div v-if="current" class="times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
+      <ion-tab-bar class="ion-no-border">
       <ion-tab-button tab="home" :selected="tab === 'home'" @click="detail = null; tab = 'home'">
         <ion-icon :icon="flameOutline" /><ion-label>首页</ion-label>
       </ion-tab-button>
@@ -588,7 +587,8 @@ onMounted(async () => {
       <ion-tab-button tab="settings" :selected="tab === 'settings'" @click="detail = null; tab = 'settings'">
         <ion-icon :icon="settingsOutline" /><ion-label>设置</ion-label>
       </ion-tab-button>
-    </ion-tab-bar>
+      </ion-tab-bar>
+    </ion-footer>
     </template>
   </ion-app>
 </template>
@@ -669,8 +669,9 @@ onMounted(async () => {
 .err-note .sub { color: var(--ion-color-medium); font-size: 12px; }
 .empty-note { padding: 48px 24px; text-align: center; color: var(--ion-color-medium); font-size: 14px; }
 
-/* 播放条 */
-.player-bar ion-toolbar { --padding-start: 10px; --padding-end: 10px; --min-height: 92px; }
+/* 播放条（与 tab 栏同住一只 ion-footer，见模板 bottom-dock 注释） */
+.bottom-dock .now { padding: 10px 10px 0; }
+.bottom-dock .times { padding: 0 14px 4px; }
 .now { display: flex; align-items: center; gap: 10px; }
 .now .mini-cover { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; flex: 0 0 auto;
                    background: rgba(128, 128, 160, 0.15); display: flex; align-items: center;
@@ -718,7 +719,12 @@ onMounted(async () => {
 .nowpage-lyric p.on { color: #fff; font-weight: 700; font-size: 16px; }
 .nowpage-lyric p.off { color: var(--ion-color-medium); }
 
-/* 设置页 */
-.settings-note { padding: 14px 16px 4px; font-size: 13px; color: var(--ion-color-medium);
+/* 设置页：ion-item 的 h2/p 是 slot 进 shadow 的 light DOM（scoped 可命中）；
+   Ionic 默认 16/14px 在 400 宽的窄窗里偏大，收紧到 14/12px，行高一并压扁 */
+ion-list.settings-list { margin-top: 6px; }
+ion-list.settings-list ion-item { --min-height: 42px; --padding-start: 14px; }
+ion-list.settings-list ion-label h2 { font-size: 14px; font-weight: 600; }
+ion-list.settings-list ion-label p { font-size: 12px; color: var(--ion-color-medium); margin-top: 2px; }
+.settings-note { padding: 14px 16px 4px; font-size: 12px; color: var(--ion-color-medium);
                  letter-spacing: 1px; }
 </style>

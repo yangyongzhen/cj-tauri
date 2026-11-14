@@ -1,6 +1,8 @@
 <script setup>
 /* Ionic Vue 音乐播放器（移动端形态）
- * 首页 = 轮播图（歌单封面）+ 歌单横滑 + 热歌榜；歌单详情页；播放条 + 同步歌词页。
+ * 首页 = 轮播图（歌单封面）+ 歌单横滑 + 热歌榜；歌单详情页；播放条 +
+ * 「正在播放」独立页（页面级切换，带同步歌词——播放页里不渲染 tab 栏，
+ * 不做 fixed 浮层：浮层与 tab 栏的 z-index 叠放在 WebKitGTK 上会翻车，见模板内注释）。
  * 后端命令与 music-next 共用：music:hot / music:menus / music:search / music:lyric /
  * music:image / fav:get / fav:set / music:quit；前端只经 window.__CJ_TAURI__ 说话。 */
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
@@ -159,7 +161,7 @@ async function play(song, list) {
   player.value.play().then(() => { playing.value = true; }).catch(() => { playing.value = false; });
   loadLyric(song.sid);
   loadCover(song, 500);
-  lyricOpen.value = true;   // 点歌直接进「正在播放」页（带控件），而不是只弹底部迷你条
+  nowPlayingOpen.value = true;   // 点歌直接进「正在播放」页（带控件），而不是只弹底部迷你条
 }
 
 const playContext = ref([]);     // 「正在播的那份列表」：上一首/下一首在它里面找
@@ -182,7 +184,7 @@ function seek(ratio) {
 
 /* ---------------- 歌词 ---------------- */
 const lyricLines = ref([]);
-const lyricOpen = ref(false);
+const nowPlayingOpen = ref(false);
 const lyricBox = ref(null);
 async function loadLyric(sid) {
   lyricLines.value = [];
@@ -200,14 +202,14 @@ const activeLyric = computed(() => {
 });
 /* 歌词自动滚动：活跃行始终滚到容器中间 */
 watch(activeLyric, async (i) => {
-  if (i < 0 || !lyricOpen.value) return;
+  if (i < 0 || !nowPlayingOpen.value) return;
   await nextTick();
   const box = lyricBox.value;
   const line = box && box.children[i];
   if (box && line) box.scrollTo({ top: line.offsetTop - box.clientHeight / 2, behavior: 'smooth' });
 });
-function openLyric() {
-  lyricOpen.value = true;
+function openNowPlaying() {
+  nowPlayingOpen.value = true;
   if (current.value) loadLyric(current.value.sid);
 }
 onBeforeUnmount(() => { if (player.value) player.value.pause(); });
@@ -298,6 +300,63 @@ onMounted(async () => {
 
 <template>
   <ion-app>
+    <!-- ================= 正在播放页（独立页面：页面级切换） =================
+         为什么不做浮层：早期版本把播放区 Teleport 到 body 用 position: fixed 盖全屏，
+         与底部 tab 栏的叠放靠 z-index 硬碰，WebKitGTK 实机出现过 tab 栏压到播放区上
+         （播放内容被挤到最下方）。页面级切换没有叠放一说——这一页里根本没有 tab 栏。 -->
+    <template v-if="nowPlayingOpen && current">
+      <ion-header class="ion-no-border">
+        <ion-toolbar>
+          <ion-buttons slot="start">
+            <ion-button @click="nowPlayingOpen = false">
+              <ion-icon slot="icon-only" :icon="arrowBackOutline" />
+            </ion-button>
+          </ion-buttons>
+          <ion-title class="now-title">正在播放</ion-title>
+        </ion-toolbar>
+      </ion-header>
+      <ion-content class="now-content" :fullscreen="true">
+        <div class="nowpage">
+          <div class="nowpage-cover" v-if="current">
+            <img :src="coverOf(current.sid, 500) || coverOf(current.sid, 200) || ''" alt="" />
+            <ion-icon v-if="!coverOf(current.sid, 500) && !coverOf(current.sid, 200)"
+                      :icon="musicalNotesOutline" />
+          </div>
+
+          <div class="nowpage-song" v-if="current">
+            <div class="nowpage-name">{{ current.song }}</div>
+            <div class="nowpage-artist">{{ current.sing }}</div>
+          </div>
+
+          <ion-range class="nowpage-seek" :value="progress" :min="0" :max="1" :step="0.01"
+                     @ionInput="seek($event.detail.value)" />
+          <div class="nowpage-times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
+
+          <div class="nowpage-controls">
+            <ion-button fill="clear" @click="prevSong">
+              <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
+            </ion-button>
+            <ion-button fill="clear" class="nowpage-pp" @click="toggle">
+              <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
+            </ion-button>
+            <ion-button fill="clear" @click="nextSong">
+              <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
+            </ion-button>
+          </div>
+
+          <div class="nowpage-lyric-tag" v-if="lyricLines.length">歌词</div>
+          <div class="nowpage-lyric" ref="lyricBox">
+            <template v-if="lyricLines.length">
+              <p v-for="(l, i) in lyricLines" :key="i" :class="{ on: i === activeLyric }">{{ l.text }}</p>
+            </template>
+            <p v-else class="off">暂无歌词</p>
+          </div>
+        </div>
+      </ion-content>
+    </template>
+
+    <!-- ================= 列表页（首页 / 搜索 / 收藏 / 设置 + 歌单详情） ================= -->
+    <template v-else>
     <ion-header class="ion-no-border">
       <ion-toolbar>
         <ion-buttons slot="start" v-if="detail">
@@ -483,67 +542,18 @@ onMounted(async () => {
         </ion-list>
       </div>
 
-      <!-- ================= 正在播放页（Teleport 到 body 做真全屏，绕开 ion-content 的 transform 包含块） ================= -->
-      <Teleport to="body">
-      <transition name="lyric">
-        <div v-if="lyricOpen" class="nowpage">
-          <div class="nowpage-top">
-            <ion-button fill="clear" @click="lyricOpen = false">
-              <ion-icon slot="icon-only" :icon="arrowBackOutline" />
-            </ion-button>
-            <span class="nowpage-tag">正在播放</span>
-            <span class="nowpage-spacer" />
-          </div>
-
-          <div class="nowpage-cover" v-if="current">
-            <img :src="coverOf(current.sid, 500) || coverOf(current.sid, 200) || ''" alt="" />
-            <ion-icon v-if="!coverOf(current.sid, 500) && !coverOf(current.sid, 200)"
-                      :icon="musicalNotesOutline" />
-          </div>
-
-          <div class="nowpage-song" v-if="current">
-            <div class="nowpage-name">{{ current.song }}</div>
-            <div class="nowpage-artist">{{ current.sing }}</div>
-          </div>
-
-          <ion-range class="nowpage-seek" :value="progress" :min="0" :max="1" :step="0.01"
-                     @ionInput="seek($event.detail.value)" />
-          <div class="nowpage-times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
-
-          <div class="nowpage-controls">
-            <ion-button fill="clear" @click="prevSong">
-              <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
-            </ion-button>
-            <ion-button fill="clear" class="nowpage-pp" @click="toggle">
-              <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
-            </ion-button>
-            <ion-button fill="clear" @click="nextSong">
-              <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
-            </ion-button>
-          </div>
-
-          <div class="nowpage-lyric-tag" v-if="lyricLines.length">歌词</div>
-          <div class="nowpage-lyric" ref="lyricBox">
-            <template v-if="lyricLines.length">
-              <p v-for="(l, i) in lyricLines" :key="i" :class="{ on: i === activeLyric }">{{ l.text }}</p>
-            </template>
-            <p v-else class="off">暂无歌词</p>
-          </div>
-        </div>
-      </transition>
-      </Teleport>
     </ion-content>
 
     <!-- 底部播放条 -->
     <ion-footer v-if="current" class="ion-no-border player-bar">
       <ion-toolbar>
         <div class="now">
-          <div class="mini-cover" @click="openLyric">
+          <div class="mini-cover" @click="openNowPlaying">
             <img :src="coverOf(current.sid, 200) || coverOf(current.sid, 500) || ''" alt="" />
             <ion-icon v-if="!coverOf(current.sid, 200) && !coverOf(current.sid, 500)"
                       :icon="musicalNotesOutline" />
           </div>
-          <div class="meta" @click="openLyric">
+          <div class="meta" @click="openNowPlaying">
             <div class="name">{{ current.song }}</div>
             <div class="artist">{{ current.sing }}</div>
           </div>
@@ -579,6 +589,7 @@ onMounted(async () => {
         <ion-icon :icon="settingsOutline" /><ion-label>设置</ion-label>
       </ion-tab-button>
     </ion-tab-bar>
+    </template>
   </ion-app>
 </template>
 
@@ -675,14 +686,11 @@ onMounted(async () => {
 .times { display: flex; justify-content: space-between; font-size: 10px;
          color: var(--ion-color-medium); margin-top: -10px; padding: 0 14px; }
 
-/* 正在播放页（全屏：封面 + 进度 + 控件 + 同步歌词） */
-.nowpage { position: fixed; inset: 0; z-index: 99;
-           background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%);
-           display: flex; flex-direction: column; padding: 6px 24px 26px; }
-.nowpage-top { display: flex; align-items: center; gap: 4px; }
-.nowpage-top ion-button { margin: -8px -8px -8px 0; }
-.nowpage-tag { color: var(--ion-color-medium); font-size: 13px; letter-spacing: 3px; }
-.nowpage-spacer { flex: 1; }
+/* 正在播放独立页：in-flow 全屏（ion-content 的滚动区就是视口），不再是 fixed 浮层 */
+.now-content { --background: #10101c; }
+.nowpage { height: 100%; display: flex; flex-direction: column; padding: 4px 24px 26px;
+           background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%); }
+.now-title { font-weight: 700; letter-spacing: 4px; color: var(--ion-color-medium); }
 .nowpage-cover { width: 210px; height: 210px; border-radius: 16px; overflow: hidden; align-self: center;
                  margin: 16px 0 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
                  display: flex; align-items: center; justify-content: center;
@@ -709,8 +717,6 @@ onMounted(async () => {
 .nowpage-lyric p { color: var(--ion-color-medium); margin: 12px 0; transition: all .25s; font-size: 14px; }
 .nowpage-lyric p.on { color: #fff; font-weight: 700; font-size: 16px; }
 .nowpage-lyric p.off { color: var(--ion-color-medium); }
-.lyric-enter-active, .lyric-leave-active { transition: opacity .22s, transform .22s; }
-.lyric-enter-from, .lyric-leave-to { opacity: 0; transform: translateY(24px); }
 
 /* 设置页 */
 .settings-note { padding: 14px 16px 4px; font-size: 13px; color: var(--ion-color-medium);

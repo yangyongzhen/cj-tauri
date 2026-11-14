@@ -92,6 +92,14 @@
   歌词区被挤没）；原「点封面展开歌词」保留为迷你播放条的入口。
 
 ### Fixed
+- **`examples/ionic-music`「正在播放」页由 fixed 浮层改为独立页（页面级切换）**：
+  浮层（`Teleport to body` + `position: fixed`）与底部 tab 栏的 z-index 叠放在
+  WebKitGTK 实机上次序翻转——tab 栏挤到播放区上面、播放内容被压到屏幕最下方。
+  改 `v-if/v-else` 页面级切换：播放页打开时列表页的 header / 内容 / tab 栏整段
+  不渲染，叠放风险从结构上消除；播放页改用真 ion-header（返回键 + 「正在播放」
+  标题）、in-flow 排布；列表页底部迷你播放条保留（点封面 / 标题重新进播放页）。
+  Xvfb 实机截图验证列表页与播放页均渲染正确；**随包 exe 已用修复后的页面重打**
+  （`dist-single/ionic-music.exe`）。
 - **`examples/ionic-music` 设置页显示**：补上 `personCircleOutline` 图标导入（此前
   `<script setup>` 下是未定义绑定、`<ion-icon>` 渲染空白）；工具栏标题与图标改为随页签切换
   （设置页不再顶着「仓颉爱音乐」+ 音符 logo，改显示「设置」+ 齿轮）；`detail="false"` 改为

@@ -6,6 +6,7 @@
  */
 package cli
 
+import std.collection.*
 import std.fs.*
 
 // ===== 字节级字符判定 =====
@@ -163,6 +164,30 @@ func escapeTomlString(p: String): String {
  * 为什么：Windows 的 `E:\a\b` 在 TOML 基本字符串里是转义序列，`\a` / `\t` 会让 cjpm 解析期直接
  * `errLexEscape` 失败（AGENTS §4「生成 toml 的脚本用正斜杠」）；正斜杠 cjpm 与 gcc/ld 都认。
  */
+/**
+ * 路径 → TOML 里的写法：反斜杠转正斜杠，并**合并重复分隔符**。
+ *
+ * 合并是为了兼容旧骨架：`readBizFrameworkPath` 曾把 TOML 里的 `\\` 原样带下去，
+ * 渲染成 `E://test//a` 并写进了用户的 targets/（issue #10）。现在两侧都过这个函数，
+ * 老骨架不会因为「多一个斜杠」被判漂移；开头的 `//` 是 UNC，必须保留。
+ */
 func toTomlPath(p: String): String {
-    return p.replace("\\", "/")
+    let s = p.replace("\\", "/")
+    let b = s.toArray()
+    let out = ArrayList<Byte>()
+    var i = 0
+    while (i < b.size && b[i] == 47 && i < 2) {   // 保留开头最多两个分隔符（UNC）
+        out.add(b[i])
+        i += 1
+    }
+    while (i < b.size) {
+        out.add(b[i])
+        if (b[i] == 47) {
+            while (i + 1 < b.size && b[i + 1] == 47) {
+                i += 1
+            }
+        }
+        i += 1
+    }
+    return String.fromUtf8(out.toArray())
 }

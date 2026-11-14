@@ -9,6 +9,27 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.3.5] - 2026-11-14
+
+### Fixed
+- **`check` 的三方比对把子进程 stderr 丢弃了，失败只剩一个十进制码**（issue #11 的一条，PR #27 核实后修正）：
+  `cli/src/sync.cj` 里无头导出的调用是 `let (code, raw, _) = executeWithOutput(...)`，第三位
+  正是子进程的 stderr —— 加载不到 `libcjtbridge.dll` / stdx 动态库时退出码是 `3221225781`
+  （=`0xC0000135` `STATUS_DLL_NOT_FOUND`），而「缺哪个库」只写在 stderr 里，于是诊断退化成
+  「失败但没原因」。现在接住 stderr 拼进报错；子进程真的没输出时给一句明确的下一步
+  （查 `libcjtbridge.dll` 与 stdx 的 `dynamic/stdx` 是否在 `PATH` / `LD_LIBRARY_PATH`）。
+
+### Docs
+- 合并 PR #27 的四条实测坑（张不才提交），并按本机实测修正其中一条的表述：
+  - **升级重签会清应用数据**（`--newKeys` 换了证书 → 系统按不同来源处理），排查存档丢失先确认
+    是否重新生成过密钥；
+  - **业务存档不落盘的两条原因**：`PageSource` 字符串装载的 `localStorage` 不持久；鸿蒙进程里
+    `LOCALAPPDATA` / `HOME` 都不存在，按它们推导数据目录会得到空路径；
+  - **`NavigateToString` 约 2 MB 上限**：内联二进制资源撞线后 `hr=0x80070057`（`E_INVALIDARG`），
+    而同一份页面在 ArkWeb 上正常 —— 两端上限不一致，只在桌面复现，极易误判成页面语法错；
+  - **`check` 只回 `code=3221225781` 的成因更正**：`check` 自身诊断走 stderr、`$(check 2>&1)`
+    是**能**抓到的（本机实测 571 字节）；丢线索的是三方比对那个子进程（见上面的 Fixed）。
+
 ## [2.3.4] - 2026-11-14
 
 ### Fixed

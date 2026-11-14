@@ -31,6 +31,21 @@ const searchLabel = ref('');
 const netError = ref('');
 const appVersion = ref('…');
 const detail = ref(null);        // 歌单详情：{title, cover, note, user, songs}
+/* 迷你播放条的收起状态：滚动列表时自动让位，停手 700ms 再滑回来（主流音乐 App 的做法）。
+   常驻本身是有意的（快速回到播放的入口），但永远霸着屏幕会碍眼——收起是给浏览让路，
+   不是取消功能：暂停/播放、切歌、点进播放页都还在。 */
+const dockTucked = ref(false);
+let dockIdleTimer = null;
+let dockLastTop = 0;
+function onDockScroll(ev) {
+  const top = ev && ev.detail ? ev.detail.scrollTop : 0;
+  if (Math.abs(top - dockLastTop) > 6) {
+    dockTucked.value = true;
+    dockLastTop = top;
+  }
+  if (dockIdleTimer) clearTimeout(dockIdleTimer);
+  dockIdleTimer = setTimeout(() => { dockTucked.value = false; }, 700);
+}
 const covers = ref({});          // key -> dataURL（封面全走宿主 music:image，防盗链）
 
 /* 工具栏标题与图标随当前页签/歌单详情切换——设置页此前一直顶着「仓颉爱音乐」+ 音符 logo */
@@ -182,6 +197,13 @@ function toggle() {
 function seek(ratio) {
   if (player.value && duration.value > 0) player.value.currentTime = ratio * duration.value;
 }
+/*
+ * 进度条 seek 只在「用户提交」（ionChange = 松手）时执行，绝不挂 ionInput：
+ * ion-range 被程序化更新（timeupdate → progress 回写）时**也会发 ionInput**——挂上去就是
+ * 「每 200ms 把播放器 seek 一次」的自反馈循环：音频管线被反复重定位，缓冲 131 秒照样断续
+ * （2026-11-14 桌面端插桩实锤：seeking/waiting 每 200ms 循环 154 次，ohos 侧表现为系统级
+ * audio underrun）。examples/music 正常正是因为它有 scrubbing 守卫、只有用户拖动才 seek。
+ */
 
 /* ---------------- 歌词 ---------------- */
 const lyricLines = ref([]);
@@ -229,6 +251,13 @@ async function loadCover(song, size, rawUrl) {
 function coverOf(sid, size, fallbackKey) {
   return covers.value[`${sid}@${size}`] || (fallbackKey ? covers.value[fallbackKey] : null);
 }
+/* 播放页铺底：用当前封面做背景（没有封面就退回纯色渐变） */
+const nowBgStyle = computed(() => {
+  const c = current.value;
+  if (!c) return {};
+  const url = covers.value[`${c.sid}@500`] || covers.value[`${c.sid}@200`];
+  return url ? { backgroundImage: `url(${url})` } : {};
+});
 function preloadCovers(list, size, n) {
   list.slice(0, n).forEach(s => loadCover(s, size));
 }
@@ -318,7 +347,10 @@ onMounted(async () => {
       </ion-header>
       <ion-content class="now-content" :fullscreen="true">
         <div class="nowpage">
-          <div class="nowpage-cover" v-if="current">
+          <!-- 封面模糊铺底：把当前封面放大模糊压到背景，深色渐变遮罩保证文字可读 -->
+          <div class="now-bg" :style="nowBgStyle" />
+          <div class="now-veil" />
+          <div class="nowpage-cover" v-if="current" :class="{ spin: playing }">
             <img :src="coverOf(current.sid, 500) || coverOf(current.sid, 200) || ''" alt="" />
             <ion-icon v-if="!coverOf(current.sid, 500) && !coverOf(current.sid, 200)"
                       :icon="musicalNotesOutline" />
@@ -329,8 +361,10 @@ onMounted(async () => {
             <div class="nowpage-artist">{{ current.sing }}</div>
           </div>
 
-          <ion-range class="nowpage-seek" :value="progress" :min="0" :max="1" :step="0.01"
-                     @ionInput="seek($event.detail.value)" />
+          <div class="nowpage-seekwrap">
+            <ion-range class="nowpage-seek" :value="progress" :min="0" :max="1" :step="0.01"
+                       @ionChange="seek($event.detail.value)" />
+          </div>
           <div class="nowpage-times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
 
           <div class="nowpage-controls">
@@ -378,7 +412,7 @@ onMounted(async () => {
       </ion-toolbar>
     </ion-header>
 
-    <ion-content :fullscreen="true">
+    <ion-content :fullscreen="true" @ionScroll="onDockScroll">
       <ion-refresher slot="fixed" @ionRefresh="detail ? $event.target.complete() : loadHome($event)">
         <ion-refresher-content />
       </ion-refresher>
@@ -417,7 +451,7 @@ onMounted(async () => {
         <!-- 轮播图：歌单封面横滑（scroll-snap + 自动翻页），点进歌单详情 -->
         <div v-if="menus.length" class="carousel" ref="carousel" @scroll.passive="onCarouselScroll">
           <div v-for="(m, i) in menus" :key="i" class="car-card" @click="openDetail(m)">
-            <img :src="covers[`menu${i}@500`] || ''" alt="" />
+            <img :src="coverOf(`menu${i}`, 500, `menu${i}@200`) || ''" alt="" />
             <div class="car-cap">
               <div class="t">{{ m.title }}</div>
               <div class="u" v-if="m.user">{{ m.user }} · {{ m.songs.length }} 首</div>
@@ -549,29 +583,31 @@ onMounted(async () => {
          两行的上下顺序由这里的 DOM 决定。此前两者分开渲染，ion-app 内部布局把
          迷你条排到了 tab 栏下面（实机截图取证），跟组件默认定位博弈不可靠。 -->
     <ion-footer class="ion-no-border bottom-dock">
-      <div v-if="current" class="now">
-        <div class="mini-cover" @click="openNowPlaying">
-          <img :src="coverOf(current.sid, 200) || coverOf(current.sid, 500) || ''" alt="" />
-          <ion-icon v-if="!coverOf(current.sid, 200) && !coverOf(current.sid, 500)"
-                    :icon="musicalNotesOutline" />
+      <div v-if="current" class="mini-wrap" :class="{ paused: !playing, tucked: dockTucked }">
+        <div class="now">
+          <div class="mini-cover" @click="openNowPlaying">
+            <img :src="coverOf(current.sid, 200) || coverOf(current.sid, 500) || ''" alt="" />
+            <ion-icon v-if="!coverOf(current.sid, 200) && !coverOf(current.sid, 500)"
+                      :icon="musicalNotesOutline" />
+          </div>
+          <div class="meta" @click="openNowPlaying">
+            <div class="name">{{ current.song }}</div>
+            <div class="artist">{{ current.sing }}</div>
+          </div>
+          <ion-button fill="clear" size="small" @click="prevSong">
+            <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
+          </ion-button>
+          <ion-button fill="clear" class="pp" @click="toggle">
+            <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
+          </ion-button>
+          <ion-button fill="clear" size="small" @click="nextSong">
+            <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
+          </ion-button>
         </div>
-        <div class="meta" @click="openNowPlaying">
-          <div class="name">{{ current.song }}</div>
-          <div class="artist">{{ current.sing }}</div>
-        </div>
-        <ion-button fill="clear" size="small" @click="prevSong">
-          <ion-icon slot="icon-only" :icon="playSkipBackOutline" />
-        </ion-button>
-        <ion-button fill="clear" class="pp" @click="toggle">
-          <ion-icon slot="icon-only" :icon="playing ? pauseOutline : playOutline" />
-        </ion-button>
-        <ion-button fill="clear" size="small" @click="nextSong">
-          <ion-icon slot="icon-only" :icon="playSkipForwardOutline" />
-        </ion-button>
+        <ion-range class="seek" :value="progress" :min="0" :max="1" :step="0.01"
+                   @ionChange="seek($event.detail.value)" />
+        <div class="times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
       </div>
-      <ion-range v-if="current" class="seek" :value="progress" :min="0" :max="1" :step="0.01"
-                 @ionInput="seek($event.detail.value)" />
-      <div v-if="current" class="times"><span>{{ posText }}</span><span>{{ durText }}</span></div>
       <ion-tab-bar class="ion-no-border">
       <ion-tab-button tab="home" :selected="tab === 'home'" @click="detail = null; tab = 'home'">
         <ion-icon :icon="flameOutline" /><ion-label>首页</ion-label>
@@ -670,53 +706,87 @@ onMounted(async () => {
 .empty-note { padding: 48px 24px; text-align: center; color: var(--ion-color-medium); font-size: 14px; }
 
 /* 播放条（与 tab 栏同住一只 ion-footer，见模板 bottom-dock 注释） */
-.bottom-dock .now { padding: 10px 10px 0; }
-.bottom-dock .times { padding: 0 14px 4px; }
-.now { display: flex; align-items: center; gap: 10px; }
-.now .mini-cover { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; flex: 0 0 auto;
+.mini-wrap { transition: transform .26s ease, opacity .26s ease; will-change: transform; }
+/* 滚动列表时让位：滑到 tab 栏上方之外（只收迷你条，tab 栏原地不动） */
+.mini-wrap.tucked { transform: translateY(-110%); opacity: 0; pointer-events: none; }
+/* 暂停态弱化：不再抢视线，但点一下就能恢复播放 */
+.mini-wrap.paused { opacity: .66; }
+.bottom-dock .now { padding: 8px 10px 0; }
+.bottom-dock .times { padding: 0 14px 2px; }
+.now { display: flex; align-items: center; gap: 8px; }
+.now .mini-cover { width: 40px; height: 40px; border-radius: 8px; overflow: hidden; flex: 0 0 auto;
                    background: rgba(128, 128, 160, 0.15); display: flex; align-items: center;
                    justify-content: center; color: var(--ion-color-medium); cursor: pointer; }
 .now .mini-cover img { width: 100%; height: 100%; object-fit: cover; }
 .now .meta { flex: 1; min-width: 0; cursor: pointer; }
-.now .name { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+.now .name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
              white-space: nowrap; }
 .now .artist { font-size: 11px; color: var(--ion-color-medium); overflow: hidden;
                text-overflow: ellipsis; white-space: nowrap; }
-.pp ion-icon { font-size: 32px; }
-.seek { --bar-height: 3px; margin: 0; height: 22px; }
+.now ion-button { --padding-start: 4px; --padding-end: 4px; height: 34px; }
+.pp ion-icon { font-size: 28px; }
+.seek { --bar-height: 2px; margin: 0; height: 18px; }
 .times { display: flex; justify-content: space-between; font-size: 10px;
-         color: var(--ion-color-medium); margin-top: -10px; padding: 0 14px; }
+         color: var(--ion-color-medium); margin-top: -8px; padding: 0 14px; }
 
 /* 正在播放独立页：in-flow 全屏（ion-content 的滚动区就是视口），不再是 fixed 浮层 */
 .now-content { --background: #10101c; }
-.nowpage { height: 100%; display: flex; flex-direction: column; padding: 4px 24px 26px;
-           background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%); }
+.nowpage { height: 100%; display: flex; flex-direction: column; padding: 2px 24px 18px;
+           justify-content: flex-start;
+           background: linear-gradient(180deg, #10101c 0%, #17172a 60%, #10101c 100%);
+           position: relative; overflow: hidden; }
+/* 铺底与遮罩：绝对定位在最底层，内容靠 z-index 压在上面 */
+.nowpage > * { position: relative; z-index: 1; }
+.now-bg { position: absolute; inset: -12%; z-index: 0; background-size: cover;
+          background-position: center; filter: blur(46px) saturate(1.35) brightness(0.6);
+          transform: scale(1.12); }
+.now-veil { position: absolute; inset: 0; z-index: 0;
+            background: linear-gradient(180deg, rgba(16,16,28,.42) 0%, rgba(16,16,28,.86) 62%, #10101c 100%); }
 .now-title { font-weight: 700; letter-spacing: 4px; color: var(--ion-color-medium); }
-.nowpage-cover { width: 210px; height: 210px; border-radius: 16px; overflow: hidden; align-self: center;
-                 margin: 16px 0 6px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+/* 圆形封面：播放在转、暂停停下（唱片质感；music 示例同款） */
+.nowpage-cover { width: min(46vw, 176px); height: min(46vw, 176px); border-radius: 50%;
+                 overflow: hidden; align-self: center; position: relative; margin: 6px 0 2px;
+                 box-shadow: 0 18px 52px rgba(0, 0, 0, 0.65), 0 0 0 6px rgba(255, 255, 255, 0.05),
+                             0 0 0 1px rgba(255, 255, 255, 0.09);
                  display: flex; align-items: center; justify-content: center;
-                 background: rgba(128, 128, 160, 0.1); color: var(--ion-color-medium); font-size: 52px; }
-.nowpage-cover img { width: 100%; height: 100%; object-fit: cover; }
-.nowpage-song { text-align: center; margin: 8px 0 0; }
-.nowpage-name { font-size: 20px; font-weight: 700; }
-.nowpage-artist { font-size: 13px; color: var(--ion-color-medium); margin-top: 5px; }
-.nowpage-seek { --bar-height: 4px; margin: 14px 0 0; }
+                 background: rgba(128, 128, 160, 0.12); color: var(--ion-color-medium); font-size: 56px; }
+.nowpage-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nowpage-cover.spin img { animation: nowspin 26s linear infinite; }
+@keyframes nowspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .nowpage-cover.spin img { animation: none; } }
+.nowpage-song { text-align: center; margin: 6px 0 0; }
+.nowpage-name { font-size: 20px; font-weight: 800; letter-spacing: .5px; }
+.nowpage-artist { font-size: 13px; color: var(--ion-color-medium); margin-top: 6px;
+                  letter-spacing: 1px; }
+/* ion-range 的宿主高度会被内部结构撑到 ~278px（实测量出），必须用固定高度的包裹层夹住，
+   否则它把标题和进度条之间撑出一大块空白（这也是「歌词太靠下」的真正原因） */
+.nowpage-seekwrap { height: 22px; overflow: hidden; display: flex; align-items: center;
+                    margin: 2px 0 0; }
+.nowpage-seek { --bar-height: 3px; --bar-background: rgba(255,255,255,.16);
+                --bar-background-active: var(--ion-color-primary); --knob-size: 14px;
+                width: 100%; height: 22px; margin: 0; }
 .nowpage-times { display: flex; justify-content: space-between; font-size: 11px;
-                 color: var(--ion-color-medium); margin-top: -6px; }
-.nowpage-controls { display: flex; align-items: center; justify-content: center; gap: 38px;
-                    margin-top: 12px; }
+                 color: var(--ion-color-medium); margin-top: -4px; letter-spacing: 1px; }
+.nowpage-controls { display: flex; align-items: center; justify-content: center; gap: 30px;
+                    margin-top: 2px; }
 .nowpage-controls ion-button { --padding-start: 8px; --padding-end: 8px; }
-.nowpage-controls ion-icon { font-size: 34px; color: #fff; }
-.nowpage-pp ion-icon { font-size: 54px; }
+.nowpage-controls ion-icon { font-size: 26px; color: #fff; }
+/* 主按钮：实心圆 + 投影，视觉焦点压在播放/暂停上 */
+.nowpage-pp { --background: var(--ion-color-primary); --background-hover: var(--ion-color-primary);
+              --border-radius: 50%; --box-shadow: 0 10px 26px rgba(0, 0, 0, .45);
+              width: 60px; height: 60px; }
+.nowpage-pp ion-icon { font-size: 30px; color: #10101c; }
 .nowpage-lyric-tag { text-align: center; color: var(--ion-color-medium); font-size: 12px;
-                     letter-spacing: 3px; margin-top: 16px; }
+                     letter-spacing: 3px; margin-top: 8px; }
 .nowpage-lyric { flex: 1; min-height: 0; overflow: auto; width: 100%; text-align: center;
-                 padding: 16px 0 4px; scrollbar-width: none;
+                 padding: 6px 0 4px; scrollbar-width: none;
                  mask-image: linear-gradient(transparent, #000 10%, #000 88%, transparent);
                  -webkit-mask-image: linear-gradient(transparent, #000 10%, #000 88%, transparent); }
 .nowpage-lyric::-webkit-scrollbar { display: none; }
-.nowpage-lyric p { color: var(--ion-color-medium); margin: 12px 0; transition: all .25s; font-size: 14px; }
-.nowpage-lyric p.on { color: #fff; font-weight: 700; font-size: 16px; }
+.nowpage-lyric p { color: rgba(255,255,255,.42); margin: 12px 0; transition: all .25s;
+                   font-size: 14px; }
+.nowpage-lyric p.on { color: #fff; font-weight: 700; font-size: 17px;
+                      text-shadow: 0 0 18px rgba(255,255,255,.25); }
 .nowpage-lyric p.off { color: var(--ion-color-medium); }
 
 /* 设置页：ion-item 的 h2/p 是 slot 进 shadow 的 light DOM（scoped 可命中）；

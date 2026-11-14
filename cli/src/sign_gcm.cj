@@ -27,7 +27,6 @@
 package cli
 
 import std.collection.*
-import std.crypto.digest.*
 import std.fs.*
 import std.time.*
 import stdx.crypto.crypto.SecureRandom

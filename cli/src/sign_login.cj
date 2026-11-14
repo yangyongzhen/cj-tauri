@@ -19,14 +19,10 @@
 package cli
 
 import std.collection.*
-import std.crypto.digest.*
 import std.fs.*
 import std.io.*
 import std.process.*
 import std.sync.*
-import std.time.*
-import stdx.crypto.crypto.SecureRandom
-import stdx.crypto.digest.*
 import stdx.encoding.json.*
 import stdx.net.http.*
 

@@ -92,6 +92,15 @@
   歌词区被挤没）；原「点封面展开歌词」保留为迷你播放条的入口。
 
 ### Fixed
+- **`examples/ionic-music` 设置页 ion-item 裸渲染（「字体大、布局难看」的真正根因）**：
+  `@ionic/vue` 的 import 清单漏了 `IonList / IonItem / IonLabel`——Vue 把未注册组件
+  原样输出成标签，自定义元素未定义、shadow 内部样式全无（诊断探针取证
+  `defined=false | shadow=false`），图标掉左缘、标题/说明全宽纵排、横向溢出。
+  补 import 后布局正常；设置页字号一并收紧（h2 14px / p 12px / 行高 42px）。
+- **`examples/ionic-music` 底部迷你播放条被压到 tab 栏下方**：ion-footer 与
+  ion-tab-bar 分开渲染时，ion-app 内部布局把迷你条排到了 tab 栏下面（Xvfb 实机
+  截图取证）。改为迷你条 + tab 栏同住一只 `ion-footer`（bottom-dock），上下顺序
+  由 DOM 顺序直接保证，不再与组件默认定位博弈。
 - **`examples/ionic-music`「正在播放」页由 fixed 浮层改为独立页（页面级切换）**：
   浮层（`Teleport to body` + `position: fixed`）与底部 tab 栏的 z-index 叠放在
   WebKitGTK 实机上次序翻转——tab 栏挤到播放区上面、播放内容被压到屏幕最下方。

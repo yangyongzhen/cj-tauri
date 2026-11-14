@@ -206,10 +206,18 @@ func checkThreeWay(m: Manifest): Bool {
     setVariable("CJ_TAURI_MANIFEST", "json")
     var outText = ""
     try {
-        let (code, raw, _) = executeWithOutput(binPath, [])
+        let (code, raw, errRaw) = executeWithOutput(binPath, [])
         outText = String.fromUtf8(raw)
         if (code != 0) {
-            eprintln("[cj-tauri] 三方比对：无头导出退出异常（code=${code}）：${outText}")
+            // 子进程的 stderr 以前被丢掉了：缺 libcjtbridge.dll / stdx 动态库时退出码是
+            // 0xC0000135（十进制 3221225781），而真正的「缺哪个库」只写在 stderr 里。
+            // 接住它拼进诊断——否则这条错误看起来就像骨架漂移。
+            let errText = String.fromUtf8(errRaw).trimAscii()
+            var detail = errText
+            if (detail == "") {
+                detail = "（子进程没有 stderr 输出；先查 libcjtbridge.dll 与 stdx 的 dynamic/stdx 是否在 PATH / LD_LIBRARY_PATH）"
+            }
+            eprintln("[cj-tauri] 三方比对：无头导出退出异常（code=${code}）：${detail}")
             return true
         }
     } catch (e: Exception) {

@@ -1,0 +1,49 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    /* 鸿蒙 PC 必须声明 "2in1"：只写 phone/tablet 时系统按手机应用处理，窗口是竖屏兼容窗。
+       构建插件默认把 deviceTypes 限制成 phone/tablet，靠 entry/build-profile.json5 的
+       cangjieOptions.checkDeviceTypes=false 放行。 */
+    "deviceTypes": [
+      "2in1",
+      "tablet",
+      "phone"
+    ],
+    "deliveryWithInstall": true,
+    /* 网上取数据（http/https）都需要这条：缺它时请求死在
+       `SocketException: Failed to create socket: Operation not permitted.`，
+       页面上表现为「连不上后台」，看着像网络不通。用不到就删掉这一条。 */
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.INTERNET"
+      }
+    ],
+    "installationFree": false,
+    "srcEntry": "ohos_app_cangjie_entry.MyAbilityStage",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "ohos_app_cangjie_entry.MainAbility",
+        "description": "$string:EntryAbility_desc",
+        "icon": "$media:layered_image",
+        "label": "$string:EntryAbility_label",
+        "startWindowIcon": "$media:startIcon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

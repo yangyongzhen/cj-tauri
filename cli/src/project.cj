@@ -460,7 +460,7 @@ func runProject(c: AppContext): Int64 {
 /** 某个目录下是不是鸿蒙脚手架工程（判据：构建入口脚本 + entry/cjpm.toml 同时在） */
 func isOhosProjectAt(dir: String): Bool {
     let hasEntryToml = exists(joinPath(joinPath(dir, "entry"), "cjpm.toml"))
-    return hasEntryToml && (exists(joinPath(dir, "build-hap.sh")) || exists(joinPath(dir, "build-hap.ps1")))
+    return hasEntryToml && (exists(joinPath(dir, "build-hap.sh")) || exists(joinPath(dir, "build-hap.bat")))
 }
 
 /**
@@ -483,30 +483,29 @@ func findOhosProjectRoot(): Option<String> {
 }
 
 /**
- * 鸿蒙工程：构建入口是工程自带的 `build-hap.sh`（bash）或 `build-hap.ps1`（PowerShell）
+ * 鸿蒙工程：构建入口是工程自带的 `build-hap.sh`（bash）或 `build-hap.bat`（cmd / PowerShell）
  *
  * 跑它而不是自己拼 hvigor 命令：DevEco 探测、cjc/opt 同代、stdx 联接、`--no-daemon`
  * 这些坑全在脚本里（见模板注释），CLI 只负责传参。两个入口语义一致，都在模板里维护、
- * 改动请同步。Windows 优先 ps1（powershell 系统自带，bash 要另装 Git Bash）；
- * ps1 不存在才回落 bash。`--install` 走 `run`：编完装到设备并 `aa start`。
+ * 改动请同步。Windows 优先 bat（cmd 系统自带，cmd 与 PowerShell 窗口都能跑，bash 要另装
+ * Git Bash）；bat 不存在才回落 bash。`--install` 走 `run`：编完装到设备并 `aa start`。
  */
 func buildOhos(root: String, install: Bool): Int64 {
     var argv = ArrayList<String>()
-    if (hostIsWindows() && exists(joinPath(root, "build-hap.ps1"))) {
-        // -ExecutionPolicy Bypass：用户机器默认策略可能是 Restricted，只为跑构建脚本不该要求全局改策略
-        argv.add("-NoProfile")
-        argv.add("-ExecutionPolicy")
-        argv.add("Bypass")
-        argv.add("-File")
-        argv.add("build-hap.ps1")
+    if (hostIsWindows() && exists(joinPath(root, "build-hap.bat"))) {
+        // bat 走 cmd.exe /c：cmd 是 Windows 自带、.bat 在 cmd 与 PowerShell 窗口里都能跑，
+        // 比 ps1 少了 ExecutionPolicy 那层限制（用户机器策略可能是 Restricted）。
+        let script = joinPath(root, "build-hap.bat")
+        println("[cj-tauri] 鸿蒙工程：build-hap.bat${if (install) { " --install" } else { "" }}（${root}）")
+        argv.add("/c")
+        argv.add("\"" + script + "\"")
         if (install) {
-            argv.add("-Install")
+            argv.add("--install")
         }
-        println("[cj-tauri] 鸿蒙工程：powershell build-hap.ps1${if (install) { " -Install" } else { "" }}（${root}）")
-        let code = execute("powershell.exe", argv.toArray(), workingDirectory: Path(root))
+        let code = execute("cmd.exe", argv.toArray(), workingDirectory: Path(root))
         if (code != 0) {
             eprintln("[cj-tauri] 构建失败（exit=${code}）")
-            eprintln("          日志: ${joinPath(root, ".buildlog")}/last-build.log")
+            eprintln("          日志见上方 hvigor 输出")
         }
         return code
     }

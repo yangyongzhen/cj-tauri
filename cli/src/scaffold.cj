@@ -352,7 +352,7 @@ func cmdCreate(nameArg: String, tpl: String, bundleArg: String, labelArg: String
     if (ohos) {
         println("  鸿蒙端: export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
         if (hostIsWindows()) {
-            println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.ps1）")
+            println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.bat）")
         } else {
             println("          cd targets/ohos && bash build-hap.sh [--install]")
         }

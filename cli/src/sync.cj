@@ -677,7 +677,7 @@ func syncOhos(m: Manifest, fwRoot: String): Int64 {
             println("[cj-tauri] 已生成 targets/ohos：模板 ${count} 文件 + 清单派生 4 文件 + rawfile ${copied} 资产")
             if (hostIsWindows()) {
                 println("[cj-tauri] 下一步：`$env:CANGJIE_STDX_OHOS = \"<鸿蒙版 stdx>\\linux_ohos_aarch64_cjnative\\dynamic\\stdx\"`（PowerShell）")
-                println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.ps1；装设备加 -Install 走 run）")
+                println("          cd targets\\ohos && npx cj-tauri build（走 build-hap.bat；装设备加 --install 走 run）")
             } else {
                 println("[cj-tauri] 下一步：export CANGJIE_STDX_OHOS=<鸿蒙版 stdx>/linux_ohos_aarch64_cjnative/dynamic/stdx")
                 println("          cd targets/ohos && bash build-hap.sh")

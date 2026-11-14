@@ -1006,6 +1006,27 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   任何应用（含系统串口工具）都打不开。**判据**：要判硬件只能换一台 USB-serial 栈正常的机器；
   Windows 还得先装 CH340/CP210x/FTDI 驱动——**Windows 不自带**，缺驱动的典型形状正是
   「端口(COM 和 LPT)里什么都没有」+「其他设备」里一个黄色感叹号，与「适配器坏」同形。
+- **`PageSource.Asset` 的页面不能引相对资源**（2026-11-14 实测，Windows/WebView2，一个全新 app 模板工程）：
+  `resolvePage` 对 `Asset` 做的是 `readText` 取字符串，Windows 侧再走 `NavigateToString`——文档没有真实来源，
+  页面里的 `<link href="css/…">` / `<script src="js/…">` **一个都加载不到**。症状极具误导性：窗口起来了、
+  文字也在，但**零样式零脚本**，靠 `display:none` 隐藏的分区全摊在一屏，而桥日志**一行错误都没有**
+  （`NavigateToString -> hr=0x00000000` 是成功行）；判据是页面自检行 `[frontend] …` 永远不出现。
+  落法：多文件前端必须**内联成单文件页面**——源码保持分文件（`index.src.html` + `css/` + `js/`），
+  构建时生成自包含 `index.html`，并校验内联后不残留相对 `src|href`；或改走 dev server / `PageSource.Url`。
+  这条与「三引号转义」是两个不同的坑：那条是内联进**仓颉字面量**时的转义，这条是**根本没内联**。
+- **骨架漂移可能在「刚 sync 完」时就是误报**（同日实测）：`sync` 用业务包 `cjpm.toml` 声明的框架根渲染写盘，
+  `check` 用 `resolveFrameworkRoot()` 重新渲染再比字符串（`cli/src/sync.cj` 两处 `renderDesktopToml`），
+  两条来源形式不同即判漂移。判据：骨架里出现 `E://test//a` 这种**重复分隔符**的路径。
+  别为治它反复 `clean` / 重 sync（白花时间），照常按「构建 → 实机跑 → 桥 stderr」验即可；
+  `rawfile/` 资产那条漂移才是真的陈旧，改过页面要重跑 `sync ohos`。
+- **诊断静默失败族**（同日实测，Windows）：① `check` 的三方比对失败只回 `code=3221225781`
+  ——十进制即 `0xC0000135`（`STATUS_DLL_NOT_FOUND`），`PATH` 补 `<框架>/native` 与 stdx 的 `dynamic/stdx`
+  后同一行即消失；② 产物侧缺 `WebView2Loader.dll` 时桥只打一行 `WebView2Loader.dll not found`
+  就 `host destroyed`（窗口一闪而过），而 `cj-tauri info` 会报 C 桥已构建、其余全绿——所以**必须**把
+  `native/webview2/WebView2Loader.dll` 拷到 exe 旁；③ CLI 本体缺 stdx 动态库时**零输出**
+  （`main.exe info` 什么都不打），把 stdout/stderr 混看会误判成「命令成功」，得单独重定向才看得见
+  `error while loading shared libraries: libstdx.*`；④ `cj-tauri create --help` 会把 `--help` 当项目名**建出目录**，
+  带 `-` 开头的参数目前没有校验。②③④的完整证据在上游 issue #11。
 
 ## 5. 文档与提交
 

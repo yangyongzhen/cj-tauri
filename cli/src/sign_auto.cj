@@ -9,10 +9,7 @@
 package cli
 
 import std.collection.*
-import std.crypto.digest.*
 import std.fs.*
-import std.process.*
-import stdx.crypto.digest.*
 import stdx.encoding.json.*
 
 /** 编排结果 */
@@ -575,6 +572,14 @@ public func autoSign(inp: AutoSignInput, token: AgcLoginOutcome): AutoSignOutcom
     let (keyPwd, e2) = encryptPasswordHex(workKey, password)
     if (e2 != "") {
         out.error = "⑦ 加密 keyPassword 失败：${e2}"
+        return out
+    }
+    // 写回前自检：刚生成的密文必须能用同一 workKey 解回原口令。写坏的代价很贵——
+    // 等下一轮「复用现有 p12」时口令就不可知了（明文只在这一次存在过），而 hvigor 那边
+    // 只会报一句签名失败。这里解一遍再对，宁可当场失败。
+    let (backPwd, backErr) = decryptPasswordHex(workKey, storePwd)
+    if (backErr != "" || backPwd != password) {
+        out.error = "⑦ 口令密文自检失败（${backErr}），已中止写回（未改动 build-profile.json5）"
         return out
     }
     let m = SigningMaterial()

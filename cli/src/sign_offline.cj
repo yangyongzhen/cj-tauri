@@ -1102,14 +1102,6 @@ public func signingFileBaseName(product: String, projectRoot: String): String {
     return "${sanitizeSignName(product)}_${safeDir}_${projectPathHash(projectRoot)}"
 }
 
-/**
- * 一个材料文件的文件名：{主干}=.{suffix}。
- * 那个 = 是 hash 与后缀之间的字面分隔符，不是 base64 填充（填充已在 projectPathHash 去掉）。
- */
-public func signingMaterialFileName(product: String, projectRoot: String, suffix: String): String {
-    return "${signingFileBaseName(product, projectRoot)}=.${suffix}"
-}
-
 // ============================================================
 // 环境与目录
 // ============================================================

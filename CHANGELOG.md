@@ -9,6 +9,32 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.3.4] - 2026-11-14
+
+### Fixed
+- **`cj-tauri sync` 之后立刻 `cj-tauri check` 恒报骨架漂移**（issue #10，PR #25 合并）：`sync` 用业务包
+  `cjpm.toml` 的 cjTauri 声明取框架根渲染写盘，`check` 却自己再调 `resolveFrameworkRoot()` 重新渲染再比
+  字符串，两条来源的路径形式不同就必然不等（`pathFromCjTauriLine` 不还原 `\\` 转义时还会写出
+  `E://test//a` 这种重复分隔符）。现在 `resolveSkeletonFrameworkRoot()` 成为取框架根的**唯一入口**，
+  桌面与 ohos 两侧的 `sync` / `check` 都走它；`toTomlPath` 合并重复分隔符（保留开头 `//` 的 UNC 形式），
+  老骨架不会因为多一个斜杠被判漂移；新增 `cli/src/util_path_test.cj` 覆盖上述转换。
+- **`sign --auto` 写回 build-profile.json5 前增加口令密文自检**：刚加密出来的 `storePassword` 必须能用
+  同一 workKey 解回原口令，否则中止写回且不动文件。写坏的代价很贵——下一轮「复用现有 p12」时明文口令
+  已不可知，而 hvigor 侧只会报一句签名失败。
+- **`cli` 恢复零警告**：sign 模块清掉 6 处未使用的 import 与 2 个未被引用的函数（其中一个改为真正参与
+  主流程，即上面的密文自检）。
+
+### Docs
+- 沉淀三个合并进来的踩坑条目（PR #24 / #26）：
+  - `PageSource.Asset` 的页面**不能引相对资源**（走 `readText` + `NavigateToString`，页面没有真实来源，
+    css/js 一个都加载不到，而桥日志一行错误都没有）——多文件前端须内联成单文件页面或改走 dev server；
+  - **诊断静默失败族**：`check` 的三方比对只回十进制 `3221225781`（= `0xC0000135`
+    `STATUS_DLL_NOT_FOUND`）、`info` 不查 `WebView2Loader.dll`、CLI 缺 stdx 时零输出、
+    `create --help` 会把 `--help` 当项目名建目录（本机实测属实）；
+  - **鸿蒙签名的两条实测坑**：`hdc` 不在 PATH 时 `sign` 的体检结论会把人往「设备没连」方向带；
+    `sync ohos` 会按模板重写 `build-profile.json5` 冲掉 `signingConfigs`（产物变 `-unsigned.hap`、
+    `SignHap` 只花 2 ms），顺序须固定为 `sync` → `sign --auto` → `build`。
+
 ## [2.3.3] - 2026-11-14
 
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，

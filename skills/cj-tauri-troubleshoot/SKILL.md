@@ -67,6 +67,10 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | 单文件 exe 双击启动后日志文件是 0 字节（窗口其实好好开着） | `cj_bridge_set_log_file` 把 stderr `dup2` 到日志文件，而 `--subsystem=windows` 的产物双击时 **stderr 句柄无效**：文件被建出来却写不进一行。带 `app.exe 2> err.txt` 起即正常（日志有内容、`err.txt` 反而 0 字节，说明 stderr 已被接管）。**取证一律带 stderr 重定向**；要双击也有日志得改 C 桥的落盘通道（当前未做） |
 | 单文件包里「一键部署 / 拉起随包程序」报找不到安装包 | 打包器只内嵌页面 / vendor 前端资源 / 能力清单（按 `PACKED_*_B64` 存根声明），**`vendor/` 里的大二进制不会进 exe**。ai-chat 的 cjh zip（13 MB）就属于这类：单文件产物里如实报「找不到 cjh 安装包」，要装就设 `CJ_AICHAT_CJH_BUNDLE` 指过去 |
 | 构建带一堆 unused/redundant 警告 | 接口成员不写 `public`（隐式公开）；未用参数就地 `let _ = x` 显式弃用；未用 import 删；`ReentrantMutex`→`Mutex`、`ArrayList.sort()`→`std.sort.sort`（交付标准：零警告，AGENTS §3） |
+| **窗口起来了、文字也在，但零样式零脚本**：靠 `display:none` 隐藏的分区全摊在一屏，桥日志却一行错误都没有 | 页面引用了相对资源（`<link href="css/…">` / `<script src="js/…">`）：`PageSource.Asset` 是 `readText` 取字符串后走 `NavigateToString`，文档**没有真实来源**，相对路径一律取不到。判据：`NavigateToString -> hr=0x00000000` 是成功行，而页面自检行（`[frontend] …`）**永远不出现**。落法：把 css/js **内联成单文件页面**——源码分文件（`index.src.html` + `css/` + `js/`）、构建时生成自包含 `index.html`（本机实测脚本形态：`node tools/build-ui.js`，校验内联后不得残留相对 `src\|href`）；或改走 dev server / `PageSource.Url`。上游 issue #9 |
+| `cj-tauri sync` 之后立刻 `cj-tauri check`，恒报 `targets/*/cjpm.toml` 骨架漂移（重复 sync 也不消失） | 两处取框架根的方式不同：`sync` 用业务包 `cjpm.toml` 的依赖声明渲染写盘，`check` 用 `resolveFrameworkRoot()` 重新渲染再比字符串（`cli/src/sync.cj` 里两处 `renderDesktopToml` 调用）→ 形式不同就必然不等。判据：骨架里路径形如 `E://test//a`（分隔符重复）。**已知误报，别反复 clean / 重 sync 去治**（上游 issue #10）；改完代码照常按「构建 → 实机跑 → 桥 stderr」验，不看这条 |
+| `check` 的三方比对只回 `code=3221225781`，再无别的线索 | 十进制 `3221225781` = `0xC0000135` = `STATUS_DLL_NOT_FOUND`：无头导出子进程加载不到 `libcjtbridge.dll` / stdx 动态库。落法：`PATH`（Windows）或 `LD_LIBRARY_PATH`（Linux）加 `<框架>/native` 与 stdx 的 `dynamic/stdx`，同一命令重跑该行即消失（上游 issue #11 会改成可直接读的提示） |
+| 产物启动后桥只打一行 `WebView2Loader.dll not found` 就 `host destroyed`，窗口一闪而过 | exe 旁（或 PATH）缺 WebView2Loader.dll：`cp <框架>/native/webview2/WebView2Loader.dll <产物目录>`。**`cj-tauri info` 不查这一项**（它会报 C 桥已构建、其余全绿），别只看 info 就以为能跑（AGENTS §4「平台与工具链」） |
 
 ### 运行期 / scope 与出网白名单
 

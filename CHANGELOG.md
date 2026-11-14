@@ -9,7 +9,7 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
-## [Unreleased]
+## [2.3.3] - 2026-11-14
 
 （尚未发版的下一个版本，按 Added / Changed / Fixed / Removed 就地累积，
 发版时把本段整体改名为 `[x.y.z] - YYYY-MM-DD`，并在下方新开一个空的 Unreleased。）
@@ -86,12 +86,46 @@
   纪律中性化（不出现「基于/对标」第三方项目的字眼），中英两份 README 同步。
 
 ### Changed
+- **`examples/ionic-music` 「正在播放」页视觉重做**（对齐 music 示例的深色唱片质感）：当前封面
+  放大模糊压成背景铺底 + 深色渐变遮罩保证文字可读；封面改**圆形**、播放时 26s 匀速自转
+  （`prefers-reduced-motion` 下停转）；主按钮改成实心圆 + 投影，旁键收到 26px；标题 22px/800、
+  歌词活跃行 17px 带微光、非活跃行降透明度；进度条收细至 3px、knob 14px。
 - **`examples/ionic-music` 播放改为点歌自动进入全屏「正在播放」页**：封面 + 可拖进度条 +
   上一首/播放/下一首 + 同步歌词（逐行高亮自动滚动），`<Teleport to="body">` 脱离 `ion-content`
   的 transform 包含块做到真全屏（此前歌词浮层被 `ion-content` 约束、盖不住底部迷你条与 tab 栏，
   歌词区被挤没）；原「点封面展开歌词」保留为迷你播放条的入口。
 
 ### Fixed
+- **`examples/ionic-music` 播放页「歌词太靠下」的真因：`ion-range` 宿主被撑到 278px**：
+  页面自检实测 `ion-range.nowpage-seek h=278`（CSS 里写的 `height:26px` 压不住它，Ionic 的
+  内部结构撑开了宿主），于是标题与进度条之间凭空多出 200 多像素空白，把歌词顶到屏幕下方。
+  改用固定高度包裹层夹住（`.nowpage-seekwrap { height:22px; overflow:hidden }`）后复测
+  `h=22`、歌词区 `top` 从 660 提到 402，真机截图确认歌词紧接控制按钮、几乎占满下半屏。
+  同时封面收到 `min(46vw,176px)`、各段间距收紧。
+- **`examples/ionic-music` 鸿蒙真机上歌单/轮播封面全部破图（根因：设备装不了 OpenSSL，https 全灭）**：
+  真机日志实证——`[music] image https://image.baidu.com/... -> 连不上图源：TlsException: Can not
+  load openssl library or function CRYPTO_get_ex_new_index.`。仓颉运行时的 `stdx.net.tls` 是
+  **OpenSSL 的按名 dlopen 绑定**（`libcangjie-dynamicLoader-opensslFFI` → `libcrypto_openssl.z.so` /
+  `libssl_openssl.z.so`），而设备 `/system/lib64` 与 `/system/lib64/ndk` 下都没有这两个库（`stat -L`
+  实证）——于是 **http 照通、https 全灭**：后台接口是 http（歌单/歌词正常），封面是百度代理的
+  https（全灭成破图）。
+  修法与 `examples/ohos/ohos-movie` 同款：`coverHttpGet` 加 `@When[env == "ohos"]` 分支改走
+  **系统网络栈 `ohos.net.http`**（TLS/证书链/代理交给 OS），桌面侧仍用 stdx；命令名、图源白名单、
+  `data:` URL 契约不变。顺带补了「回投载荷超 120KB 自动降档到 200px」（仅鸿蒙生效）。
+- **`examples/ionic-music` 播放歌曲断续（两端同病，非性能问题）**：进度条把 seek 挂在
+  `ion-range` 的 `@ionInput` 上，而 ion-range 被**程序化更新**（`timeupdate` → `:value="progress"`
+  回写）时**也会发 `ionInput`**——于是播放中每 200ms 把 `currentTime` 重定位一次，媒体管线被
+  反复打断。桌面端插桩实锤：`seeking → waiting → seeked → playing` 每 200ms 循环 154 次，而当时
+  缓冲已达 131 秒；鸿蒙侧表现为系统音频服务每 1~2 秒一条 `audio underrun`。改为只在
+  `@ionChange`（用户松手提交）时 seek 后，桌面端 `seeking` 事件归零、ohos 端 `audio underrun`
+  0 条，实机听觉连续（对照 `examples/music` 的 `scrubbing` 守卫，同一类坑的另一种中招方式）。
+- **`scripts/winbuild.sh` 在 Windows/MSYS 本机跑不起来**（Linux 交叉场景不受影响）：
+  rc 里的内嵌资源路径、work 副本 `cjpm.toml` 的框架依赖与 `path-option`、链接输入的
+  `libcjtbridge.a` / 资源 `.o` 全是 POSIX 形式（`/e/...`），而 windres / cjpm / ld.lld 是原生
+  exe 不认——表象分别是 `llvm-rc: No such file or directory`、`path '...' does not exist`。
+  统一经 `rc_path`（有 cygpath 时转盘符形式，Linux 侧原样）转换；产物探测同时接受
+  `target/x86_64-w64-mingw32/release/bin/main.exe` 与 `target/release/bin/main.exe`
+  （Windows 本机 `--target` 被忽略）。
 - **`examples/ionic-music` 设置页 ion-item 裸渲染（「字体大、布局难看」的真正根因）**：
   `@ionic/vue` 的 import 清单漏了 `IonList / IonItem / IonLabel`——Vue 把未注册组件
   原样输出成标签，自定义元素未定义、shadow 内部样式全无（诊断探针取证

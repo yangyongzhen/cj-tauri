@@ -6,6 +6,11 @@ cjpm.lock
 # 内含本机绝对路径（框架 / stdx 的 path 依赖），换机器即失效，一律不入库。
 # 克隆后先跑一次 `cj-tauri sync`，再用 `cj-tauri check` 比对是否漂移。
 targets/
+# 例外（2026-11-14 用户裁定）：本示例把派生骨架入仓，克隆者不跑 sync 也能
+# 直接看到两端骨架长什么样。构建产物照旧被挡（本文件顶部 `target/` /
+# `cjpm.lock` 两行 + ohos 骨架自带的 .gitignore）。骨架漂移后用
+# `cj-tauri sync` 重新生成再提交。
+!targets/
 
 # 前端（Vite 模板）
 assets/ui/node_modules/

@@ -103,6 +103,12 @@ echo "[winbuild] 内嵌 WebView2Loader.dll（$LOADER_BYTES 字节）"
 PACK_ASSETS_LIST="$EXAMPLE/pack-assets.txt"
 RC_FILE="$WORK/bridge/pack_assets.rc"
 MAP_HDR="$WORK/bridge/pack_assets_map.h"
+# windres/llvm-rc 都是原生 exe，不认 MSYS 的 /e/... POSIX 路径（表象是 windres 报
+# "No such file or directory"，实为 rc 内容里的路径打不开）；MSYS 下转成盘符形式（E:/...），
+# Linux 交叉侧没有 cygpath，原样返回 POSIX 路径——两边的 windres 各吃各的格式。
+rc_path() {
+    if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
 ASSET_COUNT=0
 ASSET_NEXT_ID=1001
 : > "$RC_FILE"
@@ -122,7 +128,7 @@ if [ -f "$PACK_ASSETS_LIST" ]; then
         # 绝对化：windres 在 work/bridge 里跑，RC 里的相对路径从那儿解析不到（原 MSYS 脚本
         # 用 cygpath -m 转盘符绝对路径，同理）；Linux 交叉版 windres 认 POSIX 绝对路径
         ASSET_SRC="$(cd "$(dirname "$ASSET_SRC")" && pwd)/$(basename "$ASSET_SRC")"
-        printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$ASSET_SRC" >> "$RC_FILE"
+        printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$(rc_path "$ASSET_SRC")" >> "$RC_FILE"
         printf '    { %d, "%s" },\n' "$ASSET_NEXT_ID" "$(basename "$ASSET_SRC")" >> "$MAP_HDR"
         ASSET_COUNT=$((ASSET_COUNT + 1))
         ASSET_NEXT_ID=$((ASSET_NEXT_ID + 1))
@@ -139,7 +145,7 @@ for n in libcrypto-3-x64.dll libssl-3-x64.dll; do
     found="${OPENSSL_DLL_DIR:-$ROOT/vendor/openssl}"
     [ -f "$found/$n" ] || die "缺 $n：$ROOT/vendor/openssl/ 没有且未设 OPENSSL_DLL_DIR"
     ASSET_SRC="$(cd "$found" && pwd)/$n"
-    printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$ASSET_SRC" >> "$RC_FILE"
+    printf '%d RCDATA "%s"\n' "$ASSET_NEXT_ID" "$(rc_path "$ASSET_SRC")" >> "$RC_FILE"
     printf '    { %d, "%s" },\n' "$ASSET_NEXT_ID" "$n" >> "$MAP_HDR"
     ASSET_COUNT=$((ASSET_COUNT + 1))
     ASSET_NEXT_ID=$((ASSET_NEXT_ID + 1))
@@ -345,10 +351,15 @@ esac
 # 没有任何符号引用，放归档里链接器根本不取——那样打出的 exe 连 .rsrc 节都没有（AGENTS §4）
 ASSET_LINK_ARG=""
 if [ -n "$ASSET_OBJ" ]; then
-    ASSET_LINK_ARG=" $WORK/bridge/pack_assets.o"
+    ASSET_LINK_ARG=" $(rc_path "$WORK/bridge/pack_assets.o")"
 fi
+# 同 rc_path 的道理：本段 toml 由 MSYS 侧的原生 cjpm / ld.lld 消费，POSIX 路径一律转盘符形式；
+# Linux 交叉侧没有 cygpath，rc_path 原样返回，行为不变。
 # link-option 的系统库清单与 pack-win-single.sh 同款；-lws2_32 是 cjh winbuild 补的（winsock，
 # stdx 的网络栈要）。crypt32：stdx.net.tls 读 Windows 证书库，碰 https 的示例必须链。
+BRIDGE_LIB_ARG="$(rc_path "$BRIDGE_LIB")"
+FRAMEWORK_ARG="$(rc_path "$WORK_FRAMEWORK")"
+STDX_ARG="$(rc_path "$WINDOWS_STDX")"
 cat > "$WORK/app/cjpm.toml" <<TOML
 [package]
   cjc-version = "1.0.5"
@@ -358,13 +369,13 @@ cat > "$WORK/app/cjpm.toml" <<TOML
   compile-option = "--static --static-std --static-libs"
 
 [dependencies]
-  cjTauri = { path = "$WORK_FRAMEWORK" }
+  cjTauri = { path = "$FRAMEWORK_ARG" }
 
 [target.x86_64-w64-mingw32]
-  link-option = "$BRIDGE_LIB$ASSET_LINK_ARG -L/usr/x86_64-w64-mingw32/lib -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 -lws2_32 $SUBSYS_ARG"
+  link-option = "$BRIDGE_LIB_ARG$ASSET_LINK_ARG -L/usr/x86_64-w64-mingw32/lib -lole32 -loleaut32 -luuid -luser32 -lgdi32 -ladvapi32 -lcomdlg32 -lcrypt32 -lws2_32 $SUBSYS_ARG"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
-    path-option = ["$WINDOWS_STDX"]
+    path-option = ["$STDX_ARG"]
 TOML
 
 # ---------- ④ 交叉构建 + strip ----------
@@ -376,6 +387,9 @@ echo "[winbuild] 交叉构建 $WORK/app（--target x86_64-w64-mingw32）"
 ( cd "$WORK/app" && cjpm build --target x86_64-w64-mingw32 )
 
 BUILT="$WORK/app/target/x86_64-w64-mingw32/release/bin/main.exe"
+[ -f "$BUILT" ] || BUILT="$WORK/app/target/release/bin/main.exe"
+# 在 Windows 本机跑本脚本时（MSYS），cjpm 提示 --target 被忽略，产物落在不带三元组的
+# target/release/bin/ ——两条路都探，谁存在用谁。
 [ -f "$BUILT" ] || die "没找到产物: $BUILT"
 
 SIZE_RAW="$(stat -c%s "$BUILT")"

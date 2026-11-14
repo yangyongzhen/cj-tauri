@@ -654,6 +654,16 @@ public class ArkWebHost <: WebViewHost {
     }
 
     /**
+     * 鸿蒙侧 C 桥未落地，读不到 WebView cookie 仓库——按接口契约返回错误 JSON，
+     * 不抛异常（调用方不必判 null）
+     */
+    public func cookiesJson(filter: String): String {
+        let _ = filter
+        logd("[cj-tauri] ArkWeb: cookiesJson unsupported (C bridge not landed on ohos)")
+        return "{\"ok\":false,\"error\":\"cookies are not available on this platform\"}"
+    }
+
+    /**
      * 在页面里执行一段脚本（框架的 `resolve` / `event` 回投就走这条）
      *
      * 不直接调 `controller.runJavaScript`：那个 API 属于 UI 线程，而本方法几乎总是从

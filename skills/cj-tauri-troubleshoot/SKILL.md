@@ -119,6 +119,53 @@ description: cj-tauri / 仓颉开发的踩坑速查：编译报错、三引号�
 | `snprintf` 拼出来的 JSON 看着读成功了，前端整条命令却失败 | 缓冲按**最坏取值**算：`char num[32]` 装 `{"ok":true,"count":%u,"cookies":[` 至少要 34 字节（固定 31 + 10 位计数 + NUL），gcc 的 `-Wformat-truncation` 就在说这件事；不理会就得到非法 JSON（空 store 那轮被截掉 `":[`），而桥侧看起来「读成功了」 |
 | 用 `llvm-nm` 查未解析符号，得到「0 个 = 干净」的结论 | 本机 SDK 可能**根本没有** `llvm-nm.exe`（`third_party/llvm/bin/` 只有 `llvm-objdump`）：命令不存在时输出为空、`grep -c` 得 0——恰好等于「干净」的读数，假绿凭空成立。先 `llvm-objdump -h <文件>` 确认工具真读得到文件，再用 `-p`（`DT_NEEDED`）/ `-T`（动态符号）下结论 |
 
+### 鸿蒙真机签名（`cj-tauri sign`）
+
+| 症状 / 问题 | 原因与处置 |
+|---|---|
+| `hdc install` 报 `9568322 signature verification failed due to not trusted app source` | **HarmonyOS 真机只信任华为签发、且 profile 的 device-ids 含本机 UDID 的证书**。SDK 自带的 OpenHarmony 默认材料签出来「有 signed 文件」但装不上；`hdc install` 失败时**退出码仍是 0**，只能按输出文本判。正解：`cj-tauri sign`（离线体检）→ `--login` + `--auto`（为本包名现签） |
+| hvigor 报 `00303074 The bundleName … does not match … SigningConfigs` | **profile（.p7b）是按 bundleName 签发的**：别的包名的材料哪怕含本机 UDID 也不能用。「机器上有含本机的材料」只过两道门里的一道，另一道是包名。本机材料普查：`strings <某.p7b> \| grep bundle-name`（p7b 是 DER 包着明文 JSON，可直接按字节找） |
+| 装不上但不知道缺哪道门 | 跑 `cj-tauri sign`（纯离线、免账号）：取 UDID（`hdc shell bm get --udid`）→ 解析工程 build-profile.json5 的 signingConfigs → 扫 `~/.ohos/config/*.p7b`（type=debug + device-ids 含本机 UDID + bundle-name 等于工程包名）→ 给「能不能装 + 缺什么 + 下一步」 |
+| 本机有含 UDID 的材料，但明文口令不可知，离线写回做不了 | `storePassword`/`keyPassword` 是 DevEco AesGcmKit 密文，明文只存在于生成那一次。两条路：① 找用**同一个 .p12** 的 donor 工程搬它的密文（同一套材料 → 密文通用）；② `cj-tauri sign --login` + `--auto` 生成一套自己掌口令的新材料（本地 p12+CSR，私钥永不上云） |
+| 想自己生成口令密文（不依赖 DevEco） | 算法：`material/{ac, ce, fd/0,1,2}`（`~/.ohos/config/material/`，config 级共享）→ passphrase = lossyUtf8(XOR(fd0,fd1,fd2,固定16B)) → rootKey = PBKDF2-HMAC-SHA256(passphrase, salt, 10000, 16) → workKey = AES-GCM 解 material/ce → 密文 = hex([len(4BE) \| IV(12) \| ct \| tag(16)])。仓颉 std/stdx 没有 AES，需自带 AES-128-GCM 实现（`cli/src/sign_gcm.cj`，NIST 向量已过） |
+| AGC 登录/云接口怎么调 | 端点抄自 flutter_flutter e2793de 的 ohos/signing/：登录页 `cn.devecostudio.huawei.com/console/DevEcoIDE/apply?port=&appid=1009&code=`；回调只绑 127.0.0.1 + Host 白名单 + siteId=="1"（**回调 code 不做硬比对**——华为回调自带它自己的 code，硬比对误杀正常登录）；tempToken→JWT 响应体本身就是 JWT；业务 API 基址 `connect-api.cloud.huawei.com`，**成功判据是 body 的 ret.code==0 不是 HTTP 200**；删证书是 DELETE 带请求体；profile 的 deviceList 传**云端设备 id**（≤32 位），不是 64 位 UDID |
+| 证书/profile 下载 403 | AGC 下载链是 AWS SigV4 签名 URL，通用 HTTP 客户端会重编码 `%2F` → 签名失效。**用系统 curl 原样 GET**（把 URL 当字节）；下载前先过 SSRF 护栏（拒内网）并校验 sha256 |
+| 令牌没落盘、`--auto` 说没有令牌 | 错误被吞了：saveAgcToken 的返回值必须落到 stderr（已修）。令牌落 `~/.cj-tauri/sign/token.enc`（KEK 加密），**约 4 小时过期**，过期重跑 `--login` |
+
+### 音频播放（`<audio>` / 媒体栈）
+
+| 症状 / 问题 | 原因与处置 |
+|---|---|
+| 播放页「某一块莫名其妙很高」，把下面的内容顶到屏幕底部（如歌词贴底、间距调不动） | **先量再调**：给页面挂一段自检把各块 `getBoundingClientRect()` 报到 stderr，别靠肉眼猜。实测踩坑：`ion-range` 的**宿主被内部结构撑到 278px**，CSS 里写 `height:26px` 压不住——症状是标题与进度条之间凭空多出 200 多像素空白。修法：外面套一层固定高度容器 `{ height:22px; overflow:hidden; display:flex; align-items:center }` 夹住它（改完复测 `h=22`） |
+|---|---|
+| 播放「播几秒卡一下」，两端都这样，同一音源在别的示例里正常 | **先怀疑页面自己每 200ms 把播放器 seek 一次**：进度条写成 `<ion-range :value="progress" @ionInput="seek(...)">` 时，ion-range 被**程序化更新**（`timeupdate` → `:value` 回写）**也会 emit `ionInput`** → `currentTime` 反复重定位 → 媒体管线被反复打断、缓冲填满也断续。判据：给 `audio` 挂 `seeking/waiting/playing/seeked` 事件经 `report` 命令打到 stderr，看 `seeking` 是否按 timeupdate 节奏（~200ms）循环；ohos 侧对应系统日志每 1~2 秒一条 `Write audio underrun error event`（`hilog -x \| grep 'audio underrun'`）。修法：seek 只挂 `@ionChange`（用户松手提交），程序化更新不触发 |
+| 想判断是「取流慢」还是「客户端折腾」 | 别用进程 IO 计数器（`Win32_Process.ReadTransferCount`）——GPU/IPC 读量远高于音频码率，没有区分度。用页面侧音频事件 + 服务端分段 curl（整文件 GET、`-r 0-`、逐块 Range）交叉验证：整文件快而 `seeking` 狂循环 ⟹ 客户端问题 |
+| ohos 上媒体播放卡顿但页面日志看不见 | `eprintln` 在设备上不进 hilog。诊断行改用框架的 `logd`（`public func logd`，桌面写 stderr、鸿蒙写 hilog，tag `cj-tauri`），同一行代码两端都能取证 |
+
+### 打包脚本（Windows 本机跑 `scripts/winbuild.sh`）
+
+| 症状 / 问题 | 原因与处置 |
+|---|---|
+| `llvm-rc: Error in N statement (ID 1001): No such file or directory` | rc 里写的是 MSYS POSIX 路径（`/e/...`），windres/llvm-rc 是原生 exe 不认。生成 rc 时经 `cygpath -m` 转盘符形式（Linux 交叉侧没有 cygpath，原样返回） |
+| `the path '/e/...' of module 'cjTauri' does not exist`（work 副本 cjpm.toml） | 同理：`[dependencies] cjTauri = { path = ... }`、`bin-dependencies.path-option`、`link-option` 里的 `libcjtbridge.a` / 资源 `.o` 都要转盘符形式 |
+| `没找到产物: .../target/x86_64-w64-mingw32/release/bin/main.exe` | Windows 本机跑时 cjpm 会提示 `--target` 被忽略，产物落在不带三元组的 `target/release/bin/`；两条路都探 |
+| `strip` 失败、exe 停在 40MB+ | llvm-mingw 的 `strip.exe` 是包装器，真身可能缺失；回退 `$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy.exe --strip-all`（实测 43MB → 19.5MB） |
+
+### 鸿蒙真机取证的锁屏陷阱
+
+| 症状 / 问题 | 原因与处置 |
+|---|---|
+| `aa start` 报 `Error Code:10106102 The device screen is locked during the application launch, unlock screen failed` | 屏幕锁着时系统拒绝拉起应用，而**开发者模式下脚本解不了锁**（`power-shell wakeup` 只亮屏、`uinput` 上滑不一定生效）——只能请人手动解锁。别在这一条上反复重试刷屏 |
+| `snapshot_display` 抓回来是一张**全黑图**（有时只剩状态栏），看着像「应用黑屏/渲染坏了」 | 锁屏期间抓屏本来就是黑的，与应用无关。判据：先查 `pidof <bundle>` 与 `hilog -x \| grep cj-tauri` 有没有页面加载日志，**别只凭截图下结论**（本项目实测因此误判过一轮） |
+| 日志里连框架的 `cj-tauri` 一条都没有 | `hilog -x \| grep` 是查**当前缓冲**：应用在很久前跑过、或已被后续 chromium 日志刷掉就查不到。要在启动瞬间抓：`hilog -r; aa force-stop …; aa start …; sleep 15; hilog -x -T cj-tauri` 放在**同一条 shell 命令**里 |
+
+### 鸿蒙上 https 全灭（`TlsException: Can not load openssl library`）
+
+| 症状 / 问题 | 原因与处置 |
+|---|---|
+| 鸿蒙真机上 `http://` 接口全部正常，唯独 https 资源（封面、图片、外部 API）全失败；日志 `TlsException: Can not load openssl library or function CRYPTO_get_ex_new_index.` | **仓颉运行时的 `stdx.net.tls` 只是 OpenSSL 的按名 dlopen 绑定**（`libcangjie-dynamicLoader-opensslFFI` → `libcrypto_openssl.z.so` / `libssl_openssl.z.so`），而设备上没有这两个库。判据：`stat -L /system/lib64/libcrypto_openssl.z.so` 与 `/system/lib64/ndk/...` 都回 `No such file or directory`（**`ls /system/lib64` 是 Permission denied，别拿它当结论**）。修法：那条出网链路在鸿蒙分支改走**系统网络栈 `ohos.net.http`**（`createHttp()` + `HttpRequestOptions(method: RequestMethod.Get, expectDataType: HttpDataType.ArrayBuffer, ...)` + `client.request(url, options) { err, resp => ... }` 回调 + `sleep` 轮询收口），平台差异只落在命令实现那一层，命令名/入参/返回契约不变。参考实现：`examples/ohos/ohos-movie/entry/src/main/cangjie/ohos_movie_image.cj`、本仓 `src/plugins/http/http_ohos.cj` |
+| 想确认「到底是网络不通、证书链不对，还是 TLS 栈本身没起来」 | 设备自带 `openssl`，锁屏也能用（`hdc shell` 不需要解锁，只有拉起应用需要）：`echo \| openssl s_client -connect <host>:443 -servername <host> -verify 5` 看握手与校验码；再发一次真实请求确认资源可取：`printf "GET <path> HTTP/1.1\r\nHost: <host>\r\nConnection: close\r\n\r\n" \| openssl s_client -quiet -connect <host>:443`。**两者都通却在应用里失败 ⟹ TLS 栈/客户端实现问题，不是网络** |
+
 ## 规则
 
 - 修完一个坑，把「症状 → 原因 → 修法」沉淀回本 skill 或项目 `AGENTS.md` §4（见 `cj-tauri-contribute`）；

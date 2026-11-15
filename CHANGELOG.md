@@ -9,7 +9,7 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
-## [Unreleased]
+## [2.3.6] - 2026-11-15
 
 ### Fixed
 - **Windows 上从源码构建 CLI 死在链接期**（issue #15）：`cli/cjpm.toml` 的 `x86_64-w64-mingw32`

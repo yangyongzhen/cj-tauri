@@ -44,9 +44,14 @@ func buildTargetSection(nativeDir: String, stdxDir: String): String {
     if (hostIsWindows()) {
         // GUI 子系统：不写这个开关，产物是 console 程序，双击时会多出一个控制台黑窗口（AGENTS §4）。
         // 取值只能用链接器那套——cjc 把 --link-options 直通 ld.lld，gcc 的 -mwindows 会被拒。
+        // -lcrypt32：应用 import stdx.net.tls（https）后，stdx.crypto.x509 的 SystemRootCerts
+        // 读 Windows 系统证书存储，CertOpenSystemStoreA / CertEnumCertificatesInStore /
+        // CertCloseStore 三个符号都在 crypt32.dll（issue #15，交叉探针 A/B 实证：不带即
+        // 链接失败、带即 success）。不碰 https 的应用多链一个系统库无副作用（判据看导入表），
+        // mingw 自带 libcrypt32.a，无外部依赖。
         // 注意别在这儿写「行内 `#` 注释」:Cangjie 里 `#` 是 raw string 前缀、不是注释符，
         // 生成出来的 toml 那行也就只放开关、不放尾注（保证与文档里的行数表格一致）。
-        linkOpt = linkOpt + " --subsystem=windows"
+        linkOpt = linkOpt + " --subsystem=windows -lcrypt32"
     } else {
         linkOpt = linkOpt + " -lwebkit2gtk-4.1 -lgtk-3 -lgdk-3 -lglib-2.0 -lgio-2.0 -lsoup-3.0" +
                   " -ljavascriptcoregtk-4.1 -lgobject-2.0"

@@ -23,6 +23,15 @@ public class DirectoryAssetResolver <: AssetResolver {
         }
     }
 
+    /** 字节读取：mp3 / 图片等二进制资产（File.readFrom 本就返回 Array<Byte>，不经 UTF-8） */
+    public func readBytes(name: String): Option<Array<Byte>> {
+        try {
+            return Some(File.readFrom(root + "/" + name))
+        } catch (e: Exception) {
+            return None
+        }
+    }
+
     /** 以「能否读到」为准（批次 2 只服务文本资产；图标等二进制走各端资源目录，不进常量表） */
     public func exists(name: String): Bool {
         match (readText(name)) {

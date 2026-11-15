@@ -154,6 +154,21 @@ func listDir(p: String): Array<FileInfo> {
     return Directory.readFrom(p)
 }
 
+/** 取路径的目录部分（截掉最后一个 / 或 \ 及其后内容）；无分隔符返回原串的空串兜底 */
+func dirNameOf(p: String): String {
+    let b = p.toArray()
+    var cut = -1
+    for (i in 0..b.size) {
+        if (b[i] == 47 || b[i] == 92) {   // '/' 或 '\'（Windows 路径两种都认）
+            cut = i
+        }
+    }
+    if (cut <= 0) {
+        return ""
+    }
+    return String.fromUtf8(b[0..cut].toArray())
+}
+
 /** TOML 基本字符串转义：反斜杠与双引号 */
 func escapeTomlString(p: String): String {
     return p.replace("\\", "\\\\").replace("\"", "\\\"")

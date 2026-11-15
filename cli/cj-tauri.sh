@@ -20,6 +20,18 @@ win_to_unix() {
   fi
 }
 
+# CANGJIE_HOME 未设置时探测常见安装位置（issue #11-③ 同族）：SDK 装在默认路径时
+# 用户环境里这个变量常是空的，跳过整块会让 runtime 库不进 LD_LIBRARY_PATH，
+# CLI 同样「零输出退出」（libcangjie-runtime.so 找不到）。
+if [ -z "${CANGJIE_HOME:-}" ]; then
+  for d in /opt/cangjie/cangjie "$HOME/cangjie" /usr/local/cangjie; do
+    if [ -x "$d/bin/cjc" ]; then
+      CANGJIE_HOME="$d"
+      break
+    fi
+  done
+fi
+
 if [ -n "${CANGJIE_HOME:-}" ]; then
   CH="$(win_to_unix "${CANGJIE_HOME}")"
   # 运行时目录必须按宿主平台挑：SDK 里 linux* 与 windows* 同时存在时，find 的返回顺序
@@ -42,6 +54,28 @@ if [ -n "${CANGJIE_HOME:-}" ]; then
         export LD_LIBRARY_PATH
       fi
       ;;
+  esac
+fi
+
+# stdx 动态库（issue #11-③）：CLI 本体按名字链 libstdx.*.so，目录不进
+# LD_LIBRARY_PATH（Linux）/ PATH（Git Bash）的表象是「CLI 零输出退出」
+# （loader 报 cannot open shared object file，混进 stdout 管道里根本看不出来）。
+# 这段**不依赖 CANGJIE_HOME 被设置**（实测：SDK 装在默认路径时用户环境里
+# CANGJIE_HOME 常是空的，放进去探测永远不执行）。CANGJIE_STDX 显式优先；
+# 没设就探测 ~/.cangjie/stdx 下版本最大的那份（sort -V）。
+STDX_DIR=""
+if [ -n "${CANGJIE_STDX:-}" ]; then
+  STDX_DIR="$(win_to_unix "$CANGJIE_STDX")"
+else
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*) STDX_DIR="$(ls -d "$HOME"/.cangjie/stdx/*/windows_x86_64_cjnative/dynamic/stdx 2>/dev/null | sort -V | tail -1 || true)" ;;
+    *)                    STDX_DIR="$(ls -d "$HOME"/.cangjie/stdx/*/dynamic/stdx 2>/dev/null | sort -V | tail -1 || true)" ;;
+  esac
+fi
+if [ -n "$STDX_DIR" ] && [ -d "$STDX_DIR" ]; then
+  case "$(uname -s 2>/dev/null || echo unknown)" in
+    MINGW*|MSYS*|CYGWIN*) PATH="$STDX_DIR:$PATH"; export PATH ;;
+    *)                    LD_LIBRARY_PATH="$STDX_DIR:${LD_LIBRARY_PATH:-}"; export LD_LIBRARY_PATH ;;
   esac
 fi
 

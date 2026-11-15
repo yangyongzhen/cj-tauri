@@ -33,6 +33,9 @@ public class AppSpec {
     public var capabilitiesDir: String = ""
     /** 能力清单 JSON 原文列表（批次 3-PR3）：给没有目录概念的端（鸿蒙 rawfile）；与目录可并存 */
     public var capabilityJsons: ArrayList<String> = ArrayList<String>()
+    /** 数据目录覆盖（issue #13）：空 = 平台默认（桌面 XDG/AppData 按应用 id、鸿蒙 filesDir）。
+     * 鸿蒙上只改 `app.dataDir()` 的返回值，**不**改页面落盘的沙箱目录（那由 configure(filesDir) 定）。 */
+    public var dataDirOverride: String = ""
     /** 命令装配点：拿到装配中的 TauriApp 后 register（字段名带 Fn：仓颉字段与方法同命名空间，不能与构造器 wire() 重名） */
     public var wireFn: Option<(TauriApp) -> Unit> = None
 
@@ -71,6 +74,12 @@ public class AppSpec {
 
     public func wire(f: (TauriApp) -> Unit): AppSpec {
         this.wireFn = Some(f)
+        return this
+    }
+
+    /** 覆盖应用数据目录（桌面自定位置；鸿蒙不改页面沙箱目录，见字段注释） */
+    public func dataDir(path: String): AppSpec {
+        this.dataDirOverride = path
         return this
     }
 }

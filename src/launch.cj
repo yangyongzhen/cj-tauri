@@ -31,7 +31,20 @@ public func launch(spec: AppSpec): Unit {
 public func launchWith(spec: AppSpec, context: AppContext): Unit {
     logd("[cj-tauri] launch：${spec.name}（os=${context.target.os} display=${context.target.display}）")
     let app = assemble(spec)
+    // paths 注入要在 wire 装配之后、run 之前（issue #13）：业务命令经 app.dataDir() 取数据目录
+    app.setAppPaths(resolveAppPaths(spec, context))
     app.run(spec.pageSource)
+}
+
+/**
+ * 覆盖后的应用路径（纯函数，单测共用）：`spec.dataDir(...)` 非空时替换 dataDir，
+ * cache / temp 沿用平台发现值；空 = 平台默认原样返回。
+ */
+public func resolveAppPaths(spec: AppSpec, context: AppContext): AppPaths {
+    if (spec.dataDirOverride.size > 0) {
+        return AppPaths(spec.dataDirOverride, context.paths.cacheDir, context.paths.tempDir)
+    }
+    return context.paths
 }
 
 /**

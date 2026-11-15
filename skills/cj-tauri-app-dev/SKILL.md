@@ -51,6 +51,16 @@ cj-tauri create <名> --template app    # app=零 Node 内联页；也可 vue / 
 
 只做 1+3 → `command not registered`；只做 1+2 → `command not allowed`。
 
+命令处理器里**落存档 / 读二进制资产**（命令跑在 worker 线程，正是落盘的地方）：
+
+- `app.dataDir()`——应用私有可写目录（桌面 XDG/AppData 按应用 id；鸿蒙 = Ability 的
+  `filesDir` 沙箱，重启仍在）。**别用 `LOCALAPPDATA` / `$HOME` 环境变量推**：鸿蒙进程里
+  两个都不存在，路径解析为空、后端不落盘（踩坑实录见 `cj-tauri-troubleshoot`「存档丢失」条）。
+- `app.readAsset(name)` 读资产**文本**；`app.readAssetBytes(name)` 读 mp3 / 图片这类
+  **二进制**（文本口子经 UTF-8 装二进制会当场损坏）。未登记 / 读不到都回 `None`，按降级处理。
+- `wire` 装配点里 `dataDir()` 还拿不到（launchWith 在 assemble 之后才注入）——在 handler 里取。
+  详见 `docs/使用文档.md` §6.3.2。
+
 ### 3. 加插件（同样三处联动）
 
 1. 实现 `Plugin`（必写 `name()` + `commands()`；要推事件 / 前端 shim / 权限集 / scope 再写

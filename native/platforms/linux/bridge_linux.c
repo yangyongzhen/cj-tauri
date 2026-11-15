@@ -645,6 +645,30 @@ static void on_destroy(GtkWidget *w, gpointer ud) {
 
 static const char *BRIDGE_JS = CJ_BRIDGE_JS(CJ_POST_STMT, CJ_RELOAD_STMT);
 
+/* ---- SIGUSR1 处理器保护（issue #4）----
+ * WebKit 的 JSC 用 SIGUSR1 做自身 GC 的 stop-the-world，初始化时直接 sigaction
+ * 覆盖已有处理器；而 SIGUSR1 正是仓颉运行时线程挂起/恢复机制所用的信号——被抢后
+ * 运行时的线程停摆流程永远等不到唤醒，全部 cj 线程永久挂起，表象是真实屏上整页
+ * 冻结（gdb 栈停在 CJ_ProcessorStopWithLastCheck，Xvfb 下因 GC 时序不同反而难复现）。
+ * 做法：WebKit 初始化前保存运行时的处理器，之后恢复——两个 GC 各用各的信号通道。
+ * 一次性保存/恢复：JSC 覆盖只发生在初始化窗口，恢复后不再需要；重复进入
+ * gtk_thread_main（多窗口）时 save 保存的已是恢复后的运行时处理器，无害。 */
+static struct sigaction cj_sigusr1_saved;
+static int cj_sigusr1_saved_ok = 0;
+
+static void cj_sigusr1_save(void) {
+    if (sigaction(SIGUSR1, NULL, &cj_sigusr1_saved) == 0) {
+        cj_sigusr1_saved_ok = 1;
+    }
+}
+
+static void cj_sigusr1_restore(void) {
+    if (cj_sigusr1_saved_ok && sigaction(SIGUSR1, &cj_sigusr1_saved, NULL) == 0) {
+        cj_sigusr1_saved_ok = 0;
+        fprintf(stderr, "[cj-bridge] SIGUSR1 handler restored (JSC overrode it during WebKit init, issue #4)\n");
+    }
+}
+
 static void *gtk_thread_main(void *arg) {
     cj_host *h = (cj_host *)arg;
     plat_host *p = h ? (plat_host *)h->plat : NULL;
@@ -655,6 +679,7 @@ static void *gtk_thread_main(void *arg) {
     /* 先记下 GTK 线程身份：对话框要靠它判断「调用方是不是已经在本线程上」 */
     p->thread = pthread_self();
     p->thread_set = 1;
+    cj_sigusr1_save();   /* WebKit 初始化会覆盖 SIGUSR1（issue #4），先存运行时的处理器 */
     gtk_init(NULL, NULL);
 
     p->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -698,6 +723,7 @@ static void *gtk_thread_main(void *arg) {
                      G_CALLBACK(on_script_message), h);
 
     p->view = webkit_web_view_new_with_user_content_manager(mgr);
+    cj_sigusr1_restore();   /* JSC 在 WebKit 初始化窗口里覆盖了 SIGUSR1，这里还给运行时（issue #4） */
     {
         /* 开发者工具开关：settings 交由视图持有（单实例、随窗口存续，不再额外 unref） */
         WebKitSettings *settings = webkit_settings_new();

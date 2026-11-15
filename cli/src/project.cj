@@ -10,7 +10,7 @@ import std.collection.*
 
 /** CLI 版本：须与 cli/cjpm.toml 的 version、CHANGELOG 顶部版本一致（scripts/check-version.sh 校验） */
 func cliVersion(): String {
-    return "2.3.6"
+    return "2.4.0"
 }
 
 /** 一次命令所需的路径上下文 */
@@ -611,6 +611,20 @@ func cmdInfo(asJson: Bool): Int64 {
         println("  项目根目录  : ${proj}${if (newForm) { "（新形态：cj-tauri.toml）" } else { "" }}")
         if (let Some(bin) <- findAppBinary(proj, newForm)) {
             println("  可执行产物  : ${bin}")
+            if (hostIsWindows()) {
+                // issue #11-②：WebView2Loader.dll 按「名字 LoadLibrary」加载（不在 PE 导入表里），
+                // 缺它的表象是桥打一行 not found 后静默退窗，而 info 此前报一切就绪、零线索。
+                let exeDir = dirNameOf(bin)
+                let beside = exists(joinPath(exeDir, "WebView2Loader.dll"))
+                var line = "  WebView2Loader.dll : ${if (beside) { "产物旁 [有]" } else { "产物旁 [无]" }}"
+                if (!beside) {
+                    if (let Some(fwRoot) <- resolveFrameworkRoot()) {
+                        let inFw = exists(joinPath(joinPath(fwRoot, "native"), joinPath("webview2", "WebView2Loader.dll")))
+                        line = line + "；框架内 ${if (inFw) { "[有]——拷一份到产物目录即可" } else { "[无]——先跑 cj-tauri build 同步 loader" }}"
+                    }
+                }
+                println(line)
+            }
         } else {
             println("  可执行产物  : 未构建（cj-tauri sync + cj-tauri build）")
         }

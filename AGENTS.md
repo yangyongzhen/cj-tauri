@@ -92,6 +92,12 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   2. `TauriApp.register("cmd", Handler())`；
   3. 在能力清单的 `commands` 里声明。
   只做 1+3 会得到 `command not registered`；只做 1+2 会得到 `command not allowed`。
+  命令 handler 里**落存档 / 读二进制资产**的框架口子（issue #13，2026-11-15）：
+  `app.dataDir()`（应用私有可写目录，桌面 XDG/AppData、鸿蒙 filesDir；launchWith 注入，
+  `wire` 里拿不到、run 后的 handler 里恒可用，launch 前返回空串）、`app.readAsset(name)`
+  （资产文本）、`app.readAssetBytes(name)`（资产字节，`AssetResolver` 接口含
+  `readBytes`——**新增 resolver 实现必须同步实现它**）；`build().dataDir(path)` 可覆盖
+  （鸿蒙不改页面沙箱目录）。文档见 `docs/使用文档.md` §6.3.2。
 - **新增插件三处联动**（同命令，漏一处就用不了）：
   1. 实现 `Plugin`（`src/plugin.cj`）——必写 `name()` + `commands()`，要推事件 / 前端 shim 再写 `events()` / `jsShim()`；
   2. 装配：`TauriApp().plugin(XxxPlugin())`（框架自动把命令注册成 `"<插件名>:<短名>"`）；
@@ -433,6 +439,9 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   （实测 2026-10-08：`examples/music` 的封面是 https，而 typing-poem 不碰 TLS，所以这条直到打音乐示例才暴露）。
   `scripts/pack-win-single.sh` 的 `link-option` 已加上；用不到它的示例多链一个系统库无副作用——
   **判据看导入表**（`objdump -p *.exe` 里 `DLL Name` 只该出现系统 DLL），不是看链接命令里写了什么。
+  同一坑的第三处：**`create` 渲染的 desktop 骨架**（`cli/src/scaffold.cj` 的 `buildTargetSection`
+  Windows 分支）此前也没有这行——应用 import `stdx.net.tls` 就链不过（issue #15 附带推断，
+  2026-11-15 交叉探针 A/B 实证：最小工程不带即复现三符号未定义、带即 success），现已默认带上。
 - **单文件产物默认是 console 子系统：双击会弹一个 DOS 黑窗口，`link-option` 必须写 `--subsystem=windows`**：
   mingw/Cangjie 默认按 console 生成，Windows 见到 console 程序就给它配一个控制台（实测 2026-10-08：
   `music.exe` 交付后用户第一条反馈就是它）。`scripts/pack-win-single.sh` 已加，并在脚本末尾**事后复核**
@@ -501,6 +510,27 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
   `pack-win-single.sh` 漏了这条，直到 2026-10-13 打包 serial-waveform 才暴露）。
 - Linux 宿主：GTK/WebKit 的全部调用必须在 C 桥创建的原生 pthread 内执行——
   仓颉 M:N 轻量线程的堆上协程栈会被 JSC 的栈边界校验 abort。
+- **WebKitGTK 的 JSC 会抢走 SIGUSR1，而那是仓颉运行时线程挂起/恢复用的信号**（issue #4，
+  2026-11-15 根治）：JSC 用 SIGUSR1 做自身 GC 的 stop-the-world，WebKit 初始化时直接
+  `sigaction` 覆盖已有处理器——被抢后运行时的线程停摆流程永远等不到唤醒，全部 cj 线程
+  永久挂起，表象是**真实屏（X11）跑一段时间后整页冻结**：窗口还在、`js -> native` 照旧进、
+  回包永不出现（`g_idle_add` 投递的 resolve 永不执行）。Xvfb 因 GC 时序不同反而难复现，
+  取证别只跑无人值守。判据三件套：gdb 全线程栈停在 `CJ_ProcessorStopWithLastCheck`、
+  `/proc/self/status` 的 `SigCgt` 含信号 10、启动 stderr 有 WebKit 的
+  `Overriding existing handler for signal 10` 提示行。`JSC_SIGNAL_FOR_GC` 是编译期配置、
+  环境变量无效，发行版自带 WebKit 不可控——框架层必须自救。落法（`bridge_linux.c`）：
+  WebKit 初始化前保存 SIGUSR1 处理器、`webkit_web_view_new` 后恢复，恢复时打一行
+  `[cj-bridge] SIGUSR1 handler restored` 作凭证（实测：恢复行出现 + 27 次桥往返正常）。
+- **WebKitGTK 的 JSC 会抢走 SIGUSR1，而那是仓颉运行时线程挂起/恢复用的信号**（issue #4，
+  2026-11-15 根治）：JSC 用 SIGUSR1 做自身 GC 的 stop-the-world，WebKit 初始化时直接
+  `sigaction` 覆盖已有处理器——被抢后运行时的线程停摆流程永远等不到唤醒，全部 cj 线程
+  永久挂起，表象是**真实屏（X11）跑一段时间后整页冻结**：窗口还在、`js -> native` 照旧进、
+  回包永不出现（Xvfb 因 GC 时序不同反而难复现，取证别只跑无人值守）。判据三件套：
+  gdb 全线程栈停在 `CJ_ProcessorStopWithLastCheck`、`/proc/self/status` 的 `SigCgt` 含信号 10、
+  启动 stderr 有 `Overriding existing handler for signal 10`（WebKit 的提示行）。
+  `JSC_SIGNAL_FOR_GC` 是编译期配置、环境变量无效，发行版自带 WebKit 不可控——框架层必须自救。
+  落法（`bridge_linux.c`）：WebKit 初始化前保存 SIGUSR1 处理器、`webkit_web_view_new` 后恢复，
+  恢复时打一行 `[cj-bridge] SIGUSR1 handler restored` 作凭证。
 - Linux 宿主：桥接脚本必须**在 document start 注入**（`WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START`）——
   用文档末尾注入会晚于发行态单文件里内联的 `<script type="module">`，前端读 `window.__CJ_TAURI__` 拿到
   `undefined`（Windows 的 `AddScriptToExecuteOnDocumentCreated` 同样是「页面脚本执行前」，两平台已对齐）。

@@ -9,6 +9,33 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.0] - 2026-11-15
+
+### Added
+- **应用数据目录与二进制资产 API**（issue #13）：`app.dataDir()` 给业务命令返回应用私有
+  可写目录（桌面 = XDG / AppData 按应用 id；鸿蒙 = Ability 的 `filesDir` 沙箱，重启仍在），
+  此前鸿蒙进程里 `LOCALAPPDATA` / `$HOME` 都不存在、存档无处落盘；`app.readAssetBytes(name)`
+  读 mp3 / 图片等二进制资产（`readAsset` 只能装文本，二进制经 UTF-8 会坏），
+  `AssetResolver` 接口新增 `readBytes`（桌面 / 鸿蒙两实现与骨架生成器同步）；
+  `build().dataDir(path)` 可覆盖数据目录（鸿蒙上不改页面落盘的沙箱目录）。
+  文档见 `docs/使用文档.md` §6.3.2（含鸿蒙存档推荐落点）。
+
+### Fixed
+- **CLI 诊断静默失败三条**（issue #11 的 ②③④，①已在 2.3.5 修）：
+  ② `info` 在 Windows 上增加 `WebView2Loader.dll` 状态行（产物旁 [有/无]，缺时再报框架内
+  [有/无] 与对应动作）——该 DLL 按「名字 LoadLibrary」不在导入表里，此前 info 报一切就绪、
+  应用却静默退窗零线索；③ CLI 启动器（`cj-tauri.sh` / `cj-tauri.bat`）自动探测并追加 stdx
+  动态库目录（`CANGJIE_STDX` 优先，否则 `~/.cangjie/stdx` 取版本最大），并给 `CANGJIE_HOME`
+  补了常见安装位置兜底（/opt/cangjie 等）——此前缺 stdx / runtime 目录时 CLI **零输出退出**
+  （loader 报错混进管道看不出来）；④ `create --help` / `-h` 打用法退出、以 `-` 开头的词
+  一律不再当项目名（此前 `create --help` 真的建了个 `--help/` 目录）。
+- **`cj-tauri create` 渲染的 desktop 骨架（Windows 段）默认带上 `-lcrypt32`**（issue #15 的
+  附带推断，已交叉探针 A/B 实证）：应用 import `stdx.net.tls`（https）时，`stdx.crypto.x509`
+  的 SystemRootCerts 要读 Windows 系统证书存储，`CertOpenSystemStoreA` 等三个符号无着落、
+  链接期失败；此前 CLI 本体（!28）修了，`create` 生成工程这一侧还漏着。Windows 段
+  link-option 现为 `--subsystem=windows -lcrypt32`；不碰 https 的应用多链一个系统库
+  无副作用（判据看导入表）。
+
 ## [2.3.6] - 2026-11-15
 
 ### Fixed

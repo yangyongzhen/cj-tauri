@@ -68,6 +68,8 @@ public class TauriApp <: AppHost {
     var plugins: ArrayList<Plugin> = ArrayList<Plugin>()
     // 各插件 jsShim() 收集成的「预执行脚本」列表，prepare() 时定稿，run / runUrl 时交给宿主
     var pluginScripts: ArrayList<String> = ArrayList<String>()
+    // 应用上下文路径（issue #13，launchWith 在 run 前注入）：业务命令经 dataDir() 取数据目录
+    var appPaths: Option<AppPaths> = None
 
     public init() {}
 
@@ -101,6 +103,42 @@ public class TauriApp <: AppHost {
         match (this.assetResolver) {
             case Some(r) => return r.readText(name)
             case None => return None
+        }
+    }
+
+    /**
+     * 按逻辑名读一份资产**字节**（issue #13）：mp3 / 图片等二进制资产——
+     * `readAsset` 只能装文本，二进制经 UTF-8 会当场损坏。契约与 readAsset 一致：
+     * 未登记解析器或读不到都回 None，调用方按「没有 = 降级」处理。
+     */
+    public func readAssetBytes(name: String): Option<Array<Byte>> {
+        match (this.assetResolver) {
+            case Some(r) => return r.readBytes(name)
+            case None => return None
+        }
+    }
+
+    /**
+     * 注入应用路径（launchWith 在 run 前调用，装配期的内部窄口）
+     *
+     * 桌面 = `Platform.discover` 的 XDG / AppData 按应用 id 的目录；
+     * 鸿蒙 = Ability 的 filesDir（`Platform.mobile(filesDir)`，与 `ArkWebRuntime.configure` 同源）。
+     */
+    public func setAppPaths(paths: AppPaths): TauriApp {
+        this.appPaths = Some(paths)
+        return this
+    }
+
+    /**
+     * 应用数据目录（issue #13）：业务命令落存档 / 状态的推荐基准。
+     * 尚未注入（launch 之前）返回空串，调用方按「空 = 降级」处理——
+     * 命令分发发生在 run() 之后，命令 handler 里取值恒可用；
+     * `wire` 装配点里**拿不到**（注入在 assemble 之后），别在 wire 里读它。
+     */
+    public func dataDir(): String {
+        match (this.appPaths) {
+            case Some(p) => return p.dataDir
+            case None => return ""
         }
     }
 

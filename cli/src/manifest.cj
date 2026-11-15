@@ -351,7 +351,7 @@ public class Manifest {
             "\n[target.x86_64-unknown-linux-gnu.bin-dependencies]\n" +
             "    path-option = [\"" + "$" + "{CANGJIE_STDX}\"]\n" +
             "\n[target.x86_64-w64-mingw32]\n" +
-            "  link-option = \"" + appendLink("-L" + native + " -lcjtbridge --subsystem=windows", this.linkDesktopWindows) + "\"\n" +
+            "  link-option = \"" + appendLink("-L" + native + " -lcjtbridge --subsystem=windows -lcrypt32", this.linkDesktopWindows) + "\"\n" +
             "\n[target.x86_64-w64-mingw32.bin-dependencies]\n" +
             "    path-option = [\"" + "$" + "{CANGJIE_STDX}\"]\n"
     }
@@ -535,6 +535,14 @@ public class Manifest {
             "    public func readText(name: String): Option<String> {\n" +
             "        try {\n" +
             "            return Some(String.fromUtf8(this.rm.getRawFileContent(name)))\n" +
+            "        } catch (e: Exception) {\n" +
+            "            return None\n" +
+            "        }\n" +
+            "    }\n" +
+            "\n" +
+            "    public func readBytes(name: String): Option<Array<Byte>> {\n" +
+            "        try {\n" +
+            "            return Some(this.rm.getRawFileContent(name))\n" +
             "        } catch (e: Exception) {\n" +
             "            return None\n" +
             "        }\n" +

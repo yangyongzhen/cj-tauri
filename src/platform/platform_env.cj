@@ -12,6 +12,8 @@ import std.collection.ArrayList
 /** 资产读取：按逻辑名取内容（读盘 / 内嵌常量 / rawfile 由实现决定） */
 public interface AssetResolver {
     func readText(name: String): Option<String>
+    /** 按字节取内容：图标 / 音频这类二进制资产（issue #13——readText 只能装文本，二进制没法走） */
+    func readBytes(name: String): Option<Array<Byte>>
     func exists(name: String): Bool
 }
 

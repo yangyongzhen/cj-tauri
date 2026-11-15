@@ -128,3 +128,45 @@ func runHandsResolverAndSourceToHost(): Unit {
     // 探针宿主清出全局注册表，免得压过后续用例自己的桩
     unregisterHost(provIdx)
 }
+
+// ---- issue #13：应用数据目录（AppSpec.dataDir 覆盖 + TauriApp.dataDir）与二进制资产 ----
+
+@Test
+func appSpecDataDirChainAndDefault(): Unit {
+    @Expect(AppSpec().dataDirOverride, "")
+    @Expect(AppSpec().dataDir("/custom/data").dataDirOverride, "/custom/data")
+}
+
+@Test
+func resolveAppPathsHonorsOverrideOnlyForData(): Unit {
+    let base = AppPaths("/base/data", "/base/cache", "/base/tmp")
+    let fs = ArrayList<PlatformFeature>()
+    let ctx = AppContext(base, TargetInfo("Linux", "x86_64", "webkit", "desktop"), false, fs)
+    // 空覆盖 = 平台默认原样
+    @Expect(resolveAppPaths(AppSpec(), ctx).dataDir, "/base/data")
+    // 覆盖只动 dataDir：cache / temp 沿用平台发现值
+    let p = resolveAppPaths(AppSpec().dataDir("/custom/data"), ctx)
+    @Expect(p.dataDir, "/custom/data")
+    @Expect(p.cacheDir, "/base/cache")
+    @Expect(p.tempDir, "/base/tmp")
+}
+
+@Test
+func appDataDirInjectedAndReadable(): Unit {
+    @Expect(TauriApp().dataDir(), "")
+    @Expect(TauriApp().setAppPaths(AppPaths("/base/data", "/c", "/t")).dataDir(), "/base/data")
+}
+
+@Test
+func readAssetBytesViaResolver(): Unit {
+    var t = HashMap<String, String>()
+    t.add("bin/x.mp3", "ABC")
+    let app = TauriApp().assets(StubResolver(t))
+    match (app.readAssetBytes("bin/x.mp3")) {
+        case Some(bytes) => @Expect(bytes.size, 3)
+        case None => @Expect(false, true)
+    }
+    @Expect(app.readAssetBytes("no/such.bin").isSome(), false)
+    // 未登记解析器 = None（与 readAsset 同契约）
+    @Expect(TauriApp().readAssetBytes("bin/x.mp3").isSome(), false)
+}

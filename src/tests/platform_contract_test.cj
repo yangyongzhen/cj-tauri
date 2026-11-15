@@ -139,6 +139,12 @@ class StubResolver <: AssetResolver {
     public func readText(name: String): Option<String> {
         return table.get(name)
     }
+    public func readBytes(name: String): Option<Array<Byte>> {
+        match (table.get(name)) {
+            case Some(s) => return Some(s.toArray())
+            case None => return None
+        }
+    }
     public func exists(name: String): Bool {
         return table.contains(name)
     }

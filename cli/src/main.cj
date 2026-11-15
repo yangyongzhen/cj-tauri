@@ -87,6 +87,17 @@ main(args: Array<String>): Int64 {
                 i = i + 2
                 continue
             }
+            if (a.startsWith("-")) {
+                // issue #11-④：`create --help` 此前把 `--help` 当项目名、真的建了目录（副作用）。
+                // 以 `-` 开头的词一律不收作项目名：--help / -h 打用法退出，其余当场报错。
+                if (a == "--help" || a == "-h") {
+                    usage()
+                    return 0
+                }
+                eprintln("未知参数：${a}")
+                eprintln("用法: cj-tauri create <项目名> [--template app|vue|react|ohos]")
+                return 1
+            }
             if (name.size == 0) {
                 name = a
             }

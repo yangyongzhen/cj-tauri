@@ -39,8 +39,8 @@ func linksAbsentKeepsFrameworkDefault(): Unit {
     @Expect(m.linkDesktopLinux == "")
     @Expect(m.linkDesktopWindows == "")
     let toml = m.renderOhosEntryToml("/fw", "2.0.0")
-    // 框架默认值原样收尾，没有多出空格或空项
-    @Expect(toml.contains("-lpasteboard -ludmf\""))
+    // 框架默认值原样收尾，没有多出空格或空项（ohos 段含 https / hilog 两个平台库）
+    @Expect(toml.contains("-lpasteboard -ludmf -lohos.net.http -lhilog_ndk.z\""))
     @Expect(!toml.contains("lohbattery"))
 }
 
@@ -50,7 +50,7 @@ func linksAppendedAfterDefault(): Unit {
     let m = Manifest.fromToml(LINKS_APP_BASE + "[links]\n  ohos = \"-lohbattery_info\"\n", "test")
     @Expect(m.linkOhos == "-lohbattery_info")
     let toml = m.renderOhosEntryToml("/fw", "2.0.0")
-    @Expect(toml.contains("-lpasteboard -ludmf -lohbattery_info\""))
+    @Expect(toml.contains("-lpasteboard -ludmf -lohos.net.http -lhilog_ndk.z -lohbattery_info\""))
     @Expect(m.validate().size == 0)
 }
 
@@ -60,9 +60,9 @@ func linksAreScopedPerTarget(): Unit {
     let m = Manifest.fromToml(LINKS_APP_BASE + "[links]\n  desktop-linux = \"-lcamera\"\n", "test")
     @Expect(m.linkDesktopWindows == "")
     let toml = m.renderDesktopToml("/fw", "2.0.0")
-    // linux 段带上用户库，windows 段仍是默认收尾
+    // linux 段带上用户库，windows 段仍是默认收尾（含 crypt32：https 应用的证书库符号，issue #15）
     @Expect(toml.contains("-lcamera\""))
-    @Expect(toml.contains("-lcjtbridge --subsystem=windows\""))
+    @Expect(toml.contains("-lcjtbridge --subsystem=windows -lcrypt32\""))
 }
 
 /** 非法值（双引号）必须被 validate 拦下：拼进生成 toml 会造出坏文件 */

@@ -9,6 +9,20 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [Unreleased]
+
+### Fixed
+- **Windows 上从源码构建 CLI 死在链接期**（issue #15）：`cli/cjpm.toml` 的 `x86_64-w64-mingw32`
+  目标段只声明了 stdx 的 `bin-dependencies`，没有 `link-option`。CLI 的 `sign_login` / `sign_agc`
+  走 `stdx.net.tls`（HTTPS），把 `stdx.crypto.x509` 带进来，其 `SystemRootCerts` 要读系统证书存储，
+  而 `CertOpenSystemStoreA` / `CertEnumCertificatesInStore` / `CertCloseStore` 三个符号在
+  `crypt32.dll` 里，仓颉默认链接行只给 `advapi32` / `shell32` / `user32` / `kernel32`，于是报
+  `ld.lld: error: undefined symbol: __declspec(dllimport) CertOpenSystemStoreA`（reference 为
+  `libstdx.crypto.x509.a(rootca.c.o)`）——表象酷似 stdx 装坏或版本不匹配，实际只差一行链接选项。
+  现在补 `link-option = "-lcrypt32"`（`libcrypt32.a` 随 SDK 的 `third_party/mingw/lib` 发布，
+  无外部依赖），`cd cli && cjpm build` 在 Windows 上恢复 `success`。npx 首次运行自动构建 CLI 的
+  路径同样受益（此前用户侧无解：那个构建目录每次运行都会删掉重拷）。
+
 ## [2.3.5] - 2026-11-14
 
 ### Fixed

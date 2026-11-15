@@ -15,6 +15,17 @@
 [target.x86_64-unknown-linux-gnu.bin-dependencies]
   path-option = ["${CANGJIE_STDX}"]
 
+[target.x86_64-w64-mingw32]
+  # -lcrypt32：CLI 的 sign_login / sign_agc 走 stdx.net.tls（HTTPS 登录与签名），它把 stdx.crypto.x509
+  # 带进来，那套代码读 Windows 系统证书存储（SystemRootCerts）。CertOpenSystemStoreA /
+  # CertEnumCertificatesInStore / CertCloseStore 三个符号都在 crypt32.dll 里，而仓颉默认链接行只给
+  # advapi32 / shell32 / user32 / kernel32 —— 少了这个库，Windows 上 `cjpm build` 直接死在链接期：
+  #   `undefined symbol: __declspec(dllimport) CertOpenSystemStoreA`
+  #   `>>> referenced by libstdx.crypto.x509.a(rootca.c.o):(DYN_CJ_SystemRootCerts)`
+  # 表象像「stdx 装坏了 / 版本不匹配」，其实只差一行链接选项。libcrypt32.a 随 SDK 的
+  # third_party/mingw/lib 一起发布，不需要任何外部依赖。
+  link-option = "-lcrypt32"
+
 [target.x86_64-w64-mingw32.bin-dependencies]
   # 与根 cjpm.toml 同口径：CLI 也 import stdx.encoding.json，Windows 上缺这一段时
   # cjpm 报的是 `root package 'cli' imports package 'stdx.encoding.json' … not added as a

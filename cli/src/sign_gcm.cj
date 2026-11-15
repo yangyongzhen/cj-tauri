@@ -450,9 +450,18 @@ public func signRandomBytes(n: Int64): Array<Byte> {
     } catch (e: Exception) {
         let _ = e
         let out = Array<Byte>(n, repeat: 0)
+        /* 降级 PRNG 用 xorshift64（issue #16-①）：旧实现是 LCG 乘法
+           （seed * 6364136223846793005），Int64 下必然溢出——仓颉对乘法做溢出检查、
+           直接抛 OverflowException，降级路径第一次跑就崩（C 里靠回绕所以从未暴露）。
+           xorshift 只有移位与异或，不触发溢出检查。 */
         var seed = Int64(DateTime.now().toUnixTimeStamp().toNanoseconds()) & 0x7FFFFFFFFFFFFFFF
+        if (seed == 0) { seed = 88172645463325252 }
         for (i in 0..n) {
-            seed = (seed * 6364136223846793005 + 1442695040888963407) & 0x7FFFFFFFFFFFFFFF
+            seed = seed ^ (seed << 13)
+            seed = seed & 0x7FFFFFFFFFFFFFFF
+            seed = seed ^ (seed >> 7)
+            seed = seed ^ (seed << 17)
+            seed = seed & 0x7FFFFFFFFFFFFFFF
             out[i] = UInt8((seed >> 33) & 0xFF)
         }
         return out

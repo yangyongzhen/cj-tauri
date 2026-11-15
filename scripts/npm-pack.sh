@@ -99,6 +99,17 @@ cp cli/cjpm.toml "$STAGE/cli/cjpm.toml"
 copy_tree cli/src "$STAGE/cli/src"
 copy_tree cli/templates "$STAGE/cli/templates"
 
+# 3b) Windows TLS 依赖（issue #16-③）：仓颉 stdx 的 TLS 按名字加载 libcrypto/libssl-3-x64.dll，
+#     SDK 与 stdx 都不带（AGENTS §4）。包内带上（绕过 copy_tree 的 *.dll 排除），
+#     npm 安装器把它们落到 CLI 可执行文件旁边——没有它们，`sign --login` 全断。
+if [ -f vendor/openssl/libcrypto-3-x64.dll ] && [ -f vendor/openssl/libssl-3-x64.dll ]; then
+    mkdir -p "$STAGE/vendor/openssl"
+    cp vendor/openssl/libcrypto-3-x64.dll vendor/openssl/libssl-3-x64.dll "$STAGE/vendor/openssl/"
+    echo "[npm-pack] 已带上 Windows TLS 依赖: vendor/openssl/{libcrypto,libssl}-3-x64.dll"
+else
+    echo "[npm-pack] 警告: vendor/openssl/ 缺 OpenSSL DLL，包内不带 Windows TLS 依赖（sign --login 会挂）" >&2
+fi
+
 # 4) 预编译 CLI：本机有产物就带上（「优先预编译、缺失回落源码构建」的前半段）
 PLATFORM="$(node -p 'process.platform + "-" + process.arch')"
 case "$(uname -s 2>/dev/null || echo unknown)" in

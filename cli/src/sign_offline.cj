@@ -278,12 +278,45 @@ public func parseUdid(out: String): String {
 }
 
 /** 调 hdc 取本机设备 UDID（拿不到返回空串） */
+/** 从 `hdc list targets` 挑第一个 host:port 形态的目标（网络设备；UART 串口是 COM*，排除） */
+func pickNetworkHdcTarget(hdcPath: String): String {
+    try {
+        let (code, out, _) = executeWithOutput(hdcPath, ["list", "targets"])
+        if (code != 0) {
+            return ""
+        }
+        for (line0 in lenientUtf8(out).split("\n")) {
+            let line = trimAscii(line0)
+            // host:port 形态（如 192.168.3.105:46163）；COM* 是 UART 串口，跳过
+            if (line.size > 0 && line.contains(":") && !line.startsWith("COM")) {
+                return line
+            }
+        }
+        return ""
+    } catch (e: Exception) {
+        let _ = e
+        return ""
+    }
+}
+
 public func deviceUdidViaHdc(hdcPath: String): String {
     if (hdcPath == "") {
         return ""
     }
     try {
-        let (code, out, _) = executeWithOutput(hdcPath, ["shell", "bm", "get", "--udid"])
+        /* 多设备环境下 `hdc shell` 会落到 hdc 自己选的第一台——实测 UART 串口
+           （COM1/COM2）排在网络设备之前，命令落串口、输出里没有 UDID（issue #16-②）。
+           优先级：显式 CJ_HDC_DEVICE > list targets 里的 host:port 形态（网络设备）>
+           不带 -t 的旧行为。 */
+        var dev = getVariable("CJ_HDC_DEVICE") ?? ""
+        if (dev == "") {
+            dev = pickNetworkHdcTarget(hdcPath)
+        }
+        var cmdArgs: Array<String> = ["shell", "bm", "get", "--udid"]
+        if (dev != "") {
+            cmdArgs = ["-t", dev, "shell", "bm", "get", "--udid"]
+        }
+        let (code, out, _) = executeWithOutput(hdcPath, cmdArgs)
         if (code != 0) {
             return ""
         }

@@ -277,8 +277,29 @@ public func signOpenUrlInBrowser(url: String): String {
     }
 }
 
+/** Windows 上 TLS 依赖预检（issue #16-③）：stdx 的 TLS 按名字加载 OpenSSL 3 的两个 DLL，
+    SDK 与 stdx 都不带——缺了报错只说 "Can not load openssl library"，不给文件名与位置。
+    这里提前给可行动提示（只打 stderr、不阻断：DLL 也可能在 PATH 等别处）。 */
+public func checkTlsDllsOnWindows(): Unit {
+    if (!hostIsWindows()) {
+        return
+    }
+    var dir = ""
+    if (let Some(p) <- currentExePath()) {
+        dir = dirNameOf(p)
+    }
+    for (n in ["libcrypto-3-x64.dll", "libssl-3-x64.dll"]) {
+        if (dir == "" || !exists(joinPath(dir, n))) {
+            eprintln("[cj-tauri] 提示: CLI 目录（${dir}）里没有 ${n}——stdx 的 TLS 按名字加载它，")
+            eprintln("[cj-tauri] 缺了稍后会报 \"Can not load openssl library\"。把框架仓")
+            eprintln("[cj-tauri] vendor/openssl/ 下的两个 DLL 拷到 CLI 同目录即可修复。")
+        }
+    }
+}
+
 /** 阻塞式登录：起回调服务 → 打印/打开登录页 → 等回调 → 换 JWT → 校验 → 拉团队 */
 public func agcLogin(timeoutSec: Int64, openBrowser: Bool): AgcLoginOutcome {
+    checkTlsDllsOnWindows()   // TLS 依赖预检（issue #16-③）：缺 DLL 时先给可行动提示
     let out = AgcLoginOutcome()
     let state = SignCallbackState()
     // 允许外部指定回调 code（自动化/自测用）

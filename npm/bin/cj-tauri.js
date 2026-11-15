@@ -350,14 +350,45 @@ function resolveCli(env, cjpm) {
   const prebuilt = prebuiltCliPath();
   if (fs.existsSync(prebuilt)) {
     verbose(`使用包内预编译 CLI: ${prebuilt}`);
+    stageTlsDlls(prebuilt);
     return prebuilt;
   }
   const cached = cachedCliPath();
   if (fs.existsSync(cached)) {
     verbose(`使用缓存 CLI: ${cached}`);
+    stageTlsDlls(cached);
     return cached;
   }
-  return buildCli(env, cjpm);
+  const built = buildCli(env, cjpm);
+  if (built) {
+    stageTlsDlls(built);
+  }
+  return built;
+}
+
+/**
+ * Windows TLS 依赖（issue #16-③）：仓颉 stdx 的 TLS 按名字加载 libcrypto/libssl-3-x64.dll，
+ * SDK 与 stdx 都不带。包里若有 vendor/openssl（npm-pack.sh 打进去的），把它们落到 CLI
+ * 可执行文件旁边——没有它们，`sign --login` 换 JWT 时必挂且报错不指向缺什么。
+ * 幂等：目标已存在就不覆盖（用户手工换的新版本不被动回去）。
+ */
+function stageTlsDlls(cliPath) {
+  if (!IS_WIN) {
+    return;
+  }
+  const srcDir = path.join(PKG_ROOT, 'vendor', 'openssl');
+  for (const name of ['libcrypto-3-x64.dll', 'libssl-3-x64.dll']) {
+    const src = path.join(srcDir, name);
+    const dst = path.join(path.dirname(cliPath), name);
+    try {
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        fs.copyFileSync(src, dst);
+        verbose(`已落 TLS 依赖: ${dst}`);
+      }
+    } catch (e) {
+      // 非致命：sign 流程里还有依赖预检给可行动提示
+    }
+  }
 }
 
 function main() {

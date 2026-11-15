@@ -9,6 +9,17 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.1] - 2026-11-15
+
+### Fixed
+- **`sign --login` / `--auto` 三处阻塞**（issue #16）：① 随机源降级路径的 LCG 乘法
+  在 Int64 下必然溢出（仓颉抛 OverflowException、降级第一次跑就崩），换 xorshift64；
+  ② `deviceUdidViaHdc` 多设备时落到 hdc 自选的第一台（UART 串口排前）——支持
+  `CJ_HDC_DEVICE` 显式指定，未设置时自动优选 `list targets` 里第一个 `host:port`
+  形态目标（排除 COM*）；③ CLI 分发产物带 `vendor/openssl/{libcrypto,libssl}-3-x64.dll`
+  （npm-pack 打进包、安装器落到 CLI 旁），`sign --login` 入口加 TLS 依赖预检
+  （缺 DLL 时报文件名与目录位置，不再只有一句 "Can not load openssl"）。
+
 ## [2.4.0] - 2026-11-15
 
 ### Added

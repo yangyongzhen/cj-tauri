@@ -96,6 +96,19 @@ objdump -p cli/target/release/bin/main | grep 'NEEDED' || true
 NEEDED_CJ="$(objdump -p cli/target/release/bin/main | grep -c 'libcangjie' || true)"
 [ "$NEEDED_CJ" = "0" ] || fail "linux 产物动态链接了仓颉运行时（静态三件套没生效）"
 
+# 构建完成后**就地裁剪**（趁 CANGJIE_HOME 在本进程内必有效）：llvm-objcopy 对 PE / ELF
+# 都等效（实测 PE 34MB→10MB）。2.4.4/2.4.5 的教训是把 strip 留给 npm-pack 的跨 step
+# fallback（mingw-strip → $CANGJIE_HOME/llvm-objcopy），runner 上哪一环没命中无从查证
+# （job 日志匿名拿不到），exe 以 34MB 原样进了两版包。npm-pack 的 strip 降级为双保险。
+OBJCOPY="$CANGJIE_HOME/third_party/llvm/bin/llvm-objcopy"
+if [ -x "$OBJCOPY" ]; then
+  "$OBJCOPY" --strip-all cli/target/release/bin/main
+  "$OBJCOPY" --strip-all cli/target/x86_64-w64-mingw32/release/bin/main.exe
+  echo "[ci-cli] 已裁剪: linux $(du -h cli/target/release/bin/main | cut -f1) / win $(du -h cli/target/x86_64-w64-mingw32/release/bin/main.exe | cut -f1)"
+else
+  fail "SDK 里找不到 llvm-objcopy（$OBJCOPY），产物未裁剪——先修脚本再发版"
+fi
+
 echo "[ci-cli] 双平台构建完成"
 # 把 CANGJIE_HOME 交给后续 workflow 步骤（npm-pack 的 strip_prebuilt 回落要找 SDK 自带的
 # llvm-objcopy；runner 上没有 mingw 的 strip）。GITHUB_ENV 只在 GitHub Actions 里存在。

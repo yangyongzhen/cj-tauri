@@ -9,6 +9,13 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.6] - 2026-11-16
+
+### Fixed
+- **预编译 exe 未裁剪**（2.4.4/2.4.5 的 win32-x64 产物 34MB 原样进包）：strip 挪到
+  构建脚本内就地执行（趁 CANGJIE_HOME 在进程内必有效，SDK 自带 llvm-objcopy
+  对 PE 等效），npm-pack 的 strip 降级为双保险——干净环境模拟实测 win 34MB→9.6MB。
+
 ## [2.4.5] - 2026-11-16
 
 ### Fixed

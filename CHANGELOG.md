@@ -9,6 +9,12 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.4] - 2026-11-16
+
+### Changed
+- **预编译 CLI 正式生效**：SDK/stdx 直链 secret 已配置，本版起 npm 包自带双平台
+  静态 CLI（linux-x64 + win32-x64），用户机不装仓颉 SDK 也能直接跑。
+
 ## [2.4.3] - 2026-11-16
 
 ### Changed

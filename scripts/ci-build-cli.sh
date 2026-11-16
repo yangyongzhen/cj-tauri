@@ -19,7 +19,11 @@ cd "$ROOT"
 fail() { echo "[ci-cli] 错误: $1" >&2; exit 1; }
 
 : "${CANGJIE_SDK_URL:?需要 CANGJIE_SDK_URL（SDK 压缩包官方直链）}"
-: "${CANGJIE_STDX_URL:?需要 CANGJIE_STDX_URL（stdx 压缩包官方直链）}"
+: "${CANGJIE_STDX_URL:?需要 CANGJIE_STDX_URL（windows stdx 压缩包官方直链——交叉构建吃它的 static 层）}"
+# linux 构建还需要 linux stdx：CI runner 是干净环境（实测 2.4.4 首跑，~/.cangjie/stdx 里
+# 只有 windows 包，找 linux static 层直接 fail）。AtomGit release 附件匿名可下且 URL 形状
+# 稳定（tag + 文件名，不像 cangjie-lang.cn 的 objectKey 随版本变），写死默认值、secret 可覆盖。
+: "${CANGJIE_STDX_LINUX_URL:=https://atomgit.com/Cangjie/cangjie_stdx/releases/download/v1.2.0.1/cangjie-stdx-linux-x64-1.2.0.1.zip}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -44,16 +48,13 @@ RT_DIR="$(find "$CANGJIE_HOME/runtime/lib" -maxdepth 1 -type d -name 'linux_*' |
 export LD_LIBRARY_PATH="$RT_DIR:$CANGJIE_HOME/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"
 echo "[ci-cli] SDK: $CANGJIE_HOME（cjc $(cjc -v 2>/dev/null | head -1)）"
 
-echo "[ci-cli] 下载 stdx ..."
-curl -fsSL -o "$WORK/stdx.zip" "$CANGJIE_STDX_URL"
-STDX_ZIP_NAME="$(basename "$CANGJIE_STDX_URL")"
-mkdir -p "$HOME/.cangjie/stdx"
-# stdx 分发可能是 zip（windows/linux 官方包）或 tar.gz
-case "$STDX_ZIP_NAME" in
-  *.zip) unzip -q -o "$WORK/stdx.zip" -d "$HOME/.cangjie/stdx" ;;
-  *.tar.gz|*.tgz) tar -xzf "$WORK/stdx.zip" -C "$HOME/.cangjie/stdx" ;;
-  *) fail "stdx 直链不是 zip/tar.gz: $STDX_ZIP_NAME" ;;
-esac
+echo "[ci-cli] 下载 stdx（windows 交叉用 + linux 原生用）..."
+curl -fsSL -o "$WORK/stdx-win.zip" "$CANGJIE_STDX_URL"
+curl -fsSL -o "$WORK/stdx-linux.zip" "$CANGJIE_STDX_LINUX_URL"
+mkdir -p "$HOME/.cangjie/stdx/win-zip" "$HOME/.cangjie/stdx/linux-zip"
+# 两个 zip 的解压目标分开（windows zip 无顶层目录——直接解出 triple/，混在一起难分辨）
+unzip -q -o "$WORK/stdx-win.zip" -d "$HOME/.cangjie/stdx/win-zip"
+unzip -q -o "$WORK/stdx-linux.zip" -d "$HOME/.cangjie/stdx/linux-zip"
 # 探测解压后的 static 层：静态构建吃 .a（npm 启动器同口径）。**两个构建各用各的层**——
 # linux 原生构建吃 linux static，交叉构建（--target x86_64-w64-mingw32）吃 windows static；
 # 实测（2026-11-16）：用同一个全局 CANGJIE_STDX 跑两个构建时，交叉链接拿 linux 的 ELF 库
@@ -96,3 +97,8 @@ NEEDED_CJ="$(objdump -p cli/target/release/bin/main | grep -c 'libcangjie' || tr
 [ "$NEEDED_CJ" = "0" ] || fail "linux 产物动态链接了仓颉运行时（静态三件套没生效）"
 
 echo "[ci-cli] 双平台构建完成"
+# 把 CANGJIE_HOME 交给后续 workflow 步骤（npm-pack 的 strip_prebuilt 回落要找 SDK 自带的
+# llvm-objcopy；runner 上没有 mingw 的 strip）。GITHUB_ENV 只在 GitHub Actions 里存在。
+if [ -n "${GITHUB_ENV:-}" ]; then
+  echo "CANGJIE_HOME=$CANGJIE_HOME" >> "$GITHUB_ENV"
+fi

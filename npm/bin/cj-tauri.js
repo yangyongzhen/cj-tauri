@@ -122,7 +122,7 @@ function resolveCjpm(home) {
  * 宿主目标的库文件，链上去就是 `lld: error: unable to find library -lstdx.encoding.json`
  * （2026-11-12 Windows 实测）。用户显式设置的 CANGJIE_STDX 仍然优先（那是他自己的选择），
  * 但若路径里带 ohos 会打一行警告。 */
-function resolveStdx(home) {
+function resolveStdx(home, layerOverride) {
   const looksRight = (p) => {
     try {
       // 必须能找到实际要链的库（libstdx.encoding.json.*）：指到「包根」而不是
@@ -139,12 +139,16 @@ function resolveStdx(home) {
   const platKey = IS_WIN ? 'windows' : (process.platform === 'darwin' ? 'darwin' : 'linux');
   const hostUsable = (pkgName) => pkgName.includes(platKey) && !pkgName.includes('ohos');
   // stdx 里实际被引用的那一层**按链接形态**：静态产物（cjpm 常规 build 的默认形态）吃
-  // static\stdx 的 .a（2026-11-13 用户实测）；--dynamic-std 的动态产物才用 dynamic\stdx。
-  // CLI 本体是常规构建，探测取 static（动态构建的用户请显式设置变量，显式值优先于探测）。
-  const stdxLayer = IS_WIN ? 'static' : 'dynamic';
+  // static/stdx 的 .a（2026-11-13 用户实测）；--dynamic-std 的动态产物才用 dynamic/stdx。
+  // 这里的层选择服务**应用构建**（CLI spawn cjpm 时继承 CANGJIE_STDX）——保持平台口径：
+  // Windows 常规 build 吃 static，Linux 吃 dynamic（历史实测）。CLI 本体自己的源码构建
+  // 自 2.4.2 起静态化（--static --static-std），在 buildCli 里传 layerOverride='static'
+  // 单独取层（且该模式下**跳过**用户显式的 CANGJIE_STDX——它多半是为应用构建设的 dynamic
+  // 层，拿去编静态 CLI 必报 imports not added）。
+  const stdxLayer = layerOverride || (IS_WIN ? 'static' : 'dynamic');
 
   const candidates = [];
-  if (process.env.CANGJIE_STDX && fs.existsSync(process.env.CANGJIE_STDX)) {
+  if (!layerOverride && process.env.CANGJIE_STDX && fs.existsSync(process.env.CANGJIE_STDX)) {
     if (process.env.CANGJIE_STDX.includes('ohos')) {
       note('告警: CANGJIE_STDX 指向 ohos 包（给鸿蒙交叉编译用），主机构建用不了，请改指宿主平台的 stdx');
     }
@@ -310,6 +314,24 @@ function copyDir(from, to, skipNames) {
 }
 
 /**
+ * CLI 本体源码构建的专用环境：cli/cjpm.toml 自 2.4.2 起静态化（--static --static-std），
+ * cjpm 必须拿到 **static 层**的 stdx 才能链接 .a——直接复用应用构建的 env 会在 Linux 上
+ * 炸「imports package ... not added as a dependency」（那层是给应用动态构建用的 dynamic）。
+ * 探测不到 static 层时回落传入的 env（保持旧行为 + 让 cjpm 自己报可诊断的错）。
+ */
+function buildEnvForCliBuild(env, home) {
+  const staticStdx = resolveStdx(home, 'static');
+  if (!staticStdx) {
+    verbose('未探测到 static/stdx 层，CLI 静态构建将使用现有 CANGJIE_STDX（可能失败）');
+    return env;
+  }
+  const buildEnv2 = Object.assign({}, env);
+  buildEnv2.CANGJIE_STDX = staticStdx;
+  verbose(`CLI 静态构建使用 stdx static 层: ${staticStdx}`);
+  return buildEnv2;
+}
+
+/**
  * 用本机 cjpm 构建 CLI 本体，产物落缓存。
  * 刻意把源码拷到缓存目录再构建：`cjpm build` 会写 target/，
  * 而全局安装的包目录可能是只读的（系统 node_modules 尤其如此）。
@@ -327,7 +349,11 @@ function buildCli(env, cjpm) {
   fs.rmSync(buildDir, { recursive: true, force: true });
   copyDir(path.join(PKG_ROOT, 'cli'), buildDir, ['target']);
 
-  const r = spawnSync(cjpm, ['build'], { cwd: buildDir, env, stdio: 'inherit' });
+  const r = spawnSync(cjpm, ['build'], {
+    cwd: buildDir,
+    env: buildEnvForCliBuild(env, home),
+    stdio: 'inherit',
+  });
   const produced = path.join(buildDir, 'target', 'release', 'bin', BUILT_CLI_FILE);
   if (r.status !== 0 || !fs.existsSync(produced)) {
     note(`错误: CLI 本体构建失败（cjpm 退出码 ${r.status === null ? 'null' : r.status}）`);

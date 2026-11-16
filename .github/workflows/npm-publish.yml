@@ -19,8 +19,11 @@
 #      不勾这条，下面的 `npm publish` 会被拒（E_STAGE_REQUIRED）。
 #
 # 触发方式：推 tag（`git push origin main --tags`），tag 名 vX.Y.Z 必须与包版本一致，下面有校验。
-# 注意：CI 里没有仓颉 SDK，打出来的包**不含预编译 CLI**，用户首次运行会在本机源码构建（既定回落路径）；
-# 本机 `bash scripts/npm-pack.sh` 打出的包才会带 prebuilt/。
+# 预编译 CLI（2.4.2 起）：配了 CANGJIE_SDK_URL / CANGJIE_STDX_URL secret（与 ci.yml 的 sdk
+# 作业同源，官方直链匿名可下但 objectKey 随版本变）时，发布前在一个 ubuntu runner 上构建
+# 双平台静态 CLI（linux-x64 原生 + win32-x64 交叉，脚本 scripts/ci-build-cli.sh），npm-pack.sh
+# 自动带进包——用户机没装 SDK 也能直接跑。未配 secret 时跳过构建、照旧发不含 prebuilt 的包
+# （源码构建回落路径不变），不让 CI 因环境原因变红。
 name: publish to npm
 
 on:
@@ -59,6 +62,27 @@ jobs:
 
       - name: 静态门禁
         run: bash scripts/check-static.sh
+
+      # secrets 不能直接写进 if（GitHub 的限制），先落到 step 输出再判断（与 ci.yml 同款）
+      - name: 判断是否配置了 SDK 源（决定是否带预编译 CLI）
+        id: sdkprobe
+        env:
+          SDK_URL: ${{ secrets.CANGJIE_SDK_URL }}
+          STDX_URL: ${{ secrets.CANGJIE_STDX_URL }}
+        run: |
+          if [ -z "$SDK_URL" ] || [ -z "$STDX_URL" ]; then
+            echo "configured=0" >> "$GITHUB_OUTPUT"
+            echo "::notice title=预编译 CLI 跳过::未配置 secret CANGJIE_SDK_URL / CANGJIE_STDX_URL（官方直链，方法见 AGENTS.md §7），本次发布不含 prebuilt/，用户首次运行回落源码构建"
+          else
+            echo "configured=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 构建双平台静态 CLI（linux-x64 原生 + win32-x64 交叉）
+        if: steps.sdkprobe.outputs.configured == '1'
+        env:
+          CANGJIE_SDK_URL: ${{ secrets.CANGJIE_SDK_URL }}
+          CANGJIE_STDX_URL: ${{ secrets.CANGJIE_STDX_URL }}
+        run: bash scripts/ci-build-cli.sh
 
       - name: 打包
         run: bash scripts/npm-pack.sh

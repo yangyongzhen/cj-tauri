@@ -9,6 +9,16 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.2] - 2026-11-16
+
+### Changed
+- **npm 包自带双平台预编译 CLI**（linux-x64 + win32-x64）：`cli/cjpm.toml` 静态化
+  （`--static --static-std`，产物导入表只剩系统库，没装 SDK 的用户机拿到 prebuilt/ 直接能跑），
+  `npm-pack.sh` 自动带上本机原生与交叉产物（拷贝时 strip）；`npm-publish.yml` 在配了
+  SDK/stdx 直链 secret 时于发布前构建双平台产物（`scripts/ci-build-cli.sh`，ubuntu runner
+  一个节点交叉出两平台），未配时照旧发无 prebuilt 的包；npm 启动器对 CLI 源码构建回落
+  路径单独探测 static 层 stdx（应用构建的层选择口径不变）。
+
 ## [2.4.1] - 2026-11-15
 
 ### Fixed

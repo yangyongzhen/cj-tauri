@@ -2,10 +2,15 @@
   cjc-version = "1.0.5"
   name = "cli"
   description = "cj-tauri CLI：脚手架 create / dev / build / run / info"
-  version = "2.4.1"
+  version = "2.4.2"
   target-dir = ""
   output-type = "executable"
-  compile-option = ""
+  # 静态三件套（npm 预编译分发的硬前提，issue：用户机缺环境时「首次构建失败」体验差）：
+  # CLI 不依赖 cjTauri 框架包（[dependencies] 为空），静态化后产物不链 libcangjie-runtime /
+  # libstdx.*.so|dll——没装 SDK 的用户机拿到 prebuilt/ 里的二进制直接能跑。
+  # 代价：构建要吃 stdx 的 static 层（${CANGJIE_STDX} 需指 static/stdx，npm 启动器与
+  # cli/cj-tauri.sh|bat 的探测已同步）。静态产物体积大，交付前 --strip-all 压回。
+  compile-option = "--static --static-std"
   override-compile-option = ""
   link-option = ""
   package-configuration = {}
@@ -24,7 +29,12 @@
   #   `>>> referenced by libstdx.crypto.x509.a(rootca.c.o):(DYN_CJ_SystemRootCerts)`
   # 表象像「stdx 装坏了 / 版本不匹配」，其实只差一行链接选项。libcrypt32.a 随 SDK 的
   # third_party/mingw/lib 一起发布，不需要任何外部依赖。
-  link-option = "-lcrypt32"
+  # 静态交叉构建的系统库：CLI 用到网络（ws2_32）与 TLS 证书库（crypt32，见上）。
+  # 刻意**不照搬**宿主桥的全套清单（ole32/oleaut32/uuid/comdlg32 是 COM 用的）——
+  # SDK 自带的 third_party/mingw/lib 里没有它们，交叉构建直接报
+  # `lld: error: unable to find library -lole32`；CLI 也不引用这些符号，列了纯属报错。
+  # advapi32/shell32/user32/kernel32 由 crt 链接行默认给出，无需重复。
+  link-option = "-lcrypt32 -lws2_32"
 
 [target.x86_64-w64-mingw32.bin-dependencies]
   # 与根 cjpm.toml 同口径：CLI 也 import stdx.encoding.json，Windows 上缺这一段时

@@ -1157,7 +1157,12 @@ ArkWeb 宿主住在应用侧、页面与能力清单是 hap 的 `rawfile` 真文
      Allow npm publish**（2026-09-03 之后新建的配置默认只允许 `npm stage publish`，不勾则 CI 发布会 `E_STAGE_REQUIRED`）；
   3. 同一页把 Publishing access 改成「Require two-factor authentication and disallow tokens」，此后只有 OIDC 能发；
   4. 推 tag 即自动发布（OIDC 换短期凭据，**不需要任何 token**，自动附 provenance）。注意 CI 里没有仓颉 SDK，
-     **CI 打的包不含预编译 CLI**，用户首次运行在本机源码构建；要带 `prebuilt/` 就用本机 `npm-pack.sh` 发。
+     **2.4.2 起 CI 也会带预编译 CLI**（配了 `CANGJIE_SDK_URL` / `CANGJIE_STDX_URL` secret 时，
+     `npm-publish.yml` 在发布前用 `scripts/ci-build-cli.sh` 在一个 ubuntu runner 上构建双平台
+     **静态** CLI——linux-x64 原生 + win32-x64 交叉（cjc 自带 third_party/mingw，无需装 mingw 包），
+     `npm-pack.sh` 自动带进包；CLI 静态化（`cli/cjpm.toml` 的 `--static --static-std`）是预编译
+     可用的硬前提——动态产物在没装 SDK 的用户机上照样跑不动。未配 secret 时照旧发不含
+     prebuilt 的包，源码构建回落路径不变；要手工带 prebuilt 仍可用本机 `npm-pack.sh`。
 
 ## 7. 交付检查清单
 

@@ -110,13 +110,44 @@ else
     echo "[npm-pack] 警告: vendor/openssl/ 缺 OpenSSL DLL，包内不带 Windows TLS 依赖（sign --login 会挂）" >&2
 fi
 
-# 4) 预编译 CLI：本机有产物就带上（「优先预编译、缺失回落源码构建」的前半段）
+# 4) 预编译 CLI：本机有产物就带上（「优先预编译、缺失回落源码构建」的前半段）。
+#    双平台（2026-11-16）：本机原生产物 + Windows 交叉产物（cjpm build --target
+#    x86_64-w64-mingw32 的标准落点）。预编译是**静态**产物（cli/cjpm.toml 的
+#    compile-option --static --static-std），没装 SDK 的用户机拿到就能跑——
+#    这正是「Windows 下首次使用都要本地编译、缺环境总失败」的解法。
+strip_prebuilt() {
+    # strip 失败不致命（产物大一点），工具按产物形态探测：exe 用 mingw strip / SDK 自带的
+    # llvm-objcopy，ELF 用 strip。CI（ubuntu）自带 strip 与 llvm-objcopy。
+    local f="$1"
+    local llvm_objcopy="${CANGJIE_HOME:-/opt/cangjie/cangjie}/third_party/llvm/bin/llvm-objcopy"
+    if [[ "$f" == *.exe ]]; then
+        if command -v x86_64-w64-mingw32-strip >/dev/null 2>&1; then
+            x86_64-w64-mingw32-strip "$f" 2>/dev/null || true
+        elif [ -x "$llvm_objcopy" ]; then
+            "$llvm_objcopy" --strip-all "$f" 2>/dev/null || true
+        fi
+    else
+        strip "$f" 2>/dev/null || true
+    fi
+}
+
+pack_prebuilt() {   # $1=产物路径 $2=平台键(linux-x64/win32-x64) $3=落名
+    local src="$1" plat="$2" dst="$3"
+    mkdir -p "$STAGE/prebuilt/$plat"
+    cp "$src" "$STAGE/prebuilt/$plat/$dst"
+    chmod +x "$STAGE/prebuilt/$plat/$dst"
+    strip_prebuilt "$STAGE/prebuilt/$plat/$dst"
+    echo "[npm-pack] 已带上预编译 CLI: prebuilt/$plat/$dst（strip 后 $(du -h "$STAGE/prebuilt/$plat/$dst" | cut -f1)）"
+}
+
 PLATFORM="$(node -p 'process.platform + "-" + process.arch')"
 case "$(uname -s 2>/dev/null || echo unknown)" in
     MINGW*|MSYS*|CYGWIN*) CLI_SRC="cli/target/release/bin/main.exe"; CLI_DST="cj-tauri.exe" ;;
     *)                    CLI_SRC="cli/target/release/bin/main";     CLI_DST="cj-tauri" ;;
 esac
+PACKED_ANY=0
 if [ -f "$CLI_SRC" ]; then
+    PACKED_ANY=1
     # 版本一致性守卫：预编译 CLI 是「上一次构建的产物」，包版本升了却没重编 cli/ 时，
     # 它会在用户机器上自报旧版本号（实测 2026-10-23：1.1.1 的 tarball 里躺着 1.1.0 的 exe，
     # 用户装完 `npx cj-tauri --version` 回 1.1.0，看着像装错了包）。这里先按产物自报的版本核对。
@@ -131,11 +162,16 @@ if [ -f "$CLI_SRC" ]; then
     else
         echo "[npm-pack] 预编译 CLI 版本核对通过：${CLI_REPORTED}"
     fi
-    mkdir -p "$STAGE/prebuilt/$PLATFORM"
-    cp "$CLI_SRC" "$STAGE/prebuilt/$PLATFORM/$CLI_DST"
-    chmod +x "$STAGE/prebuilt/$PLATFORM/$CLI_DST"
-    echo "[npm-pack] 已带上预编译 CLI: prebuilt/$PLATFORM/$CLI_DST（$(du -h "$CLI_SRC" | cut -f1)）"
-else
+    pack_prebuilt "$CLI_SRC" "$PLATFORM" "$CLI_DST"
+fi
+# Windows 交叉产物（在非 Windows 主机上交叉构建；Windows 主机的本机产物已走上面的原生分支）。
+# exe 在 Linux 上跑不了、做不了自报版本核对——与原生产物同一构建会话产出，信任流程顺序
+# （CI 里两步连续执行；本机打包请先跑 cli/ 的两个构建再打包）。
+CROSS_WIN_EXE="cli/target/x86_64-w64-mingw32/release/bin/main.exe"
+if [ "${PACKED_ANY}" -eq 1 ] && [ "$(node -p 'process.platform')" != "win32" ] && [ -f "$CROSS_WIN_EXE" ]; then
+    pack_prebuilt "$CROSS_WIN_EXE" "win32-x64" "cj-tauri.exe"
+fi
+if [ "${PACKED_ANY}" -eq 0 ]; then
     echo "[npm-pack] 本机没有 CLI 产物，包内不带预编译二进制（用户首次运行会源码构建）"
 fi
 

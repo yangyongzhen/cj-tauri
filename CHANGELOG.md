@@ -9,6 +9,14 @@
 - 发版时更新的文件清单与校验方式见 `AGENTS.md` 的「版本与发版」一节；
   一致性用 `scripts/check-version.sh` 自检。
 
+## [2.4.5] - 2026-11-16
+
+### Fixed
+- **预编译 CLI 的 linux 产物兼容面**：发布 runner 锁定 ubuntu-22.04（此前 latest/24.x
+  编出的产物要求 GLIBC_2.43，老发行版跑不动；22.04 的 glibc 2.35 兼容面最大）；
+  strip 失败不再静默（2.4.4 的 win32-x64 产物 34MB 未裁剪进包、日志零线索——
+  llvm-objcopy 对 PE 等效，实测 34MB→10MB）。
+
 ## [2.4.4] - 2026-11-16
 
 ### Changed

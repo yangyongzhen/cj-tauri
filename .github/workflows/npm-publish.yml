@@ -36,7 +36,10 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest   # 只支持 GitHub 托管 runner
+    # 刻意用 22.04 不用 latest：预编译 CLI 链的是 runner 的 glibc/libstdc++，
+    # runner 越新产物的 GLIBC 门槛越高（2.4.4 实测：24.x runner 出的产物要求
+    # GLIBC_2.43，老发行版直接跑不动）。22.04（glibc 2.35）兼容面最大。
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -116,18 +116,21 @@ fi
 #    compile-option --static --static-std），没装 SDK 的用户机拿到就能跑——
 #    这正是「Windows 下首次使用都要本地编译、缺环境总失败」的解法。
 strip_prebuilt() {
-    # strip 失败不致命（产物大一点），工具按产物形态探测：exe 用 mingw strip / SDK 自带的
-    # llvm-objcopy，ELF 用 strip。CI（ubuntu）自带 strip 与 llvm-objcopy。
+    # strip 失败不致命（产物大一点），但**不能静默**：2.4.4 实测 exe 分支两个工具都没
+    # 命中时产物 34MB 原样进包，日志里零线索。按产物形态探测：exe 用 mingw strip /
+    # SDK 自带的 llvm-objcopy（对 PE 等效，实测 34MB→10MB），ELF 用 strip。
     local f="$1"
     local llvm_objcopy="${CANGJIE_HOME:-/opt/cangjie/cangjie}/third_party/llvm/bin/llvm-objcopy"
     if [[ "$f" == *.exe ]]; then
         if command -v x86_64-w64-mingw32-strip >/dev/null 2>&1; then
-            x86_64-w64-mingw32-strip "$f" 2>/dev/null || true
+            x86_64-w64-mingw32-strip "$f" 2>/dev/null || echo "[npm-pack] 警告: mingw-strip 失败（产物未裁剪）: $f" >&2
         elif [ -x "$llvm_objcopy" ]; then
-            "$llvm_objcopy" --strip-all "$f" 2>/dev/null || true
+            "$llvm_objcopy" --strip-all "$f" || echo "[npm-pack] 警告: llvm-objcopy 失败（产物未裁剪）: $f" >&2
+        else
+            echo "[npm-pack] 警告: 找不到 mingw-strip 与 llvm-objcopy（\$CANGJIE_HOME=$CANGJIE_HOME），exe 不裁剪: $f" >&2
         fi
     else
-        strip "$f" 2>/dev/null || true
+        strip "$f" 2>/dev/null || echo "[npm-pack] 警告: strip 失败（产物未裁剪）: $f" >&2
     fi
 }
 

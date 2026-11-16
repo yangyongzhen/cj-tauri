@@ -36,6 +36,12 @@ CJC="$(find "$WORK/sdk" -type f -name cjc | head -1)"
 SDK_DIR="$(cd "$(dirname "$CJC")/.." && pwd)"
 export CANGJIE_HOME="$SDK_DIR"
 export PATH="$CANGJIE_HOME/bin:$CANGJIE_HOME/tools/bin:$PATH"
+# cjpm / cjc 自身也是动态链接的，runtime 库目录必须进 LD_LIBRARY_PATH——
+# 实测（CI 首跑 v2.4.4，2026-11-16）：只配 PATH 时 cjpm 起不来，报
+# `cjpm: error while loading shared libraries: libcangjie-runtime.so`
+RT_DIR="$(find "$CANGJIE_HOME/runtime/lib" -maxdepth 1 -type d -name 'linux_*' | head -1)"
+[ -n "$RT_DIR" ] || fail "SDK 里找不到 runtime/lib/linux_* 目录"
+export LD_LIBRARY_PATH="$RT_DIR:$CANGJIE_HOME/third_party/llvm/lib:${LD_LIBRARY_PATH:-}"
 echo "[ci-cli] SDK: $CANGJIE_HOME（cjc $(cjc -v 2>/dev/null | head -1)）"
 
 echo "[ci-cli] 下载 stdx ..."
@@ -48,19 +54,29 @@ case "$STDX_ZIP_NAME" in
   *.tar.gz|*.tgz) tar -xzf "$WORK/stdx.zip" -C "$HOME/.cangjie/stdx" ;;
   *) fail "stdx 直链不是 zip/tar.gz: $STDX_ZIP_NAME" ;;
 esac
-# 探测本目标（linux）的 static 层：静态构建吃 .a（npm 启动器同口径）
-STDX_STATIC="$(find "$HOME/.cangjie/stdx" -type d -path '*static/stdx' | grep -i linux | head -1)"
-[ -n "$STDX_STATIC" ] || fail "解压后没找到 linux 的 static/stdx 层"
-export CANGJIE_STDX="$STDX_STATIC"
-echo "[ci-cli] CANGJIE_STDX=$CANGJIE_STDX"
+# 探测解压后的 static 层：静态构建吃 .a（npm 启动器同口径）。**两个构建各用各的层**——
+# linux 原生构建吃 linux static，交叉构建（--target x86_64-w64-mingw32）吃 windows static；
+# 实测（2026-11-16）：用同一个全局 CANGJIE_STDX 跑两个构建时，交叉链接拿 linux 的 ELF 库
+# 链 mingw 目标，报一片 `ld.lld: error: unknown file type: encoding.json.o`。
+STDX_LINUX="$(find "$HOME/.cangjie/stdx" -type d -path '*static/stdx' | grep -i linux | head -1)"
+STDX_WIN="$(find "$HOME/.cangjie/stdx" -type d -path '*static/stdx' | grep -i windows | head -1)"
+[ -n "$STDX_LINUX" ] || fail "解压后没找到 linux 的 static/stdx 层"
+[ -n "$STDX_WIN" ] || fail "解压后没找到 windows 的 static/stdx 层（交叉构建用）"
+export CANGJIE_STDX="$STDX_LINUX"
+echo "[ci-cli] CANGJIE_STDX(linux)=$STDX_LINUX"
+echo "[ci-cli] CANGJIE_STDX(win) =$STDX_WIN"
 
-# stdx 的版本必须与 cjc 同代（AGENTS §4：混配能编、能链，产物跑不动）——按主次版本比对
+# stdx 的版本必须与 cjc 同代（AGENTS §4：混配能编、能链，产物跑不动）——按主次版本比对。
+# 只对路径里带 cangjie-stdx-<版本> 包名的层比对（官方 zip 解压的形状）；本机手工解压出
+# 的裸 <triple>/static/stdx 目录没有版本信息，跳过（爬目录层取「包名」对两种布局层数不同，
+# 实测 2026-11-16 会取到 triple 名误报不配套）。
 CJC_VER="$(cjc -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+' | head -1)"
-STDX_PKG_DIR="$(dirname "$(dirname "$STDX_STATIC")")"   # .../<stdx包名>/[triple/]static
-STDX_PKG_NAME="$(basename "$(dirname "$STDX_PKG_DIR")")"
-if [ -n "$CJC_VER" ] && ! echo "$STDX_PKG_NAME" | grep -q "$CJC_VER"; then
-  fail "cjc $CJC_VER 与 stdx 包（$STDX_PKG_NAME）主次版本不配套——静态产物能编能链但跑不动，先换配套 stdx 直链"
-fi
+for _layer in "$STDX_LINUX" "$STDX_WIN"; do
+  if echo "$_layer" | grep -q 'cangjie-stdx-' && [ -n "$CJC_VER" ] \
+     && ! echo "$_layer" | grep -q "${CJC_VER%.*}"; then
+    fail "cjc $CJC_VER 与 stdx 包（$_layer）主次版本不配套——静态产物能编能链但跑不动，先换配套 stdx 直链"
+  fi
+done
 
 # ---- 双平台静态构建 ----
 echo "[ci-cli] 构建 linux-x64（静态）..."
@@ -69,7 +85,7 @@ echo "[ci-cli] 构建 linux-x64（静态）..."
 ./cli/target/release/bin/main --version
 
 echo "[ci-cli] 构建 win32-x64（交叉，静态）..."
-( cd cli && cjpm build --target x86_64-w64-mingw32 )
+( cd cli && CANGJIE_STDX="$STDX_WIN" cjpm build --target x86_64-w64-mingw32 )
 [ -f cli/target/x86_64-w64-mingw32/release/bin/main.exe ] || fail "windows 交叉产物缺失"
 file cli/target/x86_64-w64-mingw32/release/bin/main.exe
 
